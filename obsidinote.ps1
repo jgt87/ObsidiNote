@@ -98,6 +98,17 @@ if (-not $NoOneNote) {
 $copilot = $null
 if (-not $NoCopilot) {
     Import-Module (Join-Path $PSScriptRoot 'lib\CopilotBridge.psm1') -Force
+    # Edge policy BrowserSignin = 2 and ObsidiNote's Edge profile not signed in yet: Edge closes the
+    # Copilot window at once. Let Edge run its own sign-in first (one time), then connect.
+    Import-Module (Join-Path $PSScriptRoot 'lib\Cdp.psm1') -Force
+    $cs = Get-CopilotSettings
+    if ((Test-EdgeForcedSignIn) -and (Get-EdgeProfileAccount -ProfileDir $cs.profileDir) -ne 'work') {
+        $signIn = Invoke-EdgeProfileSignIn -ProfileDir $cs.profileDir -Port ([int]$cs.cdpPort) -OnWait {
+            Write-Status -ToError 'WARN' 'Edge sign-in' 'one time: sign in to Edge with your work account' -Hint 'Edge on this PC requires it. In the Edge window that just opened, sign in with your work account (waiting up to 5 minutes; ObsidiNote continues by itself).'
+        }
+        Write-Status -ToError $(if ($signIn.ok) { 'OK' } else { 'FAIL' }) 'Edge sign-in' $signIn.detail
+        if (-not $signIn.ok) { exit 3 }
+    }
     Say 'Opening Microsoft 365 Copilot in ObsidiNote''s Edge window...'
     try { $copilot = Connect-Copilot }
     catch {

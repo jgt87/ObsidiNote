@@ -124,6 +124,57 @@ function Get-ProfileInUseMessage([int]$Port) {
     "ObsidiNote's Edge profile is already open in an Edge window that was started without its debug port (port $Port), so ObsidiNote cannot reach Copilot in it and starting Edge again would only open another window. Close every window of that Edge (the one that shows Copilot for ObsidiNote; also check the taskbar), then start ObsidiNote again."
 }
 
+function Invoke-EdgeProfileSignIn {
+    <# One-time Edge sign-in for ObsidiNote's own profile when Edge policy requires signing in to the
+       browser (BrowserSignin = 2). Started with --no-first-run and a debug port, Edge closes the window
+       of a profile that is not signed in, and nobody gets a chance to sign in. So: start Edge for the
+       profile the plain way (only --user-data-dir: Edge runs its own sign-in), wait until the profile
+       reports a work account (account type from 'Local State', nothing else), then close that Edge, so
+       Connect-Copilot can start it with the debug port. Returns @{ ok; started; detail }.
+       -GetAccount, -GetUse, -StartEdge, -StopEdge and -OnWait replace the real calls in tests. #>
+    param(
+        [Parameter(Mandatory)][string]$ProfileDir,
+        [Parameter(Mandatory)][int]$Port,
+        [int]$TimeoutSec = 300,
+        [int]$PollMs = 2000,
+        [scriptblock]$GetAccount = { param($d) Get-EdgeProfileAccount -ProfileDir $d },
+        [scriptblock]$GetUse = { param($d, $p) Get-EdgeProfileUse -ProfileDir $d -Port $p },
+        [scriptblock]$StartEdge = { param($d) Start-Process -FilePath (Get-EdgePath) -ArgumentList @("--user-data-dir=`"$d`"") },
+        [scriptblock]$StopEdge = {
+            param($ids)
+            foreach ($i in @($ids)) { try { [void](Get-Process -Id $i -ErrorAction Stop).CloseMainWindow() } catch { } }
+            Start-Sleep -Seconds 3
+            foreach ($i in @($ids)) { try { Stop-Process -Id $i -Force -ErrorAction Stop } catch { } }
+        },
+        [scriptblock]$OnWait = $null
+    )
+    $result = [pscustomobject]@{ ok = $false; started = $false; detail = '' }
+    if ((& $GetAccount $ProfileDir) -eq 'work') { $result.ok = $true; $result.detail = 'Edge profile already signed in with a work account'; return $result }
+    # An Edge that already holds this profile (ObsidiNote's own, from an earlier start) would take
+    # the new window and skip Edge's sign-in: close it first.
+    $use = & $GetUse $ProfileDir $Port
+    if ($use -and $use.state -ne 'none') { & $StopEdge $use.pids }
+    $null = New-Item -ItemType Directory -Force -Path $ProfileDir
+    $null = & $StartEdge $ProfileDir
+    $result.started = $true
+    Write-AppLog info cdp 'Started Edge without the debug port for its own browser sign-in (BrowserSignin = 2)'
+    if ($OnWait) { & $OnWait }
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec) {
+        if ((& $GetAccount $ProfileDir) -eq 'work') {
+            $use = & $GetUse $ProfileDir $Port
+            if ($use -and $use.state -ne 'none') { & $StopEdge $use.pids }
+            Write-AppLog info cdp "Edge profile signed in with a work account after $([int]$sw.Elapsed.TotalSeconds) s"
+            $result.ok = $true
+            $result.detail = 'Edge profile signed in with your work account'
+            return $result
+        }
+        Start-Sleep -Milliseconds $PollMs
+    }
+    $result.detail = "Edge was not signed in within $TimeoutSec s. In the Edge window ObsidiNote opened, sign in with your work account (Edge's own sign-in, or the profile picture at the top left), then start ObsidiNote again."
+    $result
+}
+
 function Start-CdpEdge {
     <# Starts Edge with a debug port, or reuses one already listening on that port. Port and
        profile default to ObsidiNote's own session (Get-CopilotSettings).
@@ -332,5 +383,5 @@ function Disconnect-Cdp {
 
 Export-ModuleMember -Function Get-EdgePath, Test-CdpEndpoint, Start-CdpEdge, Get-CdpPageTarget,
     Test-PortListening, New-NoRetryError, Test-NoRetryError, Get-EdgePolicyValue, Get-EdgeDebugBlock,
-    Get-EdgeBrowserProcesses, Get-EdgeProfileUse, Test-EdgeForcedSignIn, Get-EdgeProfileAccount, Get-ForcedSignInMessage,
+    Get-EdgeBrowserProcesses, Get-EdgeProfileUse, Test-EdgeForcedSignIn, Get-EdgeProfileAccount, Get-ForcedSignInMessage, Invoke-EdgeProfileSignIn,
     Connect-Cdp, Receive-CdpMessage, Receive-CdpEvent, Invoke-Cdp, Invoke-CdpEval, Disconnect-Cdp

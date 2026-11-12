@@ -7,6 +7,12 @@ versions follow [SemVer](https://semver.org/).
 
 Nothing yet.
 
+## [v0.2.5] - 2026-11-12
+
+### Fixed
+- When Edge requires signing in to the browser (policy BrowserSignin = 2), the Edge window ObsidiNote opened closed at once, so there was no chance to sign in. ObsidiNote now runs a one-time Edge sign-in step first. It opens Edge for its profile the plain way, so Edge can show its own sign-in, waits up to 5 minutes until the profile is signed in with a work account, then closes that window and opens Copilot.
+- An update that replaced `Start ObsidiNote.cmd` while it was running made Windows read on in the new file ("'uter' is not recognized") and start ObsidiNote twice. Every launcher (`Start ObsidiNote.cmd`, `update.cmd`, `sso-setup.cmd`) is now one block that Windows reads in full before running it, and a test keeps it that way.
+
 ## [v0.2.4] - 2026-11-12
 
 ### Fixed

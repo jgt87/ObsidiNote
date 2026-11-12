@@ -11,12 +11,12 @@ Import-Module (Join-Path $root 'lib\Cdp.psm1') -Force
 Import-Module (Join-Path $root 'lib\CopilotBridge.psm1') -Force
 
 Describe 'Is Edge already running with ObsidiNote''s profile (Get-EdgeProfileUse)' {
-    $dir = 'C:\Users\someone\AppData\Local\ObsidiNote\edge-profile'
+    $dir = 'D:\AppData\ObsidiNote\edge-profile'
     $p = { param($cl) [pscustomobject]@{ ProcessId = 7; CommandLine = $cl } }
     It 'is none without an Edge for this profile (the normal Edge does not count)' {
         (Get-EdgeProfileUse -ProfileDir $dir -Port 9334 -Processes @()).state | Should Be 'none'
         (Get-EdgeProfileUse -ProfileDir $dir -Port 9334 -Processes @((& $p '"msedge.exe" --profile-directory=Default'))).state | Should Be 'none'
-        (Get-EdgeProfileUse -ProfileDir $dir -Port 9334 -Processes @((& $p "msedge.exe --remote-debugging-port=9333 --user-data-dir=`"C:\Users\someone\AppData\Local\CCBridge\edge-profile`""))).state | Should Be 'none'
+        (Get-EdgeProfileUse -ProfileDir $dir -Port 9334 -Processes @((& $p "msedge.exe --remote-debugging-port=9333 --user-data-dir=`"D:\AppData\CCBridge\edge-profile`""))).state | Should Be 'none'
     }
     It 'is debug when its browser process has --remote-debugging-port=9334 (quoted or not)' {
         (Get-EdgeProfileUse -ProfileDir $dir -Port 9334 -Processes @((& $p "msedge.exe --remote-debugging-port=9334 --user-data-dir=`"$dir`" --no-first-run"))).state | Should Be 'debug'
