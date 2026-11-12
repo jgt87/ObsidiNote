@@ -1,0 +1,17 @@
+name: ci
+on:
+  push:
+    paths-ignore: ["**.md"]
+  pull_request:
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      # Public repo: pin to a commit SHA.
+      - uses: actions/checkout@v7
+      - name: Pester (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          Install-Module Pester -RequiredVersion 3.4.0 -Force -SkipPublisherCheck -Scope CurrentUser
+          Import-Module Pester -RequiredVersion 3.4.0
+          ./tools/run-tests.ps1

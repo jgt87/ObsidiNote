@@ -1,0 +1,283 @@
+# Release updates (tools/update.ps1) and the install check (obsidinote.ps1). Keep this file ASCII.
+# Before a new release is mirrored over the app folder, find the files the copy would replace or
+# delete that another program has open (an editor, a command window at its pause, a virus scan).
+# Robocopy would fail on those halfway and leave a mix of two versions, so the update waits and
+# names them instead. Open files with the same content as the release, and open files the release
+# no longer has, are left alone and do not hold the update up.
+
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = 'Stop'
+
+function Test-FileLocked([string]$Path) {
+    <# True when the file cannot be opened for writing without sharing (another program has it open). #>
+    try { $fs = [IO.File]::Open($Path, 'Open', 'ReadWrite', 'None'); $fs.Close(); $false }
+    catch [IO.FileNotFoundException] { $false }
+    catch [IO.DirectoryNotFoundException] { $false }
+    catch { $true }
+}
+
+function Test-UpdateExcluded([string]$Rel, [string[]]$ExcludeFiles, [string[]]$ExcludeDirs) {
+    <# True when a relative path (backslashes) lies in an excluded folder or matches an excluded file pattern. #>
+    $parts = $Rel.Split('\')
+    foreach ($d in @($ExcludeDirs)) { if ($parts.Count -gt 1 -and @($parts[0..($parts.Count - 2)]) -contains $d) { return $true } }
+    foreach ($f in @($ExcludeFiles)) { if ($parts[-1] -like $f) { return $true } }
+    $false
+}
+
+function Get-UpdateTouchedFiles {
+    <# Relative paths (backslashes) of files in $Target that a robocopy /MIR from $Source would
+       overwrite (size or time differs) or delete, leaving out the excluded file patterns and folders. #>
+    param([Parameter(Mandatory)][string]$Source, [Parameter(Mandatory)][string]$Target,
+        [string[]]$ExcludeFiles = @(), [string[]]$ExcludeDirs = @())
+    $src = (Resolve-Path -LiteralPath $Source).ProviderPath.TrimEnd('\')
+    $dst = (Resolve-Path -LiteralPath $Target).ProviderPath.TrimEnd('\')
+    $out = New-Object Collections.Generic.List[string]
+    $seen = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($f in @(Get-ChildItem -LiteralPath $src -Recurse -File -Force -ErrorAction SilentlyContinue)) {
+        $rel = $f.FullName.Substring($src.Length + 1)
+        [void]$seen.Add($rel)
+        if (Test-UpdateExcluded $rel $ExcludeFiles $ExcludeDirs) { continue }
+        $t = Join-Path $dst $rel
+        if (-not (Test-Path -LiteralPath $t -PathType Leaf)) { continue }
+        $ti = Get-Item -LiteralPath $t -Force
+        if ($ti.Length -ne $f.Length -or $ti.LastWriteTimeUtc -ne $f.LastWriteTimeUtc) { $out.Add($rel) }
+    }
+    foreach ($f in @(Get-ChildItem -LiteralPath $dst -Recurse -File -Force -ErrorAction SilentlyContinue)) {
+        $rel = $f.FullName.Substring($dst.Length + 1)
+        if ($seen.Contains($rel) -or (Test-UpdateExcluded $rel $ExcludeFiles $ExcludeDirs)) { continue }
+        $out.Add($rel)
+    }
+    $out.ToArray()
+}
+
+function Get-FileHashShared([string]$Path) {
+    <# SHA-256 of a file read with full sharing (works while another program has it open for reading);
+       $null when unreadable. .NET directly, not the hash cmdlet: Windows PowerShell 5.1 started from
+       PowerShell 7 loads 7's modules, which lack it. #>
+    try {
+        $fs = [IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite, Delete')
+        try { $sha = [Security.Cryptography.SHA256]::Create(); [BitConverter]::ToString($sha.ComputeHash($fs)) } finally { $fs.Close() }
+    } catch { $null }
+}
+
+function Get-LockedUpdateFiles {
+    <# The files an update would replace or delete that are open in another program, in three groups:
+       same     - same content as the release (only the time differs): skipped, nothing to update;
+       removed  - not in the release any more: left in place, removed by a later update;
+       blocking - different content: the update waits for these. #>
+    param([Parameter(Mandatory)][string]$Source, [Parameter(Mandatory)][string]$Target,
+        [string[]]$ExcludeFiles = @(), [string[]]$ExcludeDirs = @())
+    $r = @{ same = @(); removed = @(); blocking = @() }
+    foreach ($rel in @(Get-UpdateTouchedFiles -Source $Source -Target $Target -ExcludeFiles $ExcludeFiles -ExcludeDirs $ExcludeDirs)) {
+        $t = Join-Path $Target $rel
+        if (-not (Test-FileLocked $t)) { continue }
+        $s = Join-Path $Source $rel
+        if (-not (Test-Path -LiteralPath $s -PathType Leaf)) { $r.removed += $rel; continue }
+        $h = Get-FileHashShared $t
+        if ($h -and $h -eq (Get-FileHashShared $s)) { $r.same += $rel } else { $r.blocking += $rel }
+    }
+    $r
+}
+
+function Format-LockedUpdateFiles([string[]]$Files, [string]$Version) {
+    <# The message when an update has to wait for files in use. #>
+    $names = @($Files | Select-Object -First 5)
+    $more = if (@($Files).Count -gt 5) { " and $(@($Files).Count - 5) more" } else { '' }
+    $hint = if (@($names | Where-Object { $_ -match '^tools\\|\.cmd$' }).Count) { 'Close the command window that still runs it (press a key at its pause), then start ObsidiNote again.' }
+            else { 'Close the program or window that has it open, then start ObsidiNote again.' }
+    "update to $Version waits: in use by another program: $($names -join ', ')$more. Nothing was changed. $hint"
+}
+
+function Get-UpdateNewFiles {
+    <# Relative paths of files the release adds (in $Source, not yet in $Target), leaving out the
+       excluded file patterns and folders: what a rollback removes again. #>
+    param([Parameter(Mandatory)][string]$Source, [Parameter(Mandatory)][string]$Target, [string[]]$ExcludeFiles = @(), [string[]]$ExcludeDirs = @())
+    $src = (Resolve-Path -LiteralPath $Source).ProviderPath.TrimEnd('\')
+    @(Get-ChildItem -LiteralPath $src -Recurse -File -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        $rel = $_.FullName.Substring($src.Length + 1)
+        if (-not (Test-UpdateExcluded $rel $ExcludeFiles $ExcludeDirs) -and -not (Test-Path -LiteralPath (Join-Path $Target $rel) -PathType Leaf)) { $rel }
+    })
+}
+
+function Save-UpdateBackup {
+    <# Copies the files an update replaces or removes ($Files, relative) to $BackupDir, keeping their
+       folders, so a failed copy can put the old version back whole (Restore-UpdateBackup). #>
+    param([Parameter(Mandatory)][string]$Target, [string[]]$Files, [Parameter(Mandatory)][string]$BackupDir)
+    if (Test-Path -LiteralPath $BackupDir) { Remove-Item -LiteralPath $BackupDir -Recurse -Force }
+    $null = New-Item -ItemType Directory -Force -Path $BackupDir
+    foreach ($rel in @($Files | Where-Object { $_ })) {
+        $from = Join-Path $Target $rel
+        if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { continue }
+        $to = Join-Path $BackupDir $rel
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to)
+        Copy-Item -LiteralPath $from -Destination $to -Force
+    }
+}
+
+function Restore-UpdateBackup {
+    <# After a failed copy: the backed-up files back in place and the files the release added removed
+       (folders it added too, when empty). Returns the files that could not be put back. #>
+    param([Parameter(Mandatory)][string]$Target, [Parameter(Mandatory)][string]$BackupDir, [string[]]$NewFiles = @())
+    $failed = New-Object Collections.Generic.List[string]
+    $bk = (Resolve-Path -LiteralPath $BackupDir).ProviderPath.TrimEnd('\')
+    foreach ($f in @(Get-ChildItem -LiteralPath $bk -Recurse -File -Force)) {
+        $rel = $f.FullName.Substring($bk.Length + 1)
+        $to = Join-Path $Target $rel
+        try { $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to); Copy-Item -LiteralPath $f.FullName -Destination $to -Force } catch { $failed.Add($rel) }
+    }
+    foreach ($rel in @($NewFiles | Where-Object { $_ })) {
+        $p = Join-Path $Target $rel
+        try {
+            if (Test-Path -LiteralPath $p -PathType Leaf) { Remove-Item -LiteralPath $p -Force }
+            $d = Split-Path -Parent $p
+            while ($d -and $d.Length -gt $Target.TrimEnd('\').Length -and (Test-Path -LiteralPath $d) -and -not @(Get-ChildItem -LiteralPath $d -Force).Count) { Remove-Item -LiteralPath $d -Force; $d = Split-Path -Parent $d }
+        } catch { $failed.Add($rel) }
+    }
+    $failed.ToArray()
+}
+
+function Get-RobocopyFailures([string[]]$Lines) {
+    <# The file names in robocopy's ERROR lines (e.g. "ERROR 32 (0x00000020) Copying File C:\...\x.cmd"). #>
+    @($Lines | ForEach-Object { $m = [regex]::Match("$_", 'ERROR \d+ \(0x[0-9A-Fa-f]+\) \w+(?: \w+)* (?:File|Directory) (.+)$'); if ($m.Success) { $m.Groups[1].Value.Trim() } } | Select-Object -Unique)
+}
+
+# --- Release manifest and checksums (tools/build-release.ps1) and the install check --------------
+
+$script:ManifestSkip = '^(manifest\.json|version\.txt|.*\.local\.json)$'
+
+function New-InstallManifest {
+    <# manifest.json in a release folder: its version and every file with its SHA-256, so a start can
+       tell whether the app folder is the release as shipped. Returns the number of files listed. #>
+    param([Parameter(Mandatory)][string]$AppFolder, [Parameter(Mandatory)][string]$Version)
+    $base = (Resolve-Path -LiteralPath $AppFolder).ProviderPath.TrimEnd('\')
+    $files = [ordered]@{}
+    foreach ($f in @(Get-ChildItem -LiteralPath $base -Recurse -File -Force | Sort-Object FullName)) {
+        $rel = $f.FullName.Substring($base.Length + 1).Replace('\', '/')
+        if ($rel -match $script:ManifestSkip) { continue }
+        $files[$rel] = "$(Get-FileHashShared $f.FullName)".Replace('-', '')
+    }
+    $json = ConvertTo-Json -InputObject ([ordered]@{ version = $Version; files = $files }) -Depth 4
+    [IO.File]::WriteAllText((Join-Path $base 'manifest.json'), $json, (New-Object Text.UTF8Encoding($false)))
+    $files.Count
+}
+
+function New-ReleaseChecksums {
+    <# SHA256SUMS for release assets: one "<hash>  <file name>" line per file, lower-case hex, LF
+       endings, in the format `sha256sum -c` reads. Returns the number of lines. #>
+    param([Parameter(Mandatory)][string[]]$Files, [Parameter(Mandatory)][string]$OutFile)
+    $lines = foreach ($f in $Files) {
+        $hash = "$(Get-FileHashShared $f)".Replace('-', '').ToLowerInvariant()
+        if (-not $hash) { throw "Cannot read $f for its checksum." }
+        "$hash  $(Split-Path -Leaf $f)"
+    }
+    $lines = @($lines)
+    [IO.File]::WriteAllText($OutFile, (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding($false)))
+    $lines.Count
+}
+
+function Test-InstallIntegrity {
+    <# Compares the app folder with its manifest.json: @{ version; missing; changed } (paths with /),
+       or $null without a manifest (a git clone or a development copy). Files the release does not
+       list (local settings) are not looked at. #>
+    param([Parameter(Mandatory)][string]$AppRoot)
+    $mf = Join-Path $AppRoot 'manifest.json'
+    if (-not (Test-Path -LiteralPath $mf)) { return $null }
+    $m = ConvertFrom-Json ([IO.File]::ReadAllText($mf))
+    $missing = New-Object Collections.Generic.List[string]; $changed = New-Object Collections.Generic.List[string]
+    foreach ($p in @($m.files.PSObject.Properties)) {
+        $full = Join-Path $AppRoot ($p.Name.Replace('/', '\'))
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { $missing.Add($p.Name); continue }
+        if ("$(Get-FileHashShared $full)".Replace('-', '') -ne "$($p.Value)") { $changed.Add($p.Name) }
+    }
+    @{ version = "$($m.version)"; missing = $missing.ToArray(); changed = $changed.ToArray() }
+}
+
+function Format-InstallProblem($Result) {
+    <# One sentence about an incomplete install, or '' when it is complete. #>
+    if (-not $Result) { return '' }
+    $n = @($Result.missing).Count + @($Result.changed).Count
+    if (-not $n) { return '' }
+    $names = @(@($Result.missing) + @($Result.changed) | Select-Object -First 4)
+    $more = if ($n -gt 4) { " and $($n - 4) more" } else { '' }
+    "ObsidiNote $($Result.version) is not complete: $(@($Result.missing).Count) file(s) missing and $(@($Result.changed).Count) different from the release ($($names -join ', ')$more). An update probably stopped halfway."
+}
+
+# --- Versions and going back to an earlier release (update.cmd -To vX.Y.Z) ------------------------
+# The release gone back from (and every one up to it) is skipped by automatic updates, which take the
+# next newer release again; the skip list is "skipUpdates" in config\obsidinote.local.json.
+
+function ConvertTo-ReleaseVersion([string]$Tag) {
+    <# 'v0.1.150' or '0.1.150' as a [version]; $null for anything else. #>
+    $m = [regex]::Match("$Tag".Trim(), '^v?(\d+)\.(\d+)\.(\d+)$')
+    if (-not $m.Success) { return $null }
+    New-Object Version ([int]$m.Groups[1].Value), ([int]$m.Groups[2].Value), ([int]$m.Groups[3].Value)
+}
+
+function Test-SameRelease([string]$A, [string]$B) {
+    <# True when two version strings name the same release ('v0.1.0' and '0.1.0' do); falls back to a
+       plain text compare when either is not a version. #>
+    $va = ConvertTo-ReleaseVersion $A; $vb = ConvertTo-ReleaseVersion $B
+    if ($va -and $vb) { return $va -eq $vb }
+    "$A".Trim() -eq "$B".Trim()
+}
+
+function Test-ReleaseSkipped([string]$Release, [string[]]$Skip) {
+    <# True when automatic updates leave $Release alone: it is not newer than every release in $Skip
+       (entries that are not a version are ignored). #>
+    $v = ConvertTo-ReleaseVersion $Release
+    if (-not $v) { return $false }
+    foreach ($s in @($Skip)) { $sv = ConvertTo-ReleaseVersion $s; if ($sv -and $v -le $sv) { return $true } }
+    $false
+}
+
+function Get-RollbackSkip([string]$Target, [string]$Current, [string]$Latest) {
+    <# The release to skip through after going back to $Target: the newest of the installed and the
+       latest release, when it is newer than $Target; '' when there is nothing to skip. #>
+    $t = ConvertTo-ReleaseVersion $Target
+    if (-not $t) { return '' }
+    $best = ''; $bestV = $t
+    foreach ($r in $Current, $Latest) { $v = ConvertTo-ReleaseVersion $r; if ($v -and $v -gt $bestV) { $best = 'v' + $v; $bestV = $v } }
+    $best
+}
+
+# --- Settings: config\obsidinote.json (shipped defaults) and config\obsidinote.local.json ---------
+# Self-contained on purpose: the updater uses these while the app folder may hold another release.
+
+function Read-JsonObject([string]$File) {
+    if (-not (Test-Path -LiteralPath $File)) { return $null }
+    $text = [IO.File]::ReadAllText($File)
+    if (-not $text.Trim()) { return $null }
+    $text | ConvertFrom-Json
+}
+
+function Get-LocalAppValue([string]$AppRoot, [string]$Key) {
+    <# One value from config\obsidinote.local.json; $null when the file or the key is not there. #>
+    $obj = Read-JsonObject (Join-Path $AppRoot 'config\obsidinote.local.json')
+    if ($obj -and $obj.PSObject.Properties[$Key]) { return $obj.$Key }
+    $null
+}
+
+function Set-LocalAppValue([string]$AppRoot, [string]$Key, $Value) {
+    <# Sets (or with $null removes) one top-level value in config\obsidinote.local.json, keeping the others. #>
+    $file = Join-Path $AppRoot 'config\obsidinote.local.json'
+    $obj = Read-JsonObject $file
+    if (-not $obj) { $obj = [pscustomobject]@{} }
+    if ($null -eq $Value) { $obj.PSObject.Properties.Remove($Key) }
+    else { $obj | Add-Member -Force -NotePropertyName $Key -NotePropertyValue $Value }
+    $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $file)
+    [IO.File]::WriteAllText($file, ($obj | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding($false)))
+}
+
+function Get-UpdateSettings([string]$AppRoot) {
+    <# @{ autoUpdate; skipUpdates }: the local file wins over the shipped defaults; on by default. #>
+    $s = @{ autoUpdate = $true; skipUpdates = @() }
+    foreach ($name in 'obsidinote.json', 'obsidinote.local.json') {
+        $obj = Read-JsonObject (Join-Path $AppRoot "config\$name")
+        if (-not $obj) { continue }
+        if ($obj.PSObject.Properties['autoUpdate']) { $s.autoUpdate = [bool]$obj.autoUpdate }
+        if ($obj.PSObject.Properties['skipUpdates']) { $s.skipUpdates = @(@($obj.skipUpdates) | Where-Object { $_ } | ForEach-Object { "$_" }) }
+    }
+    $s
+}
+
+Export-ModuleMember -Function ConvertTo-ReleaseVersion, Test-SameRelease, Test-ReleaseSkipped, Get-RollbackSkip, Get-LocalAppValue, Set-LocalAppValue, Get-UpdateSettings, New-InstallManifest, New-ReleaseChecksums, Test-InstallIntegrity, Format-InstallProblem, Get-UpdateNewFiles, Save-UpdateBackup, Restore-UpdateBackup, Test-FileLocked, Get-FileHashShared, Get-UpdateTouchedFiles, Get-LockedUpdateFiles, Format-LockedUpdateFiles, Get-RobocopyFailures

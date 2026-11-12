@@ -1,0 +1,49 @@
+# Each block says why its paths stay out (CommonShared docs/11-gitignore.md).
+# Runtime dirs are anchored with a leading / so they never hide a source folder.
+
+# Secrets and local config: copy the .example file and fill it in
+.env
+.env.*
+!.env.example
+*.local.json
+.secrets/
+*.private.json
+evidence-private/
+
+# Runtime output and local state
+/.runtime/
+/logs/
+*.log
+/.chrome-*/
+/*-profile/
+
+# Machine-local tooling: absolute paths, local indexes, agent state
+.repowise/
+.mcp.json
+.claude/settings.local.json
+# Managed copies of the private CommonShared rules: refreshed by its sync, local only
+.claude/rules/commonshared-*.md
+.claude/CLAUDE.md
+CLAUDE.local.md
+tasks/lessons.md
+.impeccable/live/
+/.worktrees/
+
+# Scratch: throwaway files, never part of a commit
+/temp/
+
+# OS and editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Stack
+release/
+*.zip
+TestResults*.xml
+
+# Probe output: local OneNote object ids
+/probes/p1-ids.txt

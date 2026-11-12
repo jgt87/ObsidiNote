@@ -1,0 +1,1 @@
+Search my Microsoft 365 content (OneNote notebooks, OneDrive files, Loop pages) for the exact text "OBSN-PROBE-7Q4K". If you find it, tell me the page or file name, where it is stored, and quote the line that contains it. If you cannot find it, say "NOT FOUND" and list which of my sources you were able to search (for example OneNote, OneDrive, email).

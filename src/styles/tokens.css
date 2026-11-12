@@ -1,0 +1,200 @@
+/*
+ * Starter design tokens (docs/01-visual-design.md). Structure only, no palette:
+ * colours are the project's own decision, recorded in its DESIGN.md. Until it sets
+ * them, every colour token resolves to a CSS system colour, so the UI follows the OS
+ * light/dark scheme and carries no brand. Replace the values in this block; keep the
+ * names, the tint ratios and the rules (tokens only, status never colour alone).
+ * Domain colours (charts, data series) are added by the project when it needs them,
+ * in their own token group, never on chrome.
+ */
+:root { color-scheme: light dark; }
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+/* raw palette: the only hue (purple, as in OneNote and Obsidian). Components never use these
+   directly; they use the role tokens (--accent, --ring...). */
+:root {
+  --purple-300: #C4B5FD;
+  --purple-400: #A78BFA;
+  --purple-600: #6D28D9;
+  --purple-700: #5B21B6;
+}
+
+:root {
+  /* surfaces */
+  --bg: Canvas;
+  --surface: Canvas;
+  --raised: Canvas;
+  --hover: color-mix(in srgb, CanvasText 5%, transparent);
+  --active: color-mix(in srgb, CanvasText 10%, transparent);
+
+  /* lines */
+  --border: color-mix(in srgb, CanvasText 14%, Canvas);
+  --border-strong: color-mix(in srgb, CanvasText 50%, Canvas); /* field and button edges: >= 3:1 */
+
+  /* text */
+  --ink: CanvasText;
+  --muted: color-mix(in srgb, CanvasText 72%, Canvas);
+  --faint: GrayText;
+
+  /* accent: purple, the one hue in the app (DESIGN.md "One Purple"). Roles point at the
+     raw palette below; light values here, dark values in the dark blocks after :root. */
+  --accent: var(--purple-600);          /* #6D28D9: 7.1:1 with white text */
+  --accent-hover: var(--purple-700);
+  --accent-soft: color-mix(in srgb, var(--purple-600) 10%, transparent);
+  --on-accent: #FFFFFF;
+  --ring: var(--purple-600);
+
+  /* status: no hue of their own; the icon + word carry the meaning (never colour alone).
+     Soft fills stay neutral so a status never reads as the accent. */
+  --neutral-soft: color-mix(in srgb, CanvasText 8%, transparent);
+  --danger: var(--ink);  --danger-soft: var(--neutral-soft);
+  --warn: var(--ink);    --warn-soft: var(--neutral-soft);
+  --ok: var(--ink);      --ok-soft: var(--neutral-soft);
+
+  --backdrop: color-mix(in srgb, black 45%, transparent);
+  --scroll-thumb: color-mix(in srgb, CanvasText 18%, transparent);
+  --scroll-thumb-hover: color-mix(in srgb, CanvasText 35%, transparent);
+}
+
+/* dark accent: lighter purple with dark text on it (#A78BFA: 6.4:1 on #1A1A1A) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --accent: var(--purple-400); --accent-hover: var(--purple-300);
+    --accent-soft: color-mix(in srgb, var(--purple-400) 16%, transparent);
+    --on-accent: #141414; --ring: var(--purple-400);
+  }
+}
+:root[data-theme="dark"] {
+  --accent: var(--purple-400); --accent-hover: var(--purple-300);
+  --accent-soft: color-mix(in srgb, var(--purple-400) 16%, transparent);
+  --on-accent: #141414; --ring: var(--purple-400);
+}
+
+:root {
+  /* type */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --text-tag: 10px;
+  --text-label: 11px;
+  --text-meta: 12px;
+  --text-body: 13px;
+  --text-control: 14px;
+  --text-title: 16px;
+  --text-heading: 20px;
+
+  /* space (4px base) */
+  --space-1: 2px; --space-2: 4px; --space-3: 8px; --space-4: 12px;
+  --space-5: 16px; --space-6: 24px; --space-7: 32px;
+
+  /* radius */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-pill: 999px;
+
+  /* controls */
+  --control-h-sm: 28px;
+  --control-h: 32px;
+  --control-h-lg: 36px;
+  --touch-target: 44px;
+
+  /* elevation: floating things only */
+  --shadow-menu: 0 2px 4px color-mix(in srgb, black 8%, transparent), 0 8px 24px color-mix(in srgb, black 12%, transparent);
+  --shadow-dialog: 0 18px 48px color-mix(in srgb, black 22%, transparent);
+
+  /* layers */
+  --z-sticky: 10; --z-dropdown: 20; --z-popover: 30; --z-modal: 50; --z-toast: 60; --z-tooltip: 70;
+
+  /* motion */
+  --dur-fast: 120ms;
+  --dur: 150ms;
+  --dur-slow: 200ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ---------- base ---------- */
+html { font-family: var(--font-sans); font-size: var(--text-body); line-height: 1.45;
+       color: var(--ink); background: var(--bg); font-synthesis: none; }
+.num, time, td.num { font-variant-numeric: tabular-nums; }
+code, kbd, .mono { font-family: var(--font-mono); }
+
+:where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+* { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border: 2px solid transparent;
+  background-clip: padding-box; border-radius: var(--radius-pill); }
+::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover); }
+
+/* ---------- button ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-3);
+  height: var(--control-h); padding: 0 var(--space-4);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  background: var(--surface); color: var(--ink);
+  font: 500 var(--text-control)/1 var(--font-sans);
+  cursor: pointer;
+  transition: background-color var(--dur) ease-out, border-color var(--dur) ease-out;
+}
+@media (hover: hover) { .btn:hover { background: var(--hover); } }
+.btn:active { transform: translateY(1px); }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; transform: none; }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+@media (hover: hover) { .btn--primary:hover { background: var(--accent-hover); } }
+.btn--ghost { background: transparent; border-color: transparent; }
+.btn--danger { background: var(--danger-soft); border-color: transparent; color: var(--danger); }
+.btn--sm { height: var(--control-h-sm); padding: 0 var(--space-3); font-size: var(--text-meta); }
+.btn--icon { width: var(--control-h); padding: 0; }
+.btn[aria-pressed="true"], .btn[data-active="true"] { background: var(--accent-soft); color: var(--ink); }
+.btn svg { width: 16px; height: 16px; flex: none; }
+
+@media (pointer: coarse) {
+  .btn { min-height: var(--touch-target); }
+  .btn--icon { min-width: var(--touch-target); }
+  /* iOS zooms the page when a focused field is under 16px. */
+  .field, select.field, textarea { font-size: max(16px, 1em); }
+}
+
+/* ---------- inputs ---------- */
+.field, select.field {
+  height: var(--control-h); padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  background: var(--surface); color: var(--ink); font: inherit;
+}
+.field:focus-visible { border-color: var(--ring); } /* keeps the global 2px ring; a soft halo is not a ring (docs/17 §8) */
+input[type="number"].field { text-align: right; font-variant-numeric: tabular-nums; }
+input[type="range"], input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+.range-value { min-width: 38px; text-align: right; font: var(--text-meta) var(--font-mono);
+  font-variant-numeric: tabular-nums; color: var(--muted); }
+
+/* ---------- floating ---------- */
+.menu { min-width: 240px; padding: 6px 0; background: var(--raised); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-menu); z-index: var(--z-dropdown); }
+.menu__item { display: flex; align-items: center; gap: var(--space-3); height: 32px; padding: 0 12px; cursor: pointer; }
+.menu__item:hover, .menu__item:focus-visible { background: var(--hover); outline: none; }
+@media (forced-colors: active) { .menu__item:focus-visible { outline: 2px solid CanvasText; outline-offset: -2px; } }
+.menu__item[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
+.tooltip { padding: 6px 8px; border-radius: var(--radius-sm); background: var(--ink); color: var(--bg);
+  font-size: var(--text-meta); pointer-events: none; z-index: var(--z-tooltip); }
+dialog { width: min(680px, calc(100vw - 32px)); max-height: 72vh; padding: 0; color: var(--ink);
+  background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-dialog); }
+dialog::backdrop { background: var(--backdrop); }
+
+/* An author display:flex|grid otherwise beats the hidden attribute (L-UI). */
+[hidden] { display: none !important; }
+
+/* ---------- motion ---------- */
+/* .motion-alt: opt-out for elements that ship their own calm reduced-motion variant. */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.motion-alt), *::before, *::after {
+    animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+  }
+}
