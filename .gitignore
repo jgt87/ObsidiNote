@@ -41,6 +41,8 @@ desktop.ini
 !.vscode/extensions.json
 
 # Stack
+# ui-src builds into ui/ (committed and shipped); its packages stay local.
+node_modules/
 release/
 *.zip
 TestResults*.xml

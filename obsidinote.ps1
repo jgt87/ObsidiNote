@@ -5,21 +5,24 @@
 #   2. This computer: PowerShell, OneNote, Edge and its policies, the debug port, the Edge profile's
 #      sign-in and single sign-on, GitHub. A FAIL ends the start with what to do (exit 1).
 #   3. OneNote: open the notebook on record (or start OneNote) and wait for its COM API (exit 2).
-#   4. Microsoft 365 Copilot in ObsidiNote's own Edge profile (exit 3), then the interface (later).
-# Status lines and messages go to stderr: stdout carries ObsidiNote's own output.
+#   4. Microsoft 365 Copilot in ObsidiNote's own Edge profile (exit 3).
+#   5. The interface: the local server on 127.0.0.1:<uiPort> (8767 by default) and its window in
+#      ObsidiNote's Edge (exit 4 when the server cannot start). Then it keeps running until the
+#      console window is closed or Ctrl+C is pressed.
+# Status lines and messages go to stderr.
 [CmdletBinding()]
 param(
-    [string]$Name = 'World',
-    [switch]$DryRun,
     [switch]$NoUpdate,  # skip the update check (also: environment variable OBSIDINOTE_NO_UPDATE=1)
     [switch]$NoOneNote,  # skip the OneNote start and check (tests, update-only runs)
-    [switch]$NoCopilot   # skip connecting to Microsoft 365 Copilot (also: OBSIDINOTE_NO_COPILOT=1)
+    [switch]$NoCopilot,  # skip connecting to Microsoft 365 Copilot (also: OBSIDINOTE_NO_COPILOT=1)
+    [switch]$NoWindow    # start the interface's server without opening a window (also: OBSIDINOTE_NO_WINDOW=1)
 )
 $ErrorActionPreference = 'Stop'
 # Windows PowerShell's own module paths: started from PowerShell 7, 5.1 would load 7's modules.
 $env:PSModulePath = (@([Environment]::GetEnvironmentVariable('PSModulePath', 'User'), [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine'), (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules')) | Where-Object { $_ }) -join ';'
 if ($env:OBSIDINOTE_NO_UPDATE -eq '1') { $NoUpdate = $true }
 if ($env:OBSIDINOTE_NO_COPILOT -eq '1') { $NoCopilot = $true }
+if ($env:OBSIDINOTE_NO_WINDOW -eq '1') { $NoWindow = $true }
 $bound = @{}; foreach ($k in $PSBoundParameters.Keys) { $bound[$k] = $PSBoundParameters[$k] }
 Import-Module (Join-Path $PSScriptRoot 'lib\Status.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib\Startup.psm1') -Force
@@ -81,8 +84,16 @@ if (@($checks | Where-Object { $_.status -eq 'FAIL' }).Count) {
 if (-not $NoOneNote) {
     Import-Module (Join-Path $PSScriptRoot 'lib\AppConfig.psm1') -Force
     Import-Module (Join-Path $PSScriptRoot 'lib\OneNoteHost.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot 'lib\NotebookView.psm1') -Force
     $record = Get-NotebookRecord -AppRoot $PSScriptRoot
-    $oneNote = Start-OneNoteIfNeeded -Record $record
+    # The vault to continue in (FEASIBILITY.md, "Several ObsidiNote vaults"): the notebook on record
+    # (the last active vault, set by the window's vault switcher), else one named ObsidiNote or with
+    # a 00 Index section. Found by structure, so a vault may have any name.
+    $vaultRecord = if (Test-NotebookRecord $record) { $record } else { '' }
+    # No GetNewClosure: the block runs in this script's session state, where $vaultRecord and the
+    # imported commands are visible (a closure would lose the imported commands).
+    $findVault = { param($name) Find-VaultInHierarchy -Xml (Get-OneNoteNotebooksXml -Scope 3) -Record $vaultRecord -Name $name }
+    $oneNote = Start-OneNoteIfNeeded -Record $record -FindNotebook $findVault
     if ($oneNote.foundRecord -and $oneNote.foundRecord -ne $record) {
         try { Set-LocalAppValue $PSScriptRoot 'notebook' $oneNote.foundRecord; $oneNote.warn = '' } catch { $oneNote.warn = "the notebook's location could not be saved: $($_.Exception.Message)" }
     }
@@ -120,22 +131,54 @@ if (-not $NoCopilot) {
     }
     Write-Status -ToError 'OK' 'Copilot' "connected in ObsidiNote's Edge window (port $($copilot.Port))"
 }
-# The interface: ObsidiNote has no web UI yet. When it exists, open it here, in ObsidiNote's Edge
-# window next to Copilot (the model is the sister project's Start-AppWindow: a tab in the Copilot
-# window by default, side by side, or the default browser), once its local server listens.
-Write-Status -ToError 'OK' 'ObsidiNote' $(if ($copilot) { 'ready; no interface yet (Copilot is open in ObsidiNote''s Edge window)' } else { 'ready; no interface yet' })
+
+# --- 5. The interface --------------------------------------------------------------------------
+# The local server (lib/Server.psm1) on 127.0.0.1:<uiPort> serves ui\ (prebuilt; no Node here) and
+# the API; its window opens in ObsidiNote's Edge (lib/AppWindow.psm1). The process then keeps
+# running: the Copilot bridge stays connected, and closing this console (or Ctrl+C) stops it all.
+Import-Module (Join-Path $PSScriptRoot 'lib\AppConfig.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'lib\Server.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'lib\AppWindow.psm1') -Force
+try { $uiPort = Get-UiPort -AppRoot $PSScriptRoot; $cs = Get-CopilotSettings -AppRoot $PSScriptRoot }
+catch { Write-Status -ToError 'FAIL' 'ObsidiNote' $_.Exception.Message; exit 4 }
+$url = "http://127.0.0.1:$uiPort"
+
+function Open-ObsidiNoteWindow {
+    if ($NoWindow) { return 'none' }
+    if ($copilot) {
+        try { return (Open-AppInEdgeWindow -Url "$url/" -AppPort $uiPort -CdpPort ([int]$cs.cdpPort)) } catch { }
+    }
+    Start-AppInEdgeProfile -Url "$url/" -AppPort $uiPort -CdpPort ([int]$cs.cdpPort) -ProfileDir $cs.profileDir
+}
+
+$server = $null
+try {
+    $state = New-ServerState -AppRoot $PSScriptRoot -Port $uiPort -CdpPort ([int]$cs.cdpPort) -CopilotSkipped ([bool]$NoCopilot)
+    $server = Start-UiServer -Port $uiPort -UiDir (Join-Path $PSScriptRoot 'ui') -State $state
+} catch {
+    $why = $_.Exception.Message
+    if (Test-UiServerRunning -Port $uiPort) {
+        # Another ObsidiNote already serves this port: show its window and leave that one running.
+        $how = Open-ObsidiNoteWindow
+        Write-Status -ToError 'OK' 'ObsidiNote' "already running at $url; $(Get-AppWindowDetail $how)"
+        if ($copilot) { try { Disconnect-Copilot $copilot } catch { } }
+        exit 0
+    }
+    Write-Status -ToError 'FAIL' 'ObsidiNote' "the interface could not start on port ${uiPort}: $why" -Hint 'Another program may use this port. Choose another one: { "uiPort": 8790 } in config\obsidinote.local.json.'
+    if ($copilot) { try { Disconnect-Copilot $copilot } catch { } }
+    exit 4
+}
 
 try {
-    Import-Module (Join-Path $PSScriptRoot 'lib\Core.psm1') -Force
-
-    # App data lives in %LOCALAPPDATA%\ObsidiNote, never next to the script.
-    $dataDir = Join-Path $env:LOCALAPPDATA 'ObsidiNote'
-    if ($DryRun) {
-        Write-Host "[dry-run] would write to $dataDir"
-    }
-
-    (Get-Greeting -Name $Name) | ConvertTo-Json -Compress
+    $how = 'none'
+    try { $how = Open-ObsidiNoteWindow } catch { Write-Status -ToError 'WARN' 'Window' "could not open: $($_.Exception.Message)" -Hint "Open $url in Edge yourself." }
+    Write-Status -ToError 'OK' 'ObsidiNote' "open at $url" -Hint (Get-AppWindowDetail $how)
+    Say 'Close this window to stop ObsidiNote (or press Ctrl+C).'
+    # Ctrl+C ends this wait and runs the finally block; closing the console ends the process.
+    while (-not $server.Async.IsCompleted) { Start-Sleep -Milliseconds 500 }
+    Write-Status -ToError 'WARN' 'ObsidiNote' 'the interface''s server stopped' -Hint 'Start ObsidiNote again.'
 } finally {
-    # The bridge ($copilot) is kept for the steps that will use it; the demo flow ends here.
+    Stop-UiServer $server
     if ($copilot) { try { Disconnect-Copilot $copilot } catch { } }
+    Say 'ObsidiNote stopped.'
 }

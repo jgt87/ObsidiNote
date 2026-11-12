@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="ObsidiNote">
+  <title>ObsidiNote</title>
+  <polygon points="70,34 150,18 118,66" fill="#C4B5FD" stroke="#C4B5FD" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="150,18 180,100 118,66" fill="#A78BFA" stroke="#A78BFA" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="150,18 214,54 180,100" fill="#8B5CF6" stroke="#8B5CF6" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="214,54 246,138 180,100" fill="#7C3AED" stroke="#7C3AED" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="246,138 172,172 180,100" fill="#6D28D9" stroke="#6D28D9" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="246,138 226,212 172,172" fill="#5B21B6" stroke="#5B21B6" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="226,212 150,238 172,172" fill="#4C1D95" stroke="#4C1D95" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="150,238 96,150 172,172" fill="#5B21B6" stroke="#5B21B6" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="150,238 56,232 96,150" fill="#4C1D95" stroke="#4C1D95" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="56,232 14,170 96,150" fill="#5B21B6" stroke="#5B21B6" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="14,170 22,92 96,150" fill="#6D28D9" stroke="#6D28D9" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="22,92 70,34 118,66" fill="#8B5CF6" stroke="#8B5CF6" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="22,92 118,66 96,150" fill="#7C3AED" stroke="#7C3AED" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="118,66 180,100 96,150" fill="#7C3AED" stroke="#7C3AED" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="180,100 172,172 96,150" fill="#6D28D9" stroke="#6D28D9" stroke-width="1" stroke-linejoin="round"/>
+  <polygon points="80,82 102,82 102,186 80,186" fill="#FFFFFF"/>
+  <polygon points="154,82 176,82 176,186 154,186" fill="#FFFFFF"/>
+  <polygon points="80,82 102,82 176,186 154,186" fill="#FFFFFF"/>
+</svg>

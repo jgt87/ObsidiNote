@@ -1,0 +1,15 @@
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-7) var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  text-align: center;
+}
+.empty__icon { display: inline-flex; color: var(--muted); }
+.empty__icon .icon { width: 32px; height: 32px; }
+.empty__text { max-width: 60ch; margin: 0; color: var(--muted); }
+.empty .btn { text-decoration: none; }

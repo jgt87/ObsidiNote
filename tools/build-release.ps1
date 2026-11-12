@@ -29,7 +29,9 @@ git commit -F $msg
 git tag -a $Version -m $Version
 
 # Stage the tagged tree as ObsidiNote\ (git archive: line endings as .gitattributes says), drop what
-# only development needs, then add version.txt and manifest.json.
+# only development needs, then add version.txt and manifest.json. The interface ships prebuilt in
+# ui\ (listed in manifest.json like every file); its source ui-src\ and the tokens it imports
+# (src\) are development only: the user's PC never runs Node.
 $out = Join-Path $root 'release'
 New-Item -ItemType Directory -Force $out | Out-Null
 $stage = Join-Path $env:TEMP ('obsidinote-release-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -40,7 +42,8 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::ExtractToDirectory($raw, $stage)
 [IO.File]::Delete($raw)
 $app = Join-Path $stage 'ObsidiNote'
-foreach ($dev in '.github', '.claude', '.gitattributes', '.gitignore', '.editorconfig', 'probes', 'tests', 'tasks', 'temp') {
+if (-not (Test-Path -LiteralPath (Join-Path $app 'ui\index.html'))) { throw 'The release has no ui\index.html: run npm run build in ui-src and commit ui\ first.' }
+foreach ($dev in '.github', '.claude', '.gitattributes', '.gitignore', '.editorconfig', 'probes', 'tests', 'tasks', 'temp', 'ui-src', 'src') {
     $p = Join-Path $app $dev
     if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force }
 }

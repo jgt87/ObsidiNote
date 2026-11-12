@@ -116,8 +116,8 @@ Describe 'The update line and the start of the new version' {
         $u.detail | Should Be 'not updated: this git clone has local changes (v0.2.3)'
     }
     It 'starts the new version with the same arguments' {
-        $a = Get-RelaunchArguments -Script 'C:\app\obsidinote.ps1' -Bound @{ Name = 'T'; NoCopilot = [System.Management.Automation.SwitchParameter]$true; DryRun = [System.Management.Automation.SwitchParameter]$false }
-        ($a -join ' ') | Should Be '-NoProfile -ExecutionPolicy Bypass -File C:\app\obsidinote.ps1 -Name T -NoCopilot'
+        $a = Get-RelaunchArguments -Script 'C:\app\obsidinote.ps1' -Bound @{ Label = 'T'; NoCopilot = [System.Management.Automation.SwitchParameter]$true; NoWindow = [System.Management.Automation.SwitchParameter]$false }
+        ($a -join ' ') | Should Be '-NoProfile -ExecutionPolicy Bypass -File C:\app\obsidinote.ps1 -Label T -NoCopilot'
     }
     It 'obsidinote.ps1 asks the updater for its outcome, starts the new version and ends itself' {
         $src = [IO.File]::ReadAllText((Join-Path $root 'obsidinote.ps1'))

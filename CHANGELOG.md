@@ -7,6 +7,26 @@ versions follow [SemVer](https://semver.org/).
 
 Nothing yet.
 
+## [v0.3.0] - 2026-11-13
+
+### Added
+- The ObsidiNote window. After the Copilot step, ObsidiNote starts a local server on `http://127.0.0.1:8767` (this computer only) and opens its window as a new window of ObsidiNote's own Edge. The console shows `[OK] ObsidiNote  open at http://127.0.0.1:8767` and ObsidiNote keeps running until you close that console window or press Ctrl+C; Copilot stays connected meanwhile. Starting ObsidiNote again while it runs opens the window of the running one.
+- In the window: one box to add something or ask your wiki, with Auto, Add and Ask modes (`Ctrl+1`, `Ctrl+2`). In Auto, fixed rules show before you send whether the text will be added or asked, and why (a question word or question mark on short text asks; a link on its own, longer text, a pasted mail or meeting, or a statement such as "We decided" adds). Sending says that adding and asking come in the next step.
+- The side bar lists the sections and section groups of the shown notebook with page counts, and "Recently changed" lists its 10 most recently changed pages; a title opens the page in OneNote. Both are read from OneNote and never written to disk.
+- Notebook switcher at the top of the side bar with every notebook open in OneNote. ObsidiNote vaults come first; for now a vault is a notebook with a `00 Index` section, whatever its name. Other notebooks are marked "read only". Choosing a vault makes it the active vault: the window remembers it, and the start opens it next time (`"notebook"` in `config\obsidinote.local.json`). A read-only notebook is only shown, and the box says that an Add goes to the active vault. No notebook is written to.
+- A note in the side bar when OneNote is not running, no vault is open, or Copilot is not available. Nothing is shown when all is well.
+- Knowledge graph and History pages that say they come in a later step.
+- Setting `"uiPort"` (default 8767) in `config\obsidinote.json`; override it in `config\obsidinote.local.json`. Reserved ports, ports that browsers block and the Edge port are refused.
+- `-NoWindow` (or `OBSIDINOTE_NO_WINDOW=1`) starts ObsidiNote without opening its window. With `-NoCopilot` the window opens in ObsidiNote's Edge profile, or in the default browser when Edge cannot start.
+- Exit code 4: the window's local server could not start (for example, the port is in use).
+
+### Changed
+- The start no longer prints the "ready; no interface yet" line and the sample JSON line; the scaffold's `-Name` and `-DryRun` parameters are gone.
+- The start opens the vault on record, the last one chosen in the window. Without a record, it looks for a notebook called ObsidiNote or one with a `00 Index` section. It no longer replaces the record with another notebook that happens to be called ObsidiNote.
+
+### Security
+- The local server answers only this computer, checks the Host and Origin headers exactly (127.0.0.1, localhost or [::1] with its port), requires the header `X-ObsidiNote: 1` on every API call, and serves only the built files of the window from a fixed list.
+
 ## [v0.2.5] - 2026-11-12
 
 ### Fixed

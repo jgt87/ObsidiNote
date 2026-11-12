@@ -1,6 +1,7 @@
 {
   "autoUpdate": true,
   "cdpPort": 9334,
+  "uiPort": 8767,
   "signIn": "single-sign-on",
   "notebook": ""
 }

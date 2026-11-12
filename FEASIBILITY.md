@@ -373,6 +373,75 @@ Rules:
   section (archive), and what does a link to a deleted page do? This decides whether archiving
   must also rewrite links.
 
+### Connected notebooks (user requirement, 2026-11-13)
+
+Besides its own notebook, ObsidiNote can **connect to any other OneNote notebook**, detect how it
+is organised, and load it into the interface.
+
+- **Which notebooks:** every notebook open in OneNote shows in a notebook switcher in the side
+  rail. "Connect another" takes a OneNote link or a local `.onetoc2` path and opens it in
+  OneNote first. The list of connected notebooks (name and location only, no content) is kept in
+  `config\obsidinote.local.json`.
+- **Detecting the structure (read only):**
+  - ObsidiNote reads the hierarchy: section groups, sections, pages and page levels (subpages).
+  - A notebook with `00 Index` and `obsn.*` Meta is **ObsidiNote-structured** and loads from its
+    own index.
+  - Any other notebook is **foreign**. ObsidiNote derives an index for it in memory:
+    - topic paths from section groups and sections (`Group / Section`), with subpages as children;
+    - the page list (title, section, modified date, onenote: link);
+    - edges from the onenote: hyperlinks between its pages, read in the background.
+- **In the interface:** the side rail and the knowledge graph show the connected notebook's own
+  structure (sections as topic areas, its pages as dots, its links as lines), with "Recently
+  changed". Ask can search it with the same path-based method, and Copilot reads page text in
+  memory only.
+- **Never written:** a connected notebook without an ObsidiNote vault is read only, always. A
+  write guard in the OneNote adapter refuses every write (`UpdatePageContent`, `CreateNewPage`,
+  `DeleteHierarchy`, moves) whose target is not inside the active vault (see Several ObsidiNote
+  vaults), and a test enforces it. Its derived index lives
+  in memory only, rebuilt each time it loads (OneNote is the only store, and ObsidiNote may not
+  write an index into someone else's notebook).
+- **Taking content over:** "Add to ObsidiNote" on a page of a connected notebook runs the normal
+  Add flow. It creates a page in ObsidiNote's own notebook with a summary and a link back to the
+  original page, never a move or a copy of the whole page. *(Comes with step 3, Add.)*
+- **Size:** structure and titles load first, and page text loads on demand. A notebook with
+  thousands of pages shows its structure in seconds; link edges fill in as they are read.
+
+### Several ObsidiNote vaults (user requirement, 2026-11-13)
+
+There can be **more than one ObsidiNote**, each in its own OneNote notebook file (for example one
+per team or per project). ObsidiNote recognises a vault by its structure, not by the notebook's
+name, and **continues in any vault it finds**.
+
+- **What a vault is:** a structure root that holds `00 Index` with the `ObsidiNote` state page,
+  whose Meta carries `obsn.schema` and a unique `obsn.vaultId`. The root is normally a whole
+  notebook. It can also be one section group inside a larger notebook, so a vault can live inside
+  an existing team notebook.
+- **Detection:** at start, and whenever a notebook is opened or connected, ObsidiNote scans the
+  open notebooks (and their top-level section groups) for state pages. Each vault found joins
+  the switcher as writable, with its name, location, page and topic counts. Opening a notebook
+  file that contains a vault is enough to continue in it: index, ids and links carry on from its
+  state page.
+- **The active vault:** exactly one vault is active at a time; the start reopens the last one used.
+  - Add, Update, Archive and Delete write only into the active vault.
+  - Ask and the knowledge graph read the active vault, and can include other vaults and
+    connected notebooks as read-only sources.
+  - Switching vault is a deliberate action in the switcher, and the window always shows which
+    vault is active.
+- **Write guard:** every write checks that its target lies inside the **active vault's root**
+  (notebook or section group). Writes to another vault, to a foreign notebook, or outside the
+  root are refused, and a test enforces it.
+- **The writer lease** is per vault, on its own state page, so two PCs can work in two different
+  vaults at the same time.
+- **Records:** `config\obsidinote.local.json` keeps the known vaults (vault id, name, location as
+  a OneNote link or `.onetoc2` path) and the last active one. These are not content, and the vault
+  itself stays the only store.
+- **New vault:** "New ObsidiNote vault" creates a new notebook with the fixed structure. To place
+  a vault inside an existing notebook as a section group, ObsidiNote asks for confirmation first,
+  because that writes into a notebook it does not own yet. After that, the section group is the
+  vault root and the rest of that notebook stays read only.
+- **Moved or renamed notebook:** the vault id stays the same. If its recorded location no longer
+  opens, the start says so and finds the vault again by id in the open notebooks.
+
 ### Central index (user requirement, 2026-11-12)
 
 The repository has **one central index**. Information is found by following **paths** through

@@ -4,7 +4,7 @@
 
 A personal wiki that links itself: add anything, and Microsoft 365 Copilot files it into OneNote, linked to related pages and topics.
 
-Status: feasibility stage. See `FEASIBILITY.md` and `docs/STATUS.md`.
+Status: early build. The ObsidiNote window opens and reads your notebook; adding and asking come next. See `FEASIBILITY.md` and `docs/STATUS.md`.
 
 ## Install
 1. Install (PowerShell, no admin rights):
@@ -27,11 +27,15 @@ The installer puts the latest release into `%LOCALAPPDATA%\Programs\ObsidiNote` 
 Each start shows one status line per step (`[OK]`, `[WARN]` or `[FAIL]`):
 1. **Update**: checks for a new release. If one is installed, the new version starts at once.
 2. **This computer**: Windows PowerShell 5.1, desktop OneNote, Microsoft Edge and its policies, the debug port, ObsidiNote's Edge profile (signed in or not, single sign-on on or off) and GitHub. A `[FAIL]` line says what to fix.
-3. **OneNote**: opens the ObsidiNote notebook, which also starts OneNote, and waits until OneNote answers. The first time the notebook is found, its location is saved as `"notebook"` in `config\obsidinote.local.json`.
+3. **OneNote**: opens your ObsidiNote vault, which also starts OneNote, and waits until OneNote answers. This is the vault you last chose in the window. Without one, it looks for a notebook called ObsidiNote or one with a `00 Index` section. The first time the vault is found, its location is saved as `"notebook"` in `config\obsidinote.local.json`.
 4. **Copilot**: opens Microsoft 365 Copilot in an Edge window of its own. It has its own profile in `%LOCALAPPDATA%\ObsidiNote\edge-profile`, so your normal Edge is not touched. ObsidiNote waits up to 5 minutes for a sign-in. Later starts reuse it.
+5. **ObsidiNote**: opens the ObsidiNote window, a new window of ObsidiNote's Edge, at `http://127.0.0.1:8767`. The console shows `[OK] ObsidiNote  open at http://127.0.0.1:8767`.
 
-- Skip Copilot: start with `-NoCopilot` or set `OBSIDINOTE_NO_COPILOT=1`. Skip OneNote: `-NoOneNote`.
-- Exit codes: 1 = a check failed, 2 = OneNote not available, 3 = Copilot could not be reached.
+ObsidiNote keeps running while its console window is open. **Close that console window (or press Ctrl+C in it) to stop ObsidiNote.** Starting ObsidiNote again while it runs opens the window of the one that is running.
+
+- Skip Copilot: start with `-NoCopilot` or set `OBSIDINOTE_NO_COPILOT=1`. The window then opens in ObsidiNote's Edge profile without Copilot (or in your default browser if Edge cannot start), and the status line says which. Skip OneNote: `-NoOneNote`. Start without opening a window: `-NoWindow` or `OBSIDINOTE_NO_WINDOW=1` (open the address yourself).
+- Exit codes: 1 = a check failed, 2 = OneNote not available, 3 = Copilot could not be reached, 4 = the ObsidiNote window's local server could not start (for example, the port is in use).
+- The window's local server answers on port 8767, on this computer only. Another port: `{ "uiPort": 8790 }` in `config\obsidinote.local.json`. Ports that are reserved, blocked by browsers or equal to the Edge port are refused.
 - The Edge window listens on port 9334 on this computer only. Another port: `{ "cdpPort": 9345 }` in `config\obsidinote.local.json` (9333, 3000, 3100 and ports browsers block are refused).
 - Sign-in: `{ "signIn": "private" }` in `config\obsidinote.local.json` opens Copilot in a private session instead. You then sign in yourself at every Edge start. The default is `single-sign-on`.
 
@@ -47,6 +51,14 @@ On a PC with a Windows work account, run **`sso-setup.cmd`** once (in the Obsidi
 - Still stuck: send the last 30 lines of `%LOCALAPPDATA%\ObsidiNote\logs\obsidinote.log`. They hold ids, counts, timings and states only, never your content.
 
 ## Features
+In the ObsidiNote window today:
+- **Add or ask** from one box, with Auto, Add and Ask modes (`Ctrl+1` Add, `Ctrl+2` Ask, `Enter` sends, `Shift+Enter` adds a line). In Auto, fixed rules say before you send whether the text will be added or asked, and why. Sending says that Add and Ask come in the next step.
+- **Notebook switcher** at the top of the side bar: every notebook open in OneNote. ObsidiNote vaults come first; for now a vault is a notebook with a `00 Index` section, whatever its name. Other notebooks are marked "read only" and are never written to. Choosing a vault makes it the active vault. ObsidiNote remembers it in the window and as `"notebook"` in `config\obsidinote.local.json`, so the next start opens that vault. While a read-only notebook is shown, the box says that an Add still goes to the active vault.
+- **The shown notebook** in the side bar: its sections and section groups with their page counts, read from OneNote.
+- **Recently changed**: the 10 most recently changed pages of the shown notebook; a title opens the page in OneNote.
+- A note in the side bar when OneNote, the notebook or Copilot needs your attention. Nothing is shown when all is well.
+- The window only reads your notebooks. It writes nothing to disk except the active vault's location in the settings file, and the browser keeps only the active vault's id, never content.
+
 Planned:
 - **Add**: paste text, a link or a file; it becomes a OneNote page with topics, links and backlinks.
 - **Ask**: ask a question; the answer cites your own pages, and each citation opens in OneNote.
@@ -92,7 +104,11 @@ Everything ObsidiNote knows lives in your own OneNote notebook: your pages, the 
 ## Project layout
 ```
 obsidinote.ps1         entry point (parameters, I/O)
-lib/Core.psm1        pure functions
+lib/Server.psm1      the window's local server on 127.0.0.1 (prebuilt ui/ and a JSON API)
+lib/Intent.psm1      Add or Ask rules; lib/NotebookView.psm1: sections and recent pages (read only)
+lib/AppWindow.psm1   opens the ObsidiNote window in ObsidiNote's Edge
+ui/                  the built interface (served as is; no Node needed to run ObsidiNote)
+ui-src/              its source: React + Vite + TypeScript (npm run build writes ui/)
 lib/Update.psm1      update helpers: versions, files in use, backup, manifest, checksums
 lib/OneNoteHost.psm1 open the notebook on record (or start OneNote), wait for its COM API
 lib/StartChecks.psm1 the start's checks of this computer; lib/Startup.psm1: start decisions
@@ -111,6 +127,7 @@ sso-setup.cmd        single sign-on with the Windows work account for Copilot
 
 ## Tests
 `tools/run-tests.ps1` runs Pester over `tests/` and fails if any script file contains non-ASCII bytes.
+The interface: in `ui-src`, `npm install` once, then `npm run typecheck`, `npm test` and `npm run build` (writes `ui/`, which is committed).
 
 ## Release
 See `AGENTS.md` → Releasing.

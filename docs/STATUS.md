@@ -1,6 +1,6 @@
 # Status - ObsidiNote
 
-Updated: 2026-11-12. Status values: `todo` / `done (code)` / `verified` / `unverified live`.
+Updated: 2026-11-13. Status values: `todo` / `done (code)` / `verified` / `unverified live`.
 
 | # | Item | Status | Evidence |
 |---|---|---|---|
@@ -15,10 +15,13 @@ Updated: 2026-11-12. Status values: `todo` / `done (code)` / `verified` / `unver
 | 7c | Links: Internal links / Web links buckets, summary page shape, dedup by URL, Links index page | designed | FEASIBILITY.md, Links; probes P7 (SharePoint/OneDrive) and P8 (web) todo |
 | 7d | Archive (default, restorable) and delete (confirmed, via OneNote Deleted Pages) | designed | FEASIBILITY.md, Archive and delete; probe P1c (links after a move or delete) todo |
 | 7b | P1b: Meta value size limit, Index load time at 100 / 1,000 / 5,000 pages | todo | decides how the catalogue is split over topic pages |
-| 8 | Web UI: Add / Ask / Map | todo | design in FEASIBILITY.md section 5 |
+| 8 | Web UI step 1: ObsidiNote window (server on 127.0.0.1:8767, home with Add/Ask box and live intent, notebook switcher with vaults first and read-only notebooks, real sections and recent pages, attention notes; graph and history empty) | done (code); unverified live with Copilot | 2026-11-13: `tools/run-tests.ps1` 246 passed; `ui-src` typecheck, 24 vitest tests, build OK; local run without Copilot answered `/`, `/api/status`, `/api/notebooks`, `/api/notebook?id=` (real OneNote, read only), `/api/intent` (403 on a bad Origin). Not yet seen: the window opening in ObsidiNote's Edge next to Copilot, and a real vault (none open on the test PC) |
+| 8c | Connected notebooks and several vaults: full structure detection (state page, obsn.vaultId, vaults in section groups), write guard | todo | FEASIBILITY.md "Connected notebooks", "Several ObsidiNote vaults"; step 1 has the thin read-only part (`00 Index` check) |
+| 8b | Web UI: Add / Ask / Map behaviour | todo | design in FEASIBILITY.md section 5; submit answers 501 until then |
+| 9a | Build order (user, 2026-11-13): 1 window (v0.3.0), 2 structure + vaults + index, 3 knowledge graph, 4 Add, 5 Ask | in progress | steps 2-5 built in parallel in worktrees ObsidiNote-step2..5 (branches step2-index, step3-graph, step4-add, step5-ask); step 5 done on its branch; merged one by one with full tests between |
 | 9 | Auto-update on start | verified | 2026-11-12: a v0.1.0 install updated itself to v0.1.1 at start ("updated v0.1.0 -> v0.1.1"); the second start was silent |
 | 11 | Startup: start OneNote when not running, wait for COM | verified | `lib/OneNoteHost.psm1` + 9 tests; live 2026-11-12: "OneNote is running and ready." |
-| 12 | Startup: open Copilot in own Edge profile (port 9334), wait for sign-in | unverified live (fix done (code)) | Business-tenant test 2026-11-12 (v0.2.3): failed fast with "Lost the connection to the Copilot tab". Fixed in code: no navigating a sign-in page back to Copilot, retries bounded by the 300 s sign-in time (not 15 attempts), no second Edge window (profile in use without the debug port stops with "close that Edge window"), forced browser sign-in (BrowserSignin = 2) and blocked debug port named, single sign-on setup (`sso-setup.cmd`, `lib/Sso.psm1`), `"signIn"` setting, status-line start (update + relaunch, checks, notebook record). 154 tests pass 2026-11-12; `-NoCopilot` smoke run OK. Needs a live start on a business tenant: start lines, `sso-setup.cmd`, "[OK] Copilot connected". |
+| 12 | Startup: open Copilot in own Edge profile (port 9334), wait for sign-in | verified | Business-tenant test 2026-11-12 (v0.2.5): one-time Edge sign-in (BrowserSignin = 2) then "[OK] Copilot connected in ObsidiNote's Edge window (port 9334)"; profile now "signed in with a work account; SSO on". The double run with "'aces' is not recognized" was the one-time old-launcher glitch of that update. |
 | 10 | Public repo, releases | verified | github.com/jgt87/ObsidiNote; v0.1.0 and v0.1.1 with zip + SHA256SUMS |
 
 Current blocker: P3 and P4 need a business tenant with a Copilot licence.

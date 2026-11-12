@@ -72,6 +72,28 @@ Describe 'The debug port' {
     }
 }
 
+Describe 'The interface port (uiPort)' {
+    It 'is 8767 in the shipped config\obsidinote.json and by default, and browsers allow it' {
+        ([IO.File]::ReadAllText((Join-Path $root 'config\obsidinote.json')) | ConvertFrom-Json).uiPort | Should Be 8767
+        $app = New-TempApp '{}' ''
+        Get-UiPort -AppRoot $app | Should Be 8767
+        Remove-Item $app -Recurse -Force
+        Test-FetchBadPort 8767 | Should Be $false
+    }
+    It 'takes uiPort from obsidinote.local.json' {
+        $app = New-TempApp '{"uiPort":8767}' '{"uiPort":8790}'
+        Get-UiPort -AppRoot $app | Should Be 8790
+        Remove-Item $app -Recurse -Force
+    }
+    It 'refuses a reserved, blocked, invalid port or the debug port' {
+        foreach ($bad in '3000', '4190', '"x"', '9334') {
+            $app = New-TempApp "{`"cdpPort`":9334,`"uiPort`":$bad}" ''
+            { Get-UiPort -AppRoot $app } | Should Throw
+            Remove-Item $app -Recurse -Force
+        }
+    }
+}
+
 Describe 'The Edge profile' {
     It 'lives in the data folder, which OBSIDINOTE_DATA_DIR moves' {
         $app = New-TempApp '{}' ''

@@ -52,13 +52,14 @@ function Test-OneNoteComReady {
 }
 
 function Get-OneNoteNotebooksXml {
-    <# The open notebooks (GetHierarchy, scope hsNotebooks = 2) as XML text; '' when COM does not answer. #>
+    <# The open notebooks (GetHierarchy, scope hsNotebooks = 2, or -Scope 3 with their sections) as
+       XML text; '' when COM does not answer. #>
     [CmdletBinding()]
-    param()
+    param([ValidateSet(2, 3)][int]$Scope = 2)
     try {
         $on = New-Object -ComObject OneNote.Application
         $xml = ''
-        $on.GetHierarchy('', 2, [ref]$xml)
+        $on.GetHierarchy('', $Scope, [ref]$xml)
         return [string]$xml
     } catch { return '' }
 }
@@ -179,7 +180,7 @@ function Start-OneNoteIfNeeded {
         if ($wait.notebook) {
             $result.notebookOpen = $true
             $result.foundRecord = ConvertTo-NotebookRecord $wait.notebook.path
-            $result.message = "running, notebook $NotebookName open"
+            $result.message = "running, notebook $(if ("$($wait.notebook.name)") { $wait.notebook.name } else { $NotebookName }) open"
         } else {
             $result.message = "running; notebook $NotebookName is not open$(if ($usable) { ' (opening it from the record did not work in time)' } else { ' (not created yet, or opened under another name)' })"
         }

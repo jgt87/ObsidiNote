@@ -15,6 +15,8 @@ $script:FetchBadPorts = @(0, 1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37
 $script:ReservedPorts = @(9333, 3000, 3100)
 
 $script:DefaultCdpPort = 9334
+# The interface's local server (lib/Server.psm1), on 127.0.0.1 only.
+$script:DefaultUiPort = 8767
 
 function Get-AppRoot { Split-Path -Parent $PSScriptRoot }
 
@@ -97,4 +99,21 @@ function Get-NotebookRecord {
     "$(Get-AppSetting -Key 'notebook' -Default '' -AppRoot $AppRoot)"
 }
 
-Export-ModuleMember -Function Get-AppRoot, Get-AppDataDir, Get-AppConfig, Test-FetchBadPort, Get-CdpPortProblem, Get-CopilotSettings, Get-AppSetting, Get-CopilotSignInMode, Get-NotebookRecord
+function Get-UiPort {
+    <# The interface's port: "uiPort" from config\obsidinote.json (overridable in
+       config\obsidinote.local.json), 8767 by default. Throws on a port that cannot be used: not a
+       number, reserved, one browsers block, or the same as the Edge debug port "cdpPort". #>
+    param([string]$AppRoot)
+    $raw = "$(Get-AppSetting -Key 'uiPort' -Default $script:DefaultUiPort -AppRoot $AppRoot)"
+    $port = 0
+    if (-not [int]::TryParse($raw, [ref]$port)) { throw "Setting uiPort ('$raw') in config\obsidinote.json or config\obsidinote.local.json is not a number." }
+    $problem = Get-CdpPortProblem $port
+    if (-not $problem) {
+        $cdp = "$(Get-AppSetting -Key 'cdpPort' -Default $script:DefaultCdpPort -AppRoot $AppRoot)"
+        if ($cdp -eq "$port") { $problem = "port $port is already the Edge debug port (cdpPort)" }
+    }
+    if ($problem) { throw "Setting uiPort: $problem. Choose another port in config\obsidinote.local.json (default $($script:DefaultUiPort))." }
+    $port
+}
+
+Export-ModuleMember -Function Get-UiPort, Get-AppRoot, Get-AppDataDir, Get-AppConfig, Test-FetchBadPort, Get-CdpPortProblem, Get-CopilotSettings, Get-AppSetting, Get-CopilotSignInMode, Get-NotebookRecord

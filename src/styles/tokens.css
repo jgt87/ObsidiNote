@@ -25,6 +25,7 @@
   --bg: Canvas;
   --surface: Canvas;
   --raised: Canvas;
+  --sunken: color-mix(in srgb, CanvasText 4%, Canvas); /* the page behind cards (DESIGN.md: greys) */
   --hover: color-mix(in srgb, CanvasText 5%, transparent);
   --active: color-mix(in srgb, CanvasText 10%, transparent);
 
@@ -73,7 +74,8 @@
 
 :root {
   /* type */
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Inter when it is installed, else the system UI font; nothing is downloaded. */
+  --font-sans: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
   --text-tag: 10px;
   --text-label: 11px;

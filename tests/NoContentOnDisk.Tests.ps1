@@ -39,6 +39,45 @@ Describe 'The Copilot bridge writes no files' {
     }
 }
 
+Describe 'The interface writes no files' {
+    # The local server, the intent rules, the notebook reader and the window opener: OneNote is the
+    # only store, so none of them may write a file (their log lines go through Write-AppLog).
+    $uiModules = 'Server.psm1', 'Intent.psm1', 'NotebookView.psm1', 'AppWindow.psm1'
+    It 'has no file-writing call in lib/Server.psm1, lib/Intent.psm1, lib/NotebookView.psm1 or lib/AppWindow.psm1' {
+        $hits = @(foreach ($f in $uiModules) {
+            Get-CodeLines (Join-Path $root "lib\$f") | Where-Object { $_.text -match $script:FileWrites } | ForEach-Object { "$($_.file):$($_.line)" }
+        })
+        ($hits -join ', ') | Should Be ''
+    }
+    It 'logs no page titles, text or notebook content from the server' {
+        $hits = @(foreach ($f in $uiModules) {
+            foreach ($l in (Get-CodeLines (Join-Path $root "lib\$f"))) {
+                $at = $l.text.IndexOf('Write-AppLog')
+                if ($at -ge 0 -and $l.text.Substring($at) -match '(?i)(\$text|\$body|\.title|\.recent|\.sections|\.reason|\$r\.)') { "$($l.file):$($l.line)" }
+            }
+        })
+        ($hits -join ', ') | Should Be ''
+    }
+    It 'writes to no notebook: no OneNote write call in the interface modules (connected notebooks are read only)' {
+        $writes = '(?i)\b(UpdatePageContent|UpdateHierarchy|CreateNewPage|DeleteHierarchy|DeletePageContent|MergeSections|MergeFiles|OpenHierarchy|CloseNotebook|Publish|SyncHierarchy|SetFilingLocation)\b'
+        $hits = @(foreach ($f in $uiModules) {
+            Get-CodeLines (Join-Path $root "lib\$f") | Where-Object { $_.text -match $writes } | ForEach-Object { "$($_.file):$($_.line)" }
+        })
+        ($hits -join ', ') | Should Be ''
+        '$on.UpdatePageContent($x)' -match $writes | Should Be $true
+    }
+    It 'keeps no content in the browser: storage only in model/preferences.ts, for the chosen notebook id' {
+        $src = Join-Path $root 'ui-src\src'
+        $hits = @(Get-ChildItem -LiteralPath $src -Recurse -File -Include *.ts, *.tsx |
+            Where-Object { $_.Name -ne 'preferences.ts' -and [IO.File]::ReadAllText($_.FullName) -match '(localStorage|sessionStorage|indexedDB|document\.cookie)' } |
+            ForEach-Object { $_.Name })
+        ($hits -join ', ') | Should Be ''
+        $prefs = [IO.File]::ReadAllText((Join-Path $src 'model\preferences.ts'))
+        $prefs | Should Not Match '(sessionStorage|indexedDB|document\.cookie)'
+        @([regex]::Matches($prefs, "localStorage\.setItem\(([A-Z_]+),") | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique) -join ',' | Should Be 'VAULT_KEY'
+    }
+}
+
 Describe 'The bridge never logs content' {
     # A log call that passes prompt or reply text, a page title, a banner or a result message.
     $content = '(\$Text|\$ptext|\.Text|\.ServerText|\.SentText|\.title|\.bar|ResultMessage)\b(?!\)?"?\.Length)'
