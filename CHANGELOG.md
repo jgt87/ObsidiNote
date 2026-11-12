@@ -7,6 +7,14 @@ versions follow [SemVer](https://semver.org/).
 
 Nothing yet.
 
+## [v0.1.1] - 2026-11-12
+
+### Changed
+- App icon redrawn as a rock: an irregular outline with uneven facets lit from the top left, instead of seven facets around one centre (which read as an umbrella). All sizes regenerated (`tools/make-icon.py`).
+
+### Added
+- README screenshots of the interface mock-ups (home, Add result, Ask answer, knowledge graph, page details) in `docs/screenshots/`.
+
 ## [v0.1.0] - 2026-11-12
 
 First public version: feasibility stage. No app yet; the OneNote probes, the design and the

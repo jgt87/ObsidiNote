@@ -17,6 +17,24 @@ Planned:
 - **Ask**: ask a question; the answer cites your own pages, and each citation opens in OneNote.
 - **Map**: a graph of everything, clustered by topic, with edges weighted by relevance.
 
+## Screenshots
+Design mock-ups of the planned interface, with invented example content.
+
+**Add or ask from one box.** ObsidiNote says what it will do before it does it.
+![Home: one input with Auto, Add and Ask modes, the central index in the side bar, recently added pages](docs/screenshots/home.png)
+
+**Add.** The new page's place in the central index, its topics, and every link with its strength and reason.
+![Add result: placement in the index, topics, links with strength, anchor and reason](docs/screenshots/add.png)
+
+**Ask.** The answer shows the path it took through the index and cites your own pages.
+![Ask answer: path through the index, answer with numbered citations, sources that open in OneNote](docs/screenshots/ask.png)
+
+**Knowledge graph.** Pages are dots, topics are grey areas, and links are lines weighted by relevance. Hovering a page focuses it and its neighbours.
+![Knowledge graph: dots in labelled topic areas, the hovered page and its links in purple, a preview card](docs/screenshots/map.png)
+
+**Page details.** Clicking a dot opens the page with its links, backlinks and mentions.
+![Page modal: summary, page content from OneNote, links out, linked from, mentions, Open in OneNote](docs/screenshots/page.png)
+
 ## Configuration
 Copy `.env.example` to `.env` (if present). Every key has a working default; optional keys
 switch features off instead of crashing.
