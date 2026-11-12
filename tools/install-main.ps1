@@ -17,25 +17,16 @@ $dir = if ($env:OBSIDINOTE_DIR) { $env:OBSIDINOTE_DIR } else { Join-Path $env:LO
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 if ([Net.WebRequest]::DefaultWebProxy) { [Net.WebRequest]::DefaultWebProxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials }
 
-# The two things the installer itself needs; OneNote and Edge are checked after the files are in place.
-function Write-Status([string]$Status, [string]$Name, [string]$Detail) {
-    Write-Host '  [' -NoNewline
-    Write-Host $Status -ForegroundColor $(switch ($Status) { 'OK' { 'Green' } 'WARN' { 'Yellow' } default { 'Red' } }) -NoNewline
-    Write-Host ']' -NoNewline
-    Write-Host ((' ' * (5 - $Status.Length)) + $Name.PadRight(22)) -NoNewline
-    Write-Host $Detail -ForegroundColor DarkGray
-}
-Write-Host 'Before installing'
+# The two things the installer itself needs. This file runs on its own (downloaded by install.ps1),
+# so the status lines come after the files are in place, from the app's own lib\Status.psm1 (the
+# same helper the start uses); a failure here stops with a plain message.
 $psOk = $PSVersionTable.PSEdition -eq 'Desktop' -and $PSVersionTable.PSVersion.Major -eq 5
-Write-Status $(if ($psOk) { 'OK' } else { 'FAIL' }) 'Windows PowerShell' "$($PSVersionTable.PSVersion)"
 $langOk = $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage'
-Write-Status $(if ($langOk) { 'OK' } else { 'FAIL' }) 'Language mode' "$($ExecutionContext.SessionState.LanguageMode)"
-if (-not $langOk) { throw 'Constrained Language mode (AppLocker or WDAC) blocks ObsidiNote. Ask IT whether scripts may run in Full Language mode.' }
+if (-not $langOk) { throw "Constrained Language mode ($($ExecutionContext.SessionState.LanguageMode)) blocks ObsidiNote (AppLocker or WDAC). Ask IT whether scripts may run in Full Language mode." }
 if (-not $psOk) {
-    Write-Host '  Run this installer in Windows PowerShell 5.1 (powershell.exe), as shown in the README.' -ForegroundColor Red
+    Write-Host "  Windows PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition)): run this installer in Windows PowerShell 5.1 (powershell.exe), as shown in the README." -ForegroundColor Red
     return
 }
-Write-Host ''
 
 Write-Host "Installing ObsidiNote into $dir" -ForegroundColor Cyan
 $release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{ 'User-Agent' = 'ObsidiNote-installer' }
@@ -93,6 +84,9 @@ foreach ($lnkPath in $targets) {
 Write-Host ''
 # What ObsidiNote needs on this computer (it starts OneNote and opens Copilot in Edge at every start).
 Write-Host 'This computer'
+Import-Module (Join-Path $dir 'lib\Status.psm1') -Force
+Write-Status 'OK' 'Windows PowerShell' "$($PSVersionTable.PSVersion)"
+Write-Status 'OK' 'Language mode' "$($ExecutionContext.SessionState.LanguageMode)"
 try {
     Import-Module (Join-Path $dir 'lib\OneNoteHost.psm1') -Force
     $oneNoteExe = Get-OneNoteExePath

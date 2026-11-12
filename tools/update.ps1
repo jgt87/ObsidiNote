@@ -15,6 +15,11 @@
 param(
     [switch]$Force,        # check even when automatic updates are turned off
     [switch]$Report,       # print the outcome (used by update.cmd)
+    # Also return the outcome as one object on stdout (used by obsidinote.ps1 for its status line
+    # and to start the new version after an update): outcome = up-to-date, updated, repaired,
+    # not-updated, skipped, off or failed; version = the installed version afterwards; detail = why.
+    # Changes nothing else: the same checks, messages and log lines as without it.
+    [switch]$PassThru,
     [switch]$Repair,       # install the installed version again (the start found files missing or different)
     [string]$To = '',      # go back (or forward) to this release, e.g. v0.1.3, and skip the newer ones
     # Handing over (the updater of the installed version starts the new release's updater, so a fix
@@ -45,6 +50,9 @@ function Write-UpdateLog([string]$Message) {
         [IO.File]::AppendAllText($file, ((Get-Date).ToString('yyyy-MM-dd HH:mm:ss') + " $Message`r`n"))
     } catch { }
 }
+$selfPath = $MyInvocation.MyCommand.Path
+$script:Outcome = [pscustomobject]@{ outcome = 'up-to-date'; version = ''; detail = '' }
+function Set-Outcome([string]$Outcome, [string]$Detail = '') { $script:Outcome.outcome = $Outcome; $script:Outcome.detail = $Detail }
 function Say([string]$Message) { [Console]::Error.WriteLine("[ObsidiNote update] $Message"); Write-UpdateLog $Message }
 function Note([string]$Message) { Write-UpdateLog $Message }   # log only, not shown
 
@@ -77,7 +85,7 @@ function Install-Release([string]$From, [string]$NewVersion) {
     # Machine files stay.
     $xf = @('*.local.json', 'version.txt'); $xd = @('.git', 'node_modules')
     $locked = Get-LockedUpdateFiles -Source $From -Target $root -ExcludeFiles $xf -ExcludeDirs $xd
-    if (@($locked.blocking).Count) { Say (Format-LockedUpdateFiles @($locked.blocking) $NewVersion); return }
+    if (@($locked.blocking).Count) { Set-Outcome 'not-updated' "files of ObsidiNote are in use by another program; $NewVersion is installed at a later start"; Say (Format-LockedUpdateFiles @($locked.blocking) $NewVersion); return }
     # Open but unchanged, or no longer in the release: robocopy leaves these (full paths in /XF).
     $keep = @(@($locked.same) + @($locked.removed) | Where-Object { $_ })
     $touched = @(Get-UpdateTouchedFiles -Source $From -Target $root -ExcludeFiles $xf -ExcludeDirs $xd | Where-Object { $keep -notcontains $_ })
@@ -122,13 +130,13 @@ function Complete-Rollback([string]$Target, [string]$From, [string]$Latest) {
 }
 
 function Update-GitClone {
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Say 'git is not available; cannot update this clone.'; return }
-    if ((Invoke-Git @('rev-parse', '--abbrev-ref', 'HEAD')) -ne $branch) { Note 'git clone not on main: no update'; if ($Report) { Say 'This is a git clone on another branch than main; not updated.' }; return }
-    if (Invoke-Git @('status', '--porcelain', '--untracked-files=no')) { Note 'git clone has local changes: no update'; if ($Report) { Say 'This git clone has local changes; not updated.' }; return }
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Set-Outcome 'not-updated' 'git is not available to update this clone'; Say 'git is not available; cannot update this clone.'; return }
+    if ((Invoke-Git @('rev-parse', '--abbrev-ref', 'HEAD')) -ne $branch) { Set-Outcome 'not-updated' 'this git clone is not on the main branch'; Note 'git clone not on main: no update'; if ($Report) { Say 'This is a git clone on another branch than main; not updated.' }; return }
+    if (Invoke-Git @('status', '--porcelain', '--untracked-files=no')) { Set-Outcome 'not-updated' 'this git clone has local changes'; Note 'git clone has local changes: no update'; if ($Report) { Say 'This git clone has local changes; not updated.' }; return }
     $before = Invoke-Git @('rev-parse', 'HEAD')
     $null = Invoke-Git @('pull', '--ff-only', '--quiet') 60
     $after = Invoke-Git @('rev-parse', 'HEAD')
-    if ($after -ne $before) { Say "updated $($before.Substring(0, 7)) -> $($after.Substring(0, 7))" }
+    if ($after -ne $before) { Set-Outcome 'updated' "$($before.Substring(0, 7)) -> $($after.Substring(0, 7))"; Say "updated $($before.Substring(0, 7)) -> $($after.Substring(0, 7))" }
     elseif ($Report) { Say "Already up to date ($($after.Substring(0, 7)))." }
 }
 
@@ -145,19 +153,21 @@ function Remove-OldUpdateFolders {
     }
 }
 
-try {
+# Dot-sourced block: a "return" below ends the update check, not the script, so the outcome is
+# still handed back (-PassThru) at the end; variables stay in the script's scope as before.
+. { try {
     # Handed over by the installed version's updater: install the release it unpacked, nothing else.
     if ($FromFolder) { Install-Release $FromFolder $Version; return }
     Import-Module (Join-Path $here 'lib\Update.psm1') -Force
     if ($To) {
-        if (-not (ConvertTo-ReleaseVersion $To)) { Say "'$To' is not a release; give one like v0.1.3 (see the Releases page on GitHub)."; return }
+        if (-not (ConvertTo-ReleaseVersion $To)) { Set-Outcome 'not-updated' "'$To' is not a release"; Say "'$To' is not a release; give one like v0.1.3 (see the Releases page on GitHub)."; return }
         $To = 'v' + (ConvertTo-ReleaseVersion $To)
-        if (Test-Path (Join-Path $root '.git')) { Say "This is a git clone: go back with git itself (git checkout $To); -To is for installed releases."; return }
+        if (Test-Path (Join-Path $root '.git')) { Set-Outcome 'not-updated' 'this is a git clone'; Say "This is a git clone: go back with git itself (git checkout $To); -To is for installed releases."; return }
     }
     $skipList = @()
     if (-not $Force -and -not $To) {
         $settings = Get-UpdateSettings $root
-        if (-not $settings.autoUpdate) { return }
+        if (-not $settings.autoUpdate) { Set-Outcome 'off' 'automatic updates are off ("autoUpdate": false)'; return }
         $skipList = @($settings.skipUpdates)
     }
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
@@ -183,7 +193,7 @@ try {
             return
         }
         try { $release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/$which" -TimeoutSec 15 -Headers $headers }
-        catch { Say "release $To was not found on GitHub ($($_.Exception.Message))."; return }
+        catch { Set-Outcome 'not-updated' "release $To was not found on GitHub"; Say "release $To was not found on GitHub ($($_.Exception.Message))."; return }
     } else {
         $release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/$which" -TimeoutSec 15 -Headers $headers
     }
@@ -191,6 +201,7 @@ try {
     $isCurrent = $latest -and (Test-SameRelease $latest $current)
     # Automatic updates leave a release the person went back from alone (and every one before it).
     if (-not $To -and -not $Repair -and -not $isCurrent -and (Test-ReleaseSkipped $latest $skipList)) {
+        Set-Outcome 'skipped' "$latest is skipped (you went back from it)"
         Say "$latest is skipped (you went back from it); staying on $current until a newer release is out. Remove skipUpdates from config\obsidinote.local.json to clear this."
         return
     }
@@ -203,7 +214,7 @@ try {
     elseif ($To) { Say "going from $(if ($current) { $current } else { '(unknown)' }) to $latest" }
     elseif (-not $latest -or $isCurrent) { Note "up to date ($current)"; if ($Report) { Say "Already up to date ($current)." }; return }
     $asset = @($release.assets | Where-Object { $_.name -like 'ObsidiNote-*.zip' }) | Select-Object -First 1
-    if (-not $asset) { Say "release $latest has no ObsidiNote zip"; return }
+    if (-not $asset) { Set-Outcome 'not-updated' "release $latest has no ObsidiNote zip"; Say "release $latest has no ObsidiNote zip"; return }
 
     $tmp = Join-Path $env:TEMP ('obsidinote-update-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
     $null = New-Item -ItemType Directory -Path $tmp
@@ -232,7 +243,7 @@ try {
         # updater itself applies with this update (not one later).
         $newUpdater = Join-Path $src.FullName 'tools\update.ps1'
         # Going back is done by this updater: an older one may lack what this one knows.
-        $handOver = -not $To -and (Test-Path -LiteralPath $newUpdater) -and ((Get-FileHashShared $newUpdater) -ne (Get-FileHashShared $MyInvocation.MyCommand.Path))
+        $handOver = -not $To -and (Test-Path -LiteralPath $newUpdater) -and ((Get-FileHashShared $newUpdater) -ne (Get-FileHashShared $selfPath))
         if ($handOver) {
             Note "handing over to the updater of $latest"
             $childArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $newUpdater, '-AppRoot', $root, '-FromFolder', $src.FullName, '-Version', $latest)
@@ -244,6 +255,10 @@ try {
         } else {
             Install-Release $src.FullName $latest
         }
+        if (-not (Test-SameRelease (Read-InstalledVersion) $latest)) {
+            if ($script:Outcome.outcome -ne 'not-updated') { Set-Outcome 'not-updated' "$latest could not be installed (see the lines above)" }
+        } elseif ($Repair) { Set-Outcome 'repaired' "$latest installed again" }
+        else { Set-Outcome 'updated' "$(if ($current) { $current } else { '(unknown)' }) -> $latest" }
         if (Test-SameRelease (Read-InstalledVersion) $latest) {
             if ($To) { Complete-Rollback $To $current $newest }
             elseif (-not $Repair -and $null -ne (Get-LocalAppValue $root 'skipUpdates')) {
@@ -258,6 +273,11 @@ try {
         try { [IO.Directory]::Delete($tmp, $true) } catch { Note "update folder left for a later start: $($_.Exception.Message)" }
     }
 } catch {
+    Set-Outcome 'failed' "$($_.Exception.Message)"
     Say "update check skipped: $($_.Exception.Message)"
+} }
+if ($PassThru) {
+    $script:Outcome.version = try { Read-InstalledVersion } catch { '' }
+    $script:Outcome
 }
 exit 0

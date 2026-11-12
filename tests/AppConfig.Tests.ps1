@@ -13,6 +13,31 @@ function New-TempApp([string]$Shipped, [string]$Local) {
     $app
 }
 
+Describe 'The signIn and notebook settings' {
+    It 'ships signIn single-sign-on and an empty notebook record' {
+        $shipped = [IO.File]::ReadAllText((Join-Path $root 'config\obsidinote.json')) | ConvertFrom-Json
+        $shipped.signIn | Should Be 'single-sign-on'
+        $shipped.notebook | Should Be ''
+        Get-CopilotSignInMode -AppRoot $root | Should Be 'single-sign-on'
+    }
+    It 'takes private from the local file, and treats anything else as single-sign-on' {
+        $app = New-TempApp '{"signIn":"single-sign-on"}' '{"signIn":"private"}'
+        Get-CopilotSignInMode -AppRoot $app | Should Be 'private'
+        Remove-Item $app -Recurse -Force
+        $app = New-TempApp '{"signIn":"whatever"}' ''
+        Get-CopilotSignInMode -AppRoot $app | Should Be 'single-sign-on'
+        Remove-Item $app -Recurse -Force
+    }
+    It 'reads the notebook on record from the local file' {
+        $app = New-TempApp '{"notebook":""}' '{"notebook":"onenote:https://example.org/Documents/ObsidiNote"}'
+        Get-NotebookRecord -AppRoot $app | Should Be 'onenote:https://example.org/Documents/ObsidiNote'
+        Remove-Item $app -Recurse -Force
+        $app = New-TempApp '{"notebook":""}' ''
+        Get-NotebookRecord -AppRoot $app | Should Be ''
+        Remove-Item $app -Recurse -Force
+    }
+}
+
 Describe 'The debug port' {
     It 'is 9334 by default, and 9334 is not on the Fetch standard''s bad-port list' {
         Test-FetchBadPort 9334 | Should Be $false

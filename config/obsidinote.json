@@ -1,4 +1,6 @@
 {
   "autoUpdate": true,
-  "cdpPort": 9334
+  "cdpPort": 9334,
+  "signIn": "single-sign-on",
+  "notebook": ""
 }

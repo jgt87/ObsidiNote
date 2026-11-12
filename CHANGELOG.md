@@ -7,6 +7,24 @@ versions follow [SemVer](https://semver.org/).
 
 Nothing yet.
 
+## [v0.2.4] - 2026-11-12
+
+### Fixed
+- Copilot no longer keeps failing to open on a managed PC. Before, each attempt could send a sign-in page back to Copilot, which restarted the sign-in, and after 15 quick attempts the start gave up with "Lost the connection to the Copilot tab". Now a sign-in page is left alone, and ObsidiNote keeps attaching to the current Copilot tab until the 5-minute sign-in time is up.
+- ObsidiNote never opens a second Edge window for its profile. When its Edge window is still starting, the start waits for it (up to 45 s) instead of starting Edge again. When that Edge profile is already open in a window without ObsidiNote's debug port, the start stops and says to close that window.
+- When Edge policy requires signing in to the browser itself (BrowserSignin = 2) and ObsidiNote's Edge profile is not signed in yet, Edge closes the Copilot window. The start now says so: sign in to Edge with your work account in that window, then start again.
+- When Edge policy blocks the debug port, the start stops at once and says to ask IT, instead of retrying.
+
+### Added
+- Single sign-on setup: `sso-setup.cmd` turns on Edge's "Allow single sign-on for work or school sites using this profile" in ObsidiNote's own Edge profile, after you confirm, so Copilot signs in with your Windows work account by itself. It changes nothing else: your normal Edge profile and Edge policies stay as they are. It writes a log with names and yes/no values only to `%LOCALAPPDATA%\ObsidiNote\logs`. `-Off` turns it off again.
+- Setting `"signIn"` in `config\obsidinote.json`: `single-sign-on` (default, ObsidiNote's own Edge profile) or `private` (a private session: you sign in yourself at every Edge start).
+- The start shows each step as a status line (`[OK]`, `[WARN]` or `[FAIL]`), with the same helper the installer uses:
+  - Update: "up to date (vX.Y.Z)", why it did not update (for example a git clone with local changes), or the update it installed. After an update, the new version starts at once with the same arguments, and the old one ends.
+  - This computer: Windows PowerShell 5.1, Full Language mode, desktop OneNote, Microsoft Edge, Edge policies (debug port, forced browser sign-in), the debug port (free or ObsidiNote's own Edge), the Edge profile (signed in with a work account, a personal account or none; single sign-on on, off or unavailable) and GitHub (for updates). If the PC has a work account and single sign-on is off, the start says to run `sso-setup.cmd` once. A FAIL ends the start with what to do (exit code 1).
+  - OneNote: opens ObsidiNote's notebook, which starts OneNote with that notebook open, and waits until it answers. Where the notebook is gets saved in the `"notebook"` setting in `config\obsidinote.local.json` the first time it is found. Until then the start opens OneNote itself and says so.
+  - Copilot: when Copilot cannot be reached, the line says what to do for that cause.
+- `Start ObsidiNote.cmd` starts in its own folder and runs Windows PowerShell (`powershell.exe`) explicitly.
+
 ## [v0.2.3] - 2026-11-12
 
 ### Fixed
@@ -20,7 +38,7 @@ Nothing yet.
 ## [v0.2.2] - 2026-11-12
 
 ### Fixed
-- The install command (`irm .../install.ps1 | iex`, the same as CCBridge's) failed on machines whose shell hands the script to `iex` line by line: blank lines gave "empty string" errors and multi-line blocks would not parse. `install.ps1` is now a one-line bootstrap that downloads the full installer (`tools/install-main.ps1`) and runs it as a file, so it works either way. A test keeps the bootstrap line-by-line safe.
+- The install command (`irm .../install.ps1 | iex`) failed on machines whose shell hands the script to `iex` line by line: blank lines gave "empty string" errors and multi-line blocks would not parse. `install.ps1` is now a one-line bootstrap that downloads the full installer (`tools/install-main.ps1`) and runs it as a file, so it works either way. A test keeps the bootstrap line-by-line safe.
 
 ### Added
 - Design: a fixed notebook structure. `00 Index` and `01 Inbox`, then one section per page type (`Notes`, `Sources`, `People`, `Projects`, `Meetings`, `Decisions`, `Journal` by year, `Files`) and an `Archive`, with title rules and a 500-page rollover. Topics live only in the central index.
@@ -29,7 +47,7 @@ Nothing yet.
 ## [v0.2.1] - 2026-11-12
 
 ### Changed
-- The installer follows the same sequence as CCBridge/StreamHub: a "Before installing" check (Windows PowerShell 5.1, Full Language mode), the install, then a "This computer" check of what ObsidiNote needs (desktop OneNote, Microsoft Edge), then the summary. The README's install steps match CCBridge's Quick start.
+- The installer runs in clear steps: a "Before installing" check (Windows PowerShell 5.1, Full Language mode), the install, then a "This computer" check of what ObsidiNote needs (desktop OneNote, Microsoft Edge), then the summary. The README's install section is a three-step quick start.
 
 ### Added
 - A test that fails on download-and-run forms antivirus treats as malware (a WebClient download fed straight into a script, encoded commands) in scripts and docs.
@@ -40,7 +58,7 @@ Nothing yet.
 - One-line installer `install.ps1` (latest release into `%LOCALAPPDATA%\Programs\ObsidiNote`, checked against `SHA256SUMS`, with desktop and Start menu shortcuts); the README shows its command instead of the old quick start.
 - Startup starts desktop OneNote when it is not running (or runs only in the background), minimised, and waits up to 60 s until its COM API answers; without OneNote the start stops with exit code 2. Skip it with `-NoOneNote` (`lib/OneNoteHost.psm1`).
 - Startup connects to Microsoft 365 Copilot after the OneNote step: ObsidiNote opens its own Edge window (profile `%LOCALAPPDATA%\ObsidiNote\edge-profile`, debug port 9334, setting `cdpPort` in `config\obsidinote.json` / `config\obsidinote.local.json`), waits up to 300 s for you to sign in, and stops with exit code 3 when Copilot cannot be reached. Skip it with `-NoCopilot` or `OBSIDINOTE_NO_COPILOT=1`.
-- The Copilot bridge (`lib/CopilotBridge.psm1`, `lib/Cdp.psm1`, `config/selectors.json`), copied from CCBridge and adapted: it sends prompts and rebuilds replies, and writes nothing to disk (no reply-frame dumps, screenshots or lock files); its log `%LOCALAPPDATA%\ObsidiNote\logs\obsidinote.log` holds ids, counts, timings and states only.
+- The Copilot bridge (`lib/CopilotBridge.psm1`, `lib/Cdp.psm1`, `config/selectors.json`): it sends prompts and rebuilds replies, and writes nothing to disk (no reply-frame dumps, screenshots or lock files); its log `%LOCALAPPDATA%\ObsidiNote\logs\obsidinote.log` holds ids, counts, timings and states only.
 
 ## [v0.1.2] - 2026-11-12
 

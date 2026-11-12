@@ -20,8 +20,8 @@ function Get-CodeLines([string]$File) {
 }
 
 Describe 'The Copilot bridge writes no files' {
-    It 'has no file-writing call in lib/CopilotBridge.psm1 or lib/Cdp.psm1' {
-        $hits = @(foreach ($f in 'CopilotBridge.psm1', 'Cdp.psm1') {
+    It 'has no file-writing call in lib/CopilotBridge.psm1, lib/Cdp.psm1 or lib/Sso.psm1' {
+        $hits = @(foreach ($f in 'CopilotBridge.psm1', 'Cdp.psm1', 'Sso.psm1') {
             Get-CodeLines (Join-Path $root "lib\$f") | Where-Object { $_.text -match $script:FileWrites } | ForEach-Object { "$($_.file):$($_.line)" }
         })
         ($hits -join ', ') | Should Be ''
@@ -43,7 +43,7 @@ Describe 'The bridge never logs content' {
     # A log call that passes prompt or reply text, a page title, a banner or a result message.
     $content = '(\$Text|\$ptext|\.Text|\.ServerText|\.SentText|\.title|\.bar|ResultMessage)\b(?!\)?"?\.Length)'
     It 'has no log call that carries text, a title or a banner' {
-        $hits = @(foreach ($f in 'CopilotBridge.psm1', 'Cdp.psm1') {
+        $hits = @(foreach ($f in 'CopilotBridge.psm1', 'Cdp.psm1', 'Sso.psm1') {
             foreach ($l in (Get-CodeLines (Join-Path $root "lib\$f"))) {
                 $at = $l.text.IndexOf('Write-AppLog')
                 if ($at -lt 0) { continue }

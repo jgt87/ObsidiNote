@@ -14,6 +14,8 @@
 #   prompt or reply text, page titles or page text, banner text or file names (ids, counts,
 #   timings and states only).
 # - User-facing texts say ObsidiNote; texts for the person go to stderr, not Write-Host.
+# - Connect-Copilot reads "signIn" from config\obsidinote.json when -SignIn is not given, and does
+#   not retry errors that only another Edge window would follow from (Test-NoRetryError, lib/Cdp.psm1).
 # "StreamHub" and "Chathub" below are the names of Microsoft's own Copilot endpoints; gptIdentifiers
 # and #gptModeSwitcher are field and element names on Microsoft's Copilot page, kept as they are.
 # Strict mode stays off here: the module reads optional fields of Copilot's JSON records and page
@@ -72,6 +74,31 @@ function Get-CopilotTarget {
     Invoke-RestMethod -Method Put "http://127.0.0.1:$Port/json/new?$($Selectors.chatUrl)"
 }
 
+function Test-NavigateToCopilot([string]$Url, $Selectors, [switch]$FirstAttempt) {
+    <# Whether Connect-Copilot sends a tab to Copilot: an empty one (about:blank, edge:// pages, no
+       address) always; another web page only on the first attempt and never Microsoft's sign-in.
+       After the first attempt a web page that is not Copilot is a sign-in on its way (Microsoft's or
+       the organisation's own), so it is left alone. #>
+    if (Test-CopilotUrl $Url $Selectors) { return $false }
+    if ("$Url" -notmatch '^(?i)https?://') { return $true }
+    if ("$Url" -match '^(?i)https://(login\.microsoftonline\.com|login\.live\.com|login\.microsoft\.com|login\.windows\.net)/') { return $false }
+    [bool]$FirstAttempt
+}
+
+function Get-WebPageCount([int]$Port) {
+    <# How many tabs in ObsidiNote's Edge show a web page (http or https); 0 when Edge does not answer. #>
+    try { @((Invoke-RestMethod "http://127.0.0.1:$Port/json/list" -TimeoutSec 3) | Where-Object { $_.type -eq 'page' -and "$($_.url)" -match '^(?i)https?://' }).Count } catch { 0 }
+}
+
+function Test-ForcedSignInBlock {
+    <# The Copilot window went away because Edge wants the profile signed in to Edge first: policy
+       BrowserSignin = 2, the profile has no work account yet, and no web page is left in that Edge. #>
+    param([int]$Port, [string]$ProfileDir)
+    if (-not (Test-EdgeForcedSignIn)) { return $false }
+    if ((Get-EdgeProfileAccount -ProfileDir $ProfileDir) -eq 'work') { return $false }
+    (Get-WebPageCount $Port) -eq 0
+}
+
 function Use-BrowserSession([int]$Port, [scriptblock]$Body) {
     # A short connection to Edge itself (not a tab), for the browser-wide CDP commands.
     $ver = Invoke-RestMethod "http://127.0.0.1:$Port/json/version"
@@ -120,13 +147,17 @@ function Connect-Copilot {
     <# Starts (or reuses) Edge on the Copilot page and returns a bridge object. -SignIn private opens
        Copilot in a private session (single sign-on off: you sign in yourself, once per Edge start);
        single-sign-on uses ObsidiNote's own Edge profile and closes private sessions left from before.
-       Port and profile default to ObsidiNote's own session (Get-CopilotSettings: "cdpPort", 9334). #>
+       Without -SignIn the "signIn" setting is used (config\obsidinote.json; single-sign-on by default).
+       Port and profile default to ObsidiNote's own session (Get-CopilotSettings: "cdpPort", 9334).
+       Edge is started at most twice per call (the second time only when its window was closed
+       meanwhile); errors a retry cannot fix (Edge holds the profile without the debug port, policy
+       blocks the port) end the call at once instead of opening another Edge window per attempt. #>
     param(
         [int]$Port = 0,
         [string]$ProfileDir = '',
         [string]$SelectorsPath,
         [int]$SignInTimeoutSec = 300,
-        [ValidateSet('single-sign-on', 'private')][string]$SignIn = 'single-sign-on',
+        [ValidateSet('', 'single-sign-on', 'private')][string]$SignIn = '',
         # Return at once when the person still has to sign in: the bridge comes back with SignInPending,
         # and the caller looks for the message box itself, so its thread is free.
         [switch]$NoSignInWait
@@ -136,6 +167,9 @@ function Connect-Copilot {
         if (-not $Port) { $Port = $own.cdpPort }
         if (-not $ProfileDir) { $ProfileDir = $own.profileDir }
     }
+    if (-not $SignIn) { $SignIn = Get-CopilotSignInMode -AppRoot (Split-Path -Parent $script:ModuleDir) }
+    Write-AppLog info bridge "Connecting to Copilot (sign-in: $SignIn, port $Port)"
+    $launches = 0
     $sel = if ($SelectorsPath) { [IO.File]::ReadAllText($SelectorsPath) | ConvertFrom-Json } else { Get-CopilotSelectors }
     # The Copilot tab is recognised by its host (chatUrl and chatHosts in selectors.json).
     $deadline = (Get-Date).AddSeconds($SignInTimeoutSec + 30)
@@ -145,7 +179,9 @@ function Connect-Copilot {
         try {
             # Edge may still be starting, or may replace the tab (first start, sign-in redirects):
             # every attempt looks for the current Copilot tab again.
-            $null = Start-CdpEdge -Port $Port -ProfileDir $ProfileDir -Url $sel.chatUrl
+            # A new Edge window only when none runs for this profile (Start-CdpEdge returns the process
+            # it started); a third start in one call would mean the window keeps being closed.
+            if (Start-CdpEdge -Port $Port -ProfileDir $ProfileDir -Url $sel.chatUrl -NoLaunch:($launches -ge 2)) { $launches++ }
             if ($SignIn -eq 'private') { $target = Get-PrivateCopilotTarget -Port $Port -Selectors $sel }
             else {
                 if ($attempt -eq 1) { try { $null = Close-PrivateCopilotSessions $Port } catch { Write-AppLog verbose bridge "closing private sessions failed: $($_.Exception.Message)" } }
@@ -154,12 +190,14 @@ function Connect-Copilot {
             $session = Connect-Cdp $target.webSocketDebuggerUrl
             $bridge = [pscustomobject]@{ Session = $session; Selectors = $sel; Port = $Port; HubSockets = @{}; AttachErrors = @()
         Pacing = (Get-CopilotPacing); LastReplyAt = $null; SignInPending = $false }
-            if (-not (Test-CopilotUrl $target.url $sel)) { $null = Invoke-Cdp $session 'Page.navigate' @{ url = $sel.chatUrl } }
+            # A sign-in page is never sent back to Copilot (Test-NavigateToCopilot): doing that on every
+            # attempt restarted the sign-in and closed the tab's connection again.
+            if (Test-NavigateToCopilot $target.url $sel -FirstAttempt:($attempt -eq 1)) { $null = Invoke-Cdp $session 'Page.navigate' @{ url = $sel.chatUrl } }
             $null = Invoke-Cdp $session 'Network.enable'
             # Edge throttles a page in a background or minimised window so hard that Copilot's reply
             # stream stalls halfway. Keep the Copilot tab "visible, focused and active" while attached.
             Set-CopilotTabActive $session
-            Write-AppLog verbose bridge "Attached to page target (attempt $attempt)" @{ url = (Get-UrlShape $target.url); port = $Port }
+            Write-AppLog info bridge "Attached to the Copilot tab (attempt $attempt)" @{ url = (Get-UrlShape $target.url); port = $Port }
             $wait = if ($signInAnnounced) { [int][Math]::Max(1, ($deadline - (Get-Date)).TotalSeconds) } elseif ($NoSignInWait) { 5 } else { 20 }
             if (Wait-CopilotEditor $bridge -TimeoutSec $wait) {
                 Write-AppLog info bridge "Connected to Copilot Chat$(if ($attempt -gt 1) { " (after $attempt attempts)" })"
@@ -183,12 +221,27 @@ function Connect-Copilot {
         } catch {
             if ($session) { try { Disconnect-Cdp $session } catch { } }
             $why = $_.Exception.Message
+            if (Test-NoRetryError $_) { Write-AppLog info bridge 'Not retrying: Edge cannot be reached this way'; throw }
             if ($why -like '*never appeared*') {
                 Write-AppLog info bridge 'Message box never appeared (not signed in, or the page changed: check selectors.editor)'
                 throw
             }
-            if ((Get-Date) -gt $deadline -or $attempt -ge 15) { Write-AppLog info bridge "Giving up connecting to Copilot after $attempt attempts: $why"; throw }
+            # The tab closed its connection or went away: a sign-in redirect replaces the tab (then the
+            # next attempt finds the new one), or Edge closed the window to make the profile sign in
+            # to Edge itself first (policy BrowserSignin = 2), which no retry gets past.
+            $gone = $why -match 'Lost the connection|no page targets|Could not connect to the Copilot tab'
+            if ($gone -and (Test-ForcedSignInBlock -Port $Port -ProfileDir $ProfileDir)) {
+                Write-AppLog info bridge 'Edge closed the Copilot window: the profile must sign in to Edge first (BrowserSignin = 2)'
+                throw (New-NoRetryError (Get-ForcedSignInMessage))
+            }
+            # Bounded by the sign-in time, not by a small count: each redirect of a sign-in closes the
+            # tab's connection once, and 15 quick attempts ended a sign-in that was still going on.
+            if ((Get-Date) -gt $deadline -or $attempt -ge 120) { Write-AppLog info bridge "Giving up connecting to Copilot after $attempt attempts: $why"; throw }
             Write-AppLog info bridge "Copilot tab changed while connecting; reconnecting (attempt $attempt): $why"
+            if ($gone -and -not $signInAnnounced -and -not $NoSignInWait) {
+                $signInAnnounced = $true
+                Write-UserLine "The Copilot tab went to a sign-in page. Sign in to Microsoft 365 Copilot in ObsidiNote's Edge window if it asks (waiting up to $SignInTimeoutSec s)..."
+            }
             Start-Sleep -Seconds 2
         }
     }
@@ -1990,4 +2043,4 @@ function Disconnect-Copilot {
     Disconnect-Cdp $Bridge.Session
 }
 
-Export-ModuleMember -Function Get-CopilotSelectors, Get-CopilotPacing, Get-CopilotResponseOptions, Get-ResponseModeClassic, Close-CopilotMenu, Test-DamagedTagText, Get-AlnumHead, Set-CopilotTheme, Merge-LateReplyText, Get-ProgressLine, Add-CopilotAttachment, Get-CopilotCharts, Add-CopilotMention, Get-ReplyAgent, Get-AgentDisplayName, Get-PrivateCopilotTarget, Close-PrivateCopilotSessions, Set-CopilotResponseMode, Test-CopilotPage, Wait-CopilotSignIn, Wait-CopilotEditor, Get-CopilotTarget, Test-CopilotUrl, Get-ReplyTimelineSummary, New-StreamState, Add-StreamRecord, New-ReplyTimeline, Connect-Copilot, New-CopilotChat, Send-CopilotPrompt, Set-CopilotWorkIq, Disconnect-Copilot, Read-HubRecords, Get-BotReplyText, Get-ReplyFromFrames, Get-TypedLength
+Export-ModuleMember -Function Test-NavigateToCopilot, Get-WebPageCount, Test-ForcedSignInBlock, Get-CopilotSelectors, Get-CopilotPacing,Get-CopilotResponseOptions, Get-ResponseModeClassic, Close-CopilotMenu, Test-DamagedTagText, Get-AlnumHead, Set-CopilotTheme, Merge-LateReplyText, Get-ProgressLine, Add-CopilotAttachment, Get-CopilotCharts, Add-CopilotMention, Get-ReplyAgent, Get-AgentDisplayName, Get-PrivateCopilotTarget, Close-PrivateCopilotSessions, Set-CopilotResponseMode, Test-CopilotPage, Wait-CopilotSignIn, Wait-CopilotEditor, Get-CopilotTarget, Test-CopilotUrl, Get-ReplyTimelineSummary, New-StreamState, Add-StreamRecord, New-ReplyTimeline, Connect-Copilot, New-CopilotChat, Send-CopilotPrompt, Set-CopilotWorkIq, Disconnect-Copilot, Read-HubRecords, Get-BotReplyText, Get-ReplyFromFrames, Get-TypedLength

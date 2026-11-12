@@ -24,11 +24,27 @@ The installer puts the latest release into `%LOCALAPPDATA%\Programs\ObsidiNote` 
 - Microsoft Edge and a Microsoft 365 account with Copilot Chat.
 
 ## Startup
-ObsidiNote checks for an update, starts OneNote, then opens Microsoft 365 Copilot in an Edge window of its own (its own profile in `%LOCALAPPDATA%\ObsidiNote\edge-profile`, so your normal Edge is not touched). The first time, sign in once in that window; ObsidiNote waits up to 5 minutes and prints `[ObsidiNote] Copilot is connected.` Later starts reuse the sign-in.
+Each start shows one status line per step (`[OK]`, `[WARN]` or `[FAIL]`):
+1. **Update**: checks for a new release. If one is installed, the new version starts at once.
+2. **This computer**: Windows PowerShell 5.1, desktop OneNote, Microsoft Edge and its policies, the debug port, ObsidiNote's Edge profile (signed in or not, single sign-on on or off) and GitHub. A `[FAIL]` line says what to fix.
+3. **OneNote**: opens the ObsidiNote notebook, which also starts OneNote, and waits until OneNote answers. The first time the notebook is found, its location is saved as `"notebook"` in `config\obsidinote.local.json`.
+4. **Copilot**: opens Microsoft 365 Copilot in an Edge window of its own. It has its own profile in `%LOCALAPPDATA%\ObsidiNote\edge-profile`, so your normal Edge is not touched. ObsidiNote waits up to 5 minutes for a sign-in. Later starts reuse it.
 
 - Skip Copilot: start with `-NoCopilot` or set `OBSIDINOTE_NO_COPILOT=1`. Skip OneNote: `-NoOneNote`.
-- Exit codes: 2 = OneNote not available, 3 = Copilot could not be reached.
+- Exit codes: 1 = a check failed, 2 = OneNote not available, 3 = Copilot could not be reached.
 - The Edge window listens on port 9334 on this computer only. Another port: `{ "cdpPort": 9345 }` in `config\obsidinote.local.json` (9333, 3000, 3100 and ports browsers block are refused).
+- Sign-in: `{ "signIn": "private" }` in `config\obsidinote.local.json` opens Copilot in a private session instead. You then sign in yourself at every Edge start. The default is `single-sign-on`.
+
+### Single sign-on (work or school account)
+On a PC with a Windows work account, run **`sso-setup.cmd`** once (in the ObsidiNote folder). It opens ObsidiNote's Edge window and asks before it changes anything. It turns on Edge's "Allow single sign-on for work or school sites using this profile" for ObsidiNote's own profile only, so Copilot then signs in with your Windows account by itself. No password is stored, and your normal Edge and Edge policies stay as they are. It writes a log with names and yes/no values only to `%LOCALAPPDATA%\ObsidiNote\logs\ObsidiNote-sso-<date>.txt`. `sso-setup.cmd -Off` turns it off again. The start shows whether single sign-on is on (`Edge profile` line), and reminds you to run the setup when it is off.
+
+### When Copilot does not sign in
+- **`[WARN] Edge profile ... SSO off`**: run `sso-setup.cmd` once, close ObsidiNote's Edge window, then start ObsidiNote again.
+- **"Edge profile is already open in an Edge window ... without its debug port"**: an Edge window with ObsidiNote's profile is open, but ObsidiNote cannot control it. Close every window of ObsidiNote's Edge (also check the taskbar), then start again.
+- **"Edge policy BrowserSignin = 2"**: your organisation requires you to sign in to Edge itself first. In the Edge window ObsidiNote opened, sign in to Edge with your work account (Edge's own prompt, or the profile picture at the top left), then start again.
+- **"Edge policy RemoteDebuggingAllowed = 0"**: ObsidiNote cannot drive Copilot on that computer. Ask IT to allow it.
+- **"Copilot message box never appeared"**: sign in to Copilot in ObsidiNote's Edge window within 5 minutes and choose "Stay signed in", then start again.
+- Still stuck: send the last 30 lines of `%LOCALAPPDATA%\ObsidiNote\logs\obsidinote.log`. They hold ids, counts, timings and states only, never your content.
 
 ## Features
 Planned:
@@ -78,15 +94,19 @@ Everything ObsidiNote knows lives in your own OneNote notebook: your pages, the 
 obsidinote.ps1         entry point (parameters, I/O)
 lib/Core.psm1        pure functions
 lib/Update.psm1      update helpers: versions, files in use, backup, manifest, checksums
-lib/OneNoteHost.psm1 start OneNote at startup and wait for its COM API
+lib/OneNoteHost.psm1 open the notebook on record (or start OneNote), wait for its COM API
+lib/StartChecks.psm1 the start's checks of this computer; lib/Startup.psm1: start decisions
+lib/Status.psm1      [OK]/[WARN]/[FAIL] lines (start and installer)
 lib/CopilotBridge.psm1, lib/Cdp.psm1
                      Microsoft 365 Copilot in Edge: connect, send prompts, rebuild replies
-lib/AppConfig.psm1   settings (cdpPort, Edge profile), lib/Log.psm1: diagnostic log
+lib/Sso.psm1         single sign-on in ObsidiNote's Edge profile (sso-setup.cmd)
+lib/AppConfig.psm1   settings (cdpPort, signIn, notebook, Edge profile), lib/Log.psm1: diagnostic log
 config/              obsidinote.json (defaults), selectors.json (Copilot page);
                      *.local.json stay local and survive updates
 tests/*.Tests.ps1    Pester 3.4 (inbox) syntax: Should Be
-tools/               run-tests.ps1, build-release.ps1, update.ps1
+tools/               run-tests.ps1, build-release.ps1, update.ps1, sso-setup.ps1
 update.cmd           update now (or -To vX.Y.Z to go back)
+sso-setup.cmd        single sign-on with the Windows work account for Copilot
 ```
 
 ## Tests

@@ -74,4 +74,27 @@ function Get-CopilotSettings {
     @{ cdpPort = $port; profileDir = (Join-Path (Get-AppDataDir) 'edge-profile') }
 }
 
-Export-ModuleMember -Function Get-AppRoot, Get-AppDataDir, Get-AppConfig, Test-FetchBadPort, Get-CdpPortProblem, Get-CopilotSettings
+function Get-AppSetting {
+    <# One top-level setting from config\obsidinote.json (+ .local.json); $Default when missing or empty. #>
+    param([Parameter(Mandatory)][string]$Key, $Default = $null, [string]$AppRoot)
+    $cfg = Get-AppConfig -Name 'obsidinote' -AppRoot $AppRoot
+    if ($cfg.PSObject.Properties[$Key] -and $null -ne $cfg.$Key -and "$($cfg.$Key)" -ne '') { return $cfg.$Key }
+    $Default
+}
+
+function Get-CopilotSignInMode {
+    <# "signIn": 'single-sign-on' (default: ObsidiNote's own Edge profile, which signs in with the
+       Windows work account when single sign-on is on) or 'private' (a private session: you sign in
+       yourself, once per Edge start). Anything else counts as the default. #>
+    param([string]$AppRoot)
+    if ("$(Get-AppSetting -Key 'signIn' -Default '' -AppRoot $AppRoot)" -eq 'private') { 'private' } else { 'single-sign-on' }
+}
+
+function Get-NotebookRecord {
+    <# "notebook": where ObsidiNote's notebook is, so a start can open it (a local .onetoc2/.one
+       path, or onenote:https://... for a notebook in OneDrive or SharePoint). '' when not recorded yet. #>
+    param([string]$AppRoot)
+    "$(Get-AppSetting -Key 'notebook' -Default '' -AppRoot $AppRoot)"
+}
+
+Export-ModuleMember -Function Get-AppRoot, Get-AppDataDir, Get-AppConfig, Test-FetchBadPort, Get-CdpPortProblem, Get-CopilotSettings, Get-AppSetting, Get-CopilotSignInMode, Get-NotebookRecord
