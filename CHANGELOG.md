@@ -7,6 +7,11 @@ versions follow [SemVer](https://semver.org/).
 
 Nothing yet.
 
+## [v0.1.2] - 2026-11-12
+
+### Fixed
+- Updates computed the wrong file list when the app or temp folder was reached through an 8.3 short name (for example `C:\Users\RUNNER~1`): relative paths were cut in the wrong place, so changed, locked and removed files were missed and a rollback could put back the wrong files. Files are now enumerated with the folder exactly as given. This is also why every CI run failed until now.
+
 ## [v0.1.1] - 2026-11-12
 
 ### Changed

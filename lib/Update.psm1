@@ -24,6 +24,19 @@ function Test-UpdateExcluded([string]$Rel, [string[]]$ExcludeFiles, [string[]]$E
     $false
 }
 
+function Get-UpdateFileList([Parameter(Mandatory)][string]$Root) {
+    <# Every file under $Root with its path relative to $Root. Enumerated with .NET, which keeps the
+       root exactly as given: Get-ChildItem -Recurse returns the long form of an 8.3 short root
+       (C:\Users\RUNNER~1 -> C:\Users\runneradmin, as on CI runners), so cutting its FullName by the
+       length of the given root lands in the wrong place. #>
+    $r = $Root.TrimEnd('\')
+    if (-not [IO.Directory]::Exists($r)) { return @() }
+    foreach ($p in [IO.Directory]::EnumerateFiles($r, '*', [IO.SearchOption]::AllDirectories)) {
+        $i = New-Object IO.FileInfo $p
+        [pscustomobject]@{ Rel = $p.Substring($r.Length + 1); FullName = $p; Length = $i.Length; LastWriteTimeUtc = $i.LastWriteTimeUtc }
+    }
+}
+
 function Get-UpdateTouchedFiles {
     <# Relative paths (backslashes) of files in $Target that a robocopy /MIR from $Source would
        overwrite (size or time differs) or delete, leaving out the excluded file patterns and folders. #>
@@ -33,8 +46,8 @@ function Get-UpdateTouchedFiles {
     $dst = (Resolve-Path -LiteralPath $Target).ProviderPath.TrimEnd('\')
     $out = New-Object Collections.Generic.List[string]
     $seen = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-    foreach ($f in @(Get-ChildItem -LiteralPath $src -Recurse -File -Force -ErrorAction SilentlyContinue)) {
-        $rel = $f.FullName.Substring($src.Length + 1)
+    foreach ($f in @(Get-UpdateFileList $src)) {
+        $rel = $f.Rel
         [void]$seen.Add($rel)
         if (Test-UpdateExcluded $rel $ExcludeFiles $ExcludeDirs) { continue }
         $t = Join-Path $dst $rel
@@ -42,8 +55,8 @@ function Get-UpdateTouchedFiles {
         $ti = Get-Item -LiteralPath $t -Force
         if ($ti.Length -ne $f.Length -or $ti.LastWriteTimeUtc -ne $f.LastWriteTimeUtc) { $out.Add($rel) }
     }
-    foreach ($f in @(Get-ChildItem -LiteralPath $dst -Recurse -File -Force -ErrorAction SilentlyContinue)) {
-        $rel = $f.FullName.Substring($dst.Length + 1)
+    foreach ($f in @(Get-UpdateFileList $dst)) {
+        $rel = $f.Rel
         if ($seen.Contains($rel) -or (Test-UpdateExcluded $rel $ExcludeFiles $ExcludeDirs)) { continue }
         $out.Add($rel)
     }
@@ -93,8 +106,8 @@ function Get-UpdateNewFiles {
        excluded file patterns and folders: what a rollback removes again. #>
     param([Parameter(Mandatory)][string]$Source, [Parameter(Mandatory)][string]$Target, [string[]]$ExcludeFiles = @(), [string[]]$ExcludeDirs = @())
     $src = (Resolve-Path -LiteralPath $Source).ProviderPath.TrimEnd('\')
-    @(Get-ChildItem -LiteralPath $src -Recurse -File -Force -ErrorAction SilentlyContinue | ForEach-Object {
-        $rel = $_.FullName.Substring($src.Length + 1)
+    @(Get-UpdateFileList $src | ForEach-Object {
+        $rel = $_.Rel
         if (-not (Test-UpdateExcluded $rel $ExcludeFiles $ExcludeDirs) -and -not (Test-Path -LiteralPath (Join-Path $Target $rel) -PathType Leaf)) { $rel }
     })
 }
@@ -120,8 +133,8 @@ function Restore-UpdateBackup {
     param([Parameter(Mandatory)][string]$Target, [Parameter(Mandatory)][string]$BackupDir, [string[]]$NewFiles = @())
     $failed = New-Object Collections.Generic.List[string]
     $bk = (Resolve-Path -LiteralPath $BackupDir).ProviderPath.TrimEnd('\')
-    foreach ($f in @(Get-ChildItem -LiteralPath $bk -Recurse -File -Force)) {
-        $rel = $f.FullName.Substring($bk.Length + 1)
+    foreach ($f in @(Get-UpdateFileList $bk)) {
+        $rel = $f.Rel
         $to = Join-Path $Target $rel
         try { $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to); Copy-Item -LiteralPath $f.FullName -Destination $to -Force } catch { $failed.Add($rel) }
     }
@@ -151,8 +164,8 @@ function New-InstallManifest {
     param([Parameter(Mandatory)][string]$AppFolder, [Parameter(Mandatory)][string]$Version)
     $base = (Resolve-Path -LiteralPath $AppFolder).ProviderPath.TrimEnd('\')
     $files = [ordered]@{}
-    foreach ($f in @(Get-ChildItem -LiteralPath $base -Recurse -File -Force | Sort-Object FullName)) {
-        $rel = $f.FullName.Substring($base.Length + 1).Replace('\', '/')
+    foreach ($f in @(Get-UpdateFileList $base | Sort-Object FullName)) {
+        $rel = $f.Rel.Replace('\', '/')
         if ($rel -match $script:ManifestSkip) { continue }
         $files[$rel] = "$(Get-FileHashShared $f.FullName)".Replace('-', '')
     }
@@ -280,4 +293,4 @@ function Get-UpdateSettings([string]$AppRoot) {
     $s
 }
 
-Export-ModuleMember -Function ConvertTo-ReleaseVersion, Test-SameRelease, Test-ReleaseSkipped, Get-RollbackSkip, Get-LocalAppValue, Set-LocalAppValue, Get-UpdateSettings, New-InstallManifest, New-ReleaseChecksums, Test-InstallIntegrity, Format-InstallProblem, Get-UpdateNewFiles, Save-UpdateBackup, Restore-UpdateBackup, Test-FileLocked, Get-FileHashShared, Get-UpdateTouchedFiles, Get-LockedUpdateFiles, Format-LockedUpdateFiles, Get-RobocopyFailures
+Export-ModuleMember -Function Get-UpdateFileList, ConvertTo-ReleaseVersion,Test-SameRelease, Test-ReleaseSkipped, Get-RollbackSkip, Get-LocalAppValue, Set-LocalAppValue, Get-UpdateSettings, New-InstallManifest, New-ReleaseChecksums, Test-InstallIntegrity, Format-InstallProblem, Get-UpdateNewFiles, Save-UpdateBackup, Restore-UpdateBackup, Test-FileLocked, Get-FileHashShared, Get-UpdateTouchedFiles, Get-LockedUpdateFiles, Format-LockedUpdateFiles, Get-RobocopyFailures
