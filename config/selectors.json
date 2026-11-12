@@ -1,0 +1,24 @@
+{
+  "_provenance": "Copied from the CCBridge repo (github.com/jgt87/CCBridge), config/selectors.json at commit b972eab. Changed: the workIq note (it named a capture tool ObsidiNote does not have). Override single keys in config/selectors.local.json (a nested object there replaces the whole object).",
+  "chatUrl": "https://www.microsoft365.com/chat",
+  "chatHosts": ["microsoft365.com", "m365.cloud.microsoft"],
+  "editor": "#m365-chat-editor-target-element, [role='textbox'][contenteditable='true']",
+  "sendButton": "button[aria-label='Send'], button.fai-SendButton",
+  "stopButton": "button[aria-label*='Stop' i]",
+  "chatHubUrlPattern": "/Chathub/",
+  "streamHubUrlPattern": "/StreamHub/",
+  "newChatButton": "a[aria-label='New chat' i], button[aria-label='New chat' i]",
+  "workIq": {
+    "toggle": "",
+    "stateAttribute": "aria-checked",
+    "onValue": "true",
+    "note": "CSS selector of Copilot's Work IQ toggle on a Microsoft 365 Copilot licence. Empty toggle = Work IQ control unavailable."
+  },
+  "responseMode": {
+    "button": "#gptModeSwitcher",
+    "note": "Copilot's response mode picker (Auto / Quick response / Think deeper). Items are matched by text, else by position (0, 1, 2)."
+  },
+  "regenerateButton": "button[aria-label*='Regenerate' i]",
+  "replyContainer": "[data-testid='copilot-message-reply-div']",
+  "copyReplyButton": "[data-testid='CopyButtonTestId'], button[aria-label='Copy Response' i], button[aria-label='Copy' i]"
+}

@@ -1,0 +1,61 @@
+# Pester 3.4 syntax (inbox on Windows): Should Be / Should Throw.
+# ObsidiNote's own Edge session settings (lib/AppConfig.psm1): debug port and profile.
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$root = Split-Path -Parent $here
+$env:OBSIDINOTE_DATA_DIR = Join-Path $env:TEMP 'obsidinote-test-data'
+Import-Module (Join-Path $root 'lib\AppConfig.psm1') -Force
+
+function New-TempApp([string]$Shipped, [string]$Local) {
+    $app = Join-Path $env:TEMP ('obsn-cfg-' + [guid]::NewGuid().ToString('N'))
+    $null = New-Item -ItemType Directory -Force -Path (Join-Path $app 'config')
+    if ($Shipped) { [IO.File]::WriteAllText((Join-Path $app 'config\obsidinote.json'), $Shipped) }
+    if ($Local) { [IO.File]::WriteAllText((Join-Path $app 'config\obsidinote.local.json'), $Local) }
+    $app
+}
+
+Describe 'The debug port' {
+    It 'is 9334 by default, and 9334 is not on the Fetch standard''s bad-port list' {
+        Test-FetchBadPort 9334 | Should Be $false
+        Get-CdpPortProblem 9334 | Should Be ''
+        $app = New-TempApp '{"autoUpdate":true}' ''
+        (Get-CopilotSettings -AppRoot $app).cdpPort | Should Be 9334
+        Remove-Item $app -Recurse -Force
+    }
+    It 'is 9334 in the shipped config\obsidinote.json' {
+        (Get-CopilotSettings -AppRoot (Join-Path $env:TEMP 'obsn-no-such-app')).cdpPort | Should Be 9334
+        $shipped = [IO.File]::ReadAllText((Join-Path $root 'config\obsidinote.json')) | ConvertFrom-Json
+        $shipped.cdpPort | Should Be 9334
+    }
+    It 'refuses the other helper''s 9333, the reserved 3000 and 3100, blocked and invalid ports' {
+        foreach ($p in 9333, 3000, 3100) { Get-CdpPortProblem $p | Should Match 'reserved for another program' }
+        foreach ($p in 6000, 4190, 10080, 1) { Get-CdpPortProblem $p | Should Match 'browsers block' }
+        Get-CdpPortProblem 70000 | Should Match 'not a valid port'
+        Get-CdpPortProblem 0 | Should Match 'not a valid port'
+    }
+    It 'takes cdpPort from obsidinote.local.json over obsidinote.json' {
+        $app = New-TempApp '{"cdpPort":9334}' '{"cdpPort":9345}'
+        (Get-CopilotSettings -AppRoot $app).cdpPort | Should Be 9345
+        Remove-Item $app -Recurse -Force
+    }
+    It 'stops with a clear message on a port it must not use' {
+        $app = New-TempApp '{"cdpPort":9334}' '{"cdpPort":9333}'
+        { Get-CopilotSettings -AppRoot $app } | Should Throw 'reserved for another program'
+        Remove-Item $app -Recurse -Force
+        $app = New-TempApp '{"cdpPort":"abc"}' ''
+        { Get-CopilotSettings -AppRoot $app } | Should Throw 'is not a number'
+        Remove-Item $app -Recurse -Force
+    }
+}
+
+Describe 'The Edge profile' {
+    It 'lives in the data folder, which OBSIDINOTE_DATA_DIR moves' {
+        $app = New-TempApp '{}' ''
+        (Get-CopilotSettings -AppRoot $app).profileDir | Should Be (Join-Path $env:OBSIDINOTE_DATA_DIR 'edge-profile')
+        $saved = $env:OBSIDINOTE_DATA_DIR
+        try {
+            $env:OBSIDINOTE_DATA_DIR = ''
+            (Get-CopilotSettings -AppRoot $app).profileDir | Should Be (Join-Path $env:LOCALAPPDATA 'ObsidiNote\edge-profile')
+        } finally { $env:OBSIDINOTE_DATA_DIR = $saved }
+        Remove-Item $app -Recurse -Force
+    }
+}

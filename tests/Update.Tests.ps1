@@ -24,7 +24,7 @@ function Invoke-Updater([string[]]$UpdaterArgs) {
     $out -join ' '
 }
 
-Describe 'Relative paths under an 8.3 short folder (as CI runners hand out: C:\Users\RUNNER~1)' {
+Describe 'Relative paths under an 8.3 short folder (as CI runners hand out: RUNNER~1)' {
     # Get-ChildItem -Recurse returns the long form of a short root, so cutting its FullName by the
     # short root's length gave "pp\gone.cmd" for "gone.cmd" on CI (2026-11-12).
     $long = Join-Path $env:TEMP ('obsidinote-short-path-check-' + [guid]::NewGuid().ToString('N').Substring(0, 6))

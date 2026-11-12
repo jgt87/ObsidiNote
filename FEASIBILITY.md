@@ -153,6 +153,14 @@ Consequences:
 - **Copilot** receives page text in prompts. That is processing inside the user's own M365
   tenant, not storage by ObsidiNote. Note that M365 keeps Copilot chat history in the user's
   mailbox under the tenant's retention.
+- **Edge profile.** ObsidiNote drives Copilot in its own Edge profile
+  (`%LOCALAPPDATA%\ObsidiNote\edge-profile`, remote debugging on port 9334). That is browser
+  state, not ObsidiNote data, but Edge's cache can hold parts of the Copilot pages (and so of the
+  chat text) like any browser. The sign-in cookies live there too. Clearing the profile means
+  signing in again; ObsidiNote never reads or writes it directly.
+- **Startup order:** update check, install check, OneNote (start when it is not running, wait
+  until COM answers; stop with exit code 2 if it does not), then Copilot (open the Edge profile,
+  wait for sign-in until the message box is ready; stop with exit code 3 if it is not).
 - **Concurrency.** A single writer is enforced by a lease Meta tag on the `ObsidiNote` page
   (session id + expiry, renewed while running). There is no lock file on disk. A second
   instance starts read-only.

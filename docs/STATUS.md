@@ -13,6 +13,9 @@ Updated: 2026-11-12. Status values: `todo` / `done (code)` / `verified` / `unver
 | 7 | Central index in the OneNote Index section (topic tree, obsn.* Meta, path-based Ask) | todo | design in FEASIBILITY.md section 5 (storage principle) |
 | 7b | P1b: Meta value size limit, Index load time at 100 / 1,000 / 5,000 pages | todo | decides how the catalogue is split over topic pages |
 | 8 | Web UI: Add / Ask / Map | todo | design in FEASIBILITY.md section 5 |
-| 9 | Auto-update on start (ported from CCBridge) | in progress | |
+| 9 | Auto-update on start (ported from CCBridge) | verified | 2026-11-12: a v0.1.0 install updated itself to v0.1.1 at start ("updated v0.1.0 -> v0.1.1"); the second start was silent |
+| 11 | Startup: start OneNote when not running, wait for COM | verified | `lib/OneNoteHost.psm1` + 9 tests; live 2026-11-12: "OneNote is running and ready." |
+| 12 | Startup: open Copilot in own Edge profile (port 9334), wait for sign-in | unverified live | `lib/CopilotBridge.psm1` + `lib/Cdp.psm1` copied from CCBridge b972eab, no disk writes; 54 bridge/config/no-content tests pass (83 in all) 2026-11-12; `-NoCopilot` run prints the OneNote line and the JSON. Needs a live start: Edge window on 9334, sign-in, "Copilot is connected." |
+| 10 | Public repo, releases | verified | github.com/jgt87/ObsidiNote; v0.1.0 and v0.1.1 with zip + SHA256SUMS |
 
 Current blocker: P3 and P4 need a business tenant with a Copilot licence.

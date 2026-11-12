@@ -6,10 +6,24 @@ A personal wiki that links itself: add anything, and Microsoft 365 Copilot files
 
 Status: feasibility stage. See `FEASIBILITY.md` and `docs/STATUS.md`.
 
-## Quick start
+## Install
+Run in PowerShell (no admin rights):
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File obsidinote.ps1 -Name World
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/jgt87/ObsidiNote/main/install.ps1 | iex"
 ```
+It installs the latest release into `%LOCALAPPDATA%\Programs\ObsidiNote` and adds an ObsidiNote shortcut to the desktop and Start menu. Run it again any time to update.
+
+## Requirements
+- Windows with Windows PowerShell 5.1 (inbox); no install rights needed.
+- Desktop OneNote (Microsoft 365). ObsidiNote starts it when it is not running.
+- Microsoft Edge and a Microsoft 365 account with Copilot Chat.
+
+## Startup
+ObsidiNote checks for an update, starts OneNote, then opens Microsoft 365 Copilot in an Edge window of its own (its own profile in `%LOCALAPPDATA%\ObsidiNote\edge-profile`, so your normal Edge is not touched). The first time, sign in once in that window; ObsidiNote waits up to 5 minutes and prints `[ObsidiNote] Copilot is connected.` Later starts reuse the sign-in.
+
+- Skip Copilot: start with `-NoCopilot` or set `OBSIDINOTE_NO_COPILOT=1`. Skip OneNote: `-NoOneNote`.
+- Exit codes: 2 = OneNote not available, 3 = Copilot could not be reached.
+- The Edge window listens on port 9334 on this computer only. Another port: `{ "cdpPort": 9345 }` in `config\obsidinote.local.json` (9333, 3000, 3100 and ports browsers block are refused).
 
 ## Features
 Planned:
@@ -52,14 +66,19 @@ Problems never stop ObsidiNote; they are reported on stderr and in `%LOCALAPPDAT
 - Turn automatic updates off: `{ "autoUpdate": false }` in `config\obsidinote.local.json`, or start with `-NoUpdate`, or set `OBSIDINOTE_NO_UPDATE=1`
 
 ## Privacy
-Everything ObsidiNote knows lives in your own OneNote notebook: your pages, the inbox, the central index and its links. ObsidiNote keeps no copy on disk; it reads the notebook while it runs, so the notebook's own protection (OneDrive or SharePoint, your organisation's labels and retention) covers all of it. Text you add is sent to Microsoft 365 Copilot in your own browser session to classify and link it; nothing goes to any other service. On disk it keeps only files without content: a small settings file, and the updater's backups of the app's own files and its log in `%LOCALAPPDATA%\ObsidiNote`.
+Everything ObsidiNote knows lives in your own OneNote notebook: your pages, the inbox, the central index and its links. ObsidiNote keeps no copy on disk; it reads the notebook while it runs, so the notebook's own protection (OneDrive or SharePoint, your organisation's labels and retention) covers all of it. Text you add is sent to Microsoft 365 Copilot in your own browser session to classify and link it; nothing goes to any other service. On disk it keeps only files without content: a small settings file, the updater's backups of the app's own files, and logs with ids, counts and timings in `%LOCALAPPDATA%\ObsidiNote`. The Edge window ObsidiNote opens for Copilot keeps its own browser profile there (your sign-in, and whatever Edge itself caches), like any Edge profile.
 
 ## Project layout
 ```
 obsidinote.ps1         entry point (parameters, I/O)
 lib/Core.psm1        pure functions
 lib/Update.psm1      update helpers: versions, files in use, backup, manifest, checksums
-config/              obsidinote.json (defaults); *.local.json stay local and survive updates
+lib/OneNoteHost.psm1 start OneNote at startup and wait for its COM API
+lib/CopilotBridge.psm1, lib/Cdp.psm1
+                     Microsoft 365 Copilot in Edge: connect, send prompts, rebuild replies
+lib/AppConfig.psm1   settings (cdpPort, Edge profile), lib/Log.psm1: diagnostic log
+config/              obsidinote.json (defaults), selectors.json (Copilot page);
+                     *.local.json stay local and survive updates
 tests/*.Tests.ps1    Pester 3.4 (inbox) syntax: Should Be
 tools/               run-tests.ps1, build-release.ps1, update.ps1
 update.cmd           update now (or -To vX.Y.Z to go back)

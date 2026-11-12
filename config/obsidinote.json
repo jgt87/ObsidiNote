@@ -1,3 +1,4 @@
 {
-  "autoUpdate": true
+  "autoUpdate": true,
+  "cdpPort": 9334
 }

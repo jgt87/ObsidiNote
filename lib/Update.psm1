@@ -27,7 +27,7 @@ function Test-UpdateExcluded([string]$Rel, [string[]]$ExcludeFiles, [string[]]$E
 function Get-UpdateFileList([Parameter(Mandatory)][string]$Root) {
     <# Every file under $Root with its path relative to $Root. Enumerated with .NET, which keeps the
        root exactly as given: Get-ChildItem -Recurse returns the long form of an 8.3 short root
-       (C:\Users\RUNNER~1 -> C:\Users\runneradmin, as on CI runners), so cutting its FullName by the
+       (a profile folder RUNNER~1 -> runneradmin, as on CI runners), so cutting its FullName by the
        length of the given root lands in the wrong place. #>
     $r = $Root.TrimEnd('\')
     if (-not [IO.Directory]::Exists($r)) { return @() }
