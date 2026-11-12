@@ -135,10 +135,10 @@ encryption at rest, sensitivity labels, retention and access control. The Obsidi
 
 | Lives in the notebook | Section | How |
 |---|---|---|
-| Captured items, before and after processing | `Inbox` | one page per item; status in `obsn.status` Meta (new, linked, failed + reason) |
-| Content pages | `Notes` (more sections as needed) | body + properties outline + `obsn.*` Meta: `id`, `type`, `topics` (paths), `aliases`, `summary`, `links` (target id, strength, why; compact JSON in a Meta value) |
-| The central index (topic tree, catalogue, edges) | `Index` | root page + one page per topic; each topic page lists its subtopics and pages (readable), and carries the same data in `obsn.*` Meta (machine form) |
-| Notebook-level state | `Index` › page `ObsidiNote` | schema version, id counter, writer lease |
+| Captured items, before and after processing | `01 Inbox` | one page per item; status in `obsn.status` Meta (new, linked, failed + reason) |
+| Content pages | the type buckets (`Notes`, `Sources`, `People`, `Projects`, `Meetings`, `Decisions`, `Journal`, `Files`; see Notebook structure) | body + properties outline + `obsn.*` Meta: `id`, `type`, `topics` (paths), `aliases`, `summary`, `links` (target id, strength, why; compact JSON in a Meta value) |
+| The central index (topic tree, catalogue, edges) | `00 Index` | root page, By type, A-Z, Unfiled, and one hub page per topic; each topic page lists its subtopics and pages (readable), and carries the same data in `obsn.*` Meta (machine form) |
+| Notebook-level state | `00 Index` › page `ObsidiNote` | schema version, id counter, writer lease |
 
 What the app may keep outside the notebook: **no content**.
 - Only an **in-memory working copy** while it runs, built at start by reading the Index section
@@ -206,6 +206,55 @@ Consequences:
 - Everything the harness wrote is marked (properties outline, "Linked from" outline), so it can
   be rebuilt or undone without touching what the user typed.
 
+### Notebook structure: sections, pages and buckets (user requirement, 2026-11-12)
+
+One notebook, **ObsidiNote**, with a fixed set of sections that the app creates on first start
+and never renames. **A page's section is its type; its topics live in the central index.** A page
+has exactly one home but can sit under many topics, and reorganising topics never moves a page.
+
+```
+ObsidiNote (notebook)
+|-- 00 Index          the central index: Index (root), By type, A-Z, Topics/<topic> hubs,
+|                     Unfiled, Open questions, and the ObsidiNote state page
+|-- 01 Inbox          one page per captured item until it is filed (obsn.status: new / failed)
+|-- Notes             your own notes and concepts (evergreen; most pages land here)
+|-- Sources           reading notes: articles, books, videos, web pages (source link on top)
+|-- People            one page per person (role, how you know them, related pages)
+|-- Projects          one page per project; its parts as subpages (page level 2)
+|-- Meetings          meeting notes, one page per meeting, titled "yyyy-mm-dd <subject>"
+|-- Decisions         decision records: context, options, decision, date, owner
+|-- Journal           section group: one section per year ("2026"), one page per day
+|-- Files             one page per file you add: what it is, a link to it in OneDrive/SharePoint
+|                     (or the file embedded when small), and its summary
+|-- Archive           section group: pages that are no longer current, moved here, never deleted
+```
+
+| Bucket (type) | Goes there when Copilot's `type` is | Title rule |
+|---|---|---|
+| `Notes` | `concept`, `note`, `howto` | the subject in plain words |
+| `Sources` | `source` (article, book, video, web) | the source's own title |
+| `People` | `person` | "Name (role)" |
+| `Projects` | `project`, `project-part` (subpage) | the project name |
+| `Meetings` | `meeting` | "yyyy-mm-dd subject" |
+| `Decisions` | `decision` | "Decision: subject" |
+| `Journal` / year | `log` (a day's entries) | "yyyy-mm-dd" |
+| `Files` | `file` | the file name without extension |
+| `01 Inbox` | not filed yet, or failed | the first line of the item |
+
+Rules:
+- **Fixed type list.** Copilot must return one of the types above, and the validator rejects
+  anything else. A new bucket is a design change, not something Copilot invents.
+- **Size.** A section holds at most 500 pages, because OneNote gets slow with very large
+  sections. A full bucket rolls over to `<Bucket> 2`, and `Journal` already splits by year. The
+  index hides the split: you navigate by topic and type, not by section.
+- **Subpages** (page levels 2 and 3) only for parts of one thing, such as a project's plan,
+  risks and meetings. They are never used for topics.
+- **Your own sections and pages.** If you add a section or page in the ObsidiNote notebook
+  yourself, the app lists it in the index (under "Other sections") but never edits or moves it.
+  The read-only rule for your data holds here too.
+- **Archive** instead of delete: an archived page keeps its id, links and index entries, marked
+  "archived".
+
 ### Central index (user requirement, 2026-11-12)
 
 The repository has **one central index**. Information is found by following **paths** through
@@ -234,6 +283,20 @@ the index, like a library catalogue, not by searching all pages.
   the Index pages let it work through the wiki from a single reference. That matters because
   Copilot Notebooks take only 20 to 300 references. Add to P3: give Copilot only the root
   Index page, then ask a question whose answer is two levels down.
+- **Everything is listed (completeness rule, user requirement 2026-11-12).** Every page in the
+  notebook appears in the index, with no exceptions:
+  - in its **topic hubs** (one or more topic paths);
+  - on **By type**: one list per bucket, so every page of `Sources` is listed even if it has no
+    topic yet;
+  - on **A-Z**: every page title alphabetically, with its bucket and topics;
+  - on **Unfiled**: pages without a topic path, including your own pages and Inbox items that
+    failed, until they are placed;
+  - under **Other sections**: sections you made yourself, listed per section.
+
+  The root **Index** page links to all of these, plus counts (pages per bucket, topics, links,
+  unfiled). After every write, and on every start, the app checks the hierarchy against the
+  index: any page id missing from the index is added to Unfiled, and the count of missing pages
+  is reported. "Nothing outside the index" is a test.
 - **Rebuildable.** The index can always be rebuilt from the notebook, because each page carries
   its id, topic paths and links in its own `obsn.*` Meta tags. If the Index pages are damaged or
   out of date, a scan of the content pages recreates them.

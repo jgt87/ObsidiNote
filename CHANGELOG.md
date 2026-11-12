@@ -7,6 +7,15 @@ versions follow [SemVer](https://semver.org/).
 
 Nothing yet.
 
+## [v0.2.2] - 2026-11-12
+
+### Fixed
+- The install command (`irm .../install.ps1 | iex`, the same as CCBridge's) failed on machines whose shell hands the script to `iex` line by line: blank lines gave "empty string" errors and multi-line blocks would not parse. `install.ps1` is now a one-line bootstrap that downloads the full installer (`tools/install-main.ps1`) and runs it as a file, so it works either way. A test keeps the bootstrap line-by-line safe.
+
+### Added
+- Design: a fixed notebook structure. `00 Index` and `01 Inbox`, then one section per page type (`Notes`, `Sources`, `People`, `Projects`, `Meetings`, `Decisions`, `Journal` by year, `Files`) and an `Archive`, with title rules and a 500-page rollover. Topics live only in the central index.
+- Design: the completeness rule. Every page appears in the central index (topic hubs or Unfiled, By type, A-Z), and the app checks this on every start and after every write.
+
 ## [v0.2.1] - 2026-11-12
 
 ### Changed

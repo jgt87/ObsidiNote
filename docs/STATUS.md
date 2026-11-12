@@ -11,6 +11,7 @@ Updated: 2026-11-12. Status values: `todo` / `done (code)` / `verified` / `unver
 | 5 | P3 Copilot grounding on OneNote (business tenant) | todo | marker prompt in `probes/p3-copilot-prompt.txt` |
 | 6 | P4 Copilot grounding on Loop (business tenant) | todo | |
 | 7 | Central index in the OneNote Index section (topic tree, obsn.* Meta, path-based Ask) | todo | design in FEASIBILITY.md section 5 (storage principle) |
+| 7a | Notebook structure (00 Index, 01 Inbox, type buckets, Archive) + completeness rule (every page listed) | designed | FEASIBILITY.md, Notebook structure and Central index; code todo |
 | 7b | P1b: Meta value size limit, Index load time at 100 / 1,000 / 5,000 pages | todo | decides how the catalogue is split over topic pages |
 | 8 | Web UI: Add / Ask / Map | todo | design in FEASIBILITY.md section 5 |
 | 9 | Auto-update on start (ported from CCBridge) | verified | 2026-11-12: a v0.1.0 install updated itself to v0.1.1 at start ("updated v0.1.0 -> v0.1.1"); the second start was silent |
