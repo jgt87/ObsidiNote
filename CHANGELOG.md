@@ -7,6 +7,14 @@ versions follow [SemVer](https://semver.org/).
 
 Nothing yet.
 
+## [v0.2.1] - 2026-11-12
+
+### Changed
+- The installer follows the same sequence as CCBridge/StreamHub: a "Before installing" check (Windows PowerShell 5.1, Full Language mode), the install, then a "This computer" check of what ObsidiNote needs (desktop OneNote, Microsoft Edge), then the summary. The README's install steps match CCBridge's Quick start.
+
+### Added
+- A test that fails on download-and-run forms antivirus treats as malware (WebClient `DownloadString`/`DownloadData`, encoded commands) in scripts and docs.
+
 ## [v0.2.0] - 2026-11-12
 
 ### Added

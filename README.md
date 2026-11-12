@@ -7,11 +7,16 @@ A personal wiki that links itself: add anything, and Microsoft 365 Copilot files
 Status: feasibility stage. See `FEASIBILITY.md` and `docs/STATUS.md`.
 
 ## Install
-Run in PowerShell (no admin rights):
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/jgt87/ObsidiNote/main/install.ps1 | iex"
-```
-It installs the latest release into `%LOCALAPPDATA%\Programs\ObsidiNote` and adds an ObsidiNote shortcut to the desktop and Start menu. Run it again any time to update.
+1. Install (PowerShell, no admin rights):
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/jgt87/ObsidiNote/main/install.ps1 | iex"
+   ```
+2. Start **ObsidiNote** from the desktop or Start menu. It starts OneNote when OneNote is not running, and opens Copilot Chat in a separate Edge profile: sign in once with your Microsoft 365 account.
+3. To update later: just restart ObsidiNote (it updates itself at every start), or double-click `update.cmd`.
+
+Without the installer: download `ObsidiNote-vX.Y.Z.zip` from [Releases](https://github.com/jgt87/ObsidiNote/releases), check it against `SHA256SUMS`, unpack it and start `Start ObsidiNote.cmd`.
+
+The installer puts the latest release into `%LOCALAPPDATA%\Programs\ObsidiNote` and adds an ObsidiNote shortcut to the desktop and Start menu. Run it again any time to update.
 
 ## Requirements
 - Windows with Windows PowerShell 5.1 (inbox); no install rights needed.

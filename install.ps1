@@ -4,6 +4,8 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/jgt87/ObsidiNote/main/install.ps1 | iex"
 #
+# (The same install sequence as CCBridge/StreamHub.)
+#
 # Optional: set $env:OBSIDINOTE_DIR to install somewhere else, and
 # $env:OBSIDINOTE_NO_SHORTCUTS = '1' to skip the shortcuts.
 
@@ -14,13 +16,25 @@ $dir = if ($env:OBSIDINOTE_DIR) { $env:OBSIDINOTE_DIR } else { Join-Path $env:LO
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 if ([Net.WebRequest]::DefaultWebProxy) { [Net.WebRequest]::DefaultWebProxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials }
 
-if (-not ($PSVersionTable.PSEdition -eq 'Desktop' -and $PSVersionTable.PSVersion.Major -eq 5)) {
-    Write-Host 'Run this installer in Windows PowerShell 5.1 (powershell.exe), as shown in the README.' -ForegroundColor Red
+# The two things the installer itself needs; OneNote and Edge are checked after the files are in place.
+function Write-Status([string]$Status, [string]$Name, [string]$Detail) {
+    Write-Host '  [' -NoNewline
+    Write-Host $Status -ForegroundColor $(switch ($Status) { 'OK' { 'Green' } 'WARN' { 'Yellow' } default { 'Red' } }) -NoNewline
+    Write-Host ']' -NoNewline
+    Write-Host ((' ' * (5 - $Status.Length)) + $Name.PadRight(22)) -NoNewline
+    Write-Host $Detail -ForegroundColor DarkGray
+}
+Write-Host 'Before installing'
+$psOk = $PSVersionTable.PSEdition -eq 'Desktop' -and $PSVersionTable.PSVersion.Major -eq 5
+Write-Status $(if ($psOk) { 'OK' } else { 'FAIL' }) 'Windows PowerShell' "$($PSVersionTable.PSVersion)"
+$langOk = $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage'
+Write-Status $(if ($langOk) { 'OK' } else { 'FAIL' }) 'Language mode' "$($ExecutionContext.SessionState.LanguageMode)"
+if (-not $langOk) { throw 'Constrained Language mode (AppLocker or WDAC) blocks ObsidiNote. Ask IT whether scripts may run in Full Language mode.' }
+if (-not $psOk) {
+    Write-Host '  Run this installer in Windows PowerShell 5.1 (powershell.exe), as shown in the README.' -ForegroundColor Red
     return
 }
-if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
-    throw 'Constrained Language mode (AppLocker or WDAC) blocks ObsidiNote. Ask IT whether scripts may run in Full Language mode.'
-}
+Write-Host ''
 
 Write-Host "Installing ObsidiNote into $dir" -ForegroundColor Cyan
 $release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{ 'User-Agent' = 'ObsidiNote-installer' }
@@ -75,6 +89,19 @@ foreach ($lnkPath in $targets) {
     $lnk.Save()
 }
 
+Write-Host ''
+# What ObsidiNote needs on this computer (it starts OneNote and opens Copilot in Edge at every start).
+Write-Host 'This computer'
+try {
+    Import-Module (Join-Path $dir 'lib\OneNoteHost.psm1') -Force
+    $oneNoteExe = Get-OneNoteExePath
+    Write-Status $(if ($oneNoteExe) { 'OK' } else { 'FAIL' }) 'OneNote (desktop)' $(if ($oneNoteExe) { $oneNoteExe } else { 'not found: install or repair Microsoft 365 Office' })
+} catch { Write-Status 'WARN' 'OneNote (desktop)' "not checked: $($_.Exception.Message)" }
+try {
+    Import-Module (Join-Path $dir 'lib\Cdp.psm1') -Force
+    $edgeExe = try { Get-EdgePath } catch { '' }
+    Write-Status $(if ($edgeExe) { 'OK' } else { 'FAIL' }) 'Microsoft Edge' $(if ($edgeExe) { $edgeExe } else { 'not found: ObsidiNote opens Copilot in Edge' })
+} catch { Write-Status 'WARN' 'Microsoft Edge' "not checked: $($_.Exception.Message)" }
 Write-Host ''
 Write-Host "ObsidiNote $($release.tag_name) is installed." -ForegroundColor Green
 Write-Host '  Start it:  ObsidiNote shortcut on the desktop or in the Start menu'
