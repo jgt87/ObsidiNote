@@ -7,6 +7,16 @@ versions follow [SemVer](https://semver.org/).
 
 Nothing yet.
 
+## [v0.2.3] - 2026-11-12
+
+### Fixed
+- The install bootstrap no longer ends with a newline. On machines that run it line by line, that left one "empty string" error after a finished install. `.editorconfig` and a test keep it so.
+
+### Added
+- Design: archive and delete. Both always ask for confirmation first. Archive is the default: it moves a page to `Archive / <bucket>`, keeps its id, links and index entries, and can be restored. Delete is explicit: a confirmation dialog, then OneNote's own Deleted Pages, kept 60 days. It removes the page's index entries and turns links to it into "(deleted: title)". Only ObsidiNote's own pages can be removed, never automatically: a "Tidy up" view only suggests. Probe P1c checks links after a move or delete.
+- Design: pasted links. A SharePoint, OneDrive, Teams or Loop link goes to `Internal links`, any other URL to `Web links`, decided by host rules. Copilot summarizes each link into a fixed page shape (summary, key facts, where, kind, sensitivity label, date checked), never the full text. A link pasted again updates its page instead of duplicating it, and the central index gets a Links page grouped by site and domain. Probes P7 and P8 cover the internal and external case.
+- Design: updating link summaries. An Update button per link, plus "Update all" for a site or domain and "Update stale links" (older than 90 days). Copilot re-reads the source and the result shows old against new. The last 3 summaries stay collapsed on the page, linking runs again (outdated links are shown for review, never removed silently), and the page's "Your notes" outline is never touched.
+
 ## [v0.2.2] - 2026-11-12
 
 ### Fixed

@@ -218,21 +218,28 @@ ObsidiNote (notebook)
 |                     Unfiled, Open questions, and the ObsidiNote state page
 |-- 01 Inbox          one page per captured item until it is filed (obsn.status: new / failed)
 |-- Notes             your own notes and concepts (evergreen; most pages land here)
-|-- Sources           reading notes: articles, books, videos, web pages (source link on top)
+|-- Internal links    one page per pasted Microsoft 365 link: SharePoint site, page, list or
+|                     document, OneDrive file, Teams channel or message, Loop page, intranet
+|-- Web links         one page per pasted external URL: article, documentation, tool, video
+|-- Sources           sources without a link: books, talks, papers, pasted text
 |-- People            one page per person (role, how you know them, related pages)
 |-- Projects          one page per project; its parts as subpages (page level 2)
 |-- Meetings          meeting notes, one page per meeting, titled "yyyy-mm-dd <subject>"
 |-- Decisions         decision records: context, options, decision, date, owner
 |-- Journal           section group: one section per year ("2026"), one page per day
-|-- Files             one page per file you add: what it is, a link to it in OneDrive/SharePoint
-|                     (or the file embedded when small), and its summary
-|-- Archive           section group: pages that are no longer current, moved here, never deleted
+|-- Files             one page per file you drop in (not a link): what it is, its summary, and the
+|                     file embedded when small. A pasted link to a OneDrive or SharePoint file
+|                     goes to Internal links instead.
+|-- Archive           section group: pages that are no longer current, one section per original
+|                     bucket (Archive / Notes, Archive / Web links, ...); restorable
 ```
 
 | Bucket (type) | Goes there when Copilot's `type` is | Title rule |
 |---|---|---|
 | `Notes` | `concept`, `note`, `howto` | the subject in plain words |
-| `Sources` | `source` (article, book, video, web) | the source's own title |
+| `Internal links` | `link-internal` (a Microsoft 365 / intranet URL) | the item's own title (site, page or file name) |
+| `Web links` | `link-web` (any other URL) | the page's own title |
+| `Sources` | `source` (book, talk, paper, pasted text; no link) | the source's own title |
 | `People` | `person` | "Name (role)" |
 | `Projects` | `project`, `project-part` (subpage) | the project name |
 | `Meetings` | `meeting` | "yyyy-mm-dd subject" |
@@ -252,8 +259,119 @@ Rules:
 - **Your own sections and pages.** If you add a section or page in the ObsidiNote notebook
   yourself, the app lists it in the index (under "Other sections") but never edits or moves it.
   The read-only rule for your data holds here too.
-- **Archive** instead of delete: an archived page keeps its id, links and index entries, marked
-  "archived".
+- **Archive by default, delete on request**: an archived page keeps its id, links and index
+  entries, marked "archived". Deleting is explicit and confirmed, and goes through OneNote's
+  Deleted Pages (see Archive and delete).
+
+### Links: internal and external (user requirement, 2026-11-12)
+
+Paste just a link, and ObsidiNote files a **summary page** for it, so you can find what the link
+is about later without opening it again.
+
+**Which bucket.** The app decides by the URL's host, with fixed rules and no model:
+- **Internal** (`Internal links`): `*.sharepoint.com` (including `-my.sharepoint.com` for
+  OneDrive), `teams.microsoft.com`, `*.loop.cloud.microsoft` and `loop.microsoft.com`,
+  `*.office.com`, `m365.cloud.microsoft`, plus any intranet hosts listed in the setting
+  `internalHosts`.
+- **External** (`Web links`): everything else.
+
+**How the summary is made.** Copilot does the reading:
+- **Internal:** Copilot opens it with the user's own Microsoft 365 permissions (Work IQ / work
+  grounding). The prompt holds the URL and asks for the fixed summary shape below. Copilot can
+  read only what the user can open, and ObsidiNote never fetches SharePoint itself.
+- **External:** Copilot's web grounding reads the page. If the tenant turns web grounding off,
+  the app reads the page's text through its own Edge session and sends that text to Copilot
+  instead. That text stays in memory, never on disk.
+
+**Fixed page shape** (one page per link, the same for both buckets):
+
+| Part | Internal link | Web link |
+|---|---|---|
+| Title | the site, page or file name | the page title |
+| Link | the URL, clickable (tracking parameters removed) | the URL |
+| Where | site / library / owner, or team / channel | domain |
+| Kind | site, page, document, list, file, channel, message, Loop page | article, docs, tool, video, other |
+| Summary | 3 to 5 sentences: what it is and why it matters | the same |
+| Key facts | up to 8 bullets: names, dates, numbers, decisions, contacts | key points |
+| Use it for | one line: when you would come back to this | the same |
+| Sensitivity | the source's label as Copilot reports it (shown, never copied) | n/a |
+| Checked | date summarized; **Update** refreshes it | the same |
+| Your notes | your own outline; the app never edits it | the same |
+| Earlier summaries | collapsed, the last 3 with dates | the same |
+
+The properties outline and `obsn.*` Meta hold `type`, `url` (normalized), `host`, `kind`,
+`summarizedAt` and `topics`, so the index and search can use them.
+
+Rules:
+- **A summary, not a copy.** Never the full text of an internal document or a web page, only the
+  summary and key facts plus the link back. The source stays where it is, under its own
+  permissions and labels.
+- **One page per link.** Pasting the same link again (compared without tracking parameters or
+  fragments) updates its page: a new summary if the content changed, and "seen again" with the
+  date. It never creates a duplicate.
+- **Updating a link's summary** (user requirement, 2026-11-12):
+  - **Where:** an **Update** button on every link page (the page modal, the Add result, and
+    "check again" on the page itself), plus bulk options: **Update all** for a site, team or
+    domain on the Links index page, and **Update stale links** (summarized more than 90 days
+    ago). Ask also offers it when it cites a link summary older than 90 days.
+  - **What it does:** Copilot reads the source again and writes a new summary in the same
+    fixed shape. The app then re-runs linking on the new text, so new topics or links are added
+    and ones that no longer fit are shown for review (never removed silently). It also updates
+    the index entries (summary line, `summarizedAt`, Links page).
+  - **What changed:** the result shows old and new side by side: summary, key facts added or
+    removed, kind or title changed. If nothing changed, it says "No changes since <date>" and
+    only the date is updated.
+  - **History:** the previous summary moves into a collapsed "Earlier summaries" outline on the
+    same page (the last 3, with their dates), so an update never loses what you saw before.
+  - **Your own notes are safe:** each link page has a **Your notes** outline that the app never
+    touches. If you edited the app's summary outline yourself (its content hash no longer
+    matches), Update asks before replacing it and offers to keep your text under Your notes.
+  - **Source gone or no access:** the old summary stays, marked "could not be updated on
+    <date>: no access / not found", and the page appears in Tidy up.
+- **Stale summaries.** A page shows "summarized N days ago", so you can see when it was last read.
+- **No access:** if Copilot cannot open an internal link (no permission, deleted), the page keeps
+  the link with "could not be read on <date>", and it stays Unfiled until it is checked again.
+- **Index:** besides topics, By type and A-Z, the central index has a **Links** page:
+  internal links grouped by site or team, and web links grouped by domain.
+- **Probes:**
+  - P7: on a business tenant, paste a SharePoint page URL and a OneDrive document URL into
+    Copilot Chat with the summary prompt, and check that it returns the fixed shape from the
+    real content.
+  - P8: the same for a public web URL, with web grounding on and off.
+
+### Archive and delete (user requirement, 2026-11-12)
+
+Two ways to take information out of the way. **Archive is the default and fully reversible;
+delete removes the page.** Both **always ask for confirmation** first: no exceptions, no "don't
+ask again", the same for one page, a selection, a whole topic, Tidy up, and commands typed in
+the box.
+
+| | Archive | Delete |
+|---|---|---|
+| What happens | The page moves to the `Archive` section group (a section per original bucket, e.g. `Archive / Web links`). Its id, links and backlinks stay; `obsn.status = archived`, `obsn.archivedFrom` and the date are recorded on the page | The page goes to OneNote's own **Deleted Pages** (OneNote's recycle bin), which keeps it for 60 days. ObsidiNote removes its index entries and edges, and turns links to it on other pages into plain text: "(deleted: title)" |
+| In the index | Listed on an **Archive** index page and in A-Z (marked archived); in topic hubs under a collapsed "Archived" group | Removed. The `ObsidiNote` state page keeps a **Recently deleted** list (title, bucket, date) for 60 days, matching the recycle bin |
+| Ask and Map | Left out of Ask by default ("include archived" switch); faded in the map, behind a filter | Gone |
+| Undo | **Restore** moves it back to its original bucket, with everything as it was | Within 60 days: restore it in OneNote (Deleted Pages); the next start's completeness check finds it and puts it back in the index. After that it is gone |
+| Confirmation | **Always** (user, 2026-11-12): a dialog naming the page(s), their bucket and where they go (`Archive / <bucket>`), "You can restore it later". Primary button "Archive"; afterwards an "Archived · Undo" notice | **Always**: a dialog naming the page(s), the bucket, how many links point to them, and "OneNote keeps deleted pages for 60 days". Primary button "Delete" |
+
+Rules:
+- **Only ObsidiNote's own pages** can be archived or deleted by the app. Pages and sections you
+  made yourself are listed but never moved or deleted (read-only rule); the app says "delete it
+  in OneNote yourself".
+- **Inbox items**: "Discard" deletes them the same way (to OneNote's Deleted Pages).
+- **Several at once**: select in the list or the map, or "Archive all pages of a topic". The app
+  always shows the list first; a topic hub itself is never deleted while pages still use it.
+- **Links and summaries**: archiving a link page keeps its summary. Deleting it also forgets the
+  URL, so pasting it again makes a new page.
+- **Suggestions, never automatic**: a "Tidy up" view lists pages that look stale (no links in or
+  out, not opened or cited in 12 months, link summaries that could not be read for 90 days).
+  You choose Archive or Delete per page; nothing moves by itself.
+- **From the input box**: "archive …" or "delete …" is never treated as Add or Ask. It opens the
+  same confirmation as the buttons, with the matching pages listed.
+- **No permanent delete in ObsidiNote.** Emptying OneNote's Deleted Pages stays a OneNote action.
+- **Probe P1c**: does an `onenote:` link still open the page after the page moves to another
+  section (archive), and what does a link to a deleted page do? This decides whether archiving
+  must also rewrite links.
 
 ### Central index (user requirement, 2026-11-12)
 
@@ -289,6 +407,9 @@ the index, like a library catalogue, not by searching all pages.
   - on **By type**: one list per bucket, so every page of `Sources` is listed even if it has no
     topic yet;
   - on **A-Z**: every page title alphabetically, with its bucket and topics;
+  - on **Links**: every internal link by site or team, and every web link by domain;
+  - on **Archive**: every archived page, by original bucket (deleted pages leave the index; the
+    state page keeps a 60-day "Recently deleted" list);
   - on **Unfiled**: pages without a topic path, including your own pages and Inbox items that
     failed, until they are placed;
   - under **Other sections**: sections you made yourself, listed per section.
@@ -396,6 +517,8 @@ quality) only needs Copilot to reason, so any Copilot account works. Steps are i
 | P3 | **Set up 2026-11-12 14:34 UTC.** Marker `OBSN-PROBE-7Q4K` is on page "Zero-trust networking" in notebook ObsidiNote-Probe on a consumer OneDrive. The question was not sent yet because the CCBridge MCP failed with `Set-WorkSign not recognized`. Copilot grounding: put a unique marker phrase on a test page, then ask Copilot Chat (with Work IQ) about it after 1 hour and after 24 hours | Copilot finds and cites the page, which shows route 2 works |
 | P4 | Same as P3 with a Loop page and a Copilot Page | Shows whether Loop is worth keeping as a read-only copy |
 | P5 | *(optional)* Drive Loop over CDP: create a page, type a heading and a link | Only if the user wants Loop as a write target |
+| P7 | Internal link summary: paste a SharePoint page URL and a OneDrive document URL into Copilot Chat (business tenant, Work IQ on) with the fixed summary prompt | Copilot returns the fixed page shape from the real content; a link without access gives a clear "cannot open" |
+| P8 | Web link summary: the same for a public URL, with web grounding on and off | With grounding: the fixed shape. Without it: the Edge-text fallback gives the same shape |
 
 ## Sources
 - [How Microsoft 365 Copilot Notebooks works](https://support.microsoft.com/en-US/Microsoft-365-Copilot/how-microsoft-365-copilot-notebooks-works): supported reference types (OneNote pages, .loop, .page) and reference limits

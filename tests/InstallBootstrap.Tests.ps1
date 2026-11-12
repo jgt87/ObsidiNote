@@ -8,6 +8,9 @@ Describe 'The install bootstrap (install.ps1)' {
     It 'has no blank lines' {
         @($lines | Where-Object { -not $_.Trim() }).Count | Should Be 0
     }
+    It 'does not end with a newline (split into lines, it would end with an empty one)' {
+        [IO.File]::ReadAllText((Join-Path $root 'install.ps1')).EndsWith("`n") | Should Be $false
+    }
     It 'parses line by line, each line on its own' {
         $bad = @()
         foreach ($l in $lines) {
