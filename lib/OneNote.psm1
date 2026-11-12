@@ -68,6 +68,38 @@ function Get-HierarchyIds {
     return , $set
 }
 
+function Test-NestedVaultNode {
+    <# True for a section group that holds a `00 Index` section: the root of another vault. #>
+    param($Node)
+    if ($Node.LocalName -ne 'SectionGroup') { return $false }
+    foreach ($c in @($Node.ChildNodes)) { if ($c.NodeType -eq 'Element' -and $c.LocalName -eq 'Section' -and $c.GetAttribute('name') -eq '00 Index') { return $true } }
+    $false
+}
+
+function Get-VaultScopeIds {
+    <# The ids inside a vault root (hierarchy XML of the root): the root and everything below it,
+       except section groups that are other vaults' roots (and their contents). Pure. #>
+    param([string]$Xml, [string]$RootId)
+    $set = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    if (-not $Xml) { return , $set }
+    [xml]$doc = $Xml
+    $start = $null
+    foreach ($n in @($doc.SelectNodes('//*[@ID]'))) { if ($n.GetAttribute('ID') -eq $RootId) { $start = $n; break } }
+    if (-not $start) { return , $set }
+    $stack = New-Object System.Collections.Stack
+    $stack.Push($start)
+    while ($stack.Count) {
+        $n = $stack.Pop()
+        [void]$set.Add($n.GetAttribute('ID'))
+        foreach ($c in @($n.ChildNodes)) {
+            if ($c.NodeType -ne 'Element' -or -not $c.GetAttribute('ID')) { continue }
+            if (Test-NestedVaultNode $c) { continue }
+            $stack.Push($c)
+        }
+    }
+    return , $set
+}
+
 function Get-PageXmlId {
     <# The ID of the one:Page element in update XML ('' when there is none). #>
     param([string]$Xml)
@@ -95,7 +127,7 @@ function New-GuardedOneNote {
     $g | Add-Member ScriptMethod Refresh {
         $set = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
         if ($this.RootId) {
-            foreach ($i in (Get-HierarchyIds ($this.Inner.GetHierarchy($this.RootId, 4)))) { [void]$set.Add($i) }
+            foreach ($i in (Get-VaultScopeIds -Xml ($this.Inner.GetHierarchy($this.RootId, 4)) -RootId $this.RootId)) { [void]$set.Add($i) }
             [void]$set.Add($this.RootId)
         }
         $this.Allowed = $set
@@ -164,4 +196,4 @@ function Get-OneNoteAdapter {
     New-GuardedOneNote -Inner (New-OneNoteComAdapter)
 }
 
-Export-ModuleMember -Function Get-OneNoteSchemaNs, New-OneNoteNsManager, ConvertTo-XmlAttr, ConvertTo-OneText, ConvertTo-OneLink, New-OneNoteComAdapter, Get-HierarchyIds, Get-PageXmlId, New-GuardedOneNote, Set-OneNoteWriteRoot, Get-OneNoteAdapter
+Export-ModuleMember -Function Get-OneNoteSchemaNs, New-OneNoteNsManager, ConvertTo-XmlAttr, ConvertTo-OneText, ConvertTo-OneLink, New-OneNoteComAdapter, Get-HierarchyIds, Test-NestedVaultNode, Get-VaultScopeIds, Get-PageXmlId, New-GuardedOneNote, Set-OneNoteWriteRoot, Get-OneNoteAdapter

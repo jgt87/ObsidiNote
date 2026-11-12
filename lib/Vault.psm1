@@ -144,7 +144,12 @@ function New-ObsidiVault {
     if ($InSectionGroupOf) { $rootId = $Adapter.CreateSectionGroupIn($InSectionGroupOf, $Name); $kind = 'sectiongroup' }
     else {
         $base = Get-NotebookBasePath -NotebooksXml ($Adapter.GetHierarchy('', 2)) -Location $Location
-        $rootId = $Adapter.CreateNotebook($base + $Name); $kind = 'notebook'
+        try { $rootId = $Adapter.CreateNotebook($base + $Name) }
+        catch {
+            if ("$($_.Exception)" -match '0x80042006') { throw "OneNote could not create the notebook in that folder (file does not exist, 0x80042006). Create it in OneNote yourself, or pass -Location with a folder OneNote can create notebooks in." }
+            throw
+        }
+        $kind = 'notebook'
     }
     Set-OneNoteWriteRoot -Adapter $Adapter -RootId $rootId
     $r = Initialize-ObsidiVault -Adapter $Adapter -RootId $rootId -Year $Year

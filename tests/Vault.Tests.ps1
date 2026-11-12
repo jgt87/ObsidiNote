@@ -136,6 +136,17 @@ Describe 'Write guard' {
         { $a.DeleteHierarchy($sg.rootId) } | Should Throw
         Set-OneNoteWriteRoot -Adapter $a -RootId $active.rootId
     }
+    It 'treats a vault in a section group of the active vault''s notebook as outside the root' {
+        $inner = New-ObsidiVault -Adapter $a -Name 'Inner' -InSectionGroupOf $active.rootId -Year 2026
+        Set-OneNoteWriteRoot -Adapter $a -RootId $active.rootId
+        { $a.CreateNewPage($inner.sectionIds['Notes']) } | Should Throw
+        { $a.UpdatePageContent((New-ObsnPageXml -PageId $inner.statePageId -Meta @{ 'obsn.lease' = 'x' })) } | Should Throw
+        { $a.CreateNewPage($active.sectionIds['Notes']) } | Should Not Throw
+        $t = ConvertFrom-ObsnHierarchy -Xml ($f.GetHierarchy($active.rootId, 4)) -RootId $active.rootId
+        @($t.sections | Where-Object { $_.full -like 'Inner*' }).Count | Should Be 0
+        @($t.nestedVaults | ForEach-Object { $_.name }) -join ',' | Should Be 'Inner'
+        (Get-StructurePlan -Tree $t -Year 2026).userSections.Count | Should Be 0
+    }
     It 'refuses a new notebook over an open one and update XML without a page id' {
         { $a.CreateNotebook('https://example.invalid/docs/Household') } | Should Throw
         { $a.UpdatePageContent('<x/>') } | Should Throw

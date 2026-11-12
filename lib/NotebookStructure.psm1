@@ -1,5 +1,6 @@
 # ObsidiNote's notebook structure: the fixed sections, the type -> bucket rule, the 500-page
-# rollover, the link bucket rule with URL normalization, and Initialize-ObsidiNotebook.
+# rollover, the link bucket rule with URL normalization, hierarchy parsing, and creating the fixed
+# structure under a vault root (lib/Vault.psm1 decides which root).
 # FEASIBILITY.md section 5 (Notebook structure; Links). PS 5.1, ASCII only. Writes nothing to disk.
 # COM goes through an adapter (lib/OneNote.psm1 New-OneNoteComAdapter, or a test stand-in).
 Set-StrictMode -Version 2.0
@@ -154,7 +155,9 @@ function Get-LinkBucket {
 function ConvertFrom-ObsnHierarchy {
     <# Parses GetHierarchy XML (from the notebook, or from the notebooks root with -Name) into
        @{ notebook = @{ id; name; path }; groups = @(@{ id; name; full });
-          sections = @(@{ id; name; full; group; pages = @(@{ id; title; level; updated; section; meta }) }) }.
+          sections = @(@{ id; name; full; group; pages = @(@{ id; title; level; updated; section; meta }) });
+          nestedVaults = @(@{ id; name; full }) }. Section groups that hold a `00 Index` section are other
+       vaults' roots and are listed in nestedVaults, not parsed.
        The recycle bin and its pages are left out. meta = page-level one:Meta name -> content. Pure. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Xml, [string]$Name = '', [string]$RootId = '')
@@ -172,7 +175,7 @@ function ConvertFrom-ObsnHierarchy {
         }
     }
     if (-not $nb) { return $null }
-    $res = @{ notebook = @{ id = $nb.GetAttribute('ID'); name = $nb.GetAttribute('name'); path = $nb.GetAttribute('path'); kind = $(if ($nb.LocalName -eq 'SectionGroup') { 'sectiongroup' } else { 'notebook' }) }; groups = New-Object System.Collections.ArrayList; sections = New-Object System.Collections.ArrayList }
+    $res = @{ notebook = @{ id = $nb.GetAttribute('ID'); name = $nb.GetAttribute('name'); path = $nb.GetAttribute('path'); kind = $(if ($nb.LocalName -eq 'SectionGroup') { 'sectiongroup' } else { 'notebook' }) }; groups = New-Object System.Collections.ArrayList; sections = New-Object System.Collections.ArrayList; nestedVaults = New-Object System.Collections.ArrayList }
     Add-HierarchyChildren -Node $nb -Prefix '' -Result $res
     return $res
 }
@@ -184,6 +187,9 @@ function Add-HierarchyChildren {
         if ($c.GetAttribute('isRecycleBin') -eq 'true' -or $c.GetAttribute('isInRecycleBin') -eq 'true') { continue }
         $full = if ($Prefix) { "$Prefix/$($c.GetAttribute('name'))" } else { $c.GetAttribute('name') }
         if ($c.LocalName -eq 'SectionGroup') {
+            # A section group holding `00 Index` is another vault's root: not part of this tree.
+            $nested = @($c.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -eq 'Section' -and $_.GetAttribute('name') -eq '00 Index' }).Count
+            if ($nested) { $null = $Result.nestedVaults.Add(@{ id = $c.GetAttribute('ID'); name = $c.GetAttribute('name'); full = $full }); continue }
             $null = $Result.groups.Add(@{ id = $c.GetAttribute('ID'); name = $c.GetAttribute('name'); full = $full })
             Add-HierarchyChildren -Node $c -Prefix $full -Result $Result
         } elseif ($c.LocalName -eq 'Section') {
