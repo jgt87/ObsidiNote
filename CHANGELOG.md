@@ -5,6 +5,8 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.6.0] - 2026-11-13
+
 ### Added
 - **Export as Markdown.** A copy of your notes as Markdown files that open in Obsidian or any editor: one page from its window in the knowledge graph (**Export as Markdown**), a topic with its subtopics (in the page window's Topic tab, or next to the topic in List), or everything from the side bar (**Export all as Markdown**). Each page gets front matter (id, type, title, topics, aliases, link, summary, links), its text with headings, lists, tables and styles, and `[[links]]` to the other pages; topics become folders. The file goes to your browser's downloads; ObsidiNote keeps no copy. Images, drawings and attached files stay in OneNote; a line says where they were.
 - Updating a link page no longer ends in "did not answer in time" when Copilot is slow: the update waits in your Intake as "Update: ..." and **Check for the answer** finishes it later, the same way as for new items. This also holds for a link you paste again.
