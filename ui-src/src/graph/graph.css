@@ -13,7 +13,6 @@
   --kg-focus: var(--accent);
   --kg-fade: 0.2;
   --kg-label-halo: var(--surface);
-  --kg-skeleton: color-mix(in srgb, var(--ink) 6%, transparent);
   --kg-bar-off: color-mix(in srgb, var(--ink) 16%, transparent);
 
   display: flex;
@@ -155,11 +154,6 @@
   background: var(--surface); min-height: 320px; box-sizing: border-box; }
 .kg-state h2 { margin: 0; font-size: var(--text-title); font-weight: 600; }
 .kg-state p { margin: 0; color: var(--muted); max-width: 46ch; }
-.kg-skel { display: block; background: var(--kg-skeleton); border-radius: var(--radius); }
-.kg-skel--line { height: 14px; }
-.kg-skel-stage { position: relative; cursor: default; }
-.kg-skel-stage .kg-skel { position: absolute; border-radius: 50%; }
-.kg-skel-note { position: absolute; left: var(--space-4); bottom: var(--space-4); color: var(--muted); font-size: var(--text-meta); }
 
 /* ---------- page dialog ---------- */
 .kg-dialog { width: min(880px, calc(100vw - 32px)); max-height: min(790px, calc(100dvh - 48px)); }

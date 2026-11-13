@@ -346,6 +346,54 @@ Describe 'Send-CopilotPrompt keeps waiting while Copilot is busy' {
     }
 }
 
+Describe 'Send-CopilotPrompt -LeaveRunning: a slow answer is never stopped (Add, 2026-11-13)' {
+    Mock -ModuleName CopilotBridge Set-PageReplyBaseline { }
+    Mock -ModuleName CopilotBridge Set-CopilotInput { $global:obsnTyped++ }
+    Mock -ModuleName CopilotBridge Invoke-CopilotSend { }
+    Mock -ModuleName CopilotBridge Wait-Pacing { }
+    Mock -ModuleName CopilotBridge Receive-CdpEvent { Start-Sleep -Milliseconds 100; $null }
+    Mock -ModuleName CopilotBridge Test-CopilotGaveUp { $false }
+    Mock -ModuleName CopilotBridge Stop-CopilotReply { $global:obsnStops++; 'stopped' }
+    Mock -ModuleName CopilotBridge Get-PageReplyText { [pscustomobject]@{ how = 'none'; text = ''; parts = 0 } }
+    Mock -ModuleName CopilotBridge Invoke-Cdp { [pscustomobject]@{ targetInfo = [pscustomobject]@{ url = 'https://m365.cloud.microsoft/chat/conversation/c0ffee12?auth=2&q=secret#frag' } } }
+    Mock -ModuleName CopilotBridge Get-PageReplyState { [pscustomobject]@{ fresh = 0; lastFresh = $false; replies = 1; copies = 0; stop = $true; lastLen = 10; lastHasCopy = $false; bar = ''; agentBusy = $false } }
+    $bridge = [pscustomobject]@{ Session = [pscustomobject]@{ Events = New-Object System.Collections.Queue; Ws = $null; Lost = $false }
+        Selectors = [pscustomobject]@{ stopButton = 'button.stop'; chatUrl = 'https://m365.cloud.microsoft/chat'; chatHosts = @('m365.cloud.microsoft') }; AttachErrors = @(); PageCheckMs = 200; PageStableSec = 1.0; Pacing = @{ lateReplySec = 0 } }
+
+    It 'returns Pending with the chat address at the deadline, and never presses Stop' {
+        $global:obsnStops = 0
+        $r = Send-CopilotPrompt $bridge 'hello' -TimeoutSec 1 -MaxTimeoutSec 2 -StallSec 0 -LeaveRunning
+        $r.Result | Should Be 'Pending'
+        $r.ChatUrl | Should Be 'https://m365.cloud.microsoft/chat/conversation/c0ffee12'
+        $global:obsnStops | Should Be 0
+    }
+    It 'still presses Stop without the switch (other callers unchanged)' {
+        $global:obsnStops = 0
+        { Send-CopilotPrompt $bridge 'hello' -TimeoutSec 1 -MaxTimeoutSec 1 -StallSec 0 } | Should Throw
+        $global:obsnStops | Should Be 1
+    }
+    It 'types nothing over an answer that is still running: Busy after the wait' {
+        $global:obsnTyped = 0; $global:obsnStops = 0
+        $r = Send-CopilotPrompt $bridge 'hello' -TimeoutSec 5 -StallSec 0 -LeaveRunning -BusyWaitSec 1
+        $r.Result | Should Be 'Busy'
+        $global:obsnTyped | Should Be 0
+        $global:obsnStops | Should Be 0
+    }
+}
+
+Describe 'ConvertTo-CopilotChatAddress' {
+    $sel = [pscustomobject]@{ chatUrl = 'https://m365.cloud.microsoft/chat'; chatHosts = @('m365.cloud.microsoft', 'microsoft365.com') }
+    It 'keeps scheme, host and path of a Copilot conversation only' {
+        ConvertTo-CopilotChatAddress 'https://M365.cloud.microsoft/chat/conversation/abc-123?auth=2&x=y#z' $sel | Should Be 'https://m365.cloud.microsoft/chat/conversation/abc-123'
+    }
+    It 'gives nothing for other hosts, plain http and non-URLs' {
+        ConvertTo-CopilotChatAddress 'https://evil.example/chat/conversation/abc' $sel | Should Be ''
+        ConvertTo-CopilotChatAddress 'http://m365.cloud.microsoft/chat' $sel | Should Be ''
+        ConvertTo-CopilotChatAddress 'not a url' $sel | Should Be ''
+        ConvertTo-CopilotChatAddress '' $sel | Should Be ''
+    }
+}
+
 Describe 'Waiting for the send lock (Local\ObsidiNoteCopilot)' {
     function Start-LockHolder([int]$Seconds) {
         # Another process holds the lock; it drops a marker file in TEMP once it has it.

@@ -2,6 +2,7 @@
 //   POST /api/submit       { text, mode }                  -> AddResult   (mode add, existing route)
 //   POST /api/add/undo     { undo }                        -> UndoResult
 //   POST /api/link/update  { id, decision?, proposed? }    -> AddResult
+//   POST /api/add/fetch    { inboxId }                     -> AddResult   ("Check for the answer")
 // Every call carries X-ObsidiNote: 1, which the server requires.
 import { ApiError } from '../api'
 import { normalizeAddResult, type AddResult, type LinkSummary, type UndoRecord, type UndoResult } from './types'
@@ -27,6 +28,12 @@ export async function addItem(text: string, mode: 'add' | 'auto' = 'add'): Promi
 
 export function undoAdd(undo: UndoRecord): Promise<UndoResult> {
   return post<UndoResult>('/api/add/undo', { undo })
+}
+
+/** "Check for the answer" of an Intake item that waits for Copilot: the normal Add result when the
+ *  answer was found and fits, else status still-waiting, mismatch or invalid (nothing written). */
+export async function checkAnswer(inboxId: string): Promise<AddResult> {
+  return normalizeAddResult(await post('/api/add/fetch', { inboxId }))
 }
 
 export async function updateLink(id: string, decision?: 'replace' | 'keep', proposed?: LinkSummary): Promise<AddResult> {

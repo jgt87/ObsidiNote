@@ -59,14 +59,14 @@ Describe 'The interface writes no files' {
         ($hits -join ', ') | Should Be ''
     }
     It 'writes to no notebook: no OneNote write call in the interface modules (connected notebooks are read only)' {
-        $writes = '(?i)\b(UpdatePageContent|UpdateHierarchy|CreateNewPage|DeleteHierarchy|DeletePageContent|MergeSections|MergeFiles|OpenHierarchy|CloseNotebook|Publish|SyncHierarchy|SetFilingLocation)\b'
+        $writes = '(?i)\b(UpdatePageContent|UpdateHierarchy|CreateNewPage|DeleteHierarchy|DeletePageContent|RenameSection|MergeSections|MergeFiles|OpenHierarchy|CloseNotebook|Publish|SyncHierarchy|SetFilingLocation)\b'
         $hits = @(foreach ($f in $uiModules) {
             Get-CodeLines (Join-Path $root "lib\$f") | Where-Object { $_.text -match $writes } | ForEach-Object { "$($_.file):$($_.line)" }
         })
         ($hits -join ', ') | Should Be ''
         '$on.UpdatePageContent($x)' -match $writes | Should Be $true
     }
-    It 'keeps no content in the browser: storage only in model/preferences.ts, for the chosen notebook id' {
+    It 'keeps no content in the browser: storage only in model/preferences.ts, for the chosen notebook id and the theme' {
         $src = Join-Path $root 'ui-src\src'
         $hits = @(Get-ChildItem -LiteralPath $src -Recurse -File -Include *.ts, *.tsx |
             Where-Object { $_.Name -ne 'preferences.ts' -and [IO.File]::ReadAllText($_.FullName) -match '(localStorage|sessionStorage|indexedDB|document\.cookie)' } |
@@ -74,7 +74,7 @@ Describe 'The interface writes no files' {
         ($hits -join ', ') | Should Be ''
         $prefs = [IO.File]::ReadAllText((Join-Path $src 'model\preferences.ts'))
         $prefs | Should Not Match '(sessionStorage|indexedDB|document\.cookie)'
-        @([regex]::Matches($prefs, "localStorage\.setItem\(([A-Z_]+),") | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique) -join ',' | Should Be 'VAULT_KEY'
+        @([regex]::Matches($prefs, "localStorage\.setItem\(([A-Z_]+),") | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique) -join ',' | Should Be 'THEME_KEY,VAULT_KEY'
     }
 }
 
@@ -95,7 +95,7 @@ Describe 'The vault, index, Add and Ask modules write no files and only write On
     # through the guarded adapter (lib/OneNote.psm1 New-GuardedOneNote), never a COM object of its own.
     $storeModules = 'OneNote.psm1', 'NotebookStructure.psm1', 'PageMeta.psm1', 'Vault.psm1', 'WriterLease.psm1', 'Index.psm1', 'VaultSession.psm1', 'VaultStore.psm1', 'AskSources.psm1', 'GraphModel.psm1', 'Ingest.psm1', 'Linker.psm1', 'LinkCapture.psm1', 'Ask.psm1'
     $readOnly = 'AskSources.psm1', 'GraphModel.psm1', 'Ingest.psm1', 'Linker.psm1', 'LinkCapture.psm1', 'Ask.psm1'
-    $writes = '(?i)\b(UpdatePageContent|UpdateHierarchy|CreateNewPage|DeleteHierarchy|DeletePageContent|MergeSections|MergeFiles|OpenHierarchy|CloseNotebook|Publish|SyncHierarchy|SetFilingLocation|CreateNotebook|CreateSectionGroupIn)\b'
+    $writes = '(?i)\b(UpdatePageContent|UpdateHierarchy|CreateNewPage|DeleteHierarchy|DeletePageContent|RenameSection|MergeSections|MergeFiles|OpenHierarchy|CloseNotebook|Publish|SyncHierarchy|SetFilingLocation|CreateNotebook|CreateSectionGroupIn)\b'
     $code = @{}
     foreach ($f in $storeModules) { $code[$f] = @(Get-CodeLinesNoBlock (Join-Path $root "lib\$f")) }
     It 'has no file-writing call' {
@@ -133,7 +133,7 @@ Describe 'The vault, index, Add and Ask modules write no files and only write On
     }
     It 'keeps the write guard on every write method of the adapter' {
         $src = [IO.File]::ReadAllText((Join-Path $root 'lib\OneNote.psm1'))
-        foreach ($m in 'CreateNewPage', 'UpdatePageContent', 'DeleteHierarchy', 'DeletePageContent') {
+        foreach ($m in 'CreateNewPage', 'UpdatePageContent', 'DeleteHierarchy', 'DeletePageContent', 'RenameSection') {
             $src | Should Match ('ScriptMethod ' + $m + ' \{ param\([^)]*\)\s+(if \(\$Id -eq \$this\.RootId\) \{[^}]*\}\s+)?\$this\.Assert\(')
         }
     }

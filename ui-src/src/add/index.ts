@@ -3,6 +3,7 @@ export { ConfirmReplaceDialog, type ReplaceDecision } from './ConfirmReplaceDial
 export { LinkUpdateView } from './LinkUpdateView'
 export { LinksCard } from './LinksCard'
 export { StrengthBar } from './StrengthBar'
-export { addItem, undoAdd, updateLink } from './api'
+export { addItem, checkAnswer, undoAdd, updateLink } from './api'
+export { WaitingCard } from './WaitingCard'
 export { normalizeAddResult } from './types'
 export type * from './types'

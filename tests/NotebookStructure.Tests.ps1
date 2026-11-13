@@ -126,7 +126,7 @@ Describe 'Hierarchy parsing' {
     It 'plans the missing fixed sections and lists the user''s own' {
         $p = Get-StructurePlan -Tree $t -Year 2026
         $p.missingGroups -join ',' | Should Be 'Archive'
-        $p.missingSections -join ',' | Should Be '01 Inbox,Internal links,Web links,Sources,People,Projects,Meetings,Decisions,Files'
+        $p.missingSections -join ',' | Should Be '01 Intake,Internal links,Web links,Sources,People,Projects,Meetings,Decisions,Files'
         $p.userSections -join ',' | Should Be 'Recipes I keep'
         ($p.present -contains 'Journal/2026') | Should Be $true
     }

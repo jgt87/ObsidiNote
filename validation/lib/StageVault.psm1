@@ -23,6 +23,7 @@ $script:SourceBuilders = @('New-AskSource')
 $script:GraphMax = 10
 $script:AddText = 'Validation note: tidal gardens grow salt-tolerant crops where the sea reaches the land. Synthetic text from the validation kit.'
 $script:AskText = 'What do my notes say about tidal gardens?'
+$script:WaitText = 'Validation note: salt marsh hay keeps garden beds moist and adds slow nutrients. Synthetic text from the validation kit (answer check).'
 
 function Get-MissingAppModules {
     <# The module names (of $Names) that are not in <AppRoot>\lib. #>
@@ -56,7 +57,7 @@ function Invoke-WithKnownParams {
 }
 
 function Add-SkipAll($Ctx, [string]$Why) {
-    foreach ($n in 'Vaults', 'Index completeness', 'Knowledge graph', 'Dev vault', 'Add and Undo', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
+    foreach ($n in 'Vaults', 'Index completeness', 'Knowledge graph', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
 }
 
 function Add-VaultResults($Ctx, $Adapter) {
@@ -174,6 +175,58 @@ function Invoke-DevAdd($Ctx, $Adapter, $Dev, $Bridge) {
     Add-ValidationResult $Ctx 'V6' $(if ($u.ok -and $ust -eq 'undone') { 'OK' } else { 'FAIL' }) 'Undo' "status $ust; $($u.ms) ms"
 }
 
+function Invoke-DevAnswerCheck($Ctx, $Adapter, $Dev, $Bridge) {
+    <# "Check for the answer": an Add of a second synthetic text with a wait so short that Copilot is
+       still answering (the bridge leaves it running: Pending, no Stop), so the Intake item waits; then
+       the check every 10 s (at most 3 minutes) until the page is filed, then Undo. Statuses and
+       timings only. #>
+    $name = 'Check for the answer'
+    if (-not (Get-Command Receive-AddAnswer -ErrorAction SilentlyContinue) -or -not (Get-Command Read-CopilotChat -ErrorAction SilentlyContinue)) { Add-ValidationResult $Ctx 'V6' 'SKIP' $name 'not in this version yet'; return }
+    $builder = Find-KitCommand $script:StoreBuilders
+    if (-not $builder -or -not $Dev.model) { Add-ValidationResult $Ctx 'V6' 'SKIP' $name 'not in this version yet (Add is not connected to OneNote)'; return }
+    if (-not $Bridge) { Add-ValidationResult $Ctx 'V6' 'SKIP' $name 'needs Copilot'; return }
+    $send = Get-Command Send-CopilotPrompt
+    $read = Get-Command Read-CopilotChat
+    $b = $Bridge
+    # A 1-second wait forces the Pending path; the later steps (the check, linking) wait normally.
+    $askShort = { param($Prompt) & $send -Bridge $b -Text $Prompt -TimeoutSec 1 -MaxTimeoutSec 1 -StallSec 0 -LeaveRunning -BusyWaitSec 120 }.GetNewClosure()
+    $askNormal = { param($Prompt) & $send -Bridge $b -Text $Prompt -TimeoutSec 240 -StallSec 120 -LeaveRunning -BusyWaitSec 120 }.GetNewClosure()
+    $readChat = { param($ChatUrl) & $read -Bridge $b -ChatUrl $ChatUrl }.GetNewClosure()
+    $lease = $Dev.lease
+    $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = { $lease }.GetNewClosure(); AppRoot = $Ctx.AppRoot } }
+    if (-not $s.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' $name "the store could not be made: $($s.error)"; return }
+    $store = $s.value
+    $add = Measure-KitStep { Invoke-AddRequest -Request @{ text = $script:WaitText; mode = 'add' } -Store $store -Ask $askShort }
+    $st = "$(Get-KitProp $add.value 'status' 'error')"
+    $inboxId = "$(Get-KitProp $add.value 'inboxId' '')"
+    if ($st -ne 'waiting' -or -not $inboxId) {
+        $level = if ($st -eq 'added') { 'WARN' } else { 'FAIL' }
+        Add-ValidationResult $Ctx 'V6' $level "$name (waiting)" "status $st instead of waiting; $($add.ms) ms$(if (-not $add.ok) { "; $($add.error)" })" $(if ($st -eq 'added') { 'Copilot answered within 1 s, so the waiting path was not reached; run the kit again.' } else { '' })
+        $u0 = Get-KitProp $add.value 'undo' $null
+        if ($u0) { $null = Measure-KitStep { Undo-AddRequest -Store $store -Undo $u0 } }
+        return
+    }
+    Add-ValidationResult $Ctx 'V6' 'OK' "$name (waiting)" "the item waits in the Intake; request reference given: $(Format-YesNo ([bool]"$(Get-KitProp $add.value 'ref' '')")); $($add.ms) ms"
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $tries = 0; $last = ''; $r = $null
+    while ($sw.Elapsed.TotalSeconds -lt 180) {
+        $tries++
+        $c = Measure-KitStep { Receive-AddAnswer -Store $store -Ask $askNormal -ReadChat $readChat -InboxId $inboxId }
+        $r = $c.value
+        $last = if ($c.ok) { "$(Get-KitProp $r 'status' 'error')" } else { 'error' }
+        Add-ValidationResult $Ctx 'V6' 'INFO' "$name (check $tries)" "status $last; $($c.ms) ms"
+        if ($last -notin 'still-waiting') { break }
+        $until = (Get-Date).AddSeconds(10); while ((Get-Date) -lt $until) { Start-Sleep -Milliseconds 250 }
+    }
+    $okFinal = $last -eq 'added'
+    Add-ValidationResult $Ctx 'V6' $(if ($okFinal) { 'OK' } else { 'FAIL' }) $name "final status $last after $tries check(s), $([int]$sw.Elapsed.TotalSeconds) s" $(if (-not $okFinal) { 'Send this log back; the item stays in the Intake of ObsidiNote-Validation.' } else { '' })
+    $undo = Get-KitProp $r 'undo' $null
+    if ($okFinal -and $undo) {
+        $u = Measure-KitStep { Undo-AddRequest -Store $store -Undo $undo }
+        Add-ValidationResult $Ctx 'V6' $(if ($u.ok -and "$(Get-KitProp $u.value 'status' '')" -eq 'undone') { 'OK' } else { 'WARN' }) "$name (undo)" "status $(Get-KitProp $u.value 'status' 'error'); $($u.ms) ms"
+    }
+}
+
 function Invoke-DevAsk($Ctx, $Adapter, $Dev, $Bridge) {
     $miss = @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names $script:Needs.ask)
     if ($miss.Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Ask' "not in this version yet ($($miss -join ', ') missing)"; return }
@@ -192,7 +245,7 @@ function Invoke-DevAsk($Ctx, $Adapter, $Dev, $Bridge) {
 
 function Invoke-DevVaultChecks($Ctx, $Adapter) {
     if (-not (Get-KitFlag $Ctx 'WriteTest')) {
-        foreach ($n in 'Dev vault', 'Add and Undo', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n 'write tests not run' 'Add -WriteTest; they write only into the notebook ObsidiNote-Validation.' }
+        foreach ($n in 'Dev vault', 'Add and Undo', 'Check for the answer', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n 'write tests not run' 'Add -WriteTest; they write only into the notebook ObsidiNote-Validation.' }
         return
     }
     $dev = $null
@@ -202,6 +255,7 @@ function Invoke-DevVaultChecks($Ctx, $Adapter) {
         $bridge = $null
         if (-not (Get-KitFlag $Ctx 'NoCopilot')) { $bridge = Connect-KitCopilot -Ctx $Ctx -Stage 'V6' }
         Invoke-DevAdd $Ctx $Adapter $dev $bridge
+        Invoke-DevAnswerCheck $Ctx $Adapter $dev $bridge
         Invoke-DevAsk $Ctx $Adapter $dev $bridge
     } catch { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Dev vault' $_.Exception.Message }
     finally { if ($dev -and $dev.lease) { try { $null = Clear-WriterLease -Adapter $Adapter -Lease $dev.lease } catch { } } }

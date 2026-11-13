@@ -5,7 +5,19 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+- **Markdown becomes OneNote formatting.** OneNote has no Markdown format, so text you add in Markdown is turned into real formatting on the page: headings, bold, italic, strikethrough, inline code and code blocks (monospace), links, bullet and numbered lists (nested), quotes and tables. Text without Markdown is added as before.
+- **Colour theme:** System / Light / Dark at the bottom of the side bar. System (the default) follows Windows' light or dark setting; the choice is kept in this browser only.
+- **Check for the answer.** When Copilot needs longer than the wait to answer an Add (reading a SharePoint page can take minutes), ObsidiNote no longer stops it. The result says Copilot is still working and the item waits in your Intake; press **Check for the answer** later to file the page from Copilot's answer. Every request carries a short reference that Copilot repeats (and, for a link, the link it read), and only the answer with that reference is used; an answer for something else, or one that does not fit, writes nothing.
+
+### Changed
+- Add and Ask wait longer for Copilot: up to 10 minutes, and up to 15 while Copilot still shows it is working. A silent Copilot (for example while it reads a SharePoint page) is no longer stopped after 90 seconds, but after 5 minutes.
+- While the knowledge graph loads it shows only "Reading the map…", no grey placeholder areas; an empty vault shows "No pages yet".
+- Inbox is now called Intake, so it no longer reads like ObsidiNote pulls mail. An existing vault's `01 Inbox` section is renamed to `01 Intake` the next time ObsidiNote opens the vault; its pages and links stay.
+- ObsidiNote waits while Copilot is still answering before it sends the next item, instead of typing over a running answer.
+
+### Fixed
+- Pasting a SharePoint link no longer ends in "Not added - Copilot gave no answer (NoAnswer)" when Copilot is only slow: the item waits for **Check for the answer** instead.
 
 ## [v0.4.2] - 2026-11-13
 

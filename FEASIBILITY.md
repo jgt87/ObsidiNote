@@ -38,7 +38,7 @@ leaves to the user: classifying, linking, and keeping hub notes up to date. Copi
 | Obsidian | OneNote equivalent | How (COM API) |
 |---|---|---|
 | Vault | One dedicated notebook on OneDrive (e.g. `ObsidiNote`) | `OpenHierarchy` / `CreateNewPage` |
-| Folder | Section / section group (e.g. `Inbox`, `Notes`, `Topics`, `Sources`) | `GetHierarchy` |
+| Folder | Section / section group (e.g. `Intake`, `Notes`, `Topics`, `Sources`) | `GetHierarchy` |
 | Note | Page | `GetPageContent` / `UpdatePageContent` (page XML) |
 | `[[link]]` | `onenote:` hyperlink to a page or paragraph | `GetHyperlinkToObject` |
 | Backlinks | A "Linked from" outline at the bottom of each page that **the harness owns** and rewrites | `UpdatePageContent` on that one outline |
@@ -135,7 +135,7 @@ encryption at rest, sensitivity labels, retention and access control. The Obsidi
 
 | Lives in the notebook | Section | How |
 |---|---|---|
-| Captured items, before and after processing | `01 Inbox` | one page per item; status in `obsn.status` Meta (new, linked, failed + reason) |
+| Captured items, before and after processing | `01 Intake` | one page per item; status in `obsn.status` Meta (new, waiting, linked, failed + reason); `obsn.requestRef`/`obsn.requestKind` (the request reference Copilot repeats), and while waiting `obsn.waitingSince` and `obsn.chatUrl` (the Copilot chat's address, no query) |
 | Content pages | the type buckets (`Notes`, `Sources`, `People`, `Projects`, `Meetings`, `Decisions`, `Journal`, `Files`; see Notebook structure) | body + properties outline + `obsn.*` Meta: `id`, `type`, `topics` (paths), `aliases`, `summary`, `links` (target id, strength, why; compact JSON in a Meta value) |
 | The central index (topic tree, catalogue, edges) | `00 Index` | root page, By type, A-Z, Unfiled, and one hub page per topic; each topic page lists its subtopics and pages (readable), and carries the same data in `obsn.*` Meta (machine form) |
 | Notebook-level state | `00 Index` › page `ObsidiNote` | schema version, id counter, writer lease |
@@ -176,7 +176,7 @@ Consequences:
  capture (web UI / MCP / hotkey / clipboard / file drop)
         |
         v
-  Inbox section in OneNote (one page per item, obsn.status)
+  Intake section in OneNote (one page per item, obsn.status)
         |
         v
   Shortlist  -- in-memory index (loaded from the Index section) -->  candidates
@@ -189,7 +189,7 @@ Consequences:
         |
         v
   OneNote writer (COM, PS 5.1)
-     - move the Inbox page's content to a page in Notes (properties outline, body with links,
+     - move the Intake page's content to a page in Notes (properties outline, body with links,
        obsn.* Meta)
      - rewrite "Linked from" outline on target pages
      - update the topic pages in the Index section (readable list + obsn.* Meta)
@@ -200,7 +200,7 @@ Consequences:
 
 - Reuse from CCBridge: `CopilotBridge.psm1` (Edge CDP, reply rebuild, Copilot mutex), the
   server and UI shell (React + Kokonut UI, monochrome), and the MCP pattern so a coding agent
-  can drop items into the inbox.
+  can drop items into the Intake.
 - **Source data is read-only.** ObsidiNote writes only inside its own notebook. Existing
   OneNote notes, mail and files are copied in, never edited where they are.
 - Everything the harness wrote is marked (properties outline, "Linked from" outline), so it can
@@ -209,14 +209,18 @@ Consequences:
 ### Notebook structure: sections, pages and buckets (user requirement, 2026-11-12)
 
 One notebook, **ObsidiNote**, with a fixed set of sections that the app creates on first start
-and never renames. **A page's section is its type; its topics live in the central index.** A page
+and never renames. The one exception: the Intake was called `01 Inbox` until 2026-11-13 (user:
+"Inbox" reads like ObsidiNote pulls mail from Outlook); opening a vault renames its own `01 Inbox`
+directly in the vault root to `01 Intake` once (pages keep their ids and links). When both exist,
+`01 Intake` is the Intake and `01 Inbox` is listed as a section the user made, never edited. **A page's section is its type; its topics live in the central index.** A page
 has exactly one home but can sit under many topics, and reorganising topics never moves a page.
 
 ```
 ObsidiNote (notebook)
 |-- 00 Index          the central index: Index (root), By type, A-Z, Topics/<topic> hubs,
 |                     Unfiled, Open questions, and the ObsidiNote state page
-|-- 01 Inbox          one page per captured item until it is filed (obsn.status: new / failed)
+|-- 01 Intake         one page per captured item until it is filed (obsn.status: new / waiting /
+|                     linked / failed; obsn.requestRef ties a Copilot answer to the item)
 |-- Notes             your own notes and concepts (evergreen; most pages land here)
 |-- Internal links    one page per pasted Microsoft 365 link: SharePoint site, page, list or
 |                     document, OneDrive file, Teams channel or message, Loop page, intranet
@@ -246,7 +250,7 @@ ObsidiNote (notebook)
 | `Decisions` | `decision` | "Decision: subject" |
 | `Journal` / year | `log` (a day's entries) | "yyyy-mm-dd" |
 | `Files` | `file` | the file name without extension |
-| `01 Inbox` | not filed yet, or failed | the first line of the item |
+| `01 Intake` | not filed yet, or failed | the first line of the item |
 
 Rules:
 - **Fixed type list.** Copilot must return one of the types above, and the validator rejects
@@ -282,6 +286,16 @@ is about later without opening it again.
 - **External:** Copilot's web grounding reads the page. If the tenant turns web grounding off,
   the app reads the page's text through its own Edge session and sends that text to Copilot
   instead. That text stays in memory, never on disk.
+
+**Slow answers: check for the answer later** (user, 2026-11-13). Reading a SharePoint source can
+keep Copilot silent for minutes. Pressing Copilot's Stop cancels its answer, so Add never stops a
+slow answer: at the end of the wait the bridge returns `Pending` and leaves Copilot working, the
+Intake item becomes `waiting` with its request reference (`ref`, a short code with no content that
+every Add prompt asks Copilot to repeat; the link summary also repeats the link as `source`) and
+the chat's address. **Check for the answer** (`POST /api/add/fetch`) reads that chat and takes only
+the answer whose `ref` is the item's (and whose `source` normalizes to the item's link), checks it
+exactly like a live answer and continues the Add from it; anything else writes nothing. Before any
+new prompt, ObsidiNote waits while Copilot still shows it is answering, rather than typing over it.
 
 **Fixed page shape** (one page per link, the same for both buckets):
 
@@ -358,7 +372,7 @@ Rules:
 - **Only ObsidiNote's own pages** can be archived or deleted by the app. Pages and sections you
   made yourself are listed but never moved or deleted (read-only rule); the app says "delete it
   in OneNote yourself".
-- **Inbox items**: "Discard" deletes them the same way (to OneNote's Deleted Pages).
+- **Intake items**: "Discard" deletes them the same way (to OneNote's Deleted Pages).
 - **Several at once**: select in the list or the map, or "Archive all pages of a topic". The app
   always shows the list first; a topic hub itself is never deleted while pages still use it.
 - **Links and summaries**: archiving a link page keeps its summary. Deleting it also forgets the
@@ -479,7 +493,7 @@ the index, like a library catalogue, not by searching all pages.
   - on **Links**: every internal link by site or team, and every web link by domain;
   - on **Archive**: every archived page, by original bucket (deleted pages leave the index; the
     state page keeps a 60-day "Recently deleted" list);
-  - on **Unfiled**: pages without a topic path, including your own pages and Inbox items that
+  - on **Unfiled**: pages without a topic path, including your own pages and Intake items that
     failed, until they are placed;
   - under **Other sections**: sections you made yourself, listed per section.
 
@@ -498,7 +512,7 @@ serving a prebuilt React UI, so nothing is installed at runtime. Three views:
 
 | View | What the user does | What happens |
 |---|---|---|
-| **Add** | Paste text, a link, a file or a mail excerpt; optional hint (topic, type) | Inbox → shortlist → Copilot → validate → write to OneNote; the result card shows the new page, its topics and links, with *undo* and *edit links* |
+| **Add** | Paste text, a link, a file or a mail excerpt; optional hint (topic, type) | Intake → shortlist → Copilot → validate → write to OneNote; the result card shows the new page, its topics and links, with *undo* and *edit links* |
 | **Ask** | Ask a question in plain words | Harness retrieval from its own index → Copilot answers with citations; each citation opens the OneNote page (`onenote:` link) |
 | **Map** | Explore everything that has been added | Graph of all pages and topics; edges weighted by relevance; clusters = topics |
 

@@ -55,6 +55,15 @@ function New-OneNoteComAdapter {
     $a | Add-Member ScriptMethod GetHyperlinkToObject { param([string]$Id) $l = ''; $this.Com.GetHyperlinkToObject($Id, '', [ref]$l); [string]$l }
     $a | Add-Member ScriptMethod DeleteHierarchy { param([string]$Id) $this.Com.DeleteHierarchy($Id) }
     $a | Add-Member ScriptMethod DeletePageContent { param([string]$PageId, [string]$ObjectId) $this.Com.DeletePageContent($PageId, $ObjectId) }
+    # Renaming a section: OneNote takes the section's own hierarchy XML (scope 0, hsSelf) with a new
+    # name attribute through UpdateHierarchy. The section keeps its id; its pages keep ids and links.
+    $a | Add-Member ScriptMethod RenameSection { param([string]$SectionId, [string]$NewName)
+        $x = ''; $this.Com.GetHierarchy($SectionId, 0, [ref]$x)
+        [xml]$d = $x
+        if ($d.DocumentElement.LocalName -ne 'Section') { throw "RenameSection: $SectionId is not a section." }
+        $d.DocumentElement.SetAttribute('name', $NewName)
+        $this.Com.UpdateHierarchy($d.OuterXml)
+    }
     # OneNote's own folder for new notebooks (slDefaultNotebookFolder = 2): the fallback when a
     # notebook cannot be made next to the cloud notebooks (0x80042006).
     $a | Add-Member ScriptMethod GetDefaultNotebookFolder { $p = ''; $this.Com.GetSpecialLocation(2, [ref]$p); [string]$p }
@@ -113,8 +122,8 @@ function Get-PageXmlId {
 
 function New-GuardedOneNote {
     <# The write guard (FEASIBILITY.md, Several ObsidiNote vaults): wraps an adapter so that every write
-       (UpdatePageContent, CreateNewPage, DeleteHierarchy, DeletePageContent, OpenHierarchy that
-       creates) must target an object inside the ACTIVE vault's root (a notebook or a section group;
+       (UpdatePageContent, CreateNewPage, DeleteHierarchy, DeletePageContent, RenameSection,
+       OpenHierarchy that creates) must target an object inside the ACTIVE vault's root (a notebook or a section group;
        Set-OneNoteWriteRoot). Anything else throws 'Write refused'. Without an active root every write
        is refused. Reads pass through. Two writes exist outside a root, for making a new vault only:
        CreateNotebook(path) (refused when a notebook with that path or name is open) and
@@ -161,6 +170,12 @@ function New-GuardedOneNote {
     $g | Add-Member ScriptMethod DeletePageContent { param([string]$PageId, [string]$ObjectId)
         $this.Assert($PageId, 'DeletePageContent')
         $this.Inner.DeletePageContent($PageId, $ObjectId)
+    }
+    $g | Add-Member ScriptMethod RenameSection { param([string]$SectionId, [string]$NewName)
+        $this.Assert($SectionId, 'RenameSection')
+        if ($SectionId -eq $this.RootId) { throw 'Write refused (RenameSection): the vault root itself is never renamed.' }
+        if (-not $NewName -or $NewName.Length -gt 50 -or $NewName -match '[\\/:*?"<>|#%]') { throw 'Write refused (RenameSection): not a valid section name.' }
+        $this.Inner.RenameSection($SectionId, $NewName)
     }
     $g | Add-Member ScriptMethod OpenHierarchy { param([string]$Path, [string]$RelativeToId, [int]$CreateType)
         if ($CreateType -ne 0) { $this.Assert($RelativeToId, 'OpenHierarchy create') }
@@ -214,7 +229,7 @@ function New-XmlOneNoteAdapter {
         '<?xml version="1.0"?><one:Page xmlns:one="' + $script:OneNs + '" ID="' + (ConvertTo-XmlAttr $PageId) + '">' + $meta + '<one:Title><one:OE><one:T>' + (ConvertTo-OneText $n.GetAttribute('name')) + '</one:T></one:OE></one:Title></one:Page>'
     }
     $a | Add-Member ScriptMethod GetHyperlinkToObject { param([string]$Id) $g = ([regex]::Match($Id, '^\{([0-9A-Fa-f-]{36})\}')).Groups[1].Value; "onenote:https://example.invalid/notebook.one#page&page-id={$g}&end" }
-    foreach ($w in 'OpenHierarchy', 'CreateNewPage', 'UpdatePageContent', 'DeleteHierarchy', 'DeletePageContent') {
+    foreach ($w in 'OpenHierarchy', 'CreateNewPage', 'UpdatePageContent', 'DeleteHierarchy', 'DeletePageContent', 'RenameSection') {
         $a | Add-Member ScriptMethod $w ([scriptblock]::Create("throw 'Read only: this stand-in cannot write ($w).'"))
     }
     $a

@@ -1,0 +1,6 @@
+/* The theme switch: the shared segmented control (.seg, Composer.css), full side-bar width, small. */
+.theme-switch { display: flex; width: 100%; box-sizing: border-box; }
+.theme-switch__btn { flex: 1 1 0; min-width: 0; padding: 0 var(--space-2); font-size: var(--text-meta); }
+/* A radio group marks the choice with aria-checked; same look as the pressed segment. */
+.theme-switch__btn[aria-checked="true"] { background: var(--surface); color: var(--accent); font-weight: 600; box-shadow: inset 0 0 0 1px var(--accent); }
+@media (hover: hover) { .theme-switch__btn:hover:not([aria-checked="true"]) { background: var(--hover); } }

@@ -12,6 +12,12 @@ export type AddStatus =
   | 'needs-confirmation'
   | 'could-not-update'
   | 'ask-instead'
+  // Copilot did not answer in time and was left working; the item waits in the Intake.
+  | 'waiting'
+  // Outcomes of "Check for the answer" (POST /api/add/fetch); nothing was written for these.
+  | 'still-waiting'
+  | 'mismatch'
+  | 'invalid'
 
 export type ChipKind = 'type' | 'alias' | 'topic' | 'new-topic'
 
@@ -123,6 +129,10 @@ export interface AddResult {
   status: AddStatus
   kind: 'text' | 'link'
   message: string
+  /** The Intake item's page id while it waits for Copilot ('' otherwise). */
+  inboxId: string
+  /** The request reference Copilot repeats in its answer ('' otherwise). */
+  ref: string
   text: string
   page: PlacedPage | null
   chips: Chip[]
@@ -182,6 +192,8 @@ export function normalizeAddResult(raw: Loose<AddResult>): AddResult {
     status: r.status ?? 'failed',
     kind: r.kind ?? 'text',
     message: r.message ?? '',
+    inboxId: r.inboxId ?? '',
+    ref: r.ref ?? '',
     text: r.text ?? '',
     page,
     chips: asList(r.chips),

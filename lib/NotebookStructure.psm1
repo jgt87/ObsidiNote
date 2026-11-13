@@ -6,7 +6,11 @@
 Set-StrictMode -Version 2.0
 
 # Fixed layout. Order = order of creation in a new notebook.
-$script:FixedSections = @('00 Index', '01 Inbox', 'Notes', 'Internal links', 'Web links', 'Sources', 'People', 'Projects', 'Meetings', 'Decisions', 'Files')
+# '01 Intake' was '01 Inbox' until 2026-11-13 (user: "Inbox" reads like ObsidiNote pulls mail);
+# Install-ObsnStructure renames an existing vault's own '01 Inbox' once (Get-LegacyIntakeSection).
+$script:IntakeSection = '01 Intake'
+$script:LegacyIntakeSection = '01 Inbox'
+$script:FixedSections = @('00 Index', '01 Intake', 'Notes', 'Internal links', 'Web links', 'Sources', 'People', 'Projects', 'Meetings', 'Decisions', 'Files')
 $script:FixedGroups = @('Journal', 'Archive')
 $script:Buckets = @('Notes', 'Internal links', 'Web links', 'Sources', 'People', 'Projects', 'Meetings', 'Decisions', 'Journal', 'Files')
 $script:TypeBucket = [ordered]@{
@@ -25,6 +29,7 @@ $script:InternalHostRules = @('*.sharepoint.com', 'teams.microsoft.com', 'teams.
 $script:TrackingParams = '^(utm_.*|fbclid|gclid|gclsrc|dclid|gbraid|wbraid|msclkid|yclid|twclid|li_fat_id|mc_cid|mc_eid|igshid|_hsenc|_hsmi|mkt_tok|vero_id|vero_conv|oly_anon_id|oly_enc_id|_ga|_gl|wt\.mc_id|ocid|ref_src|spm)$'
 
 function Get-ObsnFixedSections { , @($script:FixedSections) }
+function Get-ObsnIntakeSection { $script:IntakeSection }
 function Get-ObsnBuckets { , @($script:Buckets) }
 function Get-ObsnTypes { , @($script:TypeBucket.Keys) }
 
@@ -238,17 +243,38 @@ function Get-NotebookBasePath {
 }
 
 
+function Get-LegacyIntakeSection {
+    <# The id of an existing vault's own '01 Inbox' section that is to become '01 Intake', or ''.
+       Only a section directly in the vault root, only in a root that already has '00 Index' (an
+       existing vault, never a notebook being set up), and only while no '01 Intake' exists: when both
+       exist, '01 Inbox' stays as it is and counts as a section the user made. Pure. #>
+    param([Parameter(Mandatory)][hashtable]$Tree)
+    $root = @($Tree.sections | Where-Object { -not $_.group })
+    $names = @($root | ForEach-Object { $_.name })
+    if ($names -notcontains '00 Index' -or $names -contains $script:IntakeSection) { return '' }
+    $old = @($root | Where-Object { $_.name -eq $script:LegacyIntakeSection }) | Select-Object -First 1
+    if ($old) { return [string]$old.id }
+    ''
+}
+
 function Install-ObsnStructure {
     <# Creates what Get-StructurePlan says is missing under the vault root $RootId (a notebook or a
-       section group): groups Journal and Archive, the fixed sections, Journal/<year>. Never renames,
-       moves or opens anything else. Writes go through the guarded adapter. Returns
-       @{ created; present; userSections; sectionIds (full name -> id) }. #>
+       section group): groups Journal and Archive, the fixed sections, Journal/<year>. The one rename:
+       an existing vault's own '01 Inbox' becomes '01 Intake' (Get-LegacyIntakeSection; its pages keep
+       their ids and links). Never renames, moves or opens anything else. Writes go through the
+       guarded adapter. Returns @{ created; present; userSections; sectionIds (full name -> id) }. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)][string]$RootId, [int]$Year = (Get-Date).Year)
     $tree = ConvertFrom-ObsnHierarchy -Xml ($Adapter.GetHierarchy($RootId, 3)) -RootId $RootId
     if (-not $tree) { throw "Vault root $RootId not found." }
-    $plan = Get-StructurePlan -Tree $tree -Year $Year
     $created = New-Object System.Collections.ArrayList
+    $legacy = Get-LegacyIntakeSection -Tree $tree
+    if ($legacy) {
+        $Adapter.RenameSection($legacy, $script:IntakeSection)
+        $null = $created.Add("renamed section $($script:LegacyIntakeSection) to $($script:IntakeSection)")
+        $tree = ConvertFrom-ObsnHierarchy -Xml ($Adapter.GetHierarchy($RootId, 3)) -RootId $RootId
+    }
+    $plan = Get-StructurePlan -Tree $tree -Year $Year
     $groupIds = @{}
     foreach ($g in $tree.groups) { $groupIds[$g.full] = $g.id }
     foreach ($g in $plan.missingGroups) {
@@ -284,4 +310,4 @@ function Resolve-ObsnSection {
     $Adapter.OpenHierarchy("$($parts[1]).one", $gid, 3)
 }
 
-Export-ModuleMember -Function Get-ObsnFixedSections, Get-ObsnBuckets, Get-ObsnTypes, Get-BucketForType, Get-TargetSection, Get-ArchiveSectionName, Get-BucketOfSection, Test-ObsnOwnedSection, Get-UrlHost, ConvertTo-NormalizedUrl, Get-LinkBucket, ConvertFrom-ObsnHierarchy, Get-StructurePlan, Get-NotebookBasePath, Install-ObsnStructure, Resolve-ObsnSection
+Export-ModuleMember -Function Get-ObsnFixedSections, Get-ObsnIntakeSection, Get-LegacyIntakeSection,Get-ObsnBuckets, Get-ObsnTypes, Get-BucketForType, Get-TargetSection, Get-ArchiveSectionName, Get-BucketOfSection, Test-ObsnOwnedSection, Get-UrlHost, ConvertTo-NormalizedUrl, Get-LinkBucket, ConvertFrom-ObsnHierarchy, Get-StructurePlan, Get-NotebookBasePath, Install-ObsnStructure, Resolve-ObsnSection

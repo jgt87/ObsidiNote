@@ -21,7 +21,7 @@ Describe 'A new vault' {
     $r = New-ObsidiVault -Adapter $a -Name 'Team Wiki' -Year 2026
     It 'creates a notebook with the fixed sections, Journal/<year> and Archive' {
         $t = ConvertFrom-ObsnHierarchy -Xml ($f.GetHierarchy($r.rootId, 3)) -RootId $r.rootId
-        @($t.sections | ForEach-Object { $_.full }) -join ',' | Should Be '00 Index,01 Inbox,Notes,Internal links,Web links,Sources,People,Projects,Meetings,Decisions,Files,Journal/2026'
+        @($t.sections | ForEach-Object { $_.full }) -join ',' | Should Be '00 Index,01 Intake,Notes,Internal links,Web links,Sources,People,Projects,Meetings,Decisions,Files,Journal/2026'
         @($t.groups | ForEach-Object { $_.full }) -join ',' | Should Be 'Journal,Archive'
         $r.vaultCreated | Should Be $true
         $r.rootKind | Should Be 'notebook'
@@ -50,6 +50,41 @@ Describe 'A new vault' {
         ($r3.created -join ',') | Should Be 'section People,section Journal/2027'
         ($r3.userSections -join ',') | Should Be 'My recipes'
         @($f.Writes | Select-Object -Skip $before | Where-Object { $_ -match [regex]::Escape($mine) }).Count | Should Be 0
+    }
+}
+
+Describe '"01 Inbox" becomes "01 Intake" in an existing vault (user, 2026-11-13)' {
+    $f = New-World
+    $a = New-GuardedOneNote -Inner $f
+    $r = New-ObsidiVault -Adapter $a -Name 'Old Vault' -Year 2026
+    # A vault made before the rename: its own section is still called "01 Inbox", with an item in it.
+    $intake = $r.sectionIds['01 Intake']
+    $f.RenameSection($intake, '01 Inbox')
+    $item = $f.AddPage($intake, 'An item', @{ 'obsn.status' = 'new' }, 1, 'text')
+    $link = $f.GetHyperlinkToObject($item)
+    It 'renames the vault''s own section once at open; the pages keep their ids and links' {
+        $r2 = Initialize-ObsidiVault -Adapter $a -RootId $r.rootId -Year 2026
+        ($r2.created -join ',') | Should Be 'renamed section 01 Inbox to 01 Intake'
+        $f.Nodes[$intake].name | Should Be '01 Intake'
+        $r2.sectionIds['01 Intake'] | Should Be $intake
+        $f.Nodes[$item].parent | Should Be $intake
+        $f.GetHyperlinkToObject($item) | Should Be $link
+        (Initialize-ObsidiVault -Adapter $a -RootId $r.rootId -Year 2026).created.Count | Should Be 0
+    }
+    It 'keeps "01 Intake" when both exist and leaves "01 Inbox" as the person''s section, untouched' {
+        $mine = $f.AddSection($r.rootId, '01 Inbox')
+        $before = $f.Writes.Count
+        $r3 = Initialize-ObsidiVault -Adapter $a -RootId $r.rootId -Year 2026
+        $r3.created.Count | Should Be 0
+        ($r3.userSections -join ',') | Should Be '01 Inbox'
+        $f.Nodes[$mine].name | Should Be '01 Inbox'
+        $f.Writes.Count | Should Be $before
+    }
+    It 'never renames a section that is not directly in a vault root' {
+        $t = @{ sections = @(@{ id = 'a'; name = '00 Index'; full = '00 Index'; group = '' }, @{ id = 'b'; name = '01 Inbox'; full = 'Old/01 Inbox'; group = 'Old' }) }
+        Get-LegacyIntakeSection -Tree $t | Should Be ''
+        $t2 = @{ sections = @(@{ id = 'b'; name = '01 Inbox'; full = '01 Inbox'; group = '' }) }
+        Get-LegacyIntakeSection -Tree $t2 | Should Be ''
     }
 }
 
@@ -146,6 +181,16 @@ Describe 'Write guard' {
         @($t.sections | Where-Object { $_.full -like 'Inner*' }).Count | Should Be 0
         @($t.nestedVaults | ForEach-Object { $_.name }) -join ',' | Should Be 'Inner'
         (Get-StructurePlan -Tree $t -Year 2026).userSections.Count | Should Be 0
+    }
+    It 'renames a section inside the active root, and refuses one outside it or the root itself' {
+        $s = $a.OpenHierarchy('Scratch.one', $active.rootId, 3)
+        { $a.RenameSection($s, 'Scratch two') } | Should Not Throw
+        $f.Nodes[$s].name | Should Be 'Scratch two'
+        { $a.RenameSection($beds, 'Mine now') } | Should Throw
+        { $a.RenameSection($other.sectionIds['Notes'], 'X') } | Should Throw
+        { $a.RenameSection($active.rootId, 'X') } | Should Throw
+        { $a.RenameSection($s, 'a/b') } | Should Throw
+        $f.Nodes[$beds].name | Should Be 'Beds'
     }
     It 'refuses a new notebook over an open one and update XML without a page id' {
         { $a.CreateNotebook('https://example.invalid/docs/Household') } | Should Throw

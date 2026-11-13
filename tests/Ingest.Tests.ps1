@@ -24,7 +24,7 @@ function Invoke-Add([string]$Reply, $Vault, [string]$Mode = 'add', [string]$Text
 
 Describe 'Store contract' {
     It 'lists the adapter functions Add needs and finds missing ones' {
-        (Get-IngestStoreContract).Count | Should Be 19
+        (Get-IngestStoreContract).Count | Should Be 21
         $v = New-FakeVault
         (Get-MissingStoreFunctions $v.store).Count | Should Be 0
         $v.store.Remove('SetLinkedFrom')
@@ -115,7 +115,7 @@ Describe 'Invoke-AddRequest with text' {
 }
 
 Describe 'Invoke-AddRequest failures' {
-    It 'keeps the Inbox item as failed with the reason when the JSON is broken' {
+    It 'keeps the Intake item as failed with the reason when the JSON is broken' {
         $v = New-FakeVault
         $x = Invoke-Add '{"title": "Identity-aware proxies", "type": "concept", "links": [' $v
         $x.r.status | Should Be 'failed'
@@ -154,7 +154,7 @@ Describe 'Invoke-AddRequest failures' {
         $r = Invoke-AddRequest -Request @{ text = $script:Text } -Store $v.store -Ask { [pscustomobject]@{ Text = $reply; Result = 'Success' } }.GetNewClosure() -Options @{ Now = $script:Now }
         $r.status | Should Be 'added'
     }
-    It 'keeps the Inbox item when the page cannot be written' {
+    It 'keeps the Intake item when the page cannot be written' {
         $v = New-FakeVault; $v.st.fail['CreatePage'] = 'COM error'
         $x = Invoke-Add (Get-GoodReply) $v
         $x.r.status | Should Be 'failed'
@@ -194,7 +194,7 @@ Describe 'Write guard: the active vault only' {
 }
 
 Describe 'Intent from Copilot' {
-    It 'offers Ask instead in auto mode when Copilot says it is a question, and removes the Inbox item' {
+    It 'offers Ask instead in auto mode when Copilot says it is a question, and removes the Intake item' {
         $v = New-FakeVault
         $x = Invoke-Add '{"title": "Which proxy do we use?", "type": "note", "intent": "ask"}' $v 'auto' 'which proxy do we use for the portal'
         $x.r.status | Should Be 'ask-instead'
@@ -205,6 +205,180 @@ Describe 'Intent from Copilot' {
         $v = New-FakeVault
         $x = Invoke-Add '{"title": "Which proxy do we use", "type": "note", "intent": "ask"}' $v 'add' 'which proxy do we use for the portal'
         $x.r.status | Should Be 'added'
+    }
+}
+
+$script:ChatUrl = 'https://m365.cloud.microsoft/chat/conversation/c0ffee12'
+$script:LinkUrl = 'https://example.org/guide'
+
+function Get-PendingAsk { $u = $script:ChatUrl; { [pscustomobject]@{ Text = ''; Result = 'Pending'; ChatUrl = $u } }.GetNewClosure() }
+
+function New-WaitingItem($Vault, [string]$Text = $script:Text) {
+    Invoke-AddRequest -Request @{ text = $Text; mode = 'add' } -Store $Vault.store -Ask (Get-PendingAsk) -Options @{ Now = $script:Now }
+}
+
+function Add-Ref([string]$Reply, [string]$Ref) { $Reply.TrimEnd().TrimEnd('}') + ', "ref": "' + $Ref + '"}' }
+
+function New-ChatReader([string]$Text, [bool]$Busy = $false, [string]$State = 'read') {
+    $rec = @{ urls = (New-Object System.Collections.Generic.List[string]) }
+    $read = { param($ChatUrl) $rec.urls.Add([string]$ChatUrl); @{ state = $State; text = $Text; busy = $Busy } }.GetNewClosure()
+    @{ read = $read; rec = $rec }
+}
+
+function Get-SummaryReply([string]$Ref, [string]$Source) {
+    '{"readable": true, "problem": "", "title": "Field guide", "where": "example.org", "kind": "article", "summary": "A guide to tidal gardens.", "keyFacts": ["Salt-tolerant crops"], "useFor": "Planting", "sensitivity": "", "ref": "' + $Ref + '", "source": "' + $Source + '"}'
+}
+
+Describe 'Request reference in every Add prompt' {
+    It 'puts a reference in the classify prompt and keeps it on the Intake item' {
+        $v = New-FakeVault
+        $x = Invoke-Add (Get-GoodReply) $v
+        $ref = $v.st.inbox['{IN0}'].ref
+        $ref | Should Match '^r[0-9a-z]{8}$'
+        $x.c.q.prompts[0] | Should Match ('"ref": "' + $ref + '"')
+        $x.c.q.prompts[0] | Should Match ('ref: always exactly "' + $ref + '"')
+        $v.st.inbox['{IN0}'].requestKind | Should Be 'classify'
+        $x.r.status | Should Be 'added'
+    }
+    It 'asks the link summary to repeat the reference and the link it read' {
+        $v = New-FakeVault
+        $c = New-FakeCopilot @('{"readable": false, "problem": "no-access"}')
+        $null = Invoke-AddRequest -Request @{ text = $script:LinkUrl } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+        $ref = $v.st.inbox['{IN0}'].ref
+        $c.q.prompts[0] | Should Match ('"ref": "' + $ref + '", "source": "..."')
+        $c.q.prompts[0] | Should Match 'source: the URL you read'
+        $v.st.inbox['{IN0}'].requestKind | Should Be 'linkSummary'
+    }
+    It 'refuses a live answer that carries another reference, and writes no page' {
+        $v = New-FakeVault
+        $x = Invoke-Add (Add-Ref (Get-GoodReply) 'rzzzzzzzz') $v
+        $x.r.status | Should Be 'failed'
+        $x.r.message | Should Match 'another request \(reference rzzzzzzzz'
+        $v.st.created.Count | Should Be 0
+        $v.st.inbox['{IN0}'].status | Should Be 'failed'
+    }
+}
+
+Describe 'Copilot still answering (Pending): the item waits' {
+    $v = New-FakeVault
+    $r = New-WaitingItem $v
+    It 'marks the Intake item waiting with the reference, the kind and the chat address' {
+        $r.status | Should Be 'waiting'
+        $r.inboxId | Should Be '{IN0}'
+        $i = $v.st.inbox['{IN0}']
+        $i.status | Should Be 'waiting'
+        $r.ref | Should Be $i.ref
+        $i.requestKind | Should Be 'classify'
+        $i.chatUrl | Should Be $script:ChatUrl
+        $i.waitingSince | Should Match '^2026-11-1\dT\d\d:\d\d:\d\dZ$'
+        $r.message | Should Match 'waits in your Intake'
+        $r.inbox.status | Should Be 'waiting'
+    }
+    It 'writes nothing else: no page, no backlinks, no index change' {
+        $v.st.created.Count | Should Be 0
+        $v.st.linkedFrom.Count | Should Be 0
+        $v.st.indexOps.Count | Should Be 0
+        (@($v.st.calls | Where-Object { $_ -notin @('GetIndex', 'FindPageByUrl') }) -join ',') | Should Be 'AssertWritable,CreateInboxItem,SetInboxWaiting'
+    }
+    It 'tells a busy Copilot apart: nothing was sent, the item fails with the reason' {
+        $v2 = New-FakeVault
+        $r2 = Invoke-AddRequest -Request @{ text = 'note' } -Store $v2.store -Ask { [pscustomobject]@{ Text = ''; Result = 'Busy' } }
+        $r2.status | Should Be 'failed'
+        $r2.message | Should Match 'still answering an earlier item'
+    }
+}
+
+Describe 'Receive-AddAnswer: check for the answer' {
+    It 'continues with the answer that carries the reference and files the page exactly as a live answer' {
+        $live = New-FakeVault
+        $null = Invoke-Add (Get-GoodReply) $live
+        $v = New-FakeVault
+        $w = New-WaitingItem $v
+        $chat = "Earlier talk.`n" + (Add-Ref '{"title": "Other", "type": "note"}' 'rother123') + "`n`n" + (Add-Ref (Get-GoodReply) $w.ref) + "`n`n" + '{"title": "Wrong one", "type": "note", "intent": "add"}'
+        $reader = New-ChatReader $chat
+        $none = New-FakeCopilot @()
+        $r = Receive-AddAnswer -Store $v.store -Ask $none.ask -ReadChat $reader.read -InboxId $w.inboxId -Options @{ Now = $script:Now }
+        $r.status | Should Be 'added'
+        $r.message | Should Be 'Added: Identity-aware proxies'
+        $none.q.prompts.Count | Should Be 0
+        $reader.rec.urls[0] | Should Be $script:ChatUrl
+        $a = $live.st.created['{NEW-p101}']; $b = $v.st.created['{NEW-p101}']
+        foreach ($k in 'title', 'type', 'bucket', 'summary') { $b[$k] | Should Be $a[$k] }
+        ($b.topics -join ';') | Should Be ($a.topics -join ';')
+        (@($b.links) | ForEach-Object { $_['target'] }) -join ',' | Should Be ((@($a.links) | ForEach-Object { $_['target'] }) -join ',')
+        (ConvertTo-Json @($b.outlines) -Depth 10 -Compress) | Should Be (ConvertTo-Json @($a.outlines) -Depth 10 -Compress)
+        $v.st.inbox['{IN0}'].status | Should Be 'linked'
+        $v.st.inbox['{IN0}'].filedAs | Should Be 'p101'
+        $r.inboxId | Should Be '{IN0}'
+        $v.st.linkedFrom.Count | Should Be 3
+    }
+    It 'uses no answer without the reference or with another one: mismatch, nothing written' {
+        $v = New-FakeVault
+        $w = New-WaitingItem $v
+        $chat = (Get-GoodReply) + "`n" + (Add-Ref (Get-GoodReply) 'rother123')
+        $r = Receive-AddAnswer -Store $v.store -Ask (New-FakeCopilot @()).ask -ReadChat (New-ChatReader $chat).read -InboxId $w.inboxId
+        $r.status | Should Be 'mismatch'
+        $r.message | Should Match "carries this item's reference"
+        $v.st.created.Count | Should Be 0
+        $v.st.inbox['{IN0}'].status | Should Be 'waiting'
+    }
+    It 'says still waiting when there is no answer yet, or Copilot is still answering' {
+        $v = New-FakeVault
+        $w = New-WaitingItem $v
+        (Receive-AddAnswer -Store $v.store -Ask (New-FakeCopilot @()).ask -ReadChat (New-ChatReader '').read -InboxId $w.inboxId).status | Should Be 'still-waiting'
+        (Receive-AddAnswer -Store $v.store -Ask (New-FakeCopilot @()).ask -ReadChat (New-ChatReader (Get-GoodReply) $true).read -InboxId $w.inboxId).status | Should Be 'still-waiting'
+        $busy = Receive-AddAnswer -Store $v.store -Ask (New-FakeCopilot @()).ask -ReadChat (New-ChatReader '' $false 'busy').read -InboxId $w.inboxId
+        $busy.status | Should Be 'still-waiting'
+        $busy.message | Should Match 'busy with another answer'
+        $v.st.created.Count | Should Be 0
+        $v.st.inbox['{IN0}'].status | Should Be 'waiting'
+    }
+    It 'checks a found answer like a live one: an invalid answer writes nothing and the item keeps waiting' {
+        $v = New-FakeVault
+        $w = New-WaitingItem $v
+        $r = Receive-AddAnswer -Store $v.store -Ask (New-FakeCopilot @()).ask -ReadChat (New-ChatReader (Add-Ref '{"title": "T", "type": "topic"}' $w.ref)).read -InboxId $w.inboxId
+        $r.status | Should Be 'invalid'
+        $r.message | Should Match 'fixed types'
+        $r.message | Should Match 'Nothing was written'
+        $v.st.created.Count | Should Be 0
+        $v.st.inbox['{IN0}'].status | Should Be 'waiting'
+    }
+    It 'refuses a link summary whose source is another link, with nothing written' {
+        $v = New-FakeVault
+        $w = New-WaitingItem $v $script:LinkUrl
+        $v.st.inbox['{IN0}'].requestKind | Should Be 'linkSummary'
+        $r = Receive-AddAnswer -Store $v.store -Ask (New-FakeCopilot @()).ask -ReadChat (New-ChatReader (Get-SummaryReply $w.ref 'https://example.org/other')).read -InboxId $w.inboxId
+        $r.status | Should Be 'mismatch'
+        $r.message | Should Match 'another link'
+        $v.st.created.Count | Should Be 0
+        $v.st.inbox['{IN0}'].status | Should Be 'waiting'
+    }
+    It 'files a link from the found summary and still sends the linking prompt live' {
+        $v = New-FakeVault
+        $w = New-WaitingItem $v $script:LinkUrl
+        $c = New-FakeCopilot @('{"title": "Field guide", "summary": "A guide to tidal gardens.", "type": "link-web", "topics": [], "links": [], "aliases": [], "intent": "add"}')
+        $r = Receive-AddAnswer -Store $v.store -Ask $c.ask -ReadChat (New-ChatReader (Get-SummaryReply $w.ref ($script:LinkUrl + '#part'))).read -InboxId $w.inboxId -Options @{ Now = $script:Now }
+        $r.status | Should Be 'added'
+        $r.kind | Should Be 'link'
+        $c.q.prompts.Count | Should Be 1
+        $c.q.prompts[0] | Should Match 'type: always "link-web"'
+        $v.st.created['{NEW-p101}'].url | Should Be $script:LinkUrl
+        $v.st.inbox['{IN0}'].status | Should Be 'linked'
+    }
+    It 'refuses an item that is not waiting, and a session that is not the writer' {
+        $v = New-FakeVault
+        $null = Invoke-Add (Get-GoodReply) $v
+        $r = Receive-AddAnswer -Store $v.store -Ask (New-FakeCopilot @()).ask -ReadChat (New-ChatReader '').read -InboxId '{IN0}'
+        $r.status | Should Be 'refused'
+        $r.message | Should Match 'not waiting'
+        (Receive-AddAnswer -Store $v.store -Ask (New-FakeCopilot @()).ask -ReadChat (New-ChatReader '').read -InboxId '{NOPE}').status | Should Be 'refused'
+        $v2 = New-FakeVault
+        $w = New-WaitingItem $v2
+        $v2.st.writable = $false
+        $x = Receive-AddAnswer -Store $v2.store -Ask (New-FakeCopilot @()).ask -ReadChat (New-ChatReader (Add-Ref (Get-GoodReply) $w.ref)).read -InboxId $w.inboxId
+        $x.status | Should Be 'refused'
+        $x.message | Should Match 'Write refused'
+        $v2.st.created.Count | Should Be 0
     }
 }
 
@@ -261,7 +435,7 @@ Describe 'Add writes no files' {
     }
     It 'logs only ids, counts, states and timings' {
         $lines = @(Select-String -Path (Join-Path $here '..\lib\Ingest.psm1') -Pattern 'Write-AppLog' | ForEach-Object { $_.Line })
-        $lines.Count | Should Be 2
+        $lines.Count | Should Be 3
         foreach ($l in $lines) { $l | Should Not Match '(?i)\$(text|title|message|prompt|reply|url|anchor|summary)\b|\.(text|title|message|url)\b' }
     }
 }

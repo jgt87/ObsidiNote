@@ -54,7 +54,7 @@ function FlowArea({ home }: { home: Home }) {
   if (flow.kind === 'adding') {
     return (
       <p className="home-notice" role="status" aria-busy="true">
-        Adding: inbox, Copilot, then OneNote. This takes a little while.
+        Adding: Intake, Copilot, then OneNote. This takes a little while.
       </p>
     )
   }
@@ -67,6 +67,7 @@ function FlowArea({ home }: { home: Home }) {
         onDone={home.add.onDone}
         onUndo={r.undo ? () => home.add.onUndo(r) : undefined}
         onUpdateLink={r.kind === 'link' ? () => home.add.onUpdateLink(r) : undefined}
+        onCheckAnswer={r.inboxId ? () => home.add.onCheckAnswer(r) : undefined}
         onDecide={(d) => home.add.onDecide(r, d)}
         onCancelDecision={home.add.onDone}
         onAsk={() => home.add.onAsk(r)}

@@ -373,20 +373,49 @@ function Get-CopilotMissing([string]$Intent) {
     @{ status = 503; body = @{ intent = $Intent; error = 'Microsoft 365 Copilot is not connected, so ObsidiNote cannot add or ask right now. Start ObsidiNote with Copilot and sign in. The map, your notebooks and Undo still work.' } }
 }
 
+# How long Add and Ask wait for Copilot (user, 2026-11-13: a SharePoint link came back "NoAnswer").
+# TimeoutSec: the normal wait. StallSec: no data from Copilot this long counts as hanging; the bridge
+# then presses Stop, which also cancels an answer that was still coming, so it is long (reading a
+# SharePoint or OneDrive source through Work IQ can be silent for minutes; it was 90 s). MaxTimeoutSec:
+# while the page still shows Copilot at work, waiting goes on up to this. Add passes -LeaveRunning, so
+# for Add the end of the wait means 'Pending' (the item waits in the Intake), never Stop. BusyWaitSec:
+# an earlier answer still running in the chat (left running) is waited for this long before Add types.
+$script:CopilotWait = @{ TimeoutSec = 600; StallSec = 300; MaxTimeoutSec = 900; BusyWaitSec = 60 }
+
 function Get-AskCopilotAdapter($State) {
     <# @{ Send; NewChat } for Ask: the test stand-in, or the bridge (lib/Ask.psm1 New-AskCopilot). #>
     if ($State.TestCopilot) { return $State.TestCopilot }
     Import-Module (Join-Path $script:Here 'CopilotBridge.psm1') -Global
-    New-AskCopilot -Bridge $State.Copilot
+    $w = $script:CopilotWait
+    New-AskCopilot -Bridge $State.Copilot -TimeoutSec $w.TimeoutSec -StallSec $w.StallSec -MaxTimeoutSec $w.MaxTimeoutSec
 }
 
 function Get-AddCopilot($State) {
-    <# { param($Prompt) } for Add: one prompt, the bridge's reply object back (lib/Ingest.psm1). #>
+    <# { param($Prompt) } for Add: one prompt, the bridge's reply object back (lib/Ingest.psm1). Add
+       never stops a slow answer (-LeaveRunning: the bridge returns 'Pending' and the Intake item waits
+       for "Check for the answer"), and never types over an answer still running (-BusyWaitSec). #>
     if ($State.TestCopilot) { $send = $State.TestCopilot.Send; return { param([string]$Prompt) & $send $Prompt }.GetNewClosure() }
     Import-Module (Join-Path $script:Here 'CopilotBridge.psm1') -Global
     $cmd = Get-Command Send-CopilotPrompt
     $b = $State.Copilot
-    { param([string]$Prompt) & $cmd -Bridge $b -Text $Prompt -TimeoutSec 300 }.GetNewClosure()
+    $w = $script:CopilotWait
+    $t = $w.TimeoutSec; $st = $w.StallSec; $mx = $w.MaxTimeoutSec; $bw = $w.BusyWaitSec
+    { param([string]$Prompt) & $cmd -Bridge $b -Text $Prompt -TimeoutSec $t -StallSec $st -MaxTimeoutSec $mx -LeaveRunning -BusyWaitSec $bw }.GetNewClosure()
+}
+
+function Get-AddChatReader($State) {
+    <# { param($ChatUrl) } for "Check for the answer": the test stand-in (TestCopilot.ReadChat), or the
+       bridge's Read-CopilotChat on ObsidiNote's own Copilot tab. #>
+    if ($State.TestCopilot) {
+        $tc = $State.TestCopilot
+        $read = if ($tc -is [hashtable] -and $tc.ContainsKey('ReadChat')) { $tc['ReadChat'] } else { $null }
+        if ($read) { return $read }
+        return { param([string]$ChatUrl) @{ state = 'unavailable'; text = ''; busy = $false; message = 'no chat reader' } }
+    }
+    Import-Module (Join-Path $script:Here 'CopilotBridge.psm1') -Global
+    $cmd = Get-Command Read-CopilotChat
+    $b = $State.Copilot
+    { param([string]$ChatUrl) & $cmd -Bridge $b -ChatUrl $ChatUrl }.GetNewClosure()
 }
 
 # --- Requests (pure parts) ----------------------------------------------------------------------------
@@ -527,7 +556,7 @@ function Set-UpVaultRoute($State, [string]$Body) {
     if (-not $nb) { return @{ status = 404; body = @{ error = 'That notebook is not open in OneNote.' } } }
     if ($nb.structured -or @($nb.vaultIds).Count) { return @{ status = 409; body = @{ error = 'That notebook already holds an ObsidiNote vault.' } } }
     if (-not (Test-EmptyNotebook -Adapter $d.adapter -NotebookId $id)) { return @{ status = 409; body = @{ error = 'That notebook is not empty, so ObsidiNote does not set it up. Use "New ObsidiNote vault" instead.' } } }
-    if (-not $confirm) { return @{ status = 409; body = @{ needsConfirm = $true; error = "This adds ObsidiNote's sections (00 Index, 01 Inbox and the buckets) to the empty notebook '$($nb.name)' and makes it your active vault. Confirm to go ahead." } } }
+    if (-not $confirm) { return @{ status = 409; body = @{ needsConfirm = $true; error = "This adds ObsidiNote's sections (00 Index, 01 Intake and the buckets) to the empty notebook '$($nb.name)' and makes it your active vault. Confirm to go ahead." } } }
     [Threading.Monitor]::Enter($State.Lock)
     try { $r = Initialize-EmptyNotebookVault -Adapter $d.adapter -NotebookId $id -Vaults $d.vaults }
     catch { return @{ status = 500; body = @{ error = "The notebook could not be set up: $($_.Exception.Message)" } } }
@@ -659,6 +688,27 @@ function Invoke-UndoRoute($State, [string]$Body) {
     @{ status = 200; body = (Undo-AddRequest -Store (New-ServerStore $State $u) -Undo $undo) }
 }
 
+function Test-PageIdText([string]$Id) {
+    <# A plausible OneNote page id ({...}{n}{Bn}); the store then checks that it is an Intake item. #>
+    $Id.Length -le 200 -and $Id -match '^\{[0-9A-Za-z-]{1,40}\}(\{\d+\}\{[A-Za-z]\d+\})?$'
+}
+
+function Invoke-AddFetchRoute($State, [string]$Body) {
+    <# POST /api/add/fetch {inboxId}: "Check for the answer" for an Intake item that waits for Copilot
+       (lib/Ingest.psm1 Receive-AddAnswer). 200 with the outcome (the Add result, or still-waiting,
+       mismatch, invalid); 409 when the item is not waiting or this session is not the writer. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $id = "$(Get-BodyValue $b 'inboxId' '')"
+    if (-not (Test-PageIdText $id)) { return @{ status = 400; body = @{ error = 'inboxId must be the Intake item''s page id.' } } }
+    if (-not (Test-CopilotReady $State)) { return (Get-CopilotMissing 'add') }
+    $u = Use-ActiveVault $State
+    if (-not $u.ok) { return @{ status = $u.status; body = @{ intent = 'add'; error = $u.error } } }
+    $r = Receive-AddAnswer -Store (New-ServerStore $State $u) -Ask (Get-AddCopilot $State) -ReadChat (Get-AddChatReader $State) -InboxId $id
+    $r['intent'] = 'add'
+    if ($r.status -eq 'refused') { return @{ status = 409; body = @{ intent = 'add'; error = $r.message } } }
+    @{ status = 200; body = $r }
+}
+
 function Invoke-LinkUpdateRoute($State, [string]$Body) {
     <# POST /api/link/update {id, decision, proposed}: Update of a link page. Copilot is needed unless
        the person decides on a summary it already proposed. #>
@@ -701,6 +751,7 @@ function Invoke-ApiRoute {
         }
         'POST /api/submit' { return (Invoke-SubmitRoute $State $Body) }
         'POST /api/add/undo' { return (Invoke-UndoRoute $State $Body) }
+        'POST /api/add/fetch' { return (Invoke-AddFetchRoute $State $Body) }
         'POST /api/link/update' { return (Invoke-LinkUpdateRoute $State $Body) }
     }
     @{ status = 404; body = @{ error = 'Not found.' } }

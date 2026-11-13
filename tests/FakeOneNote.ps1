@@ -114,6 +114,13 @@ function New-FakeOneNote {
         $n = $this.Nodes[$PageId]
         foreach ($o in @($n.outlines)) { if ($o.objectId -eq $ObjectId) { $n.outlines.Remove($o) } }
     }
+    $f | Add-Member ScriptMethod RenameSection { param([string]$SectionId, [string]$NewName)
+        $null = $this.Writes.Add("RenameSection $SectionId")
+        $n = $this.Nodes[$SectionId]
+        if (-not $n -or $n.kind -ne 'Section') { throw 'fake: 0x80042014 section not found' }
+        $n.path = $n.path.Substring(0, $n.path.Length - ($n.name.Length + 4)) + $NewName + '.one'
+        $n.name = $NewName
+    }
     $f | Add-Member ScriptMethod FindByName { param([string]$Name) foreach ($v in $this.Nodes.Values) { if ($v.name -eq $Name) { return $v.id } } }
     $f
 }

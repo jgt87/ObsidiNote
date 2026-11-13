@@ -37,7 +37,7 @@ export function SetUpVaultDialog({ id, name, onClose, onDone }: { id: string; na
           Set up ObsidiNote in {name}?
         </h2>
         <p id="su-desc" className="nv__text">
-          This notebook is empty. ObsidiNote adds its sections to it (00 Index, 01 Inbox and one section per page type) and makes it your active vault. You can undo it in OneNote by deleting those sections.
+          This notebook is empty. ObsidiNote adds its sections to it (00 Index, 01 Intake and one section per page type) and makes it your active vault. You can undo it in OneNote by deleting those sections.
         </p>
         {error && (
           <p className="nv__error" role="alert">

@@ -19,8 +19,9 @@ $script:ProbeNotebook = 'ObsidiNote-Probe'
 $script:DevNotebook = 'ObsidiNote-Validation'
 $script:FixedNames = @('ObsidiNote', 'ObsidiNote-Probe', 'ObsidiNote-Validation', 'ObsidiNote-Dev',
     # ObsidiNote's fixed sections and the kit's own probe sections: product wording, not private names.
-    '00 Index', '01 Inbox', 'Notes', 'Internal links', 'Web links', 'Sources', 'People', 'Projects', 'Meetings', 'Decisions',
-    'Journal', 'Files', 'Archive', 'Index', 'Inbox', 'Unfiled', 'Links', 'P3 markers', 'P1b size', 'P1c home', 'P1c moved')
+    # '01 Inbox' is the Intake's name in vaults made before 2026-11-13 (renamed at the next open).
+    '00 Index', '01 Intake', '01 Inbox', 'Notes', 'Internal links', 'Web links', 'Sources', 'People', 'Projects', 'Meetings', 'Decisions',
+    'Journal', 'Files', 'Archive', 'Index', 'Intake', 'Inbox', 'Unfiled', 'Links', 'P3 markers', 'P1b size', 'P1c home', 'P1c moved')
 $script:Statuses = @('OK', 'WARN', 'FAIL', 'SKIP', 'INFO')
 
 function Get-KitVersion { $script:KitVersion }

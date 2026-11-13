@@ -1,6 +1,6 @@
 # Status - ObsidiNote
 
-Updated: 2026-11-13. Status values: `todo` / `done (code)` / `verified` / `unverified live`.
+Updated: 2026-11-13 (Check for the answer; Inbox renamed Intake). Status values: `todo` / `done (code)` / `verified` / `unverified live`.
 
 | # | Item | Status | Evidence |
 |---|---|---|---|
@@ -11,7 +11,8 @@ Updated: 2026-11-13. Status values: `todo` / `done (code)` / `verified` / `unver
 | 5 | P3 Copilot grounding on OneNote (business tenant) | todo | marker prompt in `probes/p3-copilot-prompt.txt` |
 | 6 | P4 Copilot grounding on Loop (business tenant) | todo | |
 | 7 | Central index in the OneNote Index section (topic tree, obsn.* Meta, path-based Ask) | done (code); live: index load, completeness and Index pages on the dev vault | `lib/Index.psm1` + Index tests; wired 2026-11-13: the start runs `Update-VaultIndex` (live: "[OK] Vault ObsidiNote-Dev (7 pages, 4 topics); index complete"), Add regenerates the affected Index pages (`tests/VaultStore.Tests.ps1`), Ask walks it (`lib/AskSources.psm1`). Path-based Ask live needs Copilot |
-| 7a | Notebook structure (00 Index, 01 Inbox, type buckets, Archive) + completeness rule (every page listed) | done (code); structure live on the dev vault | `lib/NotebookStructure.psm1`, `lib/Vault.psm1`; completeness at start and after every store write (VaultSession/VaultStore tests: a page typed in OneNote is reported and listed) |
+| 7a | Notebook structure (00 Index, 01 Intake, type buckets, Archive) + completeness rule (every page listed) | done (code); structure live on the dev vault | `lib/NotebookStructure.psm1`, `lib/Vault.psm1`; completeness at start and after every store write (VaultSession/VaultStore tests: a page typed in OneNote is reported and listed). `01 Inbox` -> `01 Intake` rename at vault open (guarded `RenameSection`, `tests/Vault.Tests.ps1`), 2026-11-13; COM `UpdateHierarchy` rename unverified live |
+| 7e | Add: "Check for the answer" (request reference in every Add prompt, Pending without Stop, Intake item waiting, `POST /api/add/fetch`) | done (code); unverified live | 2026-11-13: Ingest/Linker/Bridge/Server tests (ref in both prompts, Pending -> waiting with nothing else written, matching answer files the page as a live one, answers without/with another ref ignored, link source checked, refused when not waiting or not the writer, no Stop with `-LeaveRunning`). Live (Copilot answer left running, chat address from CDP, reading the chat back, waiting before the next prompt): V6 "Check for the answer" (RB-05) on the business tenant |
 | 7c | Links: Internal links / Web links buckets, summary page shape, dedup by URL, Links index page | done (code); unverified live | `lib/LinkCapture.psm1` + `lib/VaultStore.psm1` (`tests/VaultStore.Tests.ps1`: link page in Web links, found again by normalized URL, notes outline never rewritten); probes P7 (SharePoint/OneDrive) and P8 (web) todo, need Copilot |
 | 7d | Archive (default, restorable) and delete (confirmed, via OneNote Deleted Pages) | partly: Undo of an Add to Deleted Pages (code); archive/delete todo | `Undo-AddRequest` through `/api/add/undo` (VaultStore + Server tests); Recently deleted kept 60 days on the state page; archive, restore, delete UI todo; probe P1c todo |
 | 7b | P1b: Meta value size limit, Index load time at 100 / 1,000 / 5,000 pages | partly | limit known (~100k chars refused, values split at 30k); load time at 1,000 / 5,000 pages still to measure |

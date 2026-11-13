@@ -1383,19 +1383,26 @@ function Send-CopilotPrompt {
         [scriptblock]$OnStatus,      # an agent's progress line ("Searching for release details")
         [string]$Agent = '',         # Researcher or Analyst: mentioned at the start of the message
         [string[]]$Files = @(),      # local files to attach
-        [switch]$OptionalFiles       # a file that cannot be attached is left out (said in $Bridge.AttachErrors)
+        [switch]$OptionalFiles,      # a file that cannot be attached is left out (said in $Bridge.AttachErrors)
+        # Never press Stop for a slow answer: at the stall limit or the deadline return Result 'Pending'
+        # with ChatUrl (the chat's address) and leave Copilot answering. Pressing Stop cancels Copilot's
+        # answer, which a later "Check for the answer" then cannot find (Add, 2026-11-13).
+        [switch]$LeaveRunning,
+        # Before typing: while the page still shows Copilot answering (Stop), wait up to this long, then
+        # return Result 'Busy' without typing (0 = no check, as before).
+        [int]$BusyWaitSec = 0
     )
     $lockWait = $null
     if ($OnStatus) { $lockWait = { param($t) & $OnStatus $t }.GetNewClosure() }
     Use-CopilotLock -OnWait $lockWait -CancelCheck $CancelCheck -Body {
-        $r = Send-CopilotPromptUnlocked -Bridge $Bridge -Text $Text -TimeoutSec $TimeoutSec -OnProgress $OnProgress -CancelCheck $CancelCheck -StallSec $StallSec -Agent $Agent -Files $Files -OptionalFiles:$OptionalFiles -OnStatus $OnStatus -MaxTimeoutSec $MaxTimeoutSec
+        $r = Send-CopilotPromptUnlocked -Bridge $Bridge -Text $Text -TimeoutSec $TimeoutSec -OnProgress $OnProgress -CancelCheck $CancelCheck -StallSec $StallSec -Agent $Agent -Files $Files -OptionalFiles:$OptionalFiles -OnStatus $OnStatus -MaxTimeoutSec $MaxTimeoutSec -LeaveRunning:$LeaveRunning -BusyWaitSec $BusyWaitSec
         if ($Bridge.PSObject.Properties['LastReplyAt']) { $Bridge.LastReplyAt = Get-Date }
         if ($r.Result -eq 'Lost') {
             # The request never reached Copilot's answer stream (seen when the page opens that
             # connection only at the first send). The connection exists now: send it once more.
             Write-AppLog info bridge 'No part of the reply arrived; sending the prompt again'
             Add-TimelineEvent $Bridge 'resent' $null
-            $r = Send-CopilotPromptUnlocked -Bridge $Bridge -Text $Text -TimeoutSec $TimeoutSec -OnProgress $OnProgress -CancelCheck $CancelCheck -StallSec $StallSec -Agent $Agent -Files $Files -OptionalFiles:$OptionalFiles -OnStatus $OnStatus -LostSec 0 -MaxTimeoutSec $MaxTimeoutSec
+            $r = Send-CopilotPromptUnlocked -Bridge $Bridge -Text $Text -TimeoutSec $TimeoutSec -OnProgress $OnProgress -CancelCheck $CancelCheck -StallSec $StallSec -Agent $Agent -Files $Files -OptionalFiles:$OptionalFiles -OnStatus $OnStatus -LostSec 0 -MaxTimeoutSec $MaxTimeoutSec -LeaveRunning:$LeaveRunning
             if ($r.Result -eq 'Lost') { $r.Result = 'NoAnswer' }
         }
         if ($r.Result -eq 'Success' -and -not $r.Cancelled) { $r = Update-LateReply $Bridge $r }
@@ -1518,12 +1525,23 @@ function Send-CopilotPromptUnlocked {
         [string]$Agent = '',   # Researcher or Analyst: the message starts with a mention of that agent
         [string[]]$Files = @(), # local files attached to the message (as with Copilot's + button)
         [switch]$OptionalFiles, # a file that cannot be attached is left out instead of stopping the send
-        [int]$MaxTimeoutSec = 0 # at TimeoutSec, keep waiting while Copilot still shows it is working, up to this
+        [int]$MaxTimeoutSec = 0, # at TimeoutSec, keep waiting while Copilot still shows it is working, up to this
+        [switch]$LeaveRunning,  # stall or deadline: return 'Pending' (with ChatUrl) and never press Stop
+        [int]$BusyWaitSec = 0   # Copilot still answering before typing: wait this long, then 'Busy' (0 = no check)
     )
     $s = $Bridge.Session
     $replyRecords = 0      # records that belong to a reply (not handshakes or keep-alive pings)
     while ($s.Events.Count) { $null = $s.Events.Dequeue() }   # drop stale events
     $sendWatch = [Diagnostics.Stopwatch]::StartNew()
+
+    if ($BusyWaitSec -gt 0 -and -not (Wait-CopilotIdle $Bridge $BusyWaitSec)) {
+        # An earlier answer is still running in this chat (one left running by -LeaveRunning): typing now
+        # would go over it, so nothing is typed.
+        Write-AppLog info bridge "Copilot is still answering an earlier prompt after $BusyWaitSec s; nothing typed"
+        return [pscustomobject]@{ Cancelled = $false; Text = ''; ServerText = $null; Uncertain = 0; SentText = $Text; SentMatches = $false
+            Result = 'Busy'; ResultMessage = 'Copilot is still answering an earlier prompt'; ConversationId = $null; Throttling = $null
+            Metering = $null; References = @(); ProposedActions = @(); ActionClaims = @() }
+    }
 
     # The page itself is watched too: if the reply does not arrive over the Chathub socket (other
     # tenants may deliver it differently), it is read from the page once Copilot has finished.
@@ -1704,6 +1722,11 @@ function Send-CopilotPromptUnlocked {
                 }
             }
             $hangs = -not $gaveUp -and $StallSec -gt 0 -and $quiet -ge $StallSec
+            if ($hangs -and $LeaveRunning) {
+                # Copilot may still be reading a source silently: leave it answering (no Stop).
+                Write-NetTrace $net 'pending'
+                return (New-PendingReply $Bridge $Text "no data for $([int]$quiet) s" $sendWatch.ElapsedMilliseconds)
+            }
             if ($hangs) { $null = Stop-CopilotReply $Bridge -DrainSec 5 }
             if ($gaveUp -or $hangs) {
                 Write-AppLog info bridge "Copilot stopped without answering ($(if ($hangs) { "no data for $([int]$quiet) s" } else { 'page shows Regenerate' }))" @{ partialChars = $merger.Text.Length; frames = $frames.Count; invocation = $myInvocation; sent = @($sentTargets | Select-Object -Unique) }
@@ -1794,8 +1817,94 @@ function Send-CopilotPromptUnlocked {
     $TimeoutSec = [int]((Get-Date) - $started).TotalSeconds   # the time actually waited, also when extended
     Write-AppLog info bridge "No complete reply within $TimeoutSec s" @{ partialChars = $merger.Text.Length; frames = $frames.Count; invocation = $myInvocation; sent = @($sentTargets | Select-Object -Unique) }
     Write-NetTrace $net 'timeout'
+    if ($LeaveRunning) { return (New-PendingReply $Bridge $Text "no complete reply within $TimeoutSec s" $sendWatch.ElapsedMilliseconds) }
     $null = Stop-CopilotReply $Bridge
     throw "No complete reply within $TimeoutSec s (partial: $($merger.Text.Length) chars)"
+}
+
+function New-PendingReply {
+    <# The reply object for -LeaveRunning: Copilot is still answering and was NOT stopped. ChatUrl is
+       the conversation's address (Get-CopilotChatAddress), for reading the answer later. #>
+    param($Bridge, [string]$Sent, [string]$Why, [long]$Ms)
+    $chat = ''
+    try { $chat = Get-CopilotChatAddress $Bridge } catch { }
+    Write-AppLog info bridge "Copilot is still answering; left running ($Why)" @{ ms = $Ms; chatAddress = [bool]$chat }
+    Add-TimelineEvent $Bridge 'returned' 'pending (left running)'
+    [pscustomobject]@{ Cancelled = $false; Text = ''; ServerText = $null; Uncertain = 0; SentText = $Sent; SentMatches = $true
+        Result = 'Pending'; ResultMessage = "Copilot is still answering ($Why)"; ChatUrl = $chat; ConversationId = $null; Throttling = $null
+        Metering = $null; References = @(); ProposedActions = @(); ActionClaims = @() }
+}
+
+function ConvertTo-CopilotChatAddress {
+    <# The address of a Copilot conversation for keeping on an Intake item: scheme, host and path only
+       (no query, no fragment: those can carry more than an id), and only on a Copilot host. '' for
+       anything else. Pure. #>
+    param([AllowEmptyString()][string]$Url, [Parameter(Mandatory)]$Selectors)
+    if (-not $Url -or $Url.Length -gt 2000) { return '' }
+    $u = $null
+    if (-not [Uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$u)) { return '' }
+    if ($u.Scheme -ne 'https' -or -not (Test-CopilotUrl $Url $Selectors)) { return '' }
+    $path = $u.AbsolutePath
+    if ($path.Length -gt 300 -or $path -match '\s') { return '' }
+    "https://$($u.Host.ToLowerInvariant())$path"
+}
+
+function Get-CopilotChatAddress {
+    <# The current conversation's address in ObsidiNote's Copilot tab, from CDP's target info (the
+       tab's URL), else location.href; reduced by ConvertTo-CopilotChatAddress. #>
+    param([Parameter(Mandatory)]$Bridge)
+    $url = ''
+    try { $info = Invoke-Cdp $Bridge.Session 'Target.getTargetInfo'; if ($info -and $info.targetInfo) { $url = [string]$info.targetInfo.url } } catch { if ($Bridge.Session.Lost) { throw } }
+    if (-not $url) { try { $url = [string](Invoke-CdpEval $Bridge.Session 'location.href') } catch { if ($Bridge.Session.Lost) { throw } } }
+    ConvertTo-CopilotChatAddress $url $Bridge.Selectors
+}
+
+function Wait-CopilotIdle {
+    <# True once the page no longer shows Copilot answering (no Stop button, no busy agent), checked
+       for up to $Sec seconds; false when it is still answering then. #>
+    param([Parameter(Mandatory)]$Bridge, [int]$Sec = 60)
+    $until = (Get-Date).AddSeconds($Sec)
+    while ($true) {
+        $st = Get-PageReplyState $Bridge
+        if (-not $st -or -not ($st.stop -or $st.agentBusy)) { return $true }
+        if ((Get-Date) -ge $until) { return $false }
+        $next = (Get-Date).AddSeconds(1)
+        while ((Get-Date) -lt $next) { $null = Receive-CdpEvent $Bridge.Session 200 }
+    }
+}
+
+function Read-CopilotChatUnlocked {
+    <# Reads the replies of the Copilot conversation at $ChatUrl for "Check for the answer". The chat is
+       opened in ObsidiNote's own Copilot tab (Page.navigate, no new window) only when the tab is not
+       already showing it, and never while Copilot is answering in another chat (that answer would be
+       left). Returns @{ state = read|busy|unavailable; text (all replies on the page, joined); busy
+       (Copilot still answering in this chat); replies; navigated; message }. The text stays in memory. #>
+    param([Parameter(Mandatory)]$Bridge, [AllowEmptyString()][string]$ChatUrl)
+    $here = Get-CopilotChatAddress $Bridge
+    $want = if ($ChatUrl) { ConvertTo-CopilotChatAddress $ChatUrl $Bridge.Selectors } else { $here }
+    if (-not $want) { return @{ state = 'unavailable'; text = ''; busy = $false; replies = 0; navigated = $false; message = 'no Copilot chat address is kept for this item' } }
+    $st = Get-PageReplyState $Bridge
+    $navigated = $false
+    if ($here -ne $want) {
+        if ($st -and ($st.stop -or $st.agentBusy)) { return @{ state = 'busy'; text = ''; busy = $true; replies = 0; navigated = $false; message = '' } }
+        $null = Invoke-Cdp $Bridge.Session 'Page.navigate' @{ url = $want }
+        Start-Sleep -Milliseconds 500
+        if (-not (Wait-CopilotEditor $Bridge -TimeoutSec 30)) { return @{ state = 'unavailable'; text = ''; busy = $false; replies = 0; navigated = $true; message = 'the chat did not open' } }
+        # The conversation's replies render a moment after the message box.
+        $until = (Get-Date).AddSeconds(10)
+        do { $st = Get-PageReplyState $Bridge; if ($st -and $st.replies -gt 0) { break }; $null = Receive-CdpEvent $Bridge.Session 300 } while ((Get-Date) -lt $until)
+        $navigated = $true
+    }
+    $pt = Get-PageReplyText $Bridge -FromIndex 0
+    $n = if ($st) { [int]$st.replies } else { 0 }
+    Write-AppLog info bridge 'Chat read for an answer check' @{ navigated = $navigated; replies = $n; chars = "$($pt.text)".Length; how = "$($pt.how)" }
+    @{ state = 'read'; text = "$($pt.text)"; busy = [bool]($st -and ($st.stop -or $st.agentBusy)); replies = $n; navigated = $navigated; message = '' }
+}
+
+function Read-CopilotChat {
+    <# Read-CopilotChatUnlocked under the send lock (nothing else types meanwhile). #>
+    param([Parameter(Mandatory)]$Bridge, [AllowEmptyString()][string]$ChatUrl)
+    Use-CopilotLock { Read-CopilotChatUnlocked -Bridge $Bridge -ChatUrl $ChatUrl }
 }
 
 function Get-SelectorOrDefault($Bridge, [string]$Name, [string]$Default) {
@@ -2044,4 +2153,4 @@ function Disconnect-Copilot {
     Disconnect-Cdp $Bridge.Session
 }
 
-Export-ModuleMember -Function Test-NavigateToCopilot, Get-WebPageCount, Test-ForcedSignInBlock, Get-CopilotSelectors, Get-CopilotPacing,Get-CopilotResponseOptions, Get-ResponseModeClassic, Close-CopilotMenu, Test-DamagedTagText, Get-AlnumHead, Set-CopilotTheme, Merge-LateReplyText, Get-ProgressLine, Add-CopilotAttachment, Get-CopilotCharts, Add-CopilotMention, Get-ReplyAgent, Get-AgentDisplayName, Get-PrivateCopilotTarget, Close-PrivateCopilotSessions, Set-CopilotResponseMode, Test-CopilotPage, Wait-CopilotSignIn, Wait-CopilotEditor, Get-CopilotTarget, Test-CopilotUrl, Get-ReplyTimelineSummary, New-StreamState, Add-StreamRecord, New-ReplyTimeline, Connect-Copilot, New-CopilotChat, Send-CopilotPrompt, Set-CopilotWorkIq, Disconnect-Copilot, Read-HubRecords, Get-BotReplyText, Get-ReplyFromFrames, Get-TypedLength
+Export-ModuleMember -Function Test-NavigateToCopilot, Get-WebPageCount, Test-ForcedSignInBlock, Get-CopilotSelectors, Get-CopilotPacing,Get-CopilotResponseOptions, Get-ResponseModeClassic, Close-CopilotMenu, Test-DamagedTagText, Get-AlnumHead, Set-CopilotTheme, Merge-LateReplyText, Get-ProgressLine, Add-CopilotAttachment, Get-CopilotCharts, Add-CopilotMention, Get-ReplyAgent, Get-AgentDisplayName, Get-PrivateCopilotTarget, Close-PrivateCopilotSessions, Set-CopilotResponseMode, Test-CopilotPage, Wait-CopilotSignIn, Wait-CopilotEditor, Get-CopilotTarget, Test-CopilotUrl, Get-ReplyTimelineSummary, New-StreamState, Add-StreamRecord, New-ReplyTimeline, Connect-Copilot, New-CopilotChat, Send-CopilotPrompt, Set-CopilotWorkIq, Disconnect-Copilot, Read-HubRecords, Get-BotReplyText, Get-ReplyFromFrames, Get-TypedLength, ConvertTo-CopilotChatAddress, Get-CopilotChatAddress, Read-CopilotChat

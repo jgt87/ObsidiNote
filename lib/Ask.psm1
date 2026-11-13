@@ -408,14 +408,14 @@ function New-AskCopilot {
     <# The Copilot adapter for Ask, over lib/CopilotBridge.psm1 (loaded by the caller):
        @{ Send = { param([string]$Text) -> reply text }; NewChat = { } }. A reply that is not
        Success throws. #>
-    param([Parameter(Mandatory)]$Bridge, [int]$TimeoutSec = 300)
+    param([Parameter(Mandatory)]$Bridge, [int]$TimeoutSec = 600, [int]$StallSec = 300, [int]$MaxTimeoutSec = 900)
     $send = Get-Command Send-CopilotPrompt -ErrorAction Stop
     $new = Get-Command New-CopilotChat -ErrorAction Stop
-    $b = $Bridge; $t = $TimeoutSec
+    $b = $Bridge; $t = $TimeoutSec; $st = $StallSec; $mx = $MaxTimeoutSec
     @{
         Send    = {
             param([string]$Text)
-            $r = & $send -Bridge $b -Text $Text -TimeoutSec $t
+            $r = & $send -Bridge $b -Text $Text -TimeoutSec $t -StallSec $st -MaxTimeoutSec $mx
             $res = if ($r) { [string]$r.Result } else { 'NoReply' }
             if ($res -ne 'Success') { throw "Copilot did not answer ($res)." }
             [string]$r.Text

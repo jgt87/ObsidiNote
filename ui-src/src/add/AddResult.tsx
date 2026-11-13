@@ -3,6 +3,8 @@ import { chipLabel, formatOneNotePath, formatSeconds, formatTopicPath, placement
 import { LinksCard } from './LinksCard'
 import { LinkUpdateView } from './LinkUpdateView'
 import type { AddResult as AddResultData } from './types'
+import { WaitingCard } from './WaitingCard'
+import { isWaitingStatus } from './waiting'
 import './AddResult.css'
 
 export interface AddResultActions {
@@ -19,6 +21,8 @@ export interface AddResultActions {
   onCancelDecision?: () => void
   /** A link page: read the source again. */
   onUpdateLink?: () => void
+  /** Waiting for Copilot: read its answer from the chat (POST /api/add/fetch). */
+  onCheckAnswer?: () => void
 }
 
 function CheckIcon() {
@@ -38,6 +42,7 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
   const heading = resultHeading(r.status, title)
   const isUpdate = r.status === 'updated' || r.status === 'unchanged' || r.status === 'kept' || r.status === 'could-not-update' || r.status === 'needs-confirmation'
   const written = r.status === 'added' || r.status === 'updated' || r.status === 'unchanged' || r.status === 'kept'
+  const waiting = isWaitingStatus(r.status)
 
   return (
     <div className="add-result">
@@ -55,7 +60,7 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
         <section className="add-card add-card--alert" role="alert">
           <p className="add-label">Not added</p>
           <p className="add-text">{r.message}</p>
-          {r.inbox?.status === 'failed' && <p className="add-muted">The item is kept in your Inbox with this reason, so nothing is lost.</p>}
+          {r.inbox?.status === 'failed' && <p className="add-muted">The item is kept in your Intake with this reason, so nothing is lost.</p>}
           {r.related.length > 0 && (
             <p className="add-text">
               Already there:{' '}
@@ -68,6 +73,10 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
             </p>
           )}
         </section>
+      )}
+
+      {isWaitingStatus(r.status) && (
+        <WaitingCard status={r.status} message={r.message} busy={busy} onCheck={r.inboxId ? a.onCheckAnswer : undefined} />
       )}
 
       {r.status === 'ask-instead' && (
@@ -192,7 +201,8 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
               Undo
             </button>
           )}
-          <button type="button" className="btn btn--primary" onClick={a.onDone} disabled={busy}>
+          {/* design: while the item waits, "Check for the answer" is the view's one primary button. */}
+          <button type="button" className={waiting && r.inboxId && a.onCheckAnswer ? 'btn' : 'btn btn--primary'} onClick={a.onDone} disabled={busy}>
             Done
           </button>
         </section>

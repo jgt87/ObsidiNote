@@ -74,7 +74,10 @@ function New-LinkSummaryPrompt {
        links with web grounding. The reply contract is one JSON object:
        { readable, problem, title, where, kind, summary, keyFacts, useFor, sensitivity }. #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Url, [Parameter(Mandatory)][ValidateSet('Internal links', 'Web links')][string]$Bucket, [datetime]$Today = (Get-Date))
+    param([Parameter(Mandatory)][string]$Url, [Parameter(Mandatory)][ValidateSet('Internal links', 'Web links')][string]$Bucket, [datetime]$Today = (Get-Date),
+        # The request's reference code: Copilot repeats it as "ref" and the link it read as "source",
+        # so an answer read from the chat later is only used for this request and this link.
+        [string]$Ref = '')
     $internal = $Bucket -eq 'Internal links'
     $kinds = if ($internal) { $script:InternalKinds } else { $script:WebKinds }
     $sb = New-Object System.Text.StringBuilder
@@ -88,9 +91,14 @@ function New-LinkSummaryPrompt {
     [void]$sb.AppendLine("URL: $Url")
     [void]$sb.AppendLine('')
     [void]$sb.AppendLine('Reply with exactly one JSON object and nothing else: no Markdown, no code fence, no text before or after it.')
-    [void]$sb.AppendLine('{"readable": true, "problem": "", "title": "...", "where": "...", "kind": "...", "summary": "...", "keyFacts": ["..."], "useFor": "...", "sensitivity": ""}')
+    $refPart = if ($Ref) { ', "ref": "' + $Ref + '", "source": "..."' } else { '' }
+    [void]$sb.AppendLine('{"readable": true, "problem": "", "title": "...", "where": "...", "kind": "...", "summary": "...", "keyFacts": ["..."], "useFor": "...", "sensitivity": ""' + $refPart + '}')
     [void]$sb.AppendLine('')
     [void]$sb.AppendLine('Rules:')
+    if ($Ref) {
+        [void]$sb.AppendLine("- ref: always exactly ""$Ref"" (the reference of this request).")
+        [void]$sb.AppendLine('- source: the URL you read, exactly as given above.')
+    }
     [void]$sb.AppendLine('- readable: false when you cannot open or read it; then problem is "no-access", "not-found" or "other" and the other fields may stay empty.')
     if ($internal) {
         [void]$sb.AppendLine('- title: the site, page or file name.')

@@ -181,7 +181,7 @@ Describe 'A new link' {
         $r.page.unfiled | Should Be $true
         $r.warnings[0] | Should Match 'not linked'
     }
-    It 'fails and keeps the Inbox item when the summary answer is broken' {
+    It 'fails and keeps the Intake item when the summary answer is broken' {
         $v = New-FakeVault; $c = New-FakeCopilot @('{"title": "x", "summary": ')
         $r = Invoke-AddRequest -Request @{ text = 'https://example.org/iap' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
         $r.status | Should Be 'failed'

@@ -16,23 +16,41 @@ Import-Module (Join-Path $PSScriptRoot 'NotebookStructure.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Vault.psm1')
 Import-Module (Join-Path $PSScriptRoot 'WriterLease.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
+Import-Module (Join-Path $PSScriptRoot 'MarkdownLines.psm1')
 
 $script:FixedIndexKeys = @('root', 'bytype', 'az', 'unfiled', 'links', 'archive', 'other', 'state')
 $script:DeletedKeepDays = 60
 
 # ---------------------------------------------------------------- pure helpers
 
+function ConvertTo-PartsHtml([object[]]$Parts) {
+    # Parts may carry Markdown styles (bold, italic, code, strike; lib/MarkdownLines.psm1).
+    (@(@($Parts) | Where-Object { $null -ne $_ } | ForEach-Object { ConvertTo-MdPartHtml $_ }) -join '')
+}
+
 function ConvertTo-OutlineLines {
-    <# Line model -> New-OneLine lines (PageMeta). Strings stay plain text. #>
+    <# Line model -> New-OneLine lines (PageMeta). Strings stay plain text. Markdown lines keep their
+       list kind (numbered items count per level), heading size and table. #>
     param([object[]]$Lines = @())
+    $num = 0
     , @(foreach ($l in @($Lines)) {
         if ($null -eq $l) { continue }
-        if ($l -is [string]) { New-OneLine -Text $l; continue }
-        $html = (@(@($l['parts']) | Where-Object { $null -ne $_ } | ForEach-Object {
-            if ($_['href']) { New-OneLink -Href ([string]$_['href']) -Label ([string]$_['text']) } else { ConvertTo-OneHtml ([string]$_['text']) }
-        }) -join '')
+        if ($l -is [string]) { New-OneLine -Text $l; $num = 0; continue }
+        $html = ConvertTo-PartsHtml @($l['parts'])
+        $level = [int]$l['heading']
+        if ($level -ge 1 -and $level -le 3) { $html = "<span style='font-size:" + @('16', '14', '12')[$level - 1] + "pt'>$html</span>" }
+        $list = [string]$l['list']
+        if ($list -eq 'number') { $num++ } else { $num = 0 }
+        $table = $null
+        if ($l['table']) {
+            $t = $l['table']
+            $table = @{
+                header = @(foreach ($c in @($t['header'])) { ConvertTo-PartsHtml @($c) })
+                rows = @(foreach ($r in @($t['rows'])) { , @(foreach ($c in @($r)) { ConvertTo-PartsHtml @($c) }) })
+            }
+        }
         $kids = ConvertTo-OutlineLines -Lines @($l['children'])
-        New-OneLine -Html $html -Children $kids -Bold:([bool]$l['bold']) -Collapsed:([bool]$l['collapsed'])
+        New-OneLine -Html $html -Children $kids -Bold:([bool]$l['bold']) -Collapsed:([bool]$l['collapsed']) -List $list -Number $num -Table $table
     })
 }
 
@@ -165,12 +183,15 @@ function Invoke-VsNewId {
 }
 
 function Invoke-VsCreateInboxItem {
-    param([hashtable]$Ctx, [string]$Title, [string]$Text, [string]$Kind)
+    <# A new Intake item (section '01 Intake'): the text as added, status new, and the request
+       reference of its first Copilot step (obsn.requestRef, obsn.requestKind classify|linkSummary). #>
+    param([hashtable]$Ctx, [string]$Title, [string]$Text, [string]$Kind, [string]$Ref = '', [string]$RequestKind = '')
     Assert-VsWritable $Ctx
-    $sid = Resolve-ObsnSection -Adapter $Ctx.Adapter -RootId $Ctx.Vault.rootId -Full '01 Inbox'
+    $sid = Resolve-ObsnSection -Adapter $Ctx.Adapter -RootId $Ctx.Vault.rootId -Full (Get-ObsnIntakeSection)
     $pageId = $Ctx.Adapter.CreateNewPage($sid)
     $lines = @($Text -split '\r?\n' | ForEach-Object { New-OneLine -Text $_.TrimEnd() })
-    Write-ObsnPage -Adapter $Ctx.Adapter -PageId $pageId -Meta ([ordered]@{ 'obsn.status' = 'new'; 'obsn.inboxKind' = $Kind }) -Title $Title -Outlines @(@{ role = 'props'; lines = @('status: new') }, @{ role = 'body'; lines = $lines }) -NewPage
+    $meta = [ordered]@{ 'obsn.status' = 'new'; 'obsn.inboxKind' = $Kind; 'obsn.requestRef' = $Ref; 'obsn.requestKind' = $RequestKind }
+    Write-ObsnPage -Adapter $Ctx.Adapter -PageId $pageId -Meta $meta -Title $Title -Outlines @(@{ role = 'props'; lines = @('status: new') }, @{ role = 'body'; lines = $lines }) -NewPage
     @{ pageId = $pageId; link = $Ctx.Adapter.GetHyperlinkToObject($pageId) }
 }
 
@@ -179,6 +200,37 @@ function Invoke-VsSetInboxStatus {
     Assert-VsWritable $Ctx
     $line = "status: $Status" + $(if ($Reason) { " - $Reason" } else { '' }) + $(if ($Id) { " (filed as $Id)" } else { '' })
     Write-ObsnPage -Adapter $Ctx.Adapter -PageId $PageId -Meta ([ordered]@{ 'obsn.status' = $Status; 'obsn.statusReason' = $Reason; 'obsn.filedAs' = $Id }) -Outlines @(@{ role = 'props'; lines = @($line) })
+}
+
+function Invoke-VsSetInboxWaiting {
+    <# Copilot is still answering: status waiting, the request reference and kind, when the wait began,
+       and the Copilot chat's address (an id-like URL without query; no prompt text). #>
+    param([hashtable]$Ctx, [string]$PageId, [string]$Ref, [string]$RequestKind, [string]$ChatUrl, [string]$Since)
+    Assert-VsWritable $Ctx
+    $line = "status: waiting - Copilot is still answering (reference $Ref)"
+    $meta = [ordered]@{ 'obsn.status' = 'waiting'; 'obsn.statusReason' = ''; 'obsn.requestRef' = $Ref; 'obsn.requestKind' = $RequestKind; 'obsn.waitingSince' = $Since; 'obsn.chatUrl' = $ChatUrl }
+    Write-ObsnPage -Adapter $Ctx.Adapter -PageId $PageId -Meta $meta -Outlines @(@{ role = 'props'; lines = @($line) })
+}
+
+function Invoke-VsReadInboxItem {
+    <# An Intake item of the active vault: only a page of the '01 Intake' section directly in the vault
+       root (never another section, notebook or the recycle bin). Returns @{ pageId; title; status;
+       kind; text; ref; requestKind; waitingSince; chatUrl }; throws for anything else. #>
+    param([hashtable]$Ctx, [string]$PageId)
+    $tree = ConvertFrom-ObsnHierarchy -Xml ($Ctx.Adapter.GetHierarchy($Ctx.Vault.rootId, 4)) -RootId $Ctx.Vault.rootId
+    $intake = Get-ObsnIntakeSection
+    $sec = @($tree.sections | Where-Object { $_.full -eq $intake }) | Select-Object -First 1
+    if (-not $sec -or -not @($sec.pages | Where-Object { $_.id -eq $PageId }).Count) { throw 'not an Intake item' }
+    $xml = $Ctx.Adapter.GetPageContent($PageId)
+    $meta = (ConvertFrom-ObsnPageXml -Xml $xml).meta
+    $t = ConvertFrom-ObsnPageText -Xml $xml
+    $body = @($t.outlines | Where-Object { $_.role -eq 'body' }) | Select-Object -First 1
+    $m = { param($k) if ($meta.ContainsKey($k)) { [string]$meta[$k] } else { '' } }
+    @{
+        pageId = $PageId; title = $t.title; status = (& $m 'obsn.status'); kind = (& $m 'obsn.inboxKind')
+        text = $(if ($body) { [string]$body.text } else { '' }); ref = (& $m 'obsn.requestRef'); requestKind = (& $m 'obsn.requestKind')
+        waitingSince = (& $m 'obsn.waitingSince'); chatUrl = (& $m 'obsn.chatUrl')
+    }
 }
 
 function Invoke-VsCreatePage {
@@ -296,6 +348,8 @@ function Invoke-VaultStoreCall {
         'NewId' { return (Invoke-VsNewId $Ctx) }
         'CreateInboxItem' { return (Invoke-VsCreateInboxItem -Ctx $Ctx @Arguments) }
         'SetInboxStatus' { return (Invoke-VsSetInboxStatus -Ctx $Ctx @Arguments) }
+        'SetInboxWaiting' { return (Invoke-VsSetInboxWaiting -Ctx $Ctx @Arguments) }
+        'ReadInboxItem' { return (Invoke-VsReadInboxItem -Ctx $Ctx @Arguments) }
         'CreatePage' { return (Invoke-VsCreatePage -Ctx $Ctx @Arguments) }
         'ReadPage' { return (Invoke-VsReadPage -Ctx $Ctx @Arguments) }
         'UpdatePage' { return (Invoke-VsUpdatePage -Ctx $Ctx @Arguments) }
@@ -328,8 +382,10 @@ function New-VaultStore {
         NormalizeUrl    = { param([string]$Url) & $call $ctx 'NormalizeUrl' @{ Url = $Url } }.GetNewClosure()
         FindPageByUrl   = { param([string]$Url) & $call $ctx 'FindPageByUrl' @{ Url = $Url } }.GetNewClosure()
         NewId           = { & $call $ctx 'NewId' }.GetNewClosure()
-        CreateInboxItem = { param([string]$Title, [string]$Text, [string]$Kind) & $call $ctx 'CreateInboxItem' @{ Title = $Title; Text = $Text; Kind = $Kind } }.GetNewClosure()
+        CreateInboxItem = { param([string]$Title, [string]$Text, [string]$Kind, [string]$Ref, [string]$RequestKind) & $call $ctx 'CreateInboxItem' @{ Title = $Title; Text = $Text; Kind = $Kind; Ref = $Ref; RequestKind = $RequestKind } }.GetNewClosure()
         SetInboxStatus  = { param([string]$PageId, [string]$Status, [string]$Reason, [string]$Id) & $call $ctx 'SetInboxStatus' @{ PageId = $PageId; Status = $Status; Reason = $Reason; Id = $Id } }.GetNewClosure()
+        SetInboxWaiting = { param([string]$PageId, [string]$Ref, [string]$RequestKind, [string]$ChatUrl, [string]$Since) & $call $ctx 'SetInboxWaiting' @{ PageId = $PageId; Ref = $Ref; RequestKind = $RequestKind; ChatUrl = $ChatUrl; Since = $Since } }.GetNewClosure()
+        ReadInboxItem   = { param([string]$PageId) & $call $ctx 'ReadInboxItem' @{ PageId = $PageId } }.GetNewClosure()
         CreatePage      = { param([hashtable]$Page) & $call $ctx 'CreatePage' @{ Page = $Page } }.GetNewClosure()
         ReadPage        = { param([string]$PageId) & $call $ctx 'ReadPage' @{ PageId = $PageId } }.GetNewClosure()
         UpdatePage      = { param([string]$PageId, [hashtable]$Meta, [object[]]$Outlines, [string]$Title) & $call $ctx 'UpdatePage' @{ PageId = $PageId; Meta = $Meta; Outlines = $Outlines; Title = $Title } }.GetNewClosure()

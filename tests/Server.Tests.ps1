@@ -322,6 +322,11 @@ Describe 'Invoke-ApiRoute: setting up an empty notebook as a vault (user, 2026-1
         $state.Vault.vaultId | Should Be $r.body.vaultId
         ((Invoke-ApiRoute -Method 'GET' -Path '/api/notebooks' -State $state).body.notebooks | Where-Object { $_.name -eq 'ObsidiNote' }).vault | Should Be $true
     }
+    It 'answers the new, empty vault''s map with no pages (the window then says "No pages yet")' {
+        $g = Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -State $state
+        $g.status | Should Be 200
+        @($g.body.pages).Count | Should Be 0
+    }
     Remove-Item $app -Recurse -Force
 }
 
@@ -364,6 +369,57 @@ Describe 'Invoke-ApiRoute: Add, Undo, Ask and the graph through the routes (in-m
         $u.body.status | Should Be 'undone'
         (Find-FakePage $w.f 'Identity-aware proxies') | Should BeNullOrEmpty
         (Invoke-ApiRoute -Method 'POST' -Path '/api/add/undo' -Body '{"undo":5}' -State $state).status | Should Be 400
+    }
+    Remove-Item $app -Recurse -Force
+}
+
+Describe 'Invoke-ApiRoute: "Check for the answer" (POST /api/add/fetch, in-memory OneNote)' {
+    $w = New-SyntheticVault -SessionId 'server'
+    $app = New-TempAppRoot
+    $text = 'Tidal gardens grow salt-tolerant crops where the sea reaches the land.'
+    $box = @{ chat = ''; reads = 0 }
+    $copilot = @{
+        Send     = { param([string]$Text) [pscustomobject]@{ Text = ''; Result = 'Pending'; ChatUrl = 'https://m365.cloud.microsoft/chat/conversation/c0ffee12' } }
+        NewChat  = { }
+        ReadChat = { param([string]$ChatUrl) $box.reads++; @{ state = 'read'; text = $box.chat; busy = $false } }.GetNewClosure()
+    }
+    $state = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'server' -Vault $w.open.vault -Lease $w.open.lease -Model $w.open.model -TestCopilot $copilot
+    $add = Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body (ConvertTo-Json -InputObject @{ text = $text; mode = 'add' } -Compress) -State $state
+    $id = [string]$add.body.inboxId
+    It 'answers "waiting" with the Intake item and its reference; the item is in 01 Intake with its Meta' {
+        $add.status | Should Be 200
+        $add.body.status | Should Be 'waiting'
+        $add.body.ref | Should Match '^r[0-9a-z]{8}$'
+        $n = $w.f.Nodes[$id]
+        $w.f.Nodes[$n.parent].name | Should Be '01 Intake'
+        $n.meta['obsn.status'] | Should Be 'waiting'
+        $n.meta['obsn.requestRef'] | Should Be $add.body.ref
+        $n.meta['obsn.requestKind'] | Should Be 'classify'
+        $n.meta['obsn.chatUrl'] | Should Be 'https://m365.cloud.microsoft/chat/conversation/c0ffee12'
+        (Find-FakePage $w.f 'Tidal gardens') | Should BeNullOrEmpty
+    }
+    It 'uses no answer without the reference (mismatch) and writes nothing' {
+        $box.chat = '{"title": "Tidal gardens", "type": "concept", "topics": [], "links": [], "aliases": [], "intent": "add"}'
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/add/fetch' -Body ('{"inboxId":"' + $id + '"}') -State $state
+        $r.status | Should Be 200
+        $r.body.status | Should Be 'mismatch'
+        (Find-FakePage $w.f 'Tidal gardens') | Should BeNullOrEmpty
+    }
+    It 'files the page from the answer that carries the reference' {
+        $box.chat = '{"title": "Tidal gardens", "summary": "Crops that take salt.", "type": "concept", "topics": [{"new": "Gardening"}], "links": [], "aliases": [], "intent": "add", "ref": "' + $add.body.ref + '"}'
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/add/fetch' -Body ('{"inboxId":"' + $id + '"}') -State $state
+        $r.status | Should Be 200
+        $r.body.status | Should Be 'added'
+        (Find-FakePage $w.f 'Tidal gardens') | Should Not BeNullOrEmpty
+        $w.f.Nodes[$id].meta['obsn.status'] | Should Be 'linked'
+        { ConvertTo-Json -InputObject $r.body -Depth 12 } | Should Not Throw
+    }
+    It 'refuses the item once it is filed, and bad ids' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/add/fetch' -Body ('{"inboxId":"' + $id + '"}') -State $state
+        $r.status | Should Be 409
+        $r.body.error | Should Match 'not waiting'
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/add/fetch' -Body '{"inboxId":"../x"}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/add/fetch' -Body ('{"inboxId":"' + $w.tomato + '"}') -State $state).status | Should Be 409
     }
     Remove-Item $app -Recurse -Force
 }

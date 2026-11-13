@@ -75,6 +75,12 @@ export function resultHeading(status: string, title: string): string {
       return `Could not update: ${title}`
     case 'ask-instead':
       return 'This looks like a question'
+    case 'waiting':
+      return 'Waiting for Copilot'
+    case 'still-waiting':
+    case 'mismatch':
+    case 'invalid':
+      return 'Not added yet'
     default:
       return 'Not added'
   }

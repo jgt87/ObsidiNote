@@ -73,26 +73,15 @@ export function GraphView({ load, sourceKey, onAdd, ...rest }: GraphViewProps) {
   return <KnowledgeGraph model={state.model} {...rest} />
 }
 
-/** Loading: grey placeholders in the shape of the map (areas only; no fake dots). */
+/** Loading: the title and one line of text, nothing drawn on the map. design: no placeholder areas;
+ *  grey blobs before the data arrives looked like topics of an empty vault (user, 2026-11-13: "when
+ *  there's no data then there shouldn't be anything here"). Every mark on the map is content. */
 export function GraphSkeleton({ title = 'Knowledge graph' }: { title?: string }) {
-  const areas: [number, number, number][] = [
-    [26, 34, 15], [58, 28, 13], [82, 46, 9], [28, 74, 10], [60, 70, 16],
-  ]
   return (
     <div className="kg" aria-busy="true">
-      <div className="kg-head">
-        <div className="kg-head__title">
-          {title && <h1 className="kg-title">{title}</h1>}
-          <span className="kg-skel kg-skel--line" style={{ width: 180 }} />
-        </div>
-      </div>
-      <div className="kg-stage kg-skel-stage">
-        {areas.map(([x, y, r], i) => (
-          <span key={i} className="kg-skel" style={{ left: `${x - r * 0.69}%`, top: `${y - r}%`, width: `${r * 1.38}%`, height: `${r * 2}%` }} />
-        ))}
-        <span className="kg-skel-note" role="status">
-          Loading the map…
-        </span>
+      {title && <h1 className="kg-title">{title}</h1>}
+      <div className="kg-state">
+        <p role="status">Reading the map…</p>
       </div>
     </div>
   )

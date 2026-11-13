@@ -1,8 +1,15 @@
 # Ingest: Add (capture anything into the active vault). FEASIBILITY.md sections 4 and 5.
-# Invoke-AddRequest  text or link -> Inbox page (01 Inbox, status new) -> Copilot -> validate ->
-#                    content page in its bucket (properties + obsn Meta + body with onenote: links)
-#                    -> "Linked from" on target pages -> index -> Inbox item filed (or failed + reason).
+# Invoke-AddRequest  text or link -> Intake page (01 Intake, status new, with the request reference)
+#                    -> Copilot -> validate -> content page in its bucket (properties + obsn Meta +
+#                    body with onenote: links) -> "Linked from" on target pages -> index -> Intake item
+#                    filed (or failed + reason). When Copilot is still answering at the end of the wait
+#                    (the bridge's 'Pending', it is never stopped) the item becomes 'waiting' with the
+#                    reference and the chat's address, and nothing else is written.
+# Receive-AddAnswer  "Check for the answer": reads that chat, takes ONLY the answer whose "ref" is the
+#                    item's reference (and, for a link, whose "source" is the item's link) and runs the
+#                    same pipeline from it (Invoke-AddRequest -Resume); anything else writes nothing.
 # Undo-AddRequest    removes the created page (to OneNote's Deleted Pages) and reverts backlinks.
+# Code names (CreateInboxItem, inbox fields) keep the section's old name "Inbox"; people see "Intake".
 # Update-LinkSummary re-reads a link page's source: old vs new, last 3 summaries, never "Your
 #                    notes", asks before replacing a hand-edited summary.
 # Every read and write goes through the injected $Store adapter (see Get-IngestStoreContract);
@@ -13,13 +20,24 @@
 Set-StrictMode -Version 2.0
 Import-Module (Join-Path $PSScriptRoot 'Linker.psm1')
 Import-Module (Join-Path $PSScriptRoot 'LinkCapture.psm1')
+Import-Module (Join-Path $PSScriptRoot 'MarkdownLines.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Log.psm1')
 
 $script:StoreContract = @(
     'AssertWritable', 'VaultName', 'GetIndex', 'TypeList', 'BucketForType', 'LinkBucket', 'NormalizeUrl',
-    'FindPageByUrl', 'NewId', 'CreateInboxItem', 'SetInboxStatus', 'CreatePage', 'ReadPage', 'UpdatePage',
+    'FindPageByUrl', 'NewId', 'CreateInboxItem', 'SetInboxStatus', 'SetInboxWaiting', 'ReadInboxItem', 'CreatePage', 'ReadPage', 'UpdatePage',
     'SetLinkedFrom', 'DeletePage', 'IndexAddPage', 'IndexUpdatePage', 'IndexRemovePage'
 )
+
+function New-RequestRef {
+    <# A short reference code for one Copilot request: 'r' + 8 random base36 characters. It holds no
+       content; it ties an answer in the chat to the Intake item that asked for it. #>
+    $d = '0123456789abcdefghijklmnopqrstuvwxyz'
+    $bytes = New-Object byte[] 8
+    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    'r' + (-join @($bytes | ForEach-Object { $d[[int]$_ % 36] }))
+}
 
 function Get-IngestStoreContract { , @($script:StoreContract) }
 
@@ -61,6 +79,9 @@ function Invoke-IngestAsk {
     if ($null -eq $r) { return @{ ok = $false; text = ''; error = 'Copilot gave no answer.'; ms = $ms } }
     if ($r -is [string]) { return @{ ok = $true; text = $r; error = ''; ms = $ms } }
     $res = [string](Get-LkProp $r 'Result' 'Success')
+    # Pending: Copilot was still answering when the wait ended and was left running (never stopped).
+    if ($res -eq 'Pending') { return @{ ok = $false; pending = $true; chatUrl = [string](Get-LkProp $r 'ChatUrl' ''); text = ''; error = 'Copilot did not answer in time; it is still working on it.'; ms = $ms } }
+    if ($res -eq 'Busy') { return @{ ok = $false; text = ''; error = 'Copilot is still answering an earlier item, so nothing was sent. Try again in a minute.'; ms = $ms } }
     if ($res -and $res -ne 'Success') { return @{ ok = $false; text = ''; error = "Copilot gave no answer ($res)."; ms = $ms } }
     if (Get-LkProp $r 'Cancelled' $false) { return @{ ok = $false; text = ''; error = 'The request was cancelled.'; ms = $ms } }
     @{ ok = $true; text = [string](Get-LkProp $r 'Text' ''); error = ''; ms = $ms }
@@ -69,9 +90,14 @@ function Invoke-IngestAsk {
 function New-AddResult {
     param([string]$Status, [string]$Kind, [string]$Message = '')
     [ordered]@{
-        status    = $Status        # added | failed | updated | unchanged | kept | needs-confirmation | could-not-update | ask-instead | undone
+        # added | failed | updated | unchanged | kept | needs-confirmation | could-not-update | ask-instead
+        # | waiting (Copilot still answering; the item waits in the Intake) | still-waiting | mismatch
+        # | invalid | refused (the outcomes of "Check for the answer", Receive-AddAnswer)
+        status    = $Status
         kind      = $Kind          # text | link
         message   = $Message
+        inboxId   = ''             # the Intake item's page id (waiting and the check's outcomes)
+        ref       = ''             # its request reference
         text      = ''
         page      = $null
         chips     = @()
@@ -124,26 +150,42 @@ function Add-AnchorLinksToLine {
         $pat = '(?<![\p{L}\p{N}])' + ([regex]::Escape($p) -replace '\\ ', '\s+') + '(?![\p{L}\p{N}])'
         $new = @(); $hit = $false
         foreach ($part in $parts) {
-            if ($hit -or $part['href']) { $new += $part; continue }
+            # Never inside a link or inline code; a code line (fenced block) is left alone too.
+            if ($hit -or $part['href'] -or $part['code'] -or $Line['code']) { $new += $part; continue }
             $m = [regex]::Match([string]$part['text'], $pat, 'IgnoreCase')
             if (-not $m.Success) { $new += $part; continue }
             $s = [string]$part['text']
-            if ($m.Index -gt 0) { $new += @{ text = $s.Substring(0, $m.Index); href = '' } }
-            $new += @{ text = $m.Value; href = [string]$l['link'] }
+            # The pieces keep the part's bold/italic/strike (Markdown), only the text and href change.
+            if ($m.Index -gt 0) { $new += (Copy-PartWith $part $s.Substring(0, $m.Index) '') }
+            $new += (Copy-PartWith $part $m.Value ([string]$l['link']))
             $rest = $s.Substring($m.Index + $m.Length)
-            if ($rest) { $new += @{ text = $rest; href = '' } }
+            if ($rest) { $new += (Copy-PartWith $part $rest '') }
             $hit = $true
         }
         $parts = $new
         if ($hit) { [void]$State.todo.Remove($l) }
     }
     $kids = @(foreach ($c in @($Line['children'])) { Add-AnchorLinksToLine -Line $c -State $State })
-    @{ parts = $parts; bold = [bool]$Line['bold']; collapsed = [bool]$Line['collapsed']; children = $kids }
+    # Every other field of the line (list, heading, quote, code, table) is kept as it was.
+    $out = @{}
+    foreach ($k in @($Line.Keys)) { $out[$k] = $Line[$k] }
+    $out['parts'] = $parts; $out['bold'] = [bool]$Line['bold']; $out['collapsed'] = [bool]$Line['collapsed']; $out['children'] = $kids
+    $out
+}
+
+function Copy-PartWith($Part, [string]$Text, [string]$Href) {
+    $p = @{}
+    foreach ($k in @($Part.Keys)) { $p[$k] = $Part[$k] }
+    $p['text'] = $Text; $p['href'] = $Href
+    $p
 }
 
 function ConvertTo-BodyLines {
-    <# The item's text as outline lines (one per text line; trailing empty lines dropped). #>
+    <# The item's text as outline lines. Markdown (headings, lists, emphasis, links, code, tables;
+       lib/MarkdownLines.psm1) becomes real OneNote formatting (user, 2026-11-13); other text stays one
+       plain line per text line. Trailing empty lines are dropped. #>
     param([string]$Text)
+    if (Test-MarkdownText $Text) { return , @(ConvertFrom-MarkdownText $Text) }
     $raw = @($Text -split '\r?\n')
     $end = $raw.Count - 1
     while ($end -ge 0 -and -not $raw[$end].Trim()) { $end-- }
@@ -243,10 +285,49 @@ function ConvertTo-LinkResult {
 }
 
 function Set-InboxFailed {
+    <# Marks the Intake item failed. Not for an answer checked later (-Resume): a check that does not
+       fit writes nothing, so the item keeps waiting. #>
     param($Store, $Inbox, [string]$Reason, $Result)
-    if (-not $Inbox) { return }
+    if (-not $Inbox -or $Inbox['resumed']) { return }
     try { Invoke-Store $Store 'SetInboxStatus' @{ PageId = $Inbox['pageId']; Status = 'failed'; Reason = $Reason; Id = '' } | Out-Null; $Result.inbox = @{ pageId = $Inbox['pageId']; status = 'failed' } }
-    catch { $Result.warnings = @($Result.warnings) + "The Inbox item could not be marked as failed: $($_.Exception.Message)" }
+    catch { $Result.warnings = @($Result.warnings) + "The Intake item could not be marked as failed: $($_.Exception.Message)" }
+}
+
+function Set-InboxWaiting {
+    <# Copilot was still answering at the end of the wait: the Intake item becomes 'waiting' with the
+       request reference, the kind of step and the chat's address; nothing else is written. #>
+    param($Store, $Inbox, [string]$Ref, [string]$RequestKind, $Answer, $Result, [datetime]$Now)
+    $r = $Result
+    $since = $Now.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    try { Invoke-Store $Store 'SetInboxWaiting' @{ PageId = $Inbox['pageId']; Ref = $Ref; RequestKind = $RequestKind; ChatUrl = [string]$Answer['chatUrl']; Since = $since } | Out-Null }
+    catch {
+        $r.message = "Copilot did not answer in time, and the Intake item could not be marked as waiting: $($_.Exception.Message)"
+        Set-InboxFailed $Store $Inbox $r.message $r
+        return $r
+    }
+    $r.status = 'waiting'
+    $r.message = 'Copilot is still working on this and did not answer in time. The item waits in your Intake; check for the answer in a few minutes.'
+    $r.inbox = @{ pageId = $Inbox['pageId']; status = 'waiting' }
+    $r.inboxId = [string]$Inbox['pageId']
+    $r.ref = $Ref
+    $r
+}
+
+function Get-StepAnswer {
+    <# The answer to a pipeline step: the reply handed in by "Check for the answer" (-Resume, Copilot
+       is not asked again for that step), else Copilot's live answer. #>
+    param([scriptblock]$Ask, [string]$Prompt, $Resume)
+    if ($Resume) { return @{ ok = $true; pending = $false; text = [string]$Resume['reply']; error = ''; ms = 0 } }
+    Invoke-IngestAsk -Ask $Ask -Prompt $Prompt
+}
+
+function Get-StepInbox {
+    <# The Intake item of this Add: the waiting one (-Resume), or a new one with the request reference.
+       Returns the item record, or a string with the reason it could not be written. #>
+    param($Store, $Resume, [string]$Title, [string]$Text, [string]$Kind, [string]$Ref, [string]$RequestKind)
+    if ($Resume) { return @{ pageId = [string]$Resume['inboxPageId']; resumed = $true } }
+    try { Invoke-Store $Store 'CreateInboxItem' @{ Title = $Title; Text = $Text; Kind = $Kind; Ref = $Ref; RequestKind = $RequestKind } }
+    catch { "Could not write to the Intake: $($_.Exception.Message)" }
 }
 
 function Complete-AddResult {
@@ -261,13 +342,16 @@ function Invoke-AddRequest {
     <# The Add handler behind POST /api/submit (mode add, or auto when the intent rules say add).
        $Request: @{ text; mode } (mode 'add' or 'auto'). $Store: the adapter (Get-IngestStoreContract).
        $Ask: { param($Prompt) ... } returning Copilot's reply. $Options: Now, MaxPromptChars,
-       MaxPages, RelatedCount. Returns the Add result (New-AddResult fields). Never throws. #>
+       MaxPages, RelatedCount. -Resume @{ inboxPageId; ref; reply }: continue the Add of a waiting
+       Intake item from the answer Receive-AddAnswer found (that step is not asked again; the reply
+       must carry the item's ref, and for a link its source; a failure writes nothing).
+       Returns the Add result (New-AddResult fields). Never throws. #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)]$Request, [Parameter(Mandatory)]$Store, [Parameter(Mandatory)][scriptblock]$Ask, [hashtable]$Options = @{})
+    param([Parameter(Mandatory)]$Request, [Parameter(Mandatory)]$Store, [Parameter(Mandatory)][scriptblock]$Ask, [hashtable]$Options = @{}, [hashtable]$Resume = $null)
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $text = [string](Get-LkProp $Request 'text' '')
     $mode = (Get-LkString $Request 'mode').ToLowerInvariant()
-    if (-not $mode) { $mode = 'add' }
+    if (-not $mode -or $Resume) { $mode = 'add' }
     $url = Get-PastedUrl $text
     $r = New-AddResult -Status 'failed' -Kind $(if ($url) { 'link' } else { 'text' })
     if (-not $text.Trim()) { $r.message = 'There is nothing to add.'; return (Complete-AddResult $r $sw) }
@@ -278,8 +362,8 @@ function Invoke-AddRequest {
         return (Complete-AddResult $r $sw)
     }
     try {
-        if ($url) { $r = Invoke-LinkAdd -Url $url -Store $Store -Ask $Ask -Options $Options -Result $r }
-        else { $r = Invoke-TextAdd -Text $text -Mode $mode -Store $Store -Ask $Ask -Options $Options -Result $r }
+        if ($url) { $r = Invoke-LinkAdd -Url $url -Store $Store -Ask $Ask -Options $Options -Result $r -Resume $Resume }
+        else { $r = Invoke-TextAdd -Text $text -Mode $mode -Store $Store -Ask $Ask -Options $Options -Result $r -Resume $Resume }
     } catch {
         $r.status = 'failed'
         $r.message = "Adding stopped: $($_.Exception.Message)"
@@ -288,26 +372,30 @@ function Invoke-AddRequest {
 }
 
 function Invoke-TextAdd {
-    param([string]$Text, [string]$Mode, $Store, [scriptblock]$Ask, [hashtable]$Options, $Result)
+    param([string]$Text, [string]$Mode, $Store, [scriptblock]$Ask, [hashtable]$Options, $Result, $Resume = $null)
     $r = $Result
     $r.text = $Text
     $now = Get-IngestNow $Options
     $idx = Invoke-Store $Store 'GetIndex'
     $types = @(Invoke-Store $Store 'TypeList')
+    $ref = if ($Resume) { [string]$Resume['ref'] } else { New-RequestRef }
 
     $t0 = [Diagnostics.Stopwatch]::StartNew()
-    try { $inbox = Invoke-Store $Store 'CreateInboxItem' @{ Title = (Get-InboxTitle $Text); Text = $Text; Kind = 'text' } }
-    catch { $r.message = "Could not write to the Inbox: $($_.Exception.Message)"; return $r }
-    $r.inbox = @{ pageId = $inbox['pageId']; status = 'new' }
+    $inbox = Get-StepInbox -Store $Store -Resume $Resume -Title (Get-InboxTitle $Text) -Text $Text -Kind 'text' -Ref $ref -RequestKind 'classify'
+    if ($inbox -is [string]) { $r.message = $inbox; return $r }
+    $r.inbox = @{ pageId = $inbox['pageId']; status = $(if ($Resume) { 'waiting' } else { 'new' }) }
     $r.timings.inboxMs = [int]$t0.ElapsedMilliseconds
 
     $sl = Get-LinkShortlist -Index $idx -Text $Text -MaxChars (Get-IngestOption $Options 'MaxPromptChars' 12000) -MaxPages (Get-IngestOption $Options 'MaxPages' 60)
-    $prompt = New-LinkPrompt -Text $Text -Shortlist $sl -Types $types -Today $now
-    $ans = Invoke-IngestAsk -Ask $Ask -Prompt $prompt
+    $prompt = New-LinkPrompt -Text $Text -Shortlist $sl -Types $types -Today $now -Ref $ref
+    $ans = Get-StepAnswer -Ask $Ask -Prompt $prompt -Resume $Resume
     $r.timings.copilotMs += $ans.ms
+    if ($ans['pending']) { return (Set-InboxWaiting $Store $inbox $ref 'classify' $ans $r $now) }
     if (-not $ans.ok) { $r.message = $ans.error; Set-InboxFailed $Store $inbox $ans.error $r; return $r }
     $json = Get-ReplyJson $ans.text
     if (-not $json.ok) { $r.message = $json.error; Set-InboxFailed $Store $inbox $json.error $r; return $r }
+    $rc = Test-ReplyRef -Reply $json.value -Ref $ref -Required:([bool]$Resume)
+    if (-not $rc.ok) { $r.message = $rc.error; if ($Resume) { $r.status = 'mismatch' }; Set-InboxFailed $Store $inbox $rc.error $r; return $r }
     $v = Test-LinkReply -Reply $json.value -Index $idx -Shortlist $sl -Text $Text -Types $types
     $r.dropped = @($v.dropped)
     if (-not $v.ok) {
@@ -351,7 +439,7 @@ function Invoke-TextAdd {
     $r.timings.indexMs = [int]$t2.ElapsedMilliseconds
 
     try { Invoke-Store $Store 'SetInboxStatus' @{ PageId = $inbox['pageId']; Status = 'linked'; Reason = ''; Id = $id } | Out-Null; $r.inbox = @{ pageId = $inbox['pageId']; status = 'linked' } }
-    catch { $r.warnings = @($r.warnings) + "The Inbox item was not marked as filed: $($_.Exception.Message)" }
+    catch { $r.warnings = @($r.warnings) + "The Intake item was not marked as filed: $($_.Exception.Message)" }
 
     $r.status = 'added'
     $r.message = "Added: $($page.title)"
@@ -369,24 +457,31 @@ function Invoke-Relink {
     $types = @(Invoke-Store $Store 'TypeList')
     $ex = if ($SelfId) { @($SelfId) } else { @() }
     $sl = Get-LinkShortlist -Index $Index -Text $Text -MaxChars (Get-IngestOption $Options 'MaxPromptChars' 12000) -MaxPages (Get-IngestOption $Options 'MaxPages' 60) -ExcludeIds $ex
-    $prompt = New-LinkPrompt -Text $Text -Shortlist $sl -Types $types -FixedType $Type -Today $Now
+    $ref = New-RequestRef
+    $prompt = New-LinkPrompt -Text $Text -Shortlist $sl -Types $types -FixedType $Type -Today $Now -Ref $ref
     $ans = Invoke-IngestAsk -Ask $Ask -Prompt $prompt
     if (-not $ans.ok) { return @{ ok = $false; error = $ans.error; v = $null; sl = $sl; ms = $ans.ms } }
     $json = Get-ReplyJson $ans.text
     if (-not $json.ok) { return @{ ok = $false; error = $json.error; v = $null; sl = $sl; ms = $ans.ms } }
+    $rc = Test-ReplyRef -Reply $json.value -Ref $ref
+    if (-not $rc.ok) { return @{ ok = $false; error = $rc.error; v = $null; sl = $sl; ms = $ans.ms } }
     $v = Test-LinkReply -Reply $json.value -Index $Index -Shortlist $sl -Text $Text -Types $types -FixedType $Type -SelfId $SelfId -SkipDuplicateTitle
     if (-not $v.ok) { return @{ ok = $false; error = ($v.errors -join ' '); v = $v; sl = $sl; ms = $ans.ms } }
     @{ ok = $true; error = ''; v = $v; sl = $sl; ms = $ans.ms }
 }
 
 function Invoke-LinkAdd {
-    param([string]$Url, $Store, [scriptblock]$Ask, [hashtable]$Options, $Result)
+    param([string]$Url, $Store, [scriptblock]$Ask, [hashtable]$Options, $Result, $Resume = $null)
     $r = $Result
     $r.text = $Url
     $now = Get-IngestNow $Options
     $today = $now.ToString('yyyy-MM-dd')
     $norm = [string](Invoke-Store $Store 'NormalizeUrl' @{ Url = $Url })
     $existing = Invoke-Store $Store 'FindPageByUrl' @{ Url = $norm }
+    if ($existing -and $Resume) {
+        $r.message = "A page for this link exists already ($([string](Get-LkProp $existing 'id' ''))); use Update on it."
+        return $r
+    }
     if ($existing) {
         # One page per link: pasting it again updates that page.
         return (Update-LinkSummary -Store $Store -Ask $Ask -Id ([string](Get-LkProp $existing 'id' '')) -SeenAgain -Options $Options)
@@ -394,18 +489,28 @@ function Invoke-LinkAdd {
     $bucket = [string](Invoke-Store $Store 'LinkBucket' @{ Url = $norm })
     $type = if ($bucket -eq 'Internal links') { 'link-internal' } else { 'link-web' }
     $idx = Invoke-Store $Store 'GetIndex'
+    $ref = if ($Resume) { [string]$Resume['ref'] } else { New-RequestRef }
 
     $t0 = [Diagnostics.Stopwatch]::StartNew()
-    try { $inbox = Invoke-Store $Store 'CreateInboxItem' @{ Title = (Get-InboxTitle $norm); Text = $Url; Kind = 'link' } }
-    catch { $r.message = "Could not write to the Inbox: $($_.Exception.Message)"; return $r }
-    $r.inbox = @{ pageId = $inbox['pageId']; status = 'new' }
+    $inbox = Get-StepInbox -Store $Store -Resume $Resume -Title (Get-InboxTitle $norm) -Text $Url -Kind 'link' -Ref $ref -RequestKind 'linkSummary'
+    if ($inbox -is [string]) { $r.message = $inbox; return $r }
+    $r.inbox = @{ pageId = $inbox['pageId']; status = $(if ($Resume) { 'waiting' } else { 'new' }) }
     $r.timings.inboxMs = [int]$t0.ElapsedMilliseconds
 
-    $ans = Invoke-IngestAsk -Ask $Ask -Prompt (New-LinkSummaryPrompt -Url $norm -Bucket $bucket -Today $now)
+    $ans = Get-StepAnswer -Ask $Ask -Prompt (New-LinkSummaryPrompt -Url $norm -Bucket $bucket -Today $now -Ref $ref) -Resume $Resume
     $r.timings.copilotMs += $ans.ms
+    if ($ans['pending']) { return (Set-InboxWaiting $Store $inbox $ref 'linkSummary' $ans $r $now) }
     if (-not $ans.ok) { $r.message = $ans.error; Set-InboxFailed $Store $inbox $ans.error $r; return $r }
     $json = Get-ReplyJson $ans.text
     if (-not $json.ok) { $r.message = $json.error; Set-InboxFailed $Store $inbox $json.error $r; return $r }
+    $rc = Test-ReplyRef -Reply $json.value -Ref $ref -Required:([bool]$Resume)
+    if ($rc.ok -and $Resume) {
+        # An answer read from the chat later must be about this item's link.
+        $src = Get-LkString $json.value 'source'
+        $srcNorm = if ($src) { [string](Invoke-Store $Store 'NormalizeUrl' @{ Url = $src }) } else { '' }
+        if ($srcNorm -ne $norm) { $rc = @{ ok = $false; error = "The answer is about another link than this item's link." } }
+    }
+    if (-not $rc.ok) { $r.message = $rc.error; if ($Resume) { $r.status = 'mismatch' }; Set-InboxFailed $Store $inbox $rc.error $r; return $r }
     $sum = ConvertTo-LinkSummary -Reply $json.value -Bucket $bucket
     if (-not $sum.ok) { $r.message = $sum.error; Set-InboxFailed $Store $inbox $sum.error $r; return $r }
 
@@ -464,7 +569,7 @@ function Invoke-LinkAdd {
     $r.timings.indexMs = [int]$t2.ElapsedMilliseconds
 
     try { Invoke-Store $Store 'SetInboxStatus' @{ PageId = $inbox['pageId']; Status = 'linked'; Reason = ''; Id = $id } | Out-Null; $r.inbox = @{ pageId = $inbox['pageId']; status = 'linked' } }
-    catch { $r.warnings = @($r.warnings) + "The Inbox item was not marked as filed: $($_.Exception.Message)" }
+    catch { $r.warnings = @($r.warnings) + "The Intake item was not marked as filed: $($_.Exception.Message)" }
 
     $r.status = 'added'
     $r.message = "Added: $title"
@@ -484,6 +589,70 @@ function Limit-Sentence {
     if ($m.Success) { $t = $m.Value }
     if ($t.Length -gt $Max) { $t = $t.Substring(0, $Max - 3).TrimEnd() + '...' }
     $t
+}
+
+function Get-ChatAnswerFor {
+    <# What a read of the Copilot chat holds for request $Ref (pure): @{ status; message; reply }.
+       status 'found' with the reply text (the LAST answer whose "ref" is $Ref; answers without it or
+       with another reference are never used), else 'still-waiting' or 'mismatch' with the reason.
+       $Read: the chat reader's record @{ state = read|busy|unavailable; text; busy; message }. #>
+    param($Read, [string]$Ref)
+    $state = Get-LkString $Read 'state'
+    if ($state -eq 'busy') { return @{ status = 'still-waiting'; message = 'Copilot is busy with another answer right now. Try again in a minute.'; reply = '' } }
+    if ($state -ne 'read') {
+        $why = Get-LkString $Read 'message'
+        return @{ status = 'still-waiting'; message = "The Copilot chat could not be read$(if ($why) { " ($why)" }). Try again later."; reply = '' }
+    }
+    # Returned as one list (", array"): assigned as is, not wrapped in @() (that nests it).
+    $objs = Get-ReplyJsonObjects (Get-LkString $Read 'text')
+    $hits = @($objs | Where-Object { (Get-LkString $_ 'ref').Trim() -eq $Ref })
+    if ($hits.Count) { return @{ status = 'found'; message = ''; reply = (ConvertTo-Json -InputObject $hits[-1] -Depth 12 -Compress) } }
+    if ([bool](Get-LkProp $Read 'busy' $false) -or -not $objs.Count) {
+        return @{ status = 'still-waiting'; message = 'Copilot has not answered this item yet. Try again in a few minutes.'; reply = '' }
+    }
+    @{ status = 'mismatch'; message = "No answer in that chat carries this item's reference ($Ref), so none is used."; reply = '' }
+}
+
+function Receive-AddAnswer {
+    <# "Check for the answer" (POST /api/add/fetch {inboxId}) for an Intake item that is waiting for
+       Copilot. Needs the writer lease and an item of the active vault's Intake with status waiting.
+       $ReadChat { param($ChatUrl) } reads that Copilot chat (all replies on the page, the chat opened
+       in ObsidiNote's Copilot tab only when it is not already showing) and returns @{ state; text;
+       busy; message }. Only the answer that carries the item's ref is used (Get-ChatAnswerFor); it is
+       checked exactly like a live answer and the Add continues from it (Invoke-AddRequest -Resume;
+       a new link's linking prompt is still sent live). Outcomes: the normal Add result, or status
+       still-waiting | mismatch | invalid (nothing written; the item keeps waiting) | refused. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Store, [Parameter(Mandatory)][scriptblock]$Ask, [Parameter(Mandatory)][scriptblock]$ReadChat, [Parameter(Mandatory)][string]$InboxId, [hashtable]$Options = @{})
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $r = New-AddResult -Status 'refused' -Kind 'text'
+    $r.inboxId = $InboxId
+    $missing = Get-MissingStoreFunctions $Store
+    if ($missing.Count) { $r.message = "The notebook connection is incomplete ($($missing -join ', '))."; return (Complete-AddResult $r $sw) }
+    try { Invoke-Store $Store 'AssertWritable' | Out-Null } catch { $r.message = "Nothing was checked: $($_.Exception.Message)"; return (Complete-AddResult $r $sw) }
+    try { $item = Invoke-Store $Store 'ReadInboxItem' @{ PageId = $InboxId } }
+    catch { $r.message = "That item is not in the Intake of this vault ($($_.Exception.Message))."; return (Complete-AddResult $r $sw) }
+    $r.kind = if ((Get-LkString $item 'kind') -eq 'link') { 'link' } else { 'text' }
+    $r.text = Get-LkString $item 'text'
+    $r.ref = Get-LkString $item 'ref'
+    $status = Get-LkString $item 'status'
+    $r.inbox = @{ pageId = $InboxId; status = $status }
+    if ($status -ne 'waiting') { $r.message = "This item is not waiting for Copilot (its status is $(if ($status) { $status } else { 'unknown' }))."; return (Complete-AddResult $r $sw) }
+    if (-not $r.ref) { $r.message = 'This item has no request reference, so no answer can be matched to it. Add it again.'; return (Complete-AddResult $r $sw) }
+    try { $read = & $ReadChat (Get-LkString $item 'chatUrl') } catch { $read = @{ state = 'unavailable'; message = $_.Exception.Message } }
+    $found = Get-ChatAnswerFor -Read $read -Ref $r.ref
+    Write-AppLog info ingest 'Answer check' @{ found = $found.status; state = (Get-LkString $read 'state'); ms = [int]$sw.ElapsedMilliseconds }
+    if ($found.status -ne 'found') {
+        $r.status = $found.status
+        $r.message = $found.message + $(if ($found.status -eq 'mismatch') { ' Nothing was written; the item still waits in your Intake.' } else { '' })
+        return (Complete-AddResult $r $sw)
+    }
+    $add = Invoke-AddRequest -Request @{ text = $r.text; mode = 'add' } -Store $Store -Ask $Ask -Options $Options -Resume @{ inboxPageId = $InboxId; ref = $r.ref; reply = $found.reply }
+    if ($add.status -eq 'failed') { $add.status = 'invalid' }
+    if ($add.status -in 'invalid', 'mismatch') { $add.message = "$($add.message) Nothing was written; the item still waits in your Intake." }
+    $add.inboxId = $InboxId
+    $add.ref = $r.ref
+    $add
 }
 
 function Undo-AddRequest {
@@ -589,11 +758,14 @@ function Invoke-LinkUpdate {
         $new = ConvertTo-SummaryRecord $Proposed
         if (-not $new -or -not $new.title -or -not $new.summary) { $r.message = 'The proposed summary is incomplete.'; return $r }
     } else {
-        $ans = Invoke-IngestAsk -Ask $Ask -Prompt (New-LinkSummaryPrompt -Url $url -Bucket $bucket -Today $now)
+        $ref = New-RequestRef
+        $ans = Invoke-IngestAsk -Ask $Ask -Prompt (New-LinkSummaryPrompt -Url $url -Bucket $bucket -Today $now -Ref $ref)
         $r.timings.copilotMs += $ans.ms
         if (-not $ans.ok) { $r.message = $ans.error; return $r }
         $json = Get-ReplyJson $ans.text
         if (-not $json.ok) { $r.message = $json.error; return $r }
+        $rc = Test-ReplyRef -Reply $json.value -Ref $ref
+        if (-not $rc.ok) { $r.message = $rc.error; return $r }
         $sum = ConvertTo-LinkSummary -Reply $json.value -Bucket $bucket
         if (-not $sum.ok) { $r.message = $sum.error; return $r }
         if (-not $sum.readable) {
@@ -696,4 +868,4 @@ function Invoke-LinkUpdate {
     $r
 }
 
-Export-ModuleMember -Function Get-IngestStoreContract, Get-MissingStoreFunctions, Invoke-AddRequest, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle
+Export-ModuleMember -Function Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle

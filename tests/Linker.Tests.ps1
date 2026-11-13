@@ -209,3 +209,20 @@ Describe 'Test-LinkReply' {
         (Test-LinkReply -Reply (Get-Reply '{"title":"T","type":"note","intent":"maybe"}') -Index $idx -Shortlist $sl -Text $script:Text -Types $script:Types).value.intent | Should Be 'add'
     }
 }
+
+Describe 'Request reference: every JSON object of a chat, and the ref check' {
+    It 'finds every JSON object in text read from several replies, in order' {
+        $o = Get-ReplyJsonObjects ("Sure.`n" + '```json' + "`n" + '{"a": 1, "inner": {"b": 2}}' + "`n" + '```' + "`nand " + '{"ref": "r1",}' + ' {broken')
+        @($o).Count | Should Be 2
+        @($o)[0].a | Should Be 1
+        @($o)[1].ref | Should Be 'r1'
+        (Get-ReplyJsonObjects '').Count | Should Be 0
+    }
+    It 'accepts the same ref, refuses another one, and a missing one only when it is required' {
+        (Test-ReplyRef -Reply ([pscustomobject]@{ ref = 'rabc' }) -Ref 'rabc').ok | Should Be $true
+        (Test-ReplyRef -Reply ([pscustomobject]@{ ref = 'rxyz' }) -Ref 'rabc').ok | Should Be $false
+        (Test-ReplyRef -Reply ([pscustomobject]@{ title = 'T' }) -Ref 'rabc').ok | Should Be $true
+        (Test-ReplyRef -Reply ([pscustomobject]@{ title = 'T' }) -Ref 'rabc' -Required).ok | Should Be $false
+        (Test-ReplyRef -Reply ([pscustomobject]@{ ref = '<b>x y</b>' }) -Ref 'rabc').error | Should Match 'reference another one'
+    }
+}

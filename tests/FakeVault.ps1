@@ -58,15 +58,25 @@ function New-FakeVault {
         NormalizeUrl = { param([string]$Url) $u = $Url.Trim() -replace '#.*$', ''; $u = $u -replace '([?&])utm_[a-z]+=[^&]*&?', '$1'; $u.TrimEnd('?', '&') }
         FindPageByUrl = { param([string]$Url) $st.calls.Add('FindPageByUrl'); @($st.index.pages | Where-Object { $_.ContainsKey('url') -and $_['url'] -eq $Url })[0] }.GetNewClosure()
         NewId = { $st.counter++; 'p' + $st.counter }.GetNewClosure()
-        CreateInboxItem = { param([string]$Title, [string]$Text, [string]$Kind)
+        CreateInboxItem = { param([string]$Title, [string]$Text, [string]$Kind, [string]$Ref, [string]$RequestKind)
             & $guard 'CreateInboxItem'
             $pid2 = '{IN' + $st.inbox.Count + '}'
-            $st.inbox[$pid2] = @{ title = $Title; kind = $Kind; status = 'new'; reason = ''; filedAs = '' }
+            $st.inbox[$pid2] = @{ title = $Title; text = $Text; kind = $Kind; status = 'new'; reason = ''; filedAs = ''; ref = $Ref; requestKind = $RequestKind; chatUrl = ''; waitingSince = '' }
             @{ pageId = $pid2; link = "onenote:#$pid2" }
         }.GetNewClosure()
         SetInboxStatus = { param([string]$PageId, [string]$Status, [string]$Reason, [string]$Id)
             & $guard 'SetInboxStatus'
             $st.inbox[$PageId].status = $Status; $st.inbox[$PageId].reason = $Reason; $st.inbox[$PageId].filedAs = $Id
+        }.GetNewClosure()
+        SetInboxWaiting = { param([string]$PageId, [string]$Ref, [string]$RequestKind, [string]$ChatUrl, [string]$Since)
+            & $guard 'SetInboxWaiting'
+            $i = $st.inbox[$PageId]; $i.status = 'waiting'; $i.ref = $Ref; $i.requestKind = $RequestKind; $i.chatUrl = $ChatUrl; $i.waitingSince = $Since
+        }.GetNewClosure()
+        ReadInboxItem = { param([string]$PageId)
+            $st.calls.Add('ReadInboxItem')
+            if (-not $st.inbox.ContainsKey($PageId)) { throw 'not an Intake item' }
+            $i = $st.inbox[$PageId]
+            @{ pageId = $PageId; title = $i.title; status = $i.status; kind = $i.kind; text = $i.text; ref = $i.ref; requestKind = $i.requestKind; waitingSince = $i.waitingSince; chatUrl = $i.chatUrl }
         }.GetNewClosure()
         CreatePage = { param([hashtable]$Page)
             & $guard 'CreatePage'

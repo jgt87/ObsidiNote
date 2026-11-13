@@ -188,12 +188,40 @@ function New-OneLink {
 }
 
 function New-OneLine {
-    <# A line for New-ObsnOutlineXml: @{ html; children; collapsed }. -Text is encoded, -Html is used
-       as is (build it with ConvertTo-OneHtml / New-OneLink). -Bold wraps it in bold. #>
-    param([string]$Text = '', [string]$Html = '', [object[]]$Children = @(), [switch]$Bold, [switch]$Collapsed)
+    <# A line for New-ObsnOutlineXml: @{ html; children; collapsed; list; number; table }. -Text is
+       encoded, -Html is used as is (build it with ConvertTo-OneHtml / New-OneLink). -Bold wraps it in
+       bold. -List bullet|number makes it a OneNote list item (-Number = its place, from 1).
+       -Table @{ header = @(cell html); rows = @(@(cell html)) } makes the line a OneNote table. #>
+    param([string]$Text = '', [string]$Html = '', [object[]]$Children = @(), [switch]$Bold, [switch]$Collapsed,
+        [ValidateSet('', 'bullet', 'number')][string]$List = '', [int]$Number = 1, $Table = $null)
     $h = if ($Html) { $Html } else { ConvertTo-OneHtml $Text }
     if ($Bold) { $h = "<span style='font-weight:bold'>$h</span>" }
-    @{ html = $h; children = @($Children); collapsed = [bool]$Collapsed }
+    @{ html = $h; children = @($Children); collapsed = [bool]$Collapsed; list = $List; number = $Number; table = $Table }
+}
+
+function ConvertTo-OneTableXml($Table) {
+    <# A OneNote table: header row in bold, then the rows; every row as wide as the widest. #>
+    $header = @($Table['header'])
+    $rows = @($Table['rows'])
+    $cols = $header.Count
+    foreach ($r in $rows) { if (@($r).Count -gt $cols) { $cols = @($r).Count } }
+    if ($cols -lt 1) { return '' }
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.Append('<one:Table bordersVisible="true"><one:Columns>')
+    for ($c = 0; $c -lt $cols; $c++) { [void]$sb.Append('<one:Column index="' + $c + '" width="120"/>') }
+    [void]$sb.Append('</one:Columns>')
+    $all = @(, @($header | ForEach-Object { "<span style='font-weight:bold'>$_</span>" })) + @($rows)
+    foreach ($r in $all) {
+        [void]$sb.Append('<one:Row>')
+        $cells = @($r)
+        for ($c = 0; $c -lt $cols; $c++) {
+            $cell = if ($c -lt $cells.Count) { ([string]$cells[$c]).Replace(']]>', ']]&gt;') } else { '' }
+            [void]$sb.Append("<one:Cell><one:OEChildren><one:OE><one:T><![CDATA[$cell]]></one:T></one:OE></one:OEChildren></one:Cell>")
+        }
+        [void]$sb.Append('</one:Row>')
+    }
+    [void]$sb.Append('</one:Table>')
+    $sb.ToString()
 }
 
 function ConvertTo-OEXml {
@@ -204,8 +232,18 @@ function ConvertTo-OEXml {
         if ($l -is [string]) { $l = @{ html = (ConvertTo-OneHtml $l); children = @(); collapsed = $false } }
         $kids = @($l['children'] | Where-Object { $null -ne $_ })
         $col = if ($l['collapsed'] -and $kids.Count) { ' collapsed="true"' } else { '' }
-        $html = ([string]$l['html']).Replace(']]>', ']]&gt;')
-        [void]$sb.Append("<one:OE$col><one:T><![CDATA[$html]]></one:T>")
+        [void]$sb.Append("<one:OE$col>")
+        # OneNote schema order inside an OE: List before the content (T or Table), OEChildren last.
+        if ($l['list'] -eq 'bullet') { [void]$sb.Append('<one:List><one:Bullet bullet="2" fontSize="11.0"/></one:List>') }
+        elseif ($l['list'] -eq 'number') {
+            $n = [Math]::Max(1, [int]$l['number'])
+            [void]$sb.Append('<one:List><one:Number numberSequence="0" numberFormat="##." fontSize="11.0" text="' + $n + '."/></one:List>')
+        }
+        if ($l['table']) { [void]$sb.Append((ConvertTo-OneTableXml $l['table'])) }
+        else {
+            $html = ([string]$l['html']).Replace(']]>', ']]&gt;')
+            [void]$sb.Append("<one:T><![CDATA[$html]]></one:T>")
+        }
         if ($kids.Count) { [void]$sb.Append('<one:OEChildren>' + (ConvertTo-OEXml $kids) + '</one:OEChildren>') }
         [void]$sb.Append('</one:OE>')
     }

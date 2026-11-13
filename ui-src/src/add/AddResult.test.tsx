@@ -57,12 +57,32 @@ describe('AddResult', () => {
     const html = renderToStaticMarkup(<AddResult result={added} onDone={noop} />)
     expect(html).not.toContain('>Undo</button>')
   })
-  it('shows a failure with the Inbox note and no placement', () => {
+  it('shows a failure with the Intake note and no placement', () => {
     const r = normalizeAddResult({ status: 'failed', kind: 'text', message: 'The answer holds no JSON object.', text: 'x', inbox: { pageId: '{I}', status: 'failed' } })
     const html = renderToStaticMarkup(<AddResult result={r} onDone={noop} />)
     expect(html).toContain('role="alert"')
-    expect(html).toContain('kept in your Inbox')
+    expect(html).toContain('kept in your Intake')
     expect(html).not.toContain('Placed in the central index')
+  })
+  it('shows a waiting item with "Check for the answer" as the one primary button', () => {
+    const r = normalizeAddResult({ status: 'waiting', kind: 'link', message: 'Copilot is still working on this.', text: 'https://contoso.sharepoint.com/sites/x', inboxId: '{I}', ref: 'rabc12345' })
+    const html = renderToStaticMarkup(<AddResult result={r} onDone={noop} onCheckAnswer={noop} />)
+    expect(html).toContain('Waiting for Copilot')
+    expect(html).toContain('waits in your Intake')
+    expect(html).toContain('>Check for the answer</button>')
+    expect(html.match(/btn--primary/g)?.length).toBe(1)
+    expect(html).not.toContain('Not added</p>')
+    const busy = renderToStaticMarkup(<AddResult result={r} busy onDone={noop} onCheckAnswer={noop} />)
+    expect(busy).toContain('Checking…')
+    expect(busy).toContain('aria-busy="true"')
+  })
+  it('says why an answer was not used, and offers the check again', () => {
+    const r = normalizeAddResult({ status: 'mismatch', kind: 'text', message: "No answer in that chat carries this item's reference.", text: 'x', inboxId: '{I}' })
+    const html = renderToStaticMarkup(<AddResult result={r} onDone={noop} onCheckAnswer={noop} />)
+    expect(html).toContain('role="alert"')
+    expect(html).toContain('Answer not for this item')
+    expect(html).toContain('Nothing was written')
+    expect(html).toContain('>Check for the answer</button>')
   })
   it('shows old vs new for an updated link, and the confirmation for an edited summary', () => {
     const base = { title: 'Contoso handbook', where: 'HR site', kind: 'page', summary: 'Old text.', keyFacts: ['Leave is 25 days'], useFor: '', sensitivity: '' }

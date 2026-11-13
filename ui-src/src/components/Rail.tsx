@@ -6,6 +6,7 @@ import { VIEW_ORDER, VIEWS, type View } from '../model/views'
 import { GraphIcon, HistoryIcon, PlusIcon, WarnIcon } from './icons'
 import { NotebookSwitcher } from './NotebookSwitcher'
 import { SectionTree } from './SectionTree'
+import { ThemeSwitch } from './ThemeSwitch'
 import './Rail.css'
 
 const NAV_ICONS: Record<View, () => React.JSX.Element> = { home: PlusIcon, graph: GraphIcon, history: HistoryIcon }
@@ -77,6 +78,7 @@ export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp }: 
             {nb.notebook.vault ? '' : ', read only'}
           </p>
         )}
+        <ThemeSwitch />
       </footer>
     </nav>
   )

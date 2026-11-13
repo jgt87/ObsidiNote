@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { addItem, undoAdd, updateLink } from '../add/api'
+import { addItem, checkAnswer, undoAdd, updateLink } from '../add/api'
 import type { ReplaceDecision } from '../add/ConfirmReplaceDialog'
 import type { AddResult } from '../add/types'
 import { ApiError, submit, type Intent, type Mode } from '../api'
@@ -83,6 +83,14 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
       )
     },
     onUpdateLink: (r: AddResult) => { if (r.page) withAddBusy(updateLink(r.page.id)) },
+    // An error of the call itself (server gone, 409 not waiting) keeps the waiting result on screen.
+    onCheckAnswer: (r: AddResult) => {
+      if (!r.inboxId) return
+      setFlow({ kind: 'add', result: r, busy: true })
+      checkAnswer(r.inboxId).then(showAdd, (e: unknown) =>
+        setFlow({ kind: 'add', result: { ...r, status: 'still-waiting', message: `The check did not work: ${message(e)}` }, busy: false }),
+      )
+    },
     onDecide: (r: AddResult, d: ReplaceDecision) => { if (r.confirm) withAddBusy(updateLink(r.confirm.id, d, r.confirm.proposed)) },
     onAsk: (r: AddResult) => askNew(r.text),
     onAddAnyway: (r: AddResult) => addText(r.text),

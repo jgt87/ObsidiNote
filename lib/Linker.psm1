@@ -234,7 +234,10 @@ function New-LinkPrompt {
         [Parameter(Mandatory)][string[]]$Types,
         [string]$FixedType = '',
         [datetime]$Today = (Get-Date),
-        [int]$MaxTextChars = 20000
+        [int]$MaxTextChars = 20000,
+        # The request's reference code (lib/Ingest.psm1 New-RequestRef): Copilot repeats it as "ref",
+        # so an answer read from the chat later is only used for the request that asked for it.
+        [string]$Ref = ''
     )
     $item = $Text.Trim()
     if ($item.Length -gt $MaxTextChars) { $item = $item.Substring(0, $MaxTextChars) + "`n(cut here)" }
@@ -259,9 +262,11 @@ function New-LinkPrompt {
     else { [void]$sb.AppendLine('(none)') }
     [void]$sb.AppendLine('')
     [void]$sb.AppendLine('The JSON object:')
-    [void]$sb.AppendLine('{"title": "...", "summary": "...", "type": "...", "topics": [{"id": "t1"}, {"new": "Parent/New topic"}], "links": [{"target": "p12", "anchor": "...", "strength": 2, "why": "..."}], "aliases": ["..."], "intent": "add"}')
+    $refPart = if ($Ref) { ', "ref": "' + $Ref + '"' } else { '' }
+    [void]$sb.AppendLine('{"title": "...", "summary": "...", "type": "...", "topics": [{"id": "t1"}, {"new": "Parent/New topic"}], "links": [{"target": "p12", "anchor": "...", "strength": 2, "why": "..."}], "aliases": ["..."], "intent": "add"' + $refPart + '}')
     [void]$sb.AppendLine('')
     [void]$sb.AppendLine('Rules:')
+    if ($Ref) { [void]$sb.AppendLine("- ref: always exactly ""$Ref"" (the reference of this request).") }
     if ($FixedType) {
         [void]$sb.AppendLine("- type: always ""$FixedType"".")
     } else {
@@ -326,6 +331,48 @@ function Get-ReplyJson {
     }
     if ($t.IndexOf('{') -lt 0) { return @{ ok = $false; value = $null; error = 'The answer holds no JSON object.' } }
     @{ ok = $false; value = $null; error = 'The JSON in the answer could not be read.' }
+}
+
+function Get-ReplyJsonObjects {
+    <# Every JSON object in a text (several replies of one chat read together), in order; nested
+       objects are not listed on their own. Never throws. #>
+    [CmdletBinding()]
+    param([AllowEmptyString()][AllowNull()][string]$Text)
+    if (-not $Text) { return , @() }
+    $t = [regex]::Replace($Text, '```[A-Za-z]*', '')
+    $t = $t.Replace([string][char]0x201C, '"').Replace([string][char]0x201D, '"')
+    $out = New-Object System.Collections.Generic.List[object]
+    $from = 0
+    while ($out.Count -lt 200) {
+        $start = $t.IndexOf('{', $from)
+        if ($start -lt 0) { break }
+        $end = Get-JsonObjectSpan -Text $t -Start $start
+        if ($end -lt 0) { break }
+        $cand = $t.Substring($start, $end - $start + 1)
+        $v = $null
+        foreach ($c in @($cand, ([regex]::Replace($cand, ',\s*([}\]])', '$1')))) {
+            try { $v = ConvertFrom-Json -InputObject $c -ErrorAction Stop; break } catch { $v = $null }
+        }
+        if ($v -is [System.Management.Automation.PSCustomObject]) { $out.Add($v); $from = $end + 1 }
+        else { $from = $start + 1 }
+    }
+    , $out.ToArray()
+}
+
+function Test-ReplyRef {
+    <# The request reference in a parsed reply. Another reference is always refused (it is the answer
+       to another request). A reply without one is accepted live (it is this turn's reply) and
+       refused with -Required (an answer read from the chat later). Returns @{ ok; error }. #>
+    param($Reply, [string]$Ref, [switch]$Required)
+    if (-not $Ref) { return @{ ok = $true; error = '' } }
+    $got = (Get-LkString $Reply 'ref').Trim()
+    if ($got -eq $Ref) { return @{ ok = $true; error = '' } }
+    if (-not $got) {
+        if ($Required) { return @{ ok = $false; error = "The answer does not carry this item's reference ($Ref)." } }
+        return @{ ok = $true; error = '' }
+    }
+    $shown = if ($got -match '^[A-Za-z0-9]{1,16}$') { $got } else { 'another one' }
+    @{ ok = $false; error = "The answer belongs to another request (reference $shown, expected $Ref)." }
 }
 
 function Limit-LkText {
@@ -478,4 +525,4 @@ function Test-LinkReply {
     @{ ok = ($errors.Count -eq 0); errors = $errors; dropped = $dropped; duplicateOf = $dup; value = $value }
 }
 
-Export-ModuleMember -Function Get-LkProp, Get-LkString, Format-LkTopicPath, Get-LkTopicPaths, Get-TextTerms, Test-PhraseInText, Get-LinkShortlist, New-LinkPrompt, Get-ReplyJson, Test-LinkReply
+Export-ModuleMember -Function Get-LkProp, Get-LkString, Format-LkTopicPath, Get-LkTopicPaths, Get-TextTerms, Test-PhraseInText, Get-LinkShortlist, New-LinkPrompt, Get-ReplyJson, Get-ReplyJsonObjects, Test-ReplyRef, Test-LinkReply

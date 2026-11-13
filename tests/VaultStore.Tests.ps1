@@ -1,6 +1,6 @@
 # Pester 3.4 syntax (inbox on Windows): Should Be / Should Throw.
 # lib/VaultStore.psm1: Add (lib/Ingest.psm1) end to end against the in-memory OneNote through the real
-# store and the write guard: Inbox item, content page with Meta and owned outlines, "Linked from",
+# store and the write guard: Intake item, content page with Meta and owned outlines, "Linked from",
 # the id counter on the state page, the Index pages, completeness, Undo, a link page, and the guard
 # refusing every write outside the active vault. Recorded Copilot replies; synthetic data only.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -72,10 +72,10 @@ Describe 'Add of a text item through the real store' {
         (Get-FakeOutlineXml $w.f $p1.id 'backlinks') | Should Match 'Identity-aware proxies'
         $r.backlinks | Should Be 3
     }
-    It 'files the Inbox item: status linked, filed as the new id' {
+    It 'files the Intake item: status linked, filed as the new id' {
         $inbox = @($w.f.Nodes.Values | Where-Object { $_.kind -eq 'Page' -and $_.meta.Contains('obsn.inboxKind') })
         $inbox.Count | Should Be 1
-        $w.f.Nodes[$inbox[0].parent].name | Should Be '01 Inbox'
+        $w.f.Nodes[$inbox[0].parent].name | Should Be '01 Intake'
         $inbox[0].meta['obsn.status'] | Should Be 'linked'
         $inbox[0].meta['obsn.filedAs'] | Should Be 'p4'
     }
@@ -108,6 +108,42 @@ Describe 'Add of a text item through the real store' {
             $st = Get-VaultState -Adapter $w.a -IndexSectionId $w.open.vault.indexSectionId
             @($st.deleted | ForEach-Object { $_.title }) -contains 'Identity-aware proxies' | Should Be $true
         }
+    }
+}
+
+Describe 'Markdown text through the real store (user, 2026-11-13: OneNote has no Markdown)' {
+    $w = New-SyntheticVault
+    $md = "# Proxy notes`n`nThe proxy **checks who the user is** first.`n`n- step one`n  - step one a`n1. first`n2. second`n`n| Name | Role |`n|---|---|`n| Sam | lead |`n`nRun ``partner portal`` here."
+    $reply = '{"title": "Proxy notes", "summary": "Notes on the proxy.", "type": "concept", "topics": [{"new": "Security/Proxies"}], "links": [{"target": "p1", "anchor": "checks who the user is", "strength": 3, "why": "core concept"}, {"target": "p2", "anchor": "partner portal", "strength": 2, "why": "named"}], "aliases": [], "intent": "add"}'
+    $c = New-FakeCopilot @($reply)
+    $r = Invoke-AddRequest -Request @{ text = $md; mode = 'add' } -Store $w.store -Ask $c.ask -Options @{ Now = $script:Now }
+    $page = Find-FakePage $w.f 'Proxy notes'
+    $body = Get-FakeOutlineXml $w.f $page.id 'body'
+    It 'adds the page' {
+        $r.status | Should Be 'added'
+    }
+    It 'writes a heading in a larger bold font and keeps bold around the link Copilot proposed' {
+        $body | Should Match "<span style='font-weight:bold'><span style='font-size:16pt'>Proxy notes</span></span>"
+        $body | Should Match '<a href="onenote:[^"]*"><span style=''font-weight:bold''>checks who the user is</span></a>'
+        $body | Should Not Match '\*\*'
+    }
+    It 'writes real list items, nested, bullets and numbers' {
+        ([regex]::Matches($body, '<one:Bullet ')).Count | Should Be 2
+        $body | Should Match 'text="1\."'
+        $body | Should Match 'text="2\."'
+        $body | Should Match '<one:OEChildren><one:OE><one:List><one:Bullet[^>]*/></one:List><one:T><!\[CDATA\[step one a'
+    }
+    It 'writes a OneNote table with a bold header row' {
+        $body | Should Match '<one:Table bordersVisible="true"><one:Columns><one:Column index="0" width="120" ?/><one:Column index="1" width="120" ?/></one:Columns>'
+        $body | Should Match "<span style='font-weight:bold'>Role</span>"
+        $body | Should Match 'CDATA\[lead\]'
+    }
+    It 'never puts a link inside inline code' {
+        $body | Should Match "font-family:Consolas'>partner portal</span>"
+        $body | Should Not Match 'partner portal</span></a>'
+    }
+    It 'writes well-formed page XML' {
+        { [xml]('<x xmlns:one="http://schemas.microsoft.com/office/onenote/2013/onenote">' + $body + '</x>') } | Should Not Throw
     }
 }
 

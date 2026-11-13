@@ -14,6 +14,7 @@ knowledge graph's data, Add and Ask.
 | Graph of notebook #n | Builds the knowledge graph's data for each open notebook (counts of pages, topics, links) | No |
 | Dev vault | Creates or continues the test vault `ObsidiNote-Validation` (a new notebook next to your first OneDrive notebook), runs it twice, checks that ObsidiNote refuses writes into every other notebook, and writes its index | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Add (synthetic) and Undo | Adds a made-up sentence about tidal gardens to the test vault with Copilot, then undoes it (the page goes to OneNote's Deleted Pages) | Only `ObsidiNote-Validation`, with `-WriteTest` |
+| Check for the answer | Adds a second made-up sentence with a wait of 1 second, so Copilot is still answering and the item waits in the Intake (Copilot is left working, never stopped). Then checks for the answer every 10 seconds (at most 3 minutes) until the page is filed, and undoes it | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Ask (synthetic) | Asks "What do my notes say about tidal gardens?" against the test vault | No (Ask never writes) |
 
 ## Steps
@@ -42,10 +43,20 @@ knowledge graph's data, Add and Ask.
      - `[OK] Write guard  refused N of N writes into other notebooks`
      - `[OK] Dev vault index ...`
      - `[OK] Add (synthetic)  status added ...` and `[OK] Undo  status undone ...`
+     - `[OK] Check for the answer (waiting)  the item waits in the Intake; request reference given: yes`,
+       then one or more `[INFO] Check for the answer (check n)  status still-waiting ...` lines,
+       then `[OK] Check for the answer  final status added after n check(s), s s` and
+       `[OK] Check for the answer (undo)  status undone`. A `[WARN] ... status added instead of
+       waiting` line means Copilot answered within 1 second; run the kit again.
+     - In the Copilot window during that check: Copilot keeps answering the second sentence; nothing
+       presses Stop. ObsidiNote waits until that answer is done before it types anything else.
      - `[OK] Ask (synthetic)  status ...; writes 0`
-     - In OneNote: a notebook `ObsidiNote-Validation` with the sections `00 Index`, `01 Inbox`,
-       `Notes` and the other fixed sections. After the Undo, the added page is in that
-       notebook's Deleted Pages.
+     - In OneNote: a notebook `ObsidiNote-Validation` with the sections `00 Index`, `01 Intake`,
+       `Notes` and the other fixed sections. A test vault made before this version had `01 Inbox`:
+       it is renamed to `01 Intake` the first time the kit (or ObsidiNote) opens it, and its pages
+       stay. After the Undo, the added pages are in that notebook's Deleted Pages.
+   - If not, send this: the two newest Desktop files. For `[FAIL] Check for the answer`, also say
+     whether the Copilot window showed an answer to the sentence about salt marsh hay.
    - If not, send this: the two newest Desktop files. A `[FAIL] Write guard` line is important:
      stop using the write tests and send the files at once.
 
@@ -53,4 +64,13 @@ knowledge graph's data, Add and Ask.
    is listed as a vault. Do not make it your active vault unless you want to; your own vault stays
    as it was.
 
-6. Clean up when asked to (RB-03, "Cleaning up").
+6. Check for the answer in the window, with your own vault (optional, writes into it): paste a
+   SharePoint page link that once gave "Copilot gave no answer". If Copilot needs longer than the
+   wait, the result says "Waiting for Copilot" and the item waits in your Intake.
+   - What you should see: Copilot keeps working in its window (not stopped). After it has answered,
+     press **Check for the answer**: the normal Add result with the page placed in the index. Too
+     early: "Still waiting", try again later. The Intake item in OneNote shows `status: waiting`
+     until then, `status: linked` after.
+   - If not, send this: the two newest Desktop files and which message the window showed.
+
+7. Clean up when asked to (RB-03, "Cleaning up").
