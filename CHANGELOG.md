@@ -5,6 +5,10 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [v0.4.0] - 2026-11-13
+
 ### Added
 - **Vaults.** An ObsidiNote vault is now recognised by its state page (the `ObsidiNote` page in `00 Index`, with the vault's own id), not by a section name. A vault can be a whole notebook or a section group inside a notebook, and there can be several. The start continues in the vault you used last (kept as `"vaultId"` and `"notebook"` in `config\obsidinote.local.json`), else in the only one that is open; with several and none on record, you choose one in the window. The console shows a `Vault` line: which vault, how many pages and topics, and whether the index was complete.
 - **New ObsidiNote vault** in the side bar: give it a name and ObsidiNote makes a notebook with its fixed sections (`00 Index`, `01 Inbox`, the buckets, `Journal`, `Archive`) and makes it the active vault. You can also put a vault inside an existing notebook as a section group; ObsidiNote asks first, because that writes into a notebook it does not own yet. When OneNote cannot make the notebook next to your cloud notebooks, it goes to OneNote's default notebook folder on this PC and the window says so.
