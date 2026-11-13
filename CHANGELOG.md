@@ -5,6 +5,10 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [v0.5.0] - 2026-11-13
+
 ### Added
 - **Markdown becomes OneNote formatting.** OneNote has no Markdown format, so text you add in Markdown is turned into real formatting on the page: headings, bold, italic, strikethrough, inline code and code blocks (monospace), links, bullet and numbered lists (nested), quotes and tables. Text without Markdown is added as before.
 - **Colour theme:** System / Light / Dark at the bottom of the side bar. System (the default) follows Windows' light or dark setting; the choice is kept in this browser only.
