@@ -40,6 +40,9 @@ export interface NotebookSummary {
   vaultId?: string
   kind?: 'notebook' | 'sectiongroup'
   notebookId?: string
+  /** Only in a notebook view: an empty notebook (no pages, no section groups) that holds no vault
+   *  and can be set up as one in place (POST /api/vault/setup). */
+  canSetUp?: boolean
 }
 
 /** writer = this ObsidiNote may add to the active vault; readonly = another one is writing there. */
@@ -146,6 +149,12 @@ export interface NewVaultResult {
  *  notebook. A 409 with needsConfirm asks for the confirm first (ApiError.status 409). */
 export function newVault(name: string, inNotebook?: string, confirm = false): Promise<NewVaultResult> {
   return call('/api/vault/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, inNotebook: inNotebook ?? '', confirm }) })
+}
+
+/** Sets up an open, empty notebook as a vault in place and makes it active. The caller has asked
+ *  the person first (confirm); without it the server answers 409 needsConfirm and writes nothing. */
+export function setUpVault(id: string, confirm: boolean): Promise<NewVaultResult> {
+  return call('/api/vault/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, confirm }) })
 }
 
 function postJson(text: string, mode: Mode, signal?: AbortSignal): RequestInit {

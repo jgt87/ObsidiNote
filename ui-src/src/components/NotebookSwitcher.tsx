@@ -3,7 +3,14 @@ import { switcherGroups } from '../model/notebooks'
 
 /** The notebook switcher at the top of the rail: vaults first, other notebooks read only, and
  *  which vault is active. A native select: keyboard, screen readers and touch work as usual. */
-export function NotebookSwitcher({ notebooks, onNewVault }: { notebooks: NotebooksState; onNewVault: () => void }) {
+interface Props {
+  notebooks: NotebooksState
+  onNewVault: () => void
+  /** Set when the shown notebook is empty and can be set up as a vault in place. */
+  onSetUp?: (() => void) | null
+}
+
+export function NotebookSwitcher({ notebooks, onNewVault, onSetUp }: Props) {
   const { list, activeId, shownId } = notebooks
   const active = list.find((n) => n.id === activeId)
   const shown = list.find((n) => n.id === shownId)
@@ -38,8 +45,16 @@ export function NotebookSwitcher({ notebooks, onNewVault }: { notebooks: Noteboo
         ))}
       </select>
       <p className="switcher__note" role="status">
-        {shown && !shown.vault ? (
-          <>Read only. Adds go to {active ? <b>{active.name}</b> : 'no vault (none is open)'}.</>
+        {shown && !shown.vault && onSetUp ? (
+          'This notebook is empty. Set it up as your ObsidiNote vault to start adding.'
+        ) : shown && !shown.vault ? (
+          active ? (
+            <>
+              Read only. Adds go to <b>{active.name}</b>.
+            </>
+          ) : (
+            'Read only. No vault is active yet, so nothing can be added.'
+          )
         ) : active ? (
           <>
             Active vault{active.location ? ` · ${active.location}` : ''}
@@ -51,6 +66,11 @@ export function NotebookSwitcher({ notebooks, onNewVault }: { notebooks: Noteboo
           'No ObsidiNote vault is open.'
         )}
       </p>
+      {onSetUp && (
+        <button type="button" className="btn btn--sm btn--primary switcher__new" onClick={onSetUp}>
+          Set up ObsidiNote in this notebook
+        </button>
+      )}
       {newVault}
       {notebooks.error && (
         <p className="switcher__note" role="alert">

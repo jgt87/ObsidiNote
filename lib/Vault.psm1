@@ -172,6 +172,38 @@ function Open-ObsidiVault {
     $r
 }
 
+function Test-EmptyNotebook {
+    <# True when the open notebook $NotebookId holds nothing of the person's: no section groups and no
+       pages (empty sections, such as OneNote's own "New Section 1", count as empty; the recycle bin is
+       ignored). Only such a notebook may be set up as a vault in place (user, 2026-11-13). #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)][string]$NotebookId)
+    [xml]$doc = $Adapter.GetHierarchy($NotebookId, 4)
+    $nb = $doc.DocumentElement
+    if ($nb.LocalName -ne 'Notebook') { $nb = @(Get-ChildElements $nb 'Notebook')[0] }
+    if (-not $nb) { return $false }
+    if (@(Get-ChildElements $nb 'SectionGroup').Count) { return $false }
+    foreach ($s in @(Get-ChildElements $nb 'Section')) {
+        if (@(Get-ChildElements $s 'Page').Count) { return $false }
+    }
+    $true
+}
+
+function Initialize-EmptyNotebookVault {
+    <# Sets up the open, empty notebook $NotebookId as a vault (the whole notebook is the root) and
+       makes it the active write root. The caller asks the person first. Refuses a notebook that holds
+       anything, or one that already is (or holds) a vault. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)][string]$NotebookId, [object[]]$Vaults = $null, [int]$Year = (Get-Date).Year)
+    if ($null -eq $Vaults) { $Vaults = @(Get-VaultList -Adapter $Adapter) }
+    if (@($Vaults | Where-Object { $_.notebookId -eq $NotebookId }).Count) { throw 'That notebook already holds an ObsidiNote vault.' }
+    if (-not (Test-EmptyNotebook -Adapter $Adapter -NotebookId $NotebookId)) { throw 'That notebook is not empty; ObsidiNote only sets up empty notebooks.' }
+    Set-OneNoteWriteRoot -Adapter $Adapter -RootId $NotebookId
+    $r = Initialize-ObsidiVault -Adapter $Adapter -RootId $NotebookId -Year $Year
+    $r | Add-Member NoteProperty rootKind 'notebook'
+    $r
+}
+
 function Initialize-ObsidiNotebook {
     <# Convenience for a start and for dev runs: continue in the vault whose root is the notebook
        $Name, or create that notebook as a new vault when no notebook of that name is open. A notebook
@@ -187,4 +219,4 @@ function Initialize-ObsidiNotebook {
     New-ObsidiVault -Adapter $Adapter -Name $Name -Location $Location -Year $Year
 }
 
-Export-ModuleMember -Function Get-ObsnSchemaVersion, Find-StatePage, Find-VaultCandidates, Get-VaultList, Get-NotebookList, New-VaultId, Get-VaultState, Initialize-ObsidiVault, New-ObsidiVault, Open-ObsidiVault, Initialize-ObsidiNotebook
+Export-ModuleMember -Function Get-ObsnSchemaVersion, Find-StatePage, Find-VaultCandidates, Get-VaultList, Get-NotebookList, New-VaultId, Get-VaultState, Initialize-ObsidiVault, New-ObsidiVault, Open-ObsidiVault, Initialize-ObsidiNotebook, Test-EmptyNotebook, Initialize-EmptyNotebookVault

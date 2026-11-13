@@ -133,9 +133,21 @@ function Get-CopilotHostList([string]$AppRoot) {
     , @($hosts | Where-Object { $_ } | ForEach-Object { "$_".ToLowerInvariant() } | Select-Object -Unique)
 }
 
+function Test-BridgeOpen($Bridge) {
+    <# True while the start's Copilot bridge still has an open connection to its Copilot tab. Pure. #>
+    if (-not $Bridge -or -not $Bridge.PSObject.Properties['Session'] -or -not $Bridge.Session) { return $false }
+    $s = $Bridge.Session
+    if ($s.PSObject.Properties['Lost'] -and $s.Lost) { return $false }
+    try { return ("$($s.Ws.State)" -eq 'Open') } catch { return $false }
+}
+
 function Get-CopilotState($State) {
-    <# Read-only: lists the pages of ObsidiNote's Edge on its debug port; never attaches to a tab. #>
+    <# Read-only; never attaches to a tab. The bridge's own open connection is the answer when there
+       is one: the tab's address can be on a host the list below does not know (a tenant redirect),
+       which made the window say "Copilot is not open" while it was connected (v0.4.0, 2026-11-13).
+       Without a bridge it lists the pages of ObsidiNote's Edge on its debug port. #>
     if ($State.CopilotSkipped) { return 'skipped' }
+    if (Test-BridgeOpen $State.Copilot) { return 'connected' }
     try { $pages = @(Invoke-RestMethod "http://127.0.0.1:$($State.CdpPort)/json/list" -TimeoutSec 2) } catch { return 'not-running' }
     $flat = @(foreach ($p in $pages) { $p })   # PS 5.1 hands a JSON array over as one object
     Get-CopilotTabState -Pages $flat -Hosts (Get-CopilotHostList $State.AppRoot)
@@ -261,6 +273,14 @@ function Read-NotebookData {
     $getLink = { param($pageId) try { $ad.GetHyperlinkToObject($pageId) } catch { '' } }.GetNewClosure()
     try { $v = Get-NotebookView -Id $entry.notebookId -GetState { 'window' } -GetXml $getXml -GetLink $getLink } catch { return (New-EmptyView $script:NoAnswer) }
     if ($v.notebook) { $v.notebook.id = $entry.id; $v.notebook.name = $entry.name; $v.notebook.vault = [bool]$entry.vault; $v.notebook.active = [bool]$entry.active }
+    # An empty notebook that is no vault and holds none can be set up as one ("Set up ObsidiNote in
+    # this notebook", POST /api/vault/setup; user, 2026-11-13).
+    $canSetUp = $false
+    if ($v.notebook -and -not $entry.vault) {
+        $nb = @($d.notebooks | Where-Object { $_.id -eq $entry.notebookId }) | Select-Object -First 1
+        if ($nb -and -not @($nb.vaultIds).Count) { try { $canSetUp = [bool](Test-EmptyNotebook -Adapter $ad -NotebookId $entry.notebookId) } catch { } }
+    }
+    if ($v.notebook) { $v.notebook | Add-Member -NotePropertyName canSetUp -NotePropertyValue $canSetUp -Force }
     $v
 }
 
@@ -492,6 +512,34 @@ function New-VaultRoute($State, [string]$Body) {
     @{ status = 200; body = @{ id = (Get-VaultListId $v); vaultId = $v.vaultId; name = $v.name; kind = $v.rootKind; mode = $o.mode; warning = $warning } }
 }
 
+function Set-UpVaultRoute($State, [string]$Body) {
+    <# POST /api/vault/setup {id, confirm}: sets up an open, EMPTY notebook (no pages, no section groups)
+       as a vault in place, then makes it active (user, 2026-11-13). Without confirm it only answers
+       409 needsConfirm: it writes into a notebook ObsidiNote does not own yet. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $id = "$(Get-BodyValue $b 'id' '')"
+    $confirm = [bool](Get-BodyValue $b 'confirm' $false)
+    if (-not $id -or $id.Length -gt 200) { return @{ status = 400; body = @{ error = 'id must be a OneNote notebook id.' } } }
+    $d = Get-VaultData $State -Fresh
+    if (-not $d.adapter) { return @{ status = 503; body = @{ error = $(if ($d.message) { $d.message } else { $script:NotRunning }) } } }
+    # Only an id that is one of the open notebooks ever reaches OneNote (as in /api/vault/new).
+    $nb = @($d.notebooks | Where-Object { $_.id -eq $id }) | Select-Object -First 1
+    if (-not $nb) { return @{ status = 404; body = @{ error = 'That notebook is not open in OneNote.' } } }
+    if ($nb.structured -or @($nb.vaultIds).Count) { return @{ status = 409; body = @{ error = 'That notebook already holds an ObsidiNote vault.' } } }
+    if (-not (Test-EmptyNotebook -Adapter $d.adapter -NotebookId $id)) { return @{ status = 409; body = @{ error = 'That notebook is not empty, so ObsidiNote does not set it up. Use "New ObsidiNote vault" instead.' } } }
+    if (-not $confirm) { return @{ status = 409; body = @{ needsConfirm = $true; error = "This adds ObsidiNote's sections (00 Index, 01 Inbox and the buckets) to the empty notebook '$($nb.name)' and makes it your active vault. Confirm to go ahead." } } }
+    [Threading.Monitor]::Enter($State.Lock)
+    try { $r = Initialize-EmptyNotebookVault -Adapter $d.adapter -NotebookId $id -Vaults $d.vaults }
+    catch { return @{ status = 500; body = @{ error = "The notebook could not be set up: $($_.Exception.Message)" } } }
+    finally { [Threading.Monitor]::Exit($State.Lock) }
+    $d = Get-VaultData $State -Fresh
+    $v = @($d.vaults | Where-Object { $_.vaultId -eq $r.vaultId }) | Select-Object -First 1
+    if (-not $v) { return @{ status = 500; body = @{ error = 'The notebook was set up but could not be found again. Restart ObsidiNote.' } } }
+    try { $o = Switch-ServerVault $State $v $d } catch { return @{ status = 500; body = @{ error = "The notebook was set up but could not be opened: $($_.Exception.Message)" } } }
+    Write-AppLog info server 'Vault set up' @{ kind = 'notebook'; mode = $o.mode }
+    @{ status = 200; body = @{ id = (Get-VaultListId $v); vaultId = $v.vaultId; name = $v.name; kind = 'notebook'; mode = $o.mode; warning = '' } }
+}
+
 function Get-ForeignGraphModel($State, $Adapter, $Notebook, $Vaults, [int]$BudgetMs = 15000) {
     <# A connected notebook's derived model, kept in memory for a few minutes; its link edges are read
        in batches (Get-NotebookLinks) within $BudgetMs per call, later calls go on where it stopped. #>
@@ -646,6 +694,7 @@ function Invoke-ApiRoute {
         'GET /api/graph' { return (Get-GraphRoute $State $Query) }
         'POST /api/active-vault' { return (Set-ActiveVault $State $Body) }
         'POST /api/vault/new' { return (New-VaultRoute $State $Body) }
+        'POST /api/vault/setup' { return (Set-UpVaultRoute $State $Body) }
         'POST /api/intent' {
             try { $r = Read-IntentRequest $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
             return @{ status = 200; body = (Get-Intent -Text $r.text -Mode $r.mode) }

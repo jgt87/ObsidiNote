@@ -9,10 +9,50 @@
 }
 .composer:focus-within { border-color: var(--border-strong); }
 
-.composer__top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-4); }
-.composer__keys { margin: 0; font-size: var(--text-meta); color: var(--muted); }
-/* Narrow screens and touch: no keyboard to teach; the buttons stay. */
-@media (max-width: 760px), (pointer: coarse) { .composer__keys { display: none; } }
+/* Mode switch centred at the top; the shortcut help sits in the right column. The empty left
+   column has the same width as the right one, so the switch stays in the true centre. */
+.composer__top {
+  display: grid;
+  grid-template-columns: var(--control-h) 1fr var(--control-h);
+  align-items: center;
+  gap: var(--space-3);
+}
+.composer__top > .seg { grid-column: 2; justify-self: center; }
+.composer__help { grid-column: 3; position: relative; justify-self: end; }
+.composer__help-btn { color: var(--muted); }
+@media (hover: hover) { .composer__help-btn:hover { color: var(--ink); } }
+
+/* Shortcut card: shown on hover or keyboard focus of the (i) button, never catching the pointer. */
+.composer__keys {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  width: max-content;
+  padding: var(--space-3) var(--space-4);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-menu);
+  font-size: var(--text-meta);
+  color: var(--ink);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: var(--z-tooltip);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--dur-fast) ease-out, visibility 0s linear var(--dur-fast);
+}
+.composer__keys * { pointer-events: none; }
+.composer__help-btn:focus-visible + .composer__keys { opacity: 1; visibility: visible; transition-delay: 0s; }
+@media (hover: hover) {
+  .composer__help-btn:hover + .composer__keys { opacity: 1; visibility: visible; transition-delay: 0s; }
+}
+/* Touch: no keyboard to teach, so no help button; the switch stays centred. */
+@media (pointer: coarse) { .composer__help { display: none; } }
 
 kbd {
   display: inline-block;
@@ -57,11 +97,11 @@ kbd {
   font-size: var(--text-title);
   line-height: 1.5;
 }
-/* design: the card's border marks focus (:focus-within above); a ring around the bare text would
-   sit inside the card. Keyboard focus is still visible through the card edge and the caret. */
+/* design: no focus ring around the box or the text (user, 2026-11-13: "do not show the outline on the
+   textbox whenever it is selected"). Focus shows as the card's darker border (:focus-within above)
+   and the caret; the box is the page's one input and gets focus on load. */
 .composer__text:focus-visible { outline: none; }
 .composer__text::placeholder { color: var(--muted); }
-.composer:has(.composer__text:focus-visible) { outline: 2px solid var(--ring); outline-offset: 2px; }
 
 .composer__bottom {
   display: flex;

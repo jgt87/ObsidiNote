@@ -114,6 +114,28 @@ Describe 'Get-CopilotTabState' {
     }
 }
 
+Describe 'Get-CopilotState with the start''s bridge' {
+    # v0.4.0 on a business tenant: the bridge was connected, the window said "Copilot is not open".
+    # Port 1 has no Edge, so only the bridge can make these "connected".
+    It 'is connected while the bridge''s connection is open, whatever the tab list says' {
+        InModuleScope Server {
+            $bridge = [pscustomobject]@{ Session = [pscustomobject]@{ Lost = $false; Ws = [pscustomobject]@{ State = 'Open' } } }
+            $st = @{ CopilotSkipped = $false; Copilot = $bridge; CdpPort = 1; AppRoot = 'C:\nowhere' }
+            Get-CopilotState $st | Should Be 'connected'
+        }
+    }
+    It 'does not trust a lost or closed bridge' {
+        InModuleScope Server {
+            $lost = [pscustomobject]@{ Session = [pscustomobject]@{ Lost = $true; Ws = [pscustomobject]@{ State = 'Open' } } }
+            $closed = [pscustomobject]@{ Session = [pscustomobject]@{ Lost = $false; Ws = [pscustomobject]@{ State = 'Closed' } } }
+            Test-BridgeOpen $lost | Should Be $false
+            Test-BridgeOpen $closed | Should Be $false
+            Test-BridgeOpen $null | Should Be $false
+            Get-CopilotState @{ CopilotSkipped = $false; Copilot = $closed; CdpPort = 1; AppRoot = 'C:\nowhere' } | Should Be 'not-running'
+        }
+    }
+}
+
 $script:Hier = [IO.File]::ReadAllText((Join-Path $here 'fixtures\hierarchy.xml'))
 $script:Team = '{22222222-2222-2222-2222-222222222222}{1}{B0}'
 $script:Reading = '{33333333-3333-3333-3333-333333333333}{1}{B0}'
@@ -256,6 +278,49 @@ Describe 'Invoke-ApiRoute: switching vault, a new vault (in-memory OneNote)' {
         $r.status | Should Be 200
         $r.body.kind | Should Be 'notebook'
         $r.body.warning | Should Be ''
+    }
+    Remove-Item $app -Recurse -Force
+}
+
+Describe 'Invoke-ApiRoute: setting up an empty notebook as a vault (user, 2026-11-13)' {
+    $w = New-SyntheticVault -SessionId 'start'
+    $null = Close-VaultSession -Adapter $w.a -Vault $w.open.vault -Lease $w.open.lease
+    $empty = $w.f.AddNotebook('ObsidiNote')
+    $app = New-TempAppRoot
+    $state = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'server'
+    It 'offers set-up only for the empty notebook' {
+        # The fake's ids are not GUID-shaped, which /api/notebook?id= refuses; read the view directly.
+        # Pester 3.4's InModuleScope takes no parameters: hand the values over in globals.
+        $global:ObsnSetUpCase = @{ s = $state; e = $empty; h = $w.household }
+        try {
+            InModuleScope Server {
+                $c = $global:ObsnSetUpCase
+                (Read-NotebookData $c.s 'view' -Id $c.e).notebook.canSetUp | Should Be $true
+                (Read-NotebookData $c.s 'view' -Id $c.h).notebook.canSetUp | Should Be $false
+            }
+        } finally { Remove-Variable -Name ObsnSetUpCase -Scope Global -ErrorAction SilentlyContinue }
+    }
+    It 'asks for confirmation first and writes nothing without it' {
+        $before = $w.f.Writes.Count
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/vault/setup' -Body ('{"id":"' + $empty + '"}') -State $state
+        $r.status | Should Be 409
+        $r.body.needsConfirm | Should Be $true
+        $w.f.Writes.Count | Should Be $before
+    }
+    It 'refuses a notebook with the person''s pages, and bad ids' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/vault/setup' -Body ('{"id":"' + $w.household + '","confirm":true}') -State $state
+        $r.status | Should Be 409
+        $r.body.needsConfirm | Should Be $null
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/vault/setup' -Body '{"id":"","confirm":true}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/vault/setup' -Body '{"id":"../x","confirm":true}' -State $state).status | Should Be 404
+    }
+    It 'sets it up with the confirm flag and makes it the active vault' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/vault/setup' -Body ('{"id":"' + $empty + '","confirm":true}') -State $state
+        $r.status | Should Be 200
+        $r.body.kind | Should Be 'notebook'
+        $r.body.mode | Should Be 'writer'
+        $state.Vault.vaultId | Should Be $r.body.vaultId
+        ((Invoke-ApiRoute -Method 'GET' -Path '/api/notebooks' -State $state).body.notebooks | Where-Object { $_.name -eq 'ObsidiNote' }).vault | Should Be $true
     }
     Remove-Item $app -Recurse -Force
 }

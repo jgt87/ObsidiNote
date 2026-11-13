@@ -153,3 +153,32 @@ Describe 'Write guard' {
         { $a.CreateSectionGroupIn($hh, 'Wiki') } | Should Throw
     }
 }
+
+Describe 'Setting up an empty notebook as a vault (user, 2026-11-13)' {
+    $f = New-World
+    $a = New-GuardedOneNote -Inner $f
+    $empty = $f.AddNotebook('ObsidiNote'); $f.AddRecycleBin($empty) | Out-Null
+    $blank = $f.AddNotebook('Blank'); $null = $f.AddSection($blank, 'New Section 1')
+    $hh = $f.FindByName('Household')
+    It 'counts a notebook without pages or groups as empty, and one with the person''s pages as not' {
+        Test-EmptyNotebook -Adapter $a -NotebookId $empty | Should Be $true
+        Test-EmptyNotebook -Adapter $a -NotebookId $blank | Should Be $true
+        Test-EmptyNotebook -Adapter $a -NotebookId $hh | Should Be $false
+    }
+    It 'sets up the empty notebook in place: the notebook is the vault root, found by its state page' {
+        $r = Initialize-EmptyNotebookVault -Adapter $a -NotebookId $empty -Year 2026
+        $r.rootId | Should Be $empty
+        $r.rootKind | Should Be 'notebook'
+        $r.vaultCreated | Should Be $true
+        $a.RootId | Should Be $empty
+        $v = @(Get-VaultList -Adapter $a | Where-Object { $_.rootId -eq $empty })
+        $v.Count | Should Be 1
+        $v[0].vaultId | Should Be $r.vaultId
+    }
+    It 'refuses a notebook with the person''s pages, and one that already holds a vault, writing nothing' {
+        $before = $f.Writes.Count
+        { Initialize-EmptyNotebookVault -Adapter $a -NotebookId $hh -Year 2026 } | Should Throw
+        { Initialize-EmptyNotebookVault -Adapter $a -NotebookId $empty -Year 2026 } | Should Throw
+        $f.Writes.Count | Should Be $before
+    }
+}

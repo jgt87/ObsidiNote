@@ -4,6 +4,7 @@ import { EmptyView } from './components/EmptyView'
 import { HomeView } from './components/HomeView'
 import { HistoryIcon } from './components/icons'
 import { NewVaultDialog } from './components/NewVaultDialog'
+import { SetUpVaultDialog } from './components/SetUpVaultDialog'
 import { Rail } from './components/Rail'
 import { fetchGraph, GraphView } from './graph'
 import { useHomeFlow } from './hooks/useHomeFlow'
@@ -22,6 +23,7 @@ export function App() {
   const [choices, setChoices] = useState<AskChoices>({ sources: [], includeArchived: false })
   const [graphFocus, setGraphFocus] = useState<string[]>([])
   const [newVaultOpen, setNewVaultOpen] = useState(false)
+  const [setUpOpen, setSetUpOpen] = useState(false)
   const [notice, setNotice] = useState('')
 
   const goto = (v: View) => { window.location.hash = VIEWS[v].hash }
@@ -50,7 +52,7 @@ export function App() {
 
   return (
     <div className="shell">
-      <Rail view={view} notebooks={notebooks} notebook={notebook} notes={attentionNotes(status, serverDown)} onNewVault={() => setNewVaultOpen(true)} />
+      <Rail view={view} notebooks={notebooks} notebook={notebook} notes={attentionNotes(status, serverDown)} onNewVault={() => setNewVaultOpen(true)} onSetUp={() => setSetUpOpen(true)} />
       <main className="main">
         {notice && (
           <p className="home-notice app-notice" role="status">
@@ -88,6 +90,18 @@ export function App() {
           onMade={(r) => {
             setNewVaultOpen(false)
             setNotice(`${r.name} is your active vault now.${r.warning ? ` ${r.warning}` : ''}`)
+            notebooks.adopt(r.id)
+          }}
+        />
+      )}
+      {setUpOpen && shown && (
+        <SetUpVaultDialog
+          id={shown.id}
+          name={shown.name}
+          onClose={() => setSetUpOpen(false)}
+          onDone={(r) => {
+            setSetUpOpen(false)
+            setNotice(`${r.name} is your active vault now.`)
             notebooks.adopt(r.id)
           }}
         />

@@ -5,7 +5,16 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+- **Set up ObsidiNote in this notebook.** When the notebook shown is empty (no pages), the side bar offers to set it up as your vault. After you confirm, ObsidiNote adds its sections to it and makes it the active vault. A notebook with pages of yours is never set up this way.
+
+### Fixed
+- The window said "Copilot is not open in ObsidiNote's Edge window" while Copilot was connected. It now trusts ObsidiNote's own connection to Copilot.
+
+### Changed
+- No focus outline around the text box when you click or type in it.
+- The note for a missing vault says what to do in the window, instead of asking you to open a notebook in OneNote.
+- The Auto / Add / Ask switch sits centred at the top of the box; the keyboard shortcuts moved behind an (i) button in its top right corner (shown on hover or keyboard focus).
 
 ## [v0.4.0] - 2026-11-13
 

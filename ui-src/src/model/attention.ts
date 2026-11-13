@@ -21,7 +21,7 @@ export function attentionNotes(status: AppStatus | null, serverDown: boolean): A
   if (!status) return []
   const notes: AttentionNote[] = []
   if (!status.oneNote.running) notes.push({ id: 'onenote', text: 'OneNote is not running. Start OneNote to see your notebook.' })
-  else if (!status.oneNote.notebookOpen) notes.push({ id: 'notebook', text: 'No ObsidiNote vault is open in OneNote. Open your ObsidiNote notebook in OneNote.' })
+  else if (!status.oneNote.notebookOpen) notes.push({ id: 'notebook', text: 'No ObsidiNote vault is open in OneNote. Choose one under Notebook, set up an empty notebook, or make a new vault.' })
   const copilot = COPILOT[status.copilot.state] ?? ''
   if (copilot) notes.push({ id: 'copilot', text: copilot })
   return notes

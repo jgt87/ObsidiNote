@@ -16,10 +16,12 @@ interface Props {
   notebook: NotebookState
   notes: AttentionNote[]
   onNewVault: () => void
+  onSetUp: () => void
 }
 
-export function Rail({ view, notebooks, notebook, notes, onNewVault }: Props) {
+export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp }: Props) {
   const nb = notebook.data
+  const canSetUp = Boolean(nb?.notebook?.canSetUp && nb.notebook.id === notebooks.shownId)
   return (
     <nav className="rail" aria-label="Main">
       <div className="rail__brand">
@@ -27,7 +29,7 @@ export function Rail({ view, notebooks, notebook, notes, onNewVault }: Props) {
         <span>ObsidiNote</span>
       </div>
 
-      <NotebookSwitcher notebooks={notebooks} onNewVault={onNewVault} />
+      <NotebookSwitcher notebooks={notebooks} onNewVault={onNewVault} onSetUp={canSetUp ? onSetUp : null} />
 
       <ul className="rail__nav">
         {VIEW_ORDER.map((v) => {

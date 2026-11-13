@@ -81,9 +81,17 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
     <section className="composer" aria-label="Add or ask">
       <div className="composer__top">
         <ModeSwitch mode={mode} onChange={(m) => { setMode(m); area.current?.focus() }} />
-        <p className="composer__keys">
-          <kbd>Ctrl</kbd> <kbd>1</kbd> Add · <kbd>Ctrl</kbd> <kbd>2</kbd> Ask · <kbd>Enter</kbd> send · <kbd>Shift</kbd> <kbd>Enter</kbd> new line
-        </p>
+        <div className="composer__help">
+          <button type="button" className="btn btn--icon btn--ghost composer__help-btn" aria-label="Keyboard shortcuts" aria-describedby="composer-keys">
+            <InfoIcon />
+          </button>
+          <div id="composer-keys" role="tooltip" className="composer__keys">
+            <span><kbd>Ctrl</kbd> <kbd>1</kbd></span><span>Add</span>
+            <span><kbd>Ctrl</kbd> <kbd>2</kbd></span><span>Ask</span>
+            <span><kbd>Enter</kbd></span><span>Send</span>
+            <span><kbd>Shift</kbd> <kbd>Enter</kbd></span><span>New line</span>
+          </div>
+        </div>
       </div>
       <label htmlFor="composer-text" className="visually-hidden">
         Text, link or question
