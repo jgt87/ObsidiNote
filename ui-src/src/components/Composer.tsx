@@ -18,7 +18,7 @@ export interface Prefill {
 
 interface Props {
   addTarget: AddTarget | null
-  /** Sends the text; the box keeps it until the result says it was used. */
+  /** Sends the text; the box keeps it until the server has processed it (then `clearKey` changes). */
   onSend: (text: string, mode: Mode, intent: Intent | null) => void
   busy: boolean
   prefill?: Prefill | null

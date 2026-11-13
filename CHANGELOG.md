@@ -14,6 +14,7 @@ versions follow [SemVer](https://semver.org/).
 - After an update, the window shows "Updated to vX.Y.Z" with what is new in that version. Dismiss hides it until the next start.
 
 ### Changed
+- The box is cleared once your text has been processed (the result or answer shows below it). It keeps your text only when it could not be sent.
 - The knowledge graph's List is now one table of all pages (Page, Type, Topics, Site, Links, Changed): sort by any column, group by topic, type, site or year (or not at all), and fold groups. Long lists show 500 rows at a time.
 
 ### Fixed

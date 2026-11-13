@@ -51,18 +51,24 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
     ask(question, choices).then(showAsk, (e: unknown) => fail(question, e, true))
   }, [choices])
 
+  // The box empties once the server has processed what was sent (any answer, also failed or
+  // waiting: the text is then on the result and in the Intake). It keeps the text only when the
+  // call itself failed, so nothing was sent (operator, 2026-11-13). "Ask it" / "Add anyway" reuse
+  // the result's own text, never the box.
+  const cleared = () => setClearKey((k) => k + 1)
+
   const send = useCallback((text: string, mode: Mode, intent: Intent | null) => {
     if (followUp && mode !== 'add') {
       const conv = followUp.conversationId
       setFollowUp(null)
       setFlow({ kind: 'ask', view: { kind: 'progress', question: text, step: 3 } })
-      askFollowUp(conv, text).then(showAsk, (e: unknown) => fail(text, e, true))
+      askFollowUp(conv, text).then((r) => { showAsk(r); cleared() }, (e: unknown) => fail(text, e, true))
       return
     }
     const asking = willAsk(mode, intent)
     setFlow(asking ? { kind: 'ask', view: { kind: 'progress', question: text, step: 1 } } : { kind: 'adding', text })
     submit({ text, mode, sources: choices.sources, includeArchived: choices.includeArchived }).then(
-      (r) => (r.intent === 'ask' ? showAsk(r) : showAdd(r)),
+      (r) => { if (r.intent === 'ask') showAsk(r); else showAdd(r); cleared() },
       (e: unknown) => fail(text, e, asking),
     )
   }, [choices, followUp])
