@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getNotebook, getNotebooks, getStatus, setActiveVault, type AppStatus, type NotebookSummary, type NotebookView } from '../api'
+import { getNotebook, getNotebooks, getStatus, setActiveVault, type AppStatus, type NotebookSummary, type NotebookView, type VaultMode } from '../api'
 import { pickActiveVault } from '../model/notebooks'
 import { getStoredVaultId, persistVaultId } from '../model/preferences'
 
@@ -53,7 +53,11 @@ export interface NotebooksState {
   /** The notebook shown in the rail and in "Recently changed". */
   shownId: string | null
   error: string
+  /** writer = Add can write to the active vault; readonly = another ObsidiNote is writing there. */
+  mode: VaultMode
   choose: (id: string) => void
+  /** A vault the server just made active (a new vault): remember it and show it. */
+  adopt: (id: string) => void
 }
 
 /** The open notebooks and the choice between them. Choosing a vault makes it the active one (kept
@@ -65,6 +69,7 @@ export function useNotebooks(): NotebooksState {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [shownId, setShownId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [mode, setMode] = useState<VaultMode>('none')
   const synced = useRef<string | null>(null)
 
   const makeActive = useCallback((id: string) => {
@@ -72,7 +77,9 @@ export function useNotebooks(): NotebooksState {
     persistVaultId(id)
     if (synced.current === id) return
     synced.current = id
-    setActiveVault(id).catch((e: unknown) => setError(e instanceof Error ? e.message : 'The vault could not be made active.'))
+    setActiveVault(id)
+      .then((r) => setMode(r.mode))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'The vault could not be made active.'))
   }, [])
 
   const load = useCallback(() => {
@@ -80,6 +87,7 @@ export function useNotebooks(): NotebooksState {
       .then((l) => {
         setList(l.notebooks)
         setMessage(l.message)
+        setMode(l.mode)
         setError('')
         const active = pickActiveVault(l.notebooks, getStoredVaultId())
         const serverActive = l.notebooks.find((n) => n.active)?.id ?? null
@@ -104,7 +112,17 @@ export function useNotebooks(): NotebooksState {
     },
     [list, makeActive],
   )
-  return { list, message, activeId, shownId, error, choose }
+  const adopt = useCallback(
+    (id: string) => {
+      persistVaultId(id)
+      synced.current = id
+      setActiveId(id)
+      setShownId(id)
+      load()
+    },
+    [load],
+  )
+  return { list, message, activeId, shownId, error, mode, choose, adopt }
 }
 
 export interface NotebookState {

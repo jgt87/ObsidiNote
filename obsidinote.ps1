@@ -5,6 +5,8 @@
 #   2. This computer: PowerShell, OneNote, Edge and its policies, the debug port, the Edge profile's
 #      sign-in and single sign-on, GitHub. A FAIL ends the start with what to do (exit 1).
 #   3. OneNote: open the notebook on record (or start OneNote) and wait for its COM API (exit 2).
+#      Then the vault: continue in the vault on record (else the only one), take its writer lease
+#      (or run read only), check the index against the notebook (a WARN, never a stop).
 #   4. Microsoft 365 Copilot in ObsidiNote's own Edge profile (exit 3).
 #   5. The interface: the local server on 127.0.0.1:<uiPort> (8767 by default) and its window in
 #      ObsidiNote's Edge (exit 4 when the server cannot start). Then it keeps running until the
@@ -102,6 +104,43 @@ if (-not $NoOneNote) {
     if ($on.status -eq 'FAIL') { exit 2 }
 }
 
+# --- 3b. The vault --------------------------------------------------------------------------------
+# The ObsidiNote vault to continue in (FEASIBILITY.md, Several ObsidiNote vaults), found by its state
+# page: the vault on record ("vaultId", else the "notebook" record), else the only one open, else none
+# (the window then offers "New ObsidiNote vault"). Opening it sets the write guard's root, takes the
+# vault's writer lease (or runs read only while another ObsidiNote writes there), brings the fixed
+# structure up to date and checks the index against the notebook (missing pages go to Unfiled).
+$mainAdapter = $null; $vaultOpen = $null
+Import-Module (Join-Path $PSScriptRoot 'lib\WriterLease.psm1') -Force
+$sessionId = New-WriterSessionId
+if (-not $NoOneNote) {
+    Import-Module (Join-Path $PSScriptRoot 'lib\OneNote.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot 'lib\Vault.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot 'lib\VaultSession.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot 'lib\Update.psm1') -Force
+    try {
+        $mainAdapter = Get-OneNoteAdapter
+        $vaults = @(Get-VaultList -Adapter $mainAdapter)
+        $notebooks = @(Get-NotebookList -Adapter $mainAdapter -Vaults $vaults)
+        $pick = Select-StartVault -Vaults $vaults -RecordVaultId "$(Get-AppSetting -Key 'vaultId' -Default '' -AppRoot $PSScriptRoot)" -Record (Get-NotebookRecord -AppRoot $PSScriptRoot) -Notebooks $notebooks
+        if ($pick.vault) {
+            $vaultOpen = Open-VaultSession -Adapter $mainAdapter -Vault $pick.vault -SessionId $sessionId -Vaults $vaults
+            try {
+                if ("$(Get-AppSetting -Key 'vaultId' -Default '' -AppRoot $PSScriptRoot)" -ne $vaultOpen.vault.vaultId) { Set-LocalAppValue $PSScriptRoot 'vaultId' $vaultOpen.vault.vaultId }
+            } catch { }
+        }
+        $vs = Format-VaultStatus -Open $vaultOpen -Why $pick.why -VaultCount $vaults.Count
+    } catch { $vs = Format-VaultStatus -Open $null -Problem $_.Exception.Message }
+    Write-Status -ToError $vs.status 'Vault' $vs.detail -Hint $vs.hint
+}
+function Close-ObsidiVaultLease($State) {
+    # Gives the writer lease back (only when it is still this session's); never throws.
+    if (-not $mainAdapter) { return }
+    $v = if ($State) { $State.Vault } elseif ($vaultOpen) { $vaultOpen.vault } else { $null }
+    $l = if ($State) { $State.Lease } elseif ($vaultOpen) { $vaultOpen.lease } else { $null }
+    try { $null = Close-VaultSession -Adapter $mainAdapter -Vault $v -Lease $l } catch { }
+}
+
 # --- 4. Microsoft 365 Copilot and the interface -----------------------------------------------
 # Copilot in ObsidiNote's own Edge window (debug port "cdpPort", 9334 by default; profile
 # %LOCALAPPDATA%\ObsidiNote\edge-profile; "signIn" single-sign-on or private). Connect-Copilot waits
@@ -153,10 +192,15 @@ function Open-ObsidiNoteWindow {
 
 $server = $null
 try {
-    $state = New-ServerState -AppRoot $PSScriptRoot -Port $uiPort -CdpPort ([int]$cs.cdpPort) -CopilotSkipped ([bool]$NoCopilot)
+    # The server's runspace gets the active vault's records (plain values), the index working copy
+    # built just now, and the Copilot bridge; it opens its own guarded OneNote adapter.
+    $vRec = $null; $lRec = $null; $model = $null
+    if ($vaultOpen) { $vRec = $vaultOpen.vault; $lRec = $vaultOpen.lease; $model = $vaultOpen.model }
+    $state = New-ServerState -AppRoot $PSScriptRoot -Port $uiPort -CdpPort ([int]$cs.cdpPort) -CopilotSkipped ([bool]$NoCopilot) -Copilot $copilot -Vault $vRec -Lease $lRec -SessionId $sessionId -Model $model
     $server = Start-UiServer -Port $uiPort -UiDir (Join-Path $PSScriptRoot 'ui') -State $state
 } catch {
     $why = $_.Exception.Message
+    Close-ObsidiVaultLease $null
     if (Test-UiServerRunning -Port $uiPort) {
         # Another ObsidiNote already serves this port: show its window and leave that one running.
         $how = Open-ObsidiNoteWindow
@@ -175,10 +219,31 @@ try {
     Write-Status -ToError 'OK' 'ObsidiNote' "open at $url" -Hint (Get-AppWindowDetail $how)
     Say 'Close this window to stop ObsidiNote (or press Ctrl+C).'
     # Ctrl+C ends this wait and runs the finally block; closing the console ends the process.
-    while (-not $server.Async.IsCompleted) { Start-Sleep -Milliseconds 500 }
+    # Meanwhile the writer lease is renewed (every 60 s, valid 120 s) for whichever vault is active
+    # now (the window can switch vault); the lock keeps this apart from the server's own lease writes.
+    $renewSec = if ($mainAdapter) { (Get-LeaseTimings).renewEverySec } else { 0 }
+    $renew = [Diagnostics.Stopwatch]::StartNew()
+    while (-not $server.Async.IsCompleted) {
+        Start-Sleep -Milliseconds 500
+        if (-not $renewSec -or $renew.Elapsed.TotalSeconds -lt $renewSec) { continue }
+        $renew.Restart()
+        [Threading.Monitor]::Enter($state.Lock)
+        try {
+            if ($state.Vault) {
+                $was = if ($state.Lease) { $state.Lease.mode } else { '' }
+                $state.Lease = Update-SessionLease -Adapter $mainAdapter -Vault $state.Vault -SessionId $state.SessionId -Lease $state.Lease
+                $now = if ($state.Lease) { $state.Lease.mode } else { 'readonly' }
+                if ($was -and $now -ne $was) {
+                    if ($now -eq 'writer') { Write-Status -ToError 'OK' 'Vault' "$($state.Vault.name): this ObsidiNote is the writer now" }
+                    else { Write-Status -ToError 'WARN' 'Vault' "$($state.Vault.name): read only now; the writer lease could not be renewed" -Hint 'Another ObsidiNote may have taken over. Adding waits until this one is the writer again.' }
+                }
+            }
+        } finally { [Threading.Monitor]::Exit($state.Lock) }
+    }
     Write-Status -ToError 'WARN' 'ObsidiNote' 'the interface''s server stopped' -Hint 'Start ObsidiNote again.'
 } finally {
     Stop-UiServer $server
+    Close-ObsidiVaultLease $state
     if ($copilot) { try { Disconnect-Copilot $copilot } catch { } }
     Say 'ObsidiNote stopped.'
 }

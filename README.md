@@ -27,7 +27,8 @@ The installer puts the latest release into `%LOCALAPPDATA%\Programs\ObsidiNote` 
 Each start shows one status line per step (`[OK]`, `[WARN]` or `[FAIL]`):
 1. **Update**: checks for a new release. If one is installed, the new version starts at once.
 2. **This computer**: Windows PowerShell 5.1, desktop OneNote, Microsoft Edge and its policies, the debug port, ObsidiNote's Edge profile (signed in or not, single sign-on on or off) and GitHub. A `[FAIL]` line says what to fix.
-3. **OneNote**: opens your ObsidiNote vault, which also starts OneNote, and waits until OneNote answers. This is the vault you last chose in the window. Without one, it looks for a notebook called ObsidiNote or one with a `00 Index` section. The first time the vault is found, its location is saved as `"notebook"` in `config\obsidinote.local.json`.
+3. **OneNote**: opens the notebook of your ObsidiNote vault, which also starts OneNote, and waits until OneNote answers. This is the vault you last chose in the window. Without one, it looks for a notebook called ObsidiNote or one with a `00 Index` section. The first time the vault is found, its location is saved as `"notebook"` in `config\obsidinote.local.json`.
+   **Vault**: continues in the vault you used last (`"vaultId"`), else in the only vault that is open. It takes the vault's writer lease, so this ObsidiNote is the one that writes there (a second one runs read only and says so), and checks the vault's index against the notebook: pages missing from the index are added and counted. No vault open, or several and none chosen: a `[WARN]` line, and you choose or make one in the window.
 4. **Copilot**: opens Microsoft 365 Copilot in an Edge window of its own. It has its own profile in `%LOCALAPPDATA%\ObsidiNote\edge-profile`, so your normal Edge is not touched. ObsidiNote waits up to 5 minutes for a sign-in. Later starts reuse it.
 5. **ObsidiNote**: opens the ObsidiNote window, a new window of ObsidiNote's Edge, at `http://127.0.0.1:8767`. The console shows `[OK] ObsidiNote  open at http://127.0.0.1:8767`.
 
@@ -51,21 +52,29 @@ On a PC with a Windows work account, run **`sso-setup.cmd`** once (in the Obsidi
 - Still stuck: send the last 30 lines of `%LOCALAPPDATA%\ObsidiNote\logs\obsidinote.log`. They hold ids, counts, timings and states only, never your content.
 
 ## Features
-In the ObsidiNote window today:
-- **Add or ask** from one box, with Auto, Add and Ask modes (`Ctrl+1` Add, `Ctrl+2` Ask, `Enter` sends, `Shift+Enter` adds a line). In Auto, fixed rules say before you send whether the text will be added or asked, and why. Sending says that Add and Ask come in the next step.
-- **Notebook switcher** at the top of the side bar: every notebook open in OneNote. ObsidiNote vaults come first; for now a vault is a notebook with a `00 Index` section, whatever its name. Other notebooks are marked "read only" and are never written to. Choosing a vault makes it the active vault. ObsidiNote remembers it in the window and as `"notebook"` in `config\obsidinote.local.json`, so the next start opens that vault. While a read-only notebook is shown, the box says that an Add still goes to the active vault.
-- **The shown notebook** in the side bar: its sections and section groups with their page counts, read from OneNote.
-- **Recently changed**: the 10 most recently changed pages of the shown notebook; a title opens the page in OneNote.
-- A note in the side bar when OneNote, the notebook or Copilot needs your attention. Nothing is shown when all is well.
-- The window only reads your notebooks. It writes nothing to disk except the active vault's location in the settings file, and the browser keeps only the active vault's id, never content.
+In the ObsidiNote window:
+- **Add or ask** from one box, with Auto, Add and Ask modes (`Ctrl+1` Add, `Ctrl+2` Ask, `Enter` sends, `Shift+Enter` adds a line). In Auto, fixed rules say before you send whether the text will be added or asked, and why; when it could be either, Copilot decides and an Add that reads as a question offers "Ask it" instead.
+- **Add**: text or a link becomes a OneNote page in the active vault. It lands in the `01 Inbox` first, then Copilot picks its type, topics and links, and ObsidiNote writes the page into its bucket (`Notes`, `Meetings`, `Decisions`, ...) with its properties, your text with links to related pages, and "Linked from" on those pages, and updates the central index. The result shows where it sits in the index, its topics and every link with its strength and reason, and related pages you already had. **Undo** moves the page to OneNote's Deleted Pages.
+- **Links**: a pasted link becomes one summary page, in `Internal links` (SharePoint, OneDrive, Teams, Loop) or `Web links`. The same link again updates its page; **Update** reads the source again, shows old against new, keeps earlier summaries on the page and never touches your "Your notes" part.
+- **Ask**: a question walks the central index (branches, then pages, then their text) and the answer cites your own pages, each opening in OneNote, with the path it took. "Ask reads" adds other vaults and connected notebooks (read only) and archived pages. Ask a follow-up, save the answer as a page, or show its sources on the map. Asking never changes your notebook.
+- **Knowledge graph**: the shown vault or notebook as dots in topic areas, with links as lines weighted by strength; hover for a preview, click for the page with its links and "Ask about this", `/` to search, and a list view.
+- **Vaults**: a vault is a notebook (or a section group inside one) with ObsidiNote's sections and its own index, recognised by its state page whatever its name. The **notebook switcher** lists vaults first and every other open notebook as read only. Choosing a vault makes it the active vault: ObsidiNote takes its writer lease and remembers it for the next start. **New ObsidiNote vault** makes one.
+- **Write guard**: ObsidiNote writes only inside the active vault; every other notebook, and every other vault, is only read.
+- **The shown notebook** in the side bar: its sections and section groups with their page counts, and **Recently changed** with its 10 most recently changed pages.
+- A note in the side bar when OneNote, the vault or Copilot needs your attention. Nothing is shown when all is well. Without Copilot, Add and Ask say so and the rest works.
+- On disk ObsidiNote keeps only the active vault's record (`"vaultId"`, `"notebook"`) in the settings file; the browser keeps only the active vault's id, never content.
+
+### Starting a vault
+1. Start ObsidiNote. With no vault open, the console says `[WARN] Vault  no ObsidiNote vault is open`.
+2. In the window, choose **New ObsidiNote vault** in the side bar and give it a name. ObsidiNote makes a notebook with that name next to your cloud notebooks (or in OneNote's default notebook folder when that is not possible) with its fixed sections, and makes it the active vault.
+3. Or tick **Inside an existing notebook** and choose one: the vault becomes a section group there. ObsidiNote asks before it writes into that notebook; the rest of it stays read only.
+4. Next starts continue in that vault. To continue in a vault made elsewhere, open its notebook in OneNote and choose it in the switcher.
 
 Planned:
-- **Add**: paste text, a link or a file; it becomes a OneNote page with topics, links and backlinks.
-- **Ask**: ask a question; the answer cites your own pages, and each citation opens in OneNote.
-- **Map**: a graph of everything, clustered by topic, with edges weighted by relevance.
+- Files dropped in the box, Archive and delete, Tidy up, History.
 
 ## Screenshots
-Design mock-ups of the planned interface, with invented example content.
+Design mock-ups of the interface, with invented example content.
 
 **Add or ask from one box.** ObsidiNote says what it will do before it does it.
 ![Home: one input with Auto, Add and Ask modes, the central index in the side bar, recently added pages](docs/screenshots/home.png)
@@ -106,6 +115,15 @@ Everything ObsidiNote knows lives in your own OneNote notebook: your pages, the 
 obsidinote.ps1         entry point (parameters, I/O)
 lib/Server.psm1      the window's local server on 127.0.0.1 (prebuilt ui/ and a JSON API)
 lib/Intent.psm1      Add or Ask rules; lib/NotebookView.psm1: sections and recent pages (read only)
+lib/OneNote.psm1     OneNote COM adapter and the write guard (writes only inside the active vault)
+lib/Vault.psm1, lib/VaultSession.psm1
+                     vaults by their state page, new vault, the active vault and its writer lease
+lib/NotebookStructure.psm1, lib/PageMeta.psm1, lib/WriterLease.psm1
+                     fixed sections and buckets, obsn.* Meta and owned outlines, the lease
+lib/Index.psm1       the central index (load, rebuild, completeness, Index pages, connected notebooks)
+lib/VaultStore.psm1  what Add writes through; lib/Ingest.psm1, Linker, LinkCapture: Add and links
+lib/Ask.psm1, lib/AskSources.psm1
+                     Ask over the index; lib/GraphModel.psm1: the knowledge graph's data
 lib/AppWindow.psm1   opens the ObsidiNote window in ObsidiNote's Edge
 ui/                  the built interface (served as is; no Node needed to run ObsidiNote)
 ui-src/              its source: React + Vite + TypeScript (npm run build writes ui/)
@@ -121,6 +139,8 @@ config/              obsidinote.json (defaults), selectors.json (Copilot page);
                      *.local.json stay local and survive updates
 tests/*.Tests.ps1    Pester 3.4 (inbox) syntax: Should Be
 tools/               run-tests.ps1, build-release.ps1, update.ps1, sso-setup.ps1
+validation/          Run Validation.cmd: checks with a masked log to send back
+docs/runbooks/       step-by-step checks (RB-00 .. RB-06)
 update.cmd           update now (or -To vX.Y.Z to go back)
 sso-setup.cmd        single sign-on with the Windows work account for Copilot
 ```
@@ -128,6 +148,8 @@ sso-setup.cmd        single sign-on with the Windows work account for Copilot
 ## Tests
 `tools/run-tests.ps1` runs Pester over `tests/` and fails if any script file contains non-ASCII bytes.
 The interface: in `ui-src`, `npm install` once, then `npm run typecheck`, `npm test` and `npm run build` (writes `ui/`, which is committed).
+
+On the PC where ObsidiNote runs, `validation\Run Validation.cmd` checks this computer, OneNote, Copilot and the window, and writes a log without content to the Desktop (`ObsidiNote-validation-<date>.txt`) that you can send back. The steps are in `docs/runbooks/` (start with RB-00).
 
 ## Release
 See `AGENTS.md` → Releasing.

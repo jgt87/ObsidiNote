@@ -1,0 +1,10 @@
+.home-note { margin: 0; font-size: var(--text-meta); color: var(--muted); }
+.home-notice {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  font-size: var(--text-body);
+}
+.home-notice--error { border-color: var(--border-strong); color: var(--ink); }

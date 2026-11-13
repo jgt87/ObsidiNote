@@ -1,0 +1,225 @@
+# V6 Vaults, index, knowledge graph, Add and Ask (build steps 2-5). Every check first looks for the
+# modules it needs in lib\ and prints [SKIP] "not in this version yet" when one is missing, so the
+# same kit runs on every version. Read only on the person's notebooks (vault list, index
+# completeness, graph model counts). With -WriteTest it writes ONLY into the dev vault notebook
+# ObsidiNote-Validation, through the app's own write guard (Set-OneNoteWriteRoot): it creates or
+# continues that vault, writes its index, and runs an Add of a synthetic text with Undo, and an Ask
+# with a synthetic question. Counts and timings only. Keep this file ASCII.
+Set-StrictMode -Version 2.0
+$script:AppLib = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'lib'
+Import-Module (Join-Path $PSScriptRoot 'ValidationCore.psm1')
+Import-Module (Join-Path $script:AppLib 'OneNoteHost.psm1')
+Import-Module (Join-Path $PSScriptRoot 'StageCopilot.psm1')
+
+$script:Needs = @{
+    vault = @('OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index')
+    add   = @('Linker', 'LinkCapture', 'Ingest', 'VaultStore')
+    ask   = @('Ask', 'AskSources')
+}
+# The functions that connect Add and Ask to OneNote (the store and source adapters,
+# lib/VaultStore.psm1 and lib/AskSources.psm1). They are called with the arguments they declare.
+$script:StoreBuilders = @('New-VaultStore')
+$script:SourceBuilders = @('New-AskSource')
+$script:GraphMax = 10
+$script:AddText = 'Validation note: tidal gardens grow salt-tolerant crops where the sea reaches the land. Synthetic text from the validation kit.'
+$script:AskText = 'What do my notes say about tidal gardens?'
+
+function Get-MissingAppModules {
+    <# The module names (of $Names) that are not in <AppRoot>\lib. #>
+    param([Parameter(Mandatory)][string]$AppRoot, [Parameter(Mandatory)][string[]]$Names)
+    @($Names | Where-Object { -not (Test-Path -LiteralPath (Join-Path $AppRoot "lib\$_.psm1")) })
+}
+
+function Import-AppModules([string]$AppRoot, [string[]]$Names) {
+    foreach ($n in $Names) { Import-Module (Join-Path $AppRoot "lib\$n.psm1") -Global }
+}
+
+function Get-KitProp($Object, [string]$Name, $Default = $null) {
+    if ($null -eq $Object) { return $Default }
+    if ($Object -is [Collections.IDictionary]) { if ($Object.Contains($Name)) { return $Object[$Name] }; return $Default }
+    $p = $Object.PSObject.Properties[$Name]
+    if ($p) { return $p.Value }
+    $Default
+}
+
+function Find-KitCommand([string[]]$Names) {
+    foreach ($n in $Names) { $c = Get-Command $n -ErrorAction SilentlyContinue; if ($c) { return $c } }
+    $null
+}
+
+function Invoke-WithKnownParams {
+    <# Calls $Command with the arguments of $Available that it declares. #>
+    param([Parameter(Mandatory)]$Command, [hashtable]$Available)
+    $args2 = @{}
+    foreach ($k in $Available.Keys) { if ($Command.Parameters.ContainsKey($k)) { $args2[$k] = $Available[$k] } }
+    & $Command @args2
+}
+
+function Add-SkipAll($Ctx, [string]$Why) {
+    foreach ($n in 'Vaults', 'Index completeness', 'Knowledge graph', 'Dev vault', 'Add and Undo', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
+}
+
+function Add-VaultResults($Ctx, $Adapter) {
+    $v = Measure-KitStep { @(Get-VaultList -Adapter $Adapter) }
+    if (-not $v.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Vaults' $v.error; return }
+    $vaults = @($v.value)
+    Add-ValidationResult $Ctx 'V6' 'OK' 'Vaults' "$($vaults.Count) found in $($v.ms) ms"
+    $i = 0
+    foreach ($x in $vaults) {
+        $i++
+        $nb = Register-ValidationName $Ctx 'notebook' "$($x.notebookName)"
+        $where = if ("$($x.rootKind)" -eq 'sectiongroup') { $null = Register-ValidationName $Ctx 'name' "$($x.name)"; "a section group in $nb" } else { "the notebook $nb" }
+        $x | Add-Member -Force NoteProperty kitAlias "Vault $i"
+        Add-ValidationResult $Ctx 'V6' 'INFO' "Vault $i" "root: $where; schema $($x.schema); $($x.pages) pages, $($x.topics) topics on its state page"
+    }
+    # Each vault to the pipeline: the caller collects them with @().
+    $vaults
+}
+
+function Add-IndexResults($Ctx, $Adapter, [object[]]$Vaults) {
+    if (-not $Vaults.Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Index completeness' 'no vault open'; return }
+    foreach ($x in $Vaults) {
+        $nb = if ($x.PSObject.Properties['kitAlias']) { $x.kitAlias } else { Register-ValidationName $Ctx 'notebook' "$($x.notebookName)" }
+        $r = Measure-KitStep {
+            $m = Read-IndexModel -Adapter $Adapter -IndexSectionId $x.indexSectionId -VaultId "$($x.vaultId)" -RootId $x.rootId
+            $t = ConvertFrom-ObsnHierarchy -Xml ($Adapter.GetHierarchy($x.rootId, 4)) -RootId $x.rootId
+            [pscustomobject]@{ counts = (Get-IndexCounts -Model $m); missing = @(Test-IndexComplete -Model $m -Tree $t).Count }
+        }
+        if (-not $r.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' "Index of $nb" $r.error; continue }
+        $c = $r.value.counts
+        $status = if ($r.value.missing) { 'WARN' } else { 'OK' }
+        Add-ValidationResult $Ctx 'V6' $status "Index of $nb" "load and check $($r.ms) ms; $($c.pages) pages, $($c.topics) topics, $($c.edges) links, $($c.unfiled) unfiled; pages missing from the index: $($r.value.missing)" $(if ($r.value.missing) { 'The next start adds missing pages to Unfiled (completeness rule).' } else { '' })
+    }
+}
+
+function Add-GraphResults($Ctx, $Adapter, [object[]]$Vaults) {
+    $list = Measure-KitStep { @(Get-NotebookList -Adapter $Adapter -Vaults $Vaults) }
+    if (-not $list.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Knowledge graph' $list.error; return }
+    foreach ($nb in @($list.value | Select-Object -First $script:GraphMax)) {
+        $alias = Register-ValidationName $Ctx 'notebook' "$(Get-KitProp $nb 'name' '')"
+        $g = Measure-KitStep {
+            $m = Get-NotebookModel -Adapter $Adapter -NotebookId "$(Get-KitProp $nb 'id' '')" -NoLinks -Vaults $Vaults
+            # The graph's own data (lib/GraphModel.psm1, GET /api/graph) when this version has it.
+            if (Get-Command ConvertTo-GraphModel -ErrorAction SilentlyContinue) {
+                $gm = ConvertTo-GraphModel -Model $m -Source @{ kind = 'notebook'; id = 'validation'; name = 'validation'; readOnly = $true }
+                [pscustomobject]@{ pages = @(Get-KitProp $gm 'pages' @()).Count; topics = @(Get-KitProp $gm 'topics' @()).Count; edges = @(Get-KitProp $gm 'edges' @()).Count }
+            } else {
+                $edges = try { @(Get-IndexEdges -Model $m).Count } catch { '?' }
+                [pscustomobject]@{ pages = $m.pages.Count; topics = $m.topics.Count; edges = $edges }
+            }
+        }
+        if ($g.ok) { Add-ValidationResult $Ctx 'V6' 'INFO' "Graph of $alias" "$($g.value.pages) pages, $($g.value.topics) topics, $($g.value.edges) links; model built in $($g.ms) ms (read only)" }
+        else { Add-ValidationResult $Ctx 'V6' 'WARN' "Graph of $alias" $g.error }
+    }
+}
+
+function Test-GuardRefuses($Ctx, $Adapter, [string]$RootId) {
+    <# The app's write guard refuses a section of every other open notebook (only its check runs). #>
+    [xml]$nx = $Adapter.GetHierarchy('', 3)
+    $tried = 0; $refused = 0
+    foreach ($n in @($nx.DocumentElement.ChildNodes)) {
+        if ($n.NodeType -ne 'Element' -or $n.GetAttribute('ID') -eq $RootId) { continue }
+        $sec = @($n.SelectNodes(".//*[local-name()='Section']")) | Select-Object -First 1
+        if (-not $sec) { continue }
+        $tried++
+        try { $Adapter.Assert($sec.GetAttribute('ID'), 'validation') } catch { $refused++ }
+    }
+    Add-ValidationResult $Ctx 'V6' $(if ($refused -eq $tried) { 'OK' } else { 'FAIL' }) 'Write guard' "refused $refused of $tried writes into other notebooks"
+}
+
+function Open-DevVault($Ctx, $Adapter) {
+    <# Creates or continues the dev vault ObsidiNote-Validation and writes its index. Returns
+       @{ vault; lease } or $null. #>
+    $name = Get-DevNotebookName
+    if (-not (Test-KitNameAllowed $name)) { throw "Write refused: '$name' is not the kit's dev vault." }
+    $v = Measure-KitStep { Initialize-ObsidiNotebook -Adapter $Adapter -Name $name }
+    if (-not $v.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Dev vault' $v.error; return $null }
+    $vault = $v.value
+    if ("$($Adapter.RootId)" -ne "$($vault.rootId)") { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Dev vault' 'the write root is not the dev vault: stopped'; return $null }
+    Add-ValidationResult $Ctx 'V6' 'OK' 'Dev vault' "ObsidiNote-Validation $(if (Get-KitProp $vault 'vaultCreated' $false) { 'created' } else { 'continued' }); sections created $(@(Get-KitProp $vault 'created' @()).Count), present $(@(Get-KitProp $vault 'present' @()).Count); $($v.ms) ms"
+    $again = Measure-KitStep { Initialize-ObsidiNotebook -Adapter $Adapter -Name $name }
+    if ($again.ok) { Add-ValidationResult $Ctx 'V6' $(if (@(Get-KitProp $again.value 'created' @()).Count) { 'WARN' } else { 'OK' }) 'Dev vault again' "second run created $(@(Get-KitProp $again.value 'created' @()).Count) sections; same vault: $(Format-YesNo ("$(Get-KitProp $again.value 'vaultId' '')" -eq "$(Get-KitProp $vault 'vaultId' '')"))" }
+    Test-GuardRefuses $Ctx $Adapter $vault.rootId
+    $lease = Request-WriterLease -Adapter $Adapter -IndexSectionId $vault.indexSectionId -SessionId (New-WriterSessionId)
+    $u = Measure-KitStep { Update-VaultIndex -Adapter $Adapter -RootId $vault.rootId -IndexSectionId $vault.indexSectionId -Lease $lease -VaultId "$($vault.vaultId)" }
+    if ($u.ok) { Add-ValidationResult $Ctx 'V6' 'OK' 'Dev vault index' "lease $($lease.mode); $($u.value.model.pages.Count) pages; missing repaired $(@($u.value.missing).Count); $($u.ms) ms" }
+    else { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Dev vault index' $u.error }
+    $model = if ($u.ok) { $u.value.model } else { $null }
+    $record = @{ vaultId = "$(Get-KitProp $vault 'vaultId' '')"; name = $name; rootId = "$($vault.rootId)"; indexSectionId = "$($vault.indexSectionId)" }
+    [pscustomobject]@{ vault = $record; lease = $lease; model = $model }
+}
+
+function Invoke-DevAdd($Ctx, $Adapter, $Dev, $Bridge) {
+    $miss = @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names $script:Needs.add)
+    if ($miss.Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Add and Undo' "not in this version yet ($($miss -join ', ') missing)"; return }
+    Import-AppModules $Ctx.AppRoot $script:Needs.add
+    $builder = Find-KitCommand $script:StoreBuilders
+    if (-not $builder) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Add and Undo' 'not in this version yet (Add is not connected to OneNote)'; return }
+    if (-not $Bridge) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Add and Undo' 'needs Copilot'; return }
+    $send = Get-Command Send-CopilotPrompt
+    $b = $Bridge
+    $ask = { param($Prompt) $r = & $send -Bridge $b -Text $Prompt -TimeoutSec 240; if ("$($r.Result)" -ne 'Success') { throw "Copilot did not answer ($($r.Result))." }; "$($r.Text)" }.GetNewClosure()
+    $lease = $Dev.lease
+    $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = { $lease }.GetNewClosure(); AppRoot = $Ctx.AppRoot } }
+    if (-not $s.ok -or -not $Dev.model) { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Add and Undo' "the store could not be made: $(if ($s.ok) { 'no index model' } else { $s.error })"; return }
+    $store = $s.value
+    $add = Measure-KitStep { Invoke-AddRequest -Request @{ text = $script:AddText; mode = 'add' } -Store $store -Ask $ask }
+    $r = $add.value
+    $st = "$(Get-KitProp $r 'status' 'error')"
+    Add-ValidationResult $Ctx 'V6' $(if ($add.ok -and $st -eq 'added') { 'OK' } else { 'FAIL' }) 'Add (synthetic)' "status $st; $(@(Get-KitProp $r 'links' @()).Count) links, $(@(Get-KitProp $r 'chips' @()).Count) topics; $($add.ms) ms$(if (-not $add.ok) { "; $($add.error)" })"
+    $undo = Get-KitProp $r 'undo' $null
+    if (-not $undo) { Add-ValidationResult $Ctx 'V6' 'WARN' 'Undo' 'the Add result has no undo record'; return }
+    $u = Measure-KitStep { Undo-AddRequest -Store $store -Undo $undo }
+    $ust = "$(Get-KitProp $u.value 'status' 'error')"
+    Add-ValidationResult $Ctx 'V6' $(if ($u.ok -and $ust -eq 'undone') { 'OK' } else { 'FAIL' }) 'Undo' "status $ust; $($u.ms) ms"
+}
+
+function Invoke-DevAsk($Ctx, $Adapter, $Dev, $Bridge) {
+    $miss = @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names $script:Needs.ask)
+    if ($miss.Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Ask' "not in this version yet ($($miss -join ', ') missing)"; return }
+    Import-AppModules $Ctx.AppRoot $script:Needs.ask
+    $builder = Find-KitCommand $script:SourceBuilders
+    if (-not $builder) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Ask' 'not in this version yet (Ask is not connected to OneNote)'; return }
+    if (-not $Bridge) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Ask' 'needs Copilot'; return }
+    $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Id = $Dev.vault.vaultId; Name = $Dev.vault.name; Kind = 'vault'; AppRoot = $Ctx.AppRoot } }
+    if (-not $s.ok -or -not $Dev.model) { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Ask' "the source could not be made: $(if ($s.ok) { 'no index model' } else { $s.error })"; return }
+    $source = $s.value
+    $a = Measure-KitStep { Invoke-AskRequest -Request @{ question = $script:AskText; action = 'ask' } -Context @{ Sources = @($source); Copilot = (New-AskCopilot -Bridge $Bridge) } }
+    $r = $a.value
+    $ok = $a.ok -and (Get-KitProp $r 'ok' $false)
+    Add-ValidationResult $Ctx 'V6' $(if ($ok) { 'OK' } else { 'FAIL' }) 'Ask (synthetic)' "status $(Get-KitProp $r 'status' 'error'); $(@(Get-KitProp $r 'sources' @()).Count) sources cited; writes $(Get-KitProp $r 'writes' '?'); $($a.ms) ms$(if (-not $a.ok) { "; $($a.error)" })"
+}
+
+function Invoke-DevVaultChecks($Ctx, $Adapter) {
+    if (-not (Get-KitFlag $Ctx 'WriteTest')) {
+        foreach ($n in 'Dev vault', 'Add and Undo', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n 'write tests not run' 'Add -WriteTest; they write only into the notebook ObsidiNote-Validation.' }
+        return
+    }
+    $dev = $null
+    try {
+        $dev = Open-DevVault $Ctx $Adapter
+        if (-not $dev) { return }
+        $bridge = $null
+        if (-not (Get-KitFlag $Ctx 'NoCopilot')) { $bridge = Connect-KitCopilot -Ctx $Ctx -Stage 'V6' }
+        Invoke-DevAdd $Ctx $Adapter $dev $bridge
+        Invoke-DevAsk $Ctx $Adapter $dev $bridge
+    } catch { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Dev vault' $_.Exception.Message }
+    finally { if ($dev -and $dev.lease) { try { $null = Clear-WriterLease -Adapter $Adapter -Lease $dev.lease } catch { } } }
+}
+
+function Invoke-StageVault {
+    param([Parameter(Mandatory)]$Ctx)
+    $miss = @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names $script:Needs.vault)
+    if ($miss.Count) { Add-SkipAll $Ctx "not in this version yet ($($miss -join ', ') missing)"; return }
+    if ((Get-OneNoteState) -eq 'none') { Add-SkipAll $Ctx 'OneNote is not running'; return }
+    Import-AppModules $Ctx.AppRoot $script:Needs.vault
+    if (-not @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names @('GraphModel')).Count) { Import-AppModules $Ctx.AppRoot @('GraphModel') }
+    $a = Measure-KitStep { Get-OneNoteAdapter }
+    if (-not $a.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' 'OneNote adapter' $a.error; return }
+    $vaults = @(Add-VaultResults $Ctx $a.value)
+    Add-IndexResults $Ctx $a.value $vaults
+    Add-GraphResults $Ctx $a.value $vaults
+    Invoke-DevVaultChecks $Ctx $a.value
+}
+
+Export-ModuleMember -Function Invoke-StageVault, Get-MissingAppModules

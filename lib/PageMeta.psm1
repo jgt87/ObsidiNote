@@ -14,9 +14,21 @@
 Set-StrictMode -Version 2.0
 Import-Module (Join-Path $PSScriptRoot 'OneNote.psm1')
 
-$script:MetaKeys = @('id', 'type', 'topics', 'aliases', 'summary', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom')
+# linkSummary .. checkStatus: a link page's summary record (JSON), the hash of the summary outline as
+# written (hand edits show as a mismatch), the last 3 earlier summaries (JSON), when the same link was
+# pasted again, and why the last check could not update it (lib/Ingest.psm1, Update-LinkSummary).
+$script:MetaKeys = @('id', 'type', 'topics', 'aliases', 'summary', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'linkSummary', 'summaryHash', 'history', 'seenAt', 'checkStatus')
 $script:ListKeys = @('topics', 'aliases')
-$script:Roles = @('props', 'backlinks', 'summary', 'index', 'state')
+# Values that can grow past one Meta tag: always written with their obsn.X.n part count.
+$script:SplitKeys = @('linkSummary', 'history')
+# Outlines ObsidiNote owns (obsn.role). body: the item as added; checked: when a link was summarized
+# and its earlier summaries; notes: "Your notes" on a link page, written once when the page is made
+# and never again (Write-ObsnPage refuses it on an existing page).
+$script:Roles = @('props', 'backlinks', 'summary', 'index', 'state', 'body', 'checked', 'notes')
+$script:WriteOnceRoles = @('notes')
+
+function Get-ObsnRoles { , @($script:Roles) }
+function Get-ObsnMetaKeys { , @($script:MetaKeys) }
 
 function ConvertTo-Base36 {
     param([Parameter(Mandatory)][int64]$Value)
@@ -111,6 +123,11 @@ function ConvertTo-ObsnMeta {
         elseif ($k -eq 'aliases') { $v = ConvertTo-CompactJson -Value @(@($v) | Where-Object { $_ } | ForEach-Object { [string]$_ }) }
         elseif ($k -eq 'links') { $v = ConvertTo-ObsnLinksValue -Links @($v) }
         elseif ($null -eq $v) { $v = '' }
+        if ($script:SplitKeys -contains $k) {
+            # Long values are split (OneNote refuses a Meta value over about 100k characters).
+            foreach ($kv in (Split-ObsnMetaValue -Name "obsn.$k" -Value ([string]$v)).GetEnumerator()) { $m[$kv.Key] = $kv.Value }
+            continue
+        }
         $m["obsn.$k"] = [string]$v
     }
     $m
@@ -252,6 +269,29 @@ function ConvertFrom-ObsnPageXml {
     @{ pageId = $page.GetAttribute('ID'); title = [System.Net.WebUtility]::HtmlDecode($title); meta = $meta; outlines = $outs }
 }
 
+function ConvertFrom-OneT {
+    <# The plain text of a one:T element: its HTML fragment without tags, entities decoded. #>
+    param($Node)
+    [System.Net.WebUtility]::HtmlDecode([regex]::Replace([string]$Node.InnerText, '<[^>]+>', ''))
+}
+
+function ConvertFrom-ObsnPageText {
+    <# GetPageContent XML -> @{ title; outlines = @(@{ role; objectId; text }) } with each outline's
+       text, one line per paragraph in page order (children after their parent). Pure; the text
+       stays in memory (Ask reads pages with it, the link Update compares the summary outline). #>
+    param([Parameter(Mandatory)][string]$Xml)
+    [xml]$doc = $Xml
+    $ns = New-OneNoteNsManager $doc
+    $page = $doc.DocumentElement
+    $t = $page.SelectSingleNode('one:Title//one:T', $ns)
+    $outs = @(foreach ($o in @($page.SelectNodes('one:Outline', $ns))) {
+        $r = $o.SelectSingleNode('one:Meta[@name="obsn.role"]', $ns)
+        $lines = @(foreach ($n in @($o.SelectNodes('.//one:OE/one:T', $ns))) { ConvertFrom-OneT $n })
+        @{ role = $(if ($r) { $r.GetAttribute('content') } else { '' }); objectId = $o.GetAttribute('objectID'); text = ($lines -join "`n") }
+    })
+    @{ title = $(if ($t) { ConvertFrom-OneT $t } else { '' }); outlines = $outs }
+}
+
 function Get-PropertiesLines {
     <# The readable properties outline of a content page. #>
     param([Parameter(Mandatory)][hashtable]$Page)
@@ -286,6 +326,9 @@ function Write-ObsnPage {
        exists on the page is rewritten in place (its objectID); outlines without obsn.role are never
        touched. $Outlines: @(@{ role; lines }). #>
     param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)][string]$PageId, [System.Collections.IDictionary]$Meta = @{}, [string]$Title = $null, [object[]]$Outlines = @(), [switch]$NewPage)
+    if (-not $NewPage) {
+        foreach ($o in @($Outlines)) { if ($o -and $script:WriteOnceRoles -contains [string]$o['role']) { throw "The '$($o['role'])' outline is written once, when the page is made, and never rewritten." } }
+    }
     $existing = @{}
     if (-not $NewPage -and @($Outlines).Count) {
         $p = Read-ObsnPage -Adapter $Adapter -PageId $PageId
@@ -300,4 +343,4 @@ function Write-ObsnPage {
     $Adapter.UpdatePageContent((New-ObsnPageXml @args2))
 }
 
-Export-ModuleMember -Function ConvertTo-Base36, ConvertFrom-Base36, New-ObsnId, Test-ObsnId, Get-ObsnIdNumber, ConvertTo-TopicPath, Format-TopicPath, ConvertTo-CompactJson, Get-JsonProp, ConvertFrom-JsonList, ConvertTo-ObsnLinksValue, ConvertFrom-ObsnLinksValue, ConvertTo-ObsnMeta, ConvertFrom-ObsnMeta, Split-ObsnMetaValue, Join-ObsnMetaValue, ConvertTo-OneHtml, New-OneLink, New-OneLine, New-ObsnOutlineXml, New-ObsnPageXml, ConvertFrom-ObsnPageXml, Get-PropertiesLines, Get-LinkedFromLines, Read-ObsnPage, Write-ObsnPage
+Export-ModuleMember -Function Get-ObsnRoles, Get-ObsnMetaKeys, ConvertTo-Base36, ConvertFrom-Base36, New-ObsnId, Test-ObsnId, Get-ObsnIdNumber, ConvertTo-TopicPath, Format-TopicPath, ConvertTo-CompactJson, Get-JsonProp, ConvertFrom-JsonList, ConvertTo-ObsnLinksValue, ConvertFrom-ObsnLinksValue, ConvertTo-ObsnMeta, ConvertFrom-ObsnMeta, Split-ObsnMetaValue, Join-ObsnMetaValue, ConvertTo-OneHtml, New-OneLink, New-OneLine, New-ObsnOutlineXml, New-ObsnPageXml, ConvertFrom-ObsnPageXml, ConvertFrom-ObsnPageText, Get-PropertiesLines, Get-LinkedFromLines, Read-ObsnPage, Write-ObsnPage

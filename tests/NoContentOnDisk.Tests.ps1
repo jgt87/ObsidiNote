@@ -43,7 +43,7 @@ Describe 'The interface writes no files' {
     # The local server, the intent rules, the notebook reader and the window opener: OneNote is the
     # only store, so none of them may write a file (their log lines go through Write-AppLog).
     $uiModules = 'Server.psm1', 'Intent.psm1', 'NotebookView.psm1', 'AppWindow.psm1'
-    It 'has no file-writing call in lib/Server.psm1, lib/Intent.psm1, lib/NotebookView.psm1 or lib/AppWindow.psm1' {
+    It 'has no file-writing call in lib/Server.psm1, lib/Intent.psm1, lib/NotebookView.psm1 or lib/AppWindow.psm1 (the vault record goes through Set-LocalAppValue)' {
         $hits = @(foreach ($f in $uiModules) {
             Get-CodeLines (Join-Path $root "lib\$f") | Where-Object { $_.text -match $script:FileWrites } | ForEach-Object { "$($_.file):$($_.line)" }
         })
@@ -75,6 +75,67 @@ Describe 'The interface writes no files' {
         $prefs = [IO.File]::ReadAllText((Join-Path $src 'model\preferences.ts'))
         $prefs | Should Not Match '(sessionStorage|indexedDB|document\.cookie)'
         @([regex]::Matches($prefs, "localStorage\.setItem\(([A-Z_]+),") | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique) -join ',' | Should Be 'VAULT_KEY'
+    }
+}
+
+function Get-CodeLinesNoBlock([string]$File) {
+    # Like Get-CodeLines, with <# ... #> comment blocks blanked too.
+    $in = $false
+    foreach ($l in (Get-CodeLines $File)) {
+        $t = $l.text
+        if ($in) { if ($t -match '#>') { $in = $false }; $l.text = ''; $l; continue }
+        if ($t -match '^\s*<#') { if ($t -notmatch '#>') { $in = $true }; $l.text = ''; $l; continue }
+        $l
+    }
+}
+
+Describe 'The vault, index, Add and Ask modules write no files and only write OneNote through the guard' {
+    # OneNote is the only store (AGENTS.md invariants): the structure, index, store, Add and Ask
+    # modules keep everything in memory, log ids and counts only, and every OneNote write goes
+    # through the guarded adapter (lib/OneNote.psm1 New-GuardedOneNote), never a COM object of its own.
+    $storeModules = 'OneNote.psm1', 'NotebookStructure.psm1', 'PageMeta.psm1', 'Vault.psm1', 'WriterLease.psm1', 'Index.psm1', 'VaultSession.psm1', 'VaultStore.psm1', 'AskSources.psm1', 'GraphModel.psm1', 'Ingest.psm1', 'Linker.psm1', 'LinkCapture.psm1', 'Ask.psm1'
+    $readOnly = 'AskSources.psm1', 'GraphModel.psm1', 'Ingest.psm1', 'Linker.psm1', 'LinkCapture.psm1', 'Ask.psm1'
+    $writes = '(?i)\b(UpdatePageContent|UpdateHierarchy|CreateNewPage|DeleteHierarchy|DeletePageContent|MergeSections|MergeFiles|OpenHierarchy|CloseNotebook|Publish|SyncHierarchy|SetFilingLocation|CreateNotebook|CreateSectionGroupIn)\b'
+    $code = @{}
+    foreach ($f in $storeModules) { $code[$f] = @(Get-CodeLinesNoBlock (Join-Path $root "lib\$f")) }
+    It 'has no file-writing call' {
+        $hits = @(foreach ($f in $storeModules) { $code[$f] | Where-Object { $_.text -match $script:FileWrites } | ForEach-Object { "$($_.file):$($_.line)" } })
+        ($hits -join ', ') | Should Be ''
+    }
+    It 'logs no text, titles, prompts, replies or summaries' {
+        $content = '(?i)(\$text|\$prompt|\$reply|\$question|\$body|\.title|\.summary|\.text)\b(?!\.(Length|Count))'
+        $hits = @(foreach ($f in $storeModules) {
+            foreach ($l in $code[$f]) {
+                $at = $l.text.IndexOf('Write-AppLog'); if ($at -lt 0) { $at = $l.text.IndexOf('Write-AskLog') }
+                if ($at -ge 0 -and $l.text.Substring($at) -match $content) { "$($l.file):$($l.line)" }
+            }
+        })
+        ($hits -join ', ') | Should Be ''
+        'Write-AppLog info x ''y'' @{ t = $page.title }' -match $content | Should Be $true
+        'Write-AskLog ''Step 3'' @{ chars = $text.Length }' -match $content | Should Be $false
+    }
+    It 'makes no COM object of its own: only lib/OneNote.psm1 creates the OneNote one' {
+        $hits = @(foreach ($f in $storeModules) { if ($f -ne 'OneNote.psm1') { $code[$f] | Where-Object { $_.text -match '(?i)-ComObject' } | ForEach-Object { "$($_.file):$($_.line)" } } })
+        ($hits -join ', ') | Should Be ''
+    }
+    It 'calls OneNote writes only on the adapter it was given ($Adapter / $Ctx.Adapter), and not at all in the read-only modules' {
+        $hits = @(foreach ($f in $storeModules) {
+            if ($f -eq 'OneNote.psm1') { continue }
+            foreach ($l in $code[$f]) {
+                if ($l.text -notmatch $writes) { continue }
+                $bare = [regex]::Replace($l.text, '\$(Ctx\.)?Adapter\.' + $writes.Substring(4), '')
+                if ($readOnly -contains $f -or $bare -match $writes) { "$($l.file):$($l.line)" }
+            }
+        })
+        ($hits -join ', ') | Should Be ''
+        '$com.UpdatePageContent($x)' -match $writes | Should Be $true
+        [regex]::Replace('$Adapter.CreateNewPage($s)', '\$(Ctx\.)?Adapter\.' + $writes.Substring(4), '') -match $writes | Should Be $false
+    }
+    It 'keeps the write guard on every write method of the adapter' {
+        $src = [IO.File]::ReadAllText((Join-Path $root 'lib\OneNote.psm1'))
+        foreach ($m in 'CreateNewPage', 'UpdatePageContent', 'DeleteHierarchy', 'DeletePageContent') {
+            $src | Should Match ('ScriptMethod ' + $m + ' \{ param\([^)]*\)\s+(if \(\$Id -eq \$this\.RootId\) \{[^}]*\}\s+)?\$this\.Assert\(')
+        }
     }
 }
 

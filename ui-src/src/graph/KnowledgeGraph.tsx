@@ -18,21 +18,24 @@ export interface KnowledgeGraphProps extends PageActions {
   title?: string
   /** Start in the list view (the accessible fallback). */
   initialMode?: 'graph' | 'list'
+  /** Pages to show first ("Show on map" from an Ask answer): highlighted, the first one focused. */
+  focusIds?: string[]
 }
 
-export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode = 'graph', ...actions }: KnowledgeGraphProps) {
+export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode = 'graph', focusIds, ...actions }: KnowledgeGraphProps) {
   const index = useMemo(() => buildIndex(model), [model])
   const layout = useMemo(() => layoutGraph(model, {}, index), [model, index])
+  const focus = useMemo(() => (focusIds ?? []).filter((id) => index.pageById.has(id)), [focusIds, index])
   const [filters, setFilters] = useState<Filters>({ links: true, mentions: false, hubsOnly: false })
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<'graph' | 'list'>(initialMode)
-  const [active, setActive] = useState<Active | null>(null)
+  const [active, setActive] = useState<Active | null>(() => (focus.length ? { id: focus[0], via: 'keyboard' } : null))
   const [dialog, setDialog] = useState<{ pageId: string; anchorId: string } | null>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const returnTo = useRef<HTMLElement | null>(null)
 
-  const matches = useMemo(() => (query.trim() ? searchPages(index, query) : null), [index, query])
+  const matches = useMemo(() => (query.trim() ? searchPages(index, query) : focus.length ? focus : null), [index, query, focus])
 
   // "/" focuses the search, anywhere on the page, unless the user is typing or a dialog is open.
   useEffect(() => {

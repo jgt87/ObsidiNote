@@ -1,5 +1,9 @@
 // The local server's API (lib/Server.psm1). Every call carries X-ObsidiNote: 1, which the server
 // requires; the page keeps nothing it reads here in storage.
+// The Add and Ask result shapes live with their views (src/add, src/ask); this module only routes.
+import { normalizeAddResult, type AddResult } from './add/types'
+import { normalizeAskResult } from './ask/askModel'
+import type { AskResult } from './ask/types'
 
 export type Mode = 'auto' | 'add' | 'ask'
 export type Intent = 'add' | 'ask' | 'unclear' | 'empty'
@@ -24,18 +28,28 @@ export interface RecentPage {
   link: string
 }
 
-/** An open OneNote notebook. vault = an ObsidiNote vault (writable later); others are read only. */
+/** An entry of the notebook switcher. vault = an ObsidiNote vault (found by its state page; a whole
+ *  notebook, or a section group inside one); others are open notebooks, read only. */
 export interface NotebookSummary {
   id: string
   name: string
   vault: boolean
   active: boolean
   location: string
+  /** The vault's own id (obsn.vaultId); '' for a read-only notebook. */
+  vaultId?: string
+  kind?: 'notebook' | 'sectiongroup'
+  notebookId?: string
 }
+
+/** writer = this ObsidiNote may add to the active vault; readonly = another one is writing there. */
+export type VaultMode = 'writer' | 'readonly' | 'none'
 
 export interface NotebookList {
   notebooks: NotebookSummary[]
   message: string
+  activeVaultId: string
+  mode: VaultMode
 }
 
 export interface NotebookView {
@@ -56,12 +70,19 @@ export interface AppStatus {
   version: string
   uiPort: number
   oneNote: { state: OneNoteState; running: boolean; notebookOpen: boolean; notebook: string }
-  copilot: { state: CopilotState; port: number }
+  copilot: { state: CopilotState; port: number; ready?: boolean }
+  vault?: { name: string; vaultId: string; mode: VaultMode }
 }
 
-export interface SubmitResult {
-  intent: Intent
-  message: string
+/** What POST /api/submit answers: an Add result or an Ask result, told apart by intent. */
+export type SubmitResult = ({ intent: 'add' } & AddResult) | ({ intent: 'ask' } & AskResult)
+
+/** The body of a submit: text and mode, plus Ask's choices (read-only sources, archived pages). */
+export interface SubmitRequest {
+  text: string
+  mode: Mode
+  sources?: string[]
+  includeArchived?: boolean
 }
 
 const HEADERS: Record<string, string> = { 'X-ObsidiNote': '1' }
@@ -98,7 +119,7 @@ export function getStatus(): Promise<AppStatus> {
 
 export async function getNotebooks(): Promise<NotebookList> {
   const l = await call<NotebookList>('/api/notebooks')
-  return { notebooks: asList(l.notebooks), message: l.message ?? '' }
+  return { notebooks: asList(l.notebooks), message: l.message ?? '', activeVaultId: l.activeVaultId ?? '', mode: l.mode ?? 'none' }
 }
 
 /** One notebook's structure and recent pages; without an id the active vault. */
@@ -107,9 +128,24 @@ export async function getNotebook(id?: string | null): Promise<NotebookView> {
   return { ...v, sections: normalizeSections(v.sections), recent: asList(v.recent) }
 }
 
-/** Makes an open vault the active one (the start reopens it). Writes no notebook. */
-export function setActiveVault(id: string): Promise<{ id: string; name: string }> {
+/** Makes an open vault the active one: the server takes its writer lease and the start reopens it. */
+export function setActiveVault(id: string): Promise<{ id: string; name: string; vaultId: string; mode: VaultMode }> {
   return call('/api/active-vault', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
+}
+
+export interface NewVaultResult {
+  id: string
+  vaultId: string
+  name: string
+  kind: 'notebook' | 'sectiongroup'
+  mode: VaultMode
+  warning: string
+}
+
+/** A new vault: its own notebook, or (inNotebook, only with confirm) a section group inside an open
+ *  notebook. A 409 with needsConfirm asks for the confirm first (ApiError.status 409). */
+export function newVault(name: string, inNotebook?: string, confirm = false): Promise<NewVaultResult> {
+  return call('/api/vault/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, inNotebook: inNotebook ?? '', confirm }) })
 }
 
 function postJson(text: string, mode: Mode, signal?: AbortSignal): RequestInit {
@@ -120,7 +156,19 @@ export function getIntent(text: string, mode: Mode, signal?: AbortSignal): Promi
   return call<IntentResult>('/api/intent', postJson(text, mode, signal))
 }
 
-/** Step 1: the server answers 501 with what comes next; that is a normal result here. */
-export function submit(text: string, mode: Mode): Promise<SubmitResult> {
-  return call<SubmitResult>('/api/submit', postJson(text, mode), [200, 501])
+/** Add or Ask by mode and intent (the server decides auto). 503 = Copilot is not connected, 409 = no
+ *  active vault: both throw ApiError with the server's message. */
+export async function submit(req: SubmitRequest, signal?: AbortSignal): Promise<SubmitResult> {
+  const body = { text: req.text, mode: req.mode, sources: req.sources ?? [], includeArchived: Boolean(req.includeArchived) }
+  const raw = await call<Record<string, unknown>>('/api/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal })
+  return normalizeSubmitResult(raw)
+}
+
+/** Tells an Add answer from an Ask answer and repairs the lists either one holds. */
+export function normalizeSubmitResult(raw: Record<string, unknown>): SubmitResult {
+  if (raw.intent === 'ask') {
+    if (raw.ok === false) throw new ApiError(String(raw.error ?? 'Ask did not work.'), 200)
+    return { ...normalizeAskResult(raw as unknown as AskResult), intent: 'ask' }
+  }
+  return { ...normalizeAddResult(raw as Parameters<typeof normalizeAddResult>[0]), intent: 'add' }
 }

@@ -1,0 +1,12 @@
+/* design: a small form dialog (confirm-sized), on the shared dialog base from tokens.css. */
+.nv { width: min(440px, calc(100vw - 32px)); }
+.nv__body { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-6) var(--space-6) var(--space-4); }
+.nv__title { margin: 0; font-size: var(--text-heading); font-weight: 600; }
+.nv__text { margin: 0; font-size: var(--text-body); }
+.nv__muted { margin: 0; font-size: var(--text-body); color: var(--muted); }
+.nv__label { font-size: var(--text-label); color: var(--muted); }
+.nv__field { width: 100%; box-sizing: border-box; }
+.nv__check { display: inline-flex; align-items: center; gap: var(--space-3); font-size: var(--text-body); cursor: pointer; }
+.nv__check input { accent-color: var(--accent); margin: 0; }
+.nv__error { margin: 0; font-size: var(--text-body); color: var(--ink); }
+.nv__actions { display: flex; justify-content: flex-end; gap: var(--space-3); padding: var(--space-4) var(--space-6) var(--space-6); }

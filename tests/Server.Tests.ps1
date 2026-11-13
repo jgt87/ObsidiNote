@@ -117,45 +117,66 @@ Describe 'Get-CopilotTabState' {
 $script:Hier = [IO.File]::ReadAllText((Join-Path $here 'fixtures\hierarchy.xml'))
 $script:Team = '{22222222-2222-2222-2222-222222222222}{1}{B0}'
 $script:Reading = '{33333333-3333-3333-3333-333333333333}{1}{B0}'
+$script:VaultA = 'aaaaaaaa-0000-4000-8000-000000000001'
 
-function New-TempAppRoot {
+# The fake OneNote world for the routes that write (in process only: its methods are scriptblocks).
+foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'Linker') { Import-Module (Join-Path $root "lib\$m.psm1") }
+. (Join-Path $here 'FakeOneNote.ps1')
+. (Join-Path $here 'SyntheticVault.ps1')
+
+function New-TempAppRoot([string]$Local = '') {
     # Its own config folder, so the active-vault record never touches the repo's config.
     $d = Join-Path $env:TEMP ('obsn-app-' + [guid]::NewGuid().ToString('N'))
     $null = New-Item -ItemType Directory -Force -Path (Join-Path $d 'config')
     [IO.File]::WriteAllText((Join-Path $d 'config\obsidinote.json'), '{"notebook":""}')
+    if ($Local) { [IO.File]::WriteAllText((Join-Path $d 'config\obsidinote.local.json'), $Local) }
     $d
 }
 
-Describe 'Invoke-ApiRoute' {
-    $state = New-ServerState -AppRoot $root -Port 8767 -FakeStatus ([pscustomobject]@{ app = 'ObsidiNote' }) -FakeHierarchyXml $script:Hier
+function New-FakeCopilotSend([string[]]$Replies) {
+    $q = New-Object System.Collections.Generic.Queue[string]
+    foreach ($r in $Replies) { $q.Enqueue($r) }
+    @{ Send = { param([string]$Text) if (-not $q.Count) { throw 'no reply left' }; $q.Dequeue() }.GetNewClosure(); NewChat = { } }
+}
+
+Describe 'Invoke-ApiRoute: notebooks and vaults (read only)' {
+    $app = New-TempAppRoot ('{"vaultId":"' + $script:VaultA + '"}')
+    $state = New-ServerState -AppRoot $app -Port 8767 -FakeStatus ([pscustomobject]@{ app = 'ObsidiNote' }) -FakeHierarchyXml $script:Hier
     It 'answers status and notebook' {
         (Invoke-ApiRoute -Method 'GET' -Path '/api/status' -State $state).body.app | Should Be 'ObsidiNote'
         (Invoke-ApiRoute -Method 'GET' -Path '/api/notebook' -State $state).status | Should Be 200
     }
-    It 'lists the open notebooks, vaults first, with the active one marked' {
+    It 'lists the open notebooks, vaults (found by their state page) first, the one on record active' {
         $r = Invoke-ApiRoute -Method 'GET' -Path '/api/notebooks' -State $state
         $r.status | Should Be 200
         ($r.body.notebooks | ForEach-Object { "$($_.name):$($_.vault):$($_.active)" }) -join ',' | Should Be 'ObsidiNote:True:True,Team wiki:True:False,Reading notes:False:False'
+        $r.body.activeVaultId | Should Be $script:VaultA
+        @($r.body.notebooks)[0].vaultId | Should Be $script:VaultA
     }
     It 'reads a chosen notebook with ?id=, the active vault without it' {
         (Invoke-ApiRoute -Method 'GET' -Path '/api/notebook' -Query "id=$([Uri]::EscapeDataString($script:Reading))" -State $state).body.notebook.name | Should Be 'Reading notes'
-        (Invoke-ApiRoute -Method 'GET' -Path '/api/notebook' -State $state).body.notebook.name | Should Be 'ObsidiNote'
+        $v = (Invoke-ApiRoute -Method 'GET' -Path '/api/notebook' -State $state).body
+        $v.notebook.name | Should Be 'ObsidiNote'
+        $v.notebook.vault | Should Be $true
     }
     It 'is 404 for an id that is not an open notebook, 400 for one that is not an id' {
         (Invoke-ApiRoute -Method 'GET' -Path '/api/notebook' -Query 'id=%7B99999999-9999-9999-9999-999999999999%7D%7B1%7D%7BB0%7D' -State $state).status | Should Be 404
         (Invoke-ApiRoute -Method 'GET' -Path '/api/notebook' -Query 'id=..%2F..%2Fx' -State $state).status | Should Be 400
     }
-    It 'makes a vault active by keeping its record, and refuses a read-only notebook' {
-        $app = New-TempAppRoot
-        $s2 = New-ServerState -AppRoot $app -Port 8767 -FakeHierarchyXml $script:Hier
-        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/active-vault' -Body "{`"id`":`"$($script:Team)`"}" -State $s2
-        $r.status | Should Be 200
-        $r.body.name | Should Be 'Team wiki'
-        ([IO.File]::ReadAllText((Join-Path $app 'config\obsidinote.local.json')) | ConvertFrom-Json).notebook | Should Be 'onenote:https://example.sharepoint.com/sites/Team/Shared Documents/Team wiki/'
-        @((Invoke-ApiRoute -Method 'GET' -Path '/api/notebooks' -State $s2).body.notebooks | Where-Object { $_.active })[0].name | Should Be 'Team wiki'
-        (Invoke-ApiRoute -Method 'POST' -Path '/api/active-vault' -Body "{`"id`":`"$($script:Reading)`"}" -State $s2).status | Should Be 409
-        (Invoke-ApiRoute -Method 'POST' -Path '/api/active-vault' -Body '{"id":"x"}' -State $s2).status | Should Be 400
-        Remove-Item $app -Recurse -Force
+    It 'is not a vault with a 00 Index section alone (no state page)' {
+        $xml = $script:Hier -replace '<one:Meta name="obsn.vaultId" content="bbbbbbbb[^>]*/>', ''
+        $s2 = New-ServerState -AppRoot $app -Port 8767 -FakeHierarchyXml $xml
+        ((Invoke-ApiRoute -Method 'GET' -Path '/api/notebooks' -State $s2).body.notebooks | ForEach-Object { "$($_.name):$($_.vault)" }) -join ',' | Should Be 'ObsidiNote:True,Reading notes:False,Team wiki:False'
+    }
+    It 'marks none active when several vaults are open and none is on record' {
+        $app2 = New-TempAppRoot
+        $s3 = New-ServerState -AppRoot $app2 -Port 8767 -FakeHierarchyXml $script:Hier
+        @((Invoke-ApiRoute -Method 'GET' -Path '/api/notebooks' -State $s3).body.notebooks | Where-Object { $_.active }).Count | Should Be 0
+        Remove-Item $app2 -Recurse -Force
+    }
+    It 'refuses a read-only notebook as the active vault, and a bad id' {
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/active-vault' -Body "{`"id`":`"$($script:Reading)`"}" -State $state).status | Should Be 409
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/active-vault' -Body '{"id":"x"}' -State $state).status | Should Be 400
     }
     It 'tells the intent' {
         $r = Invoke-ApiRoute -Method 'POST' -Path '/api/intent' -Body '{"text":"What did we decide?","mode":"auto"}' -State $state
@@ -167,21 +188,143 @@ Describe 'Invoke-ApiRoute' {
         (Invoke-ApiRoute -Method 'POST' -Path '/api/intent' -Body '{"text":"x","mode":"delete"}' -State $state).status | Should Be 400
         (Invoke-ApiRoute -Method 'POST' -Path '/api/intent' -Body '{"text":5}' -State $state).status | Should Be 400
     }
-    It 'answers submit with 501 and what comes next' {
+    It 'answers Add and Ask with 503 and a clear message without Copilot' {
         $r = Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"x","mode":"add"}' -State $state
-        $r.status | Should Be 501
-        $r.body.message | Should Be 'Adding comes in the next step'
-        (Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"x","mode":"ask"}' -State $state).body.message | Should Be 'Asking comes in the next step'
+        $r.status | Should Be 503
+        $r.body.intent | Should Be 'add'
+        $r.body.error | Should Match 'Copilot is not connected'
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"Why?","mode":"auto"}' -State $state).body.intent | Should Be 'ask'
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/link/update' -Body '{"id":"p1"}' -State $state).status | Should Be 503
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"  ","mode":"auto"}' -State $state).status | Should Be 400
+    }
+    It 'returns the graph of a vault, and 400/404 for bad or unknown ids' {
+        $g = Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -Query 'vault=bbbbbbbb-0000-4000-8000-000000000002' -State $state
+        $g.status | Should Be 200
+        $g.body.source.name | Should Be 'Team wiki'
+        $g.body.source.readOnly | Should Be $true
+        (Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -Query 'vault=..%2F' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -Query 'vault=cccccccc-0000-4000-8000-000000000003' -State $state).status | Should Be 404
+        (Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -Query 'notebook=%7B99999999-9999-9999-9999-999999999999%7D%7B1%7D%7BB0%7D' -State $state).status | Should Be 404
+    }
+    It 'returns a connected notebook''s graph read only' {
+        $g = Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -Query "notebook=$([Uri]::EscapeDataString($script:Reading))" -State $state
+        $g.status | Should Be 200
+        $g.body.source.kind | Should Be 'notebook'
+        $g.body.source.readOnly | Should Be $true
+        (@($g.body.pages) | ForEach-Object { $_.title }) -join ',' | Should Be 'A book about maps'
     }
     It 'is 404 for an unknown route' {
         (Invoke-ApiRoute -Method 'GET' -Path '/api/nothing' -State $state).status | Should Be 404
+    }
+    Remove-Item $app -Recurse -Force
+}
+
+Describe 'Invoke-ApiRoute: switching vault, a new vault (in-memory OneNote)' {
+    $w = New-SyntheticVault -SessionId 'start'
+    $null = Close-VaultSession -Adapter $w.a -Vault $w.open.vault -Lease $w.open.lease
+    $app = New-TempAppRoot
+    $state = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'server'
+    It 'lists the vault and the user''s notebook' {
+        ((Invoke-ApiRoute -Method 'GET' -Path '/api/notebooks' -State $state).body.notebooks | ForEach-Object { "$($_.name):$($_.vault)" }) -join ',' | Should Be 'Synthetic Vault:True,Household:False'
+    }
+    It 'makes a vault active: lease, record and vault id kept for the next start' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/active-vault' -Body ('{"id":"' + $w.v.vaultId + '"}') -State $state
+        $r.status | Should Be 200
+        $r.body.mode | Should Be 'writer'
+        $state.Lease.sessionId | Should Be 'server'
+        $cfg = [IO.File]::ReadAllText((Join-Path $app 'config\obsidinote.local.json')) | ConvertFrom-Json
+        $cfg.vaultId | Should Be $w.v.vaultId
+        $cfg.notebook | Should Be 'onenote:https://example.invalid/docs/Synthetic Vault/'
+    }
+    It 'asks for confirmation before it writes a vault into a notebook it does not own' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/vault/new' -Body ('{"name":"Wiki","inNotebook":"' + $w.household + '"}') -State $state
+        $r.status | Should Be 409
+        $r.body.needsConfirm | Should Be $true
+        @($w.f.Nodes.Values | Where-Object { $_.kind -eq 'SectionGroup' -and $_.name -eq 'Wiki' }).Count | Should Be 0
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/vault/new' -Body '{"name":"../x"}' -State $state).status | Should Be 400
+    }
+    It 'makes a new vault inside that notebook with the confirm flag, and switches to it (the old lease given back)' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/vault/new' -Body ('{"name":"Wiki","inNotebook":"' + $w.household + '","confirm":true}') -State $state
+        $r.status | Should Be 200
+        $r.body.kind | Should Be 'sectiongroup'
+        $state.Vault.vaultId | Should Be $r.body.vaultId
+        (Get-VaultState -Adapter $w.a -IndexSectionId $w.open.vault.indexSectionId).lease | Should Be ''
+        @($w.f.Nodes.Values | Where-Object { $_.kind -eq 'Page' -and $_.parent -and $w.f.Nodes[$_.parent].name -eq 'Garden' }).Count | Should Be 2
+    }
+    It 'makes a new vault as its own notebook' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/vault/new' -Body '{"name":"Second Vault"}' -State $state
+        $r.status | Should Be 200
+        $r.body.kind | Should Be 'notebook'
+        $r.body.warning | Should Be ''
+    }
+    Remove-Item $app -Recurse -Force
+}
+
+Describe 'Invoke-ApiRoute: Add, Undo, Ask and the graph through the routes (in-memory OneNote)' {
+    $w = New-SyntheticVault -SessionId 'server'
+    $app = New-TempAppRoot
+    $text = "An identity-aware proxy checks who the user is and which device they use before it forwards a request.`nWe use it for the partner portal instead of the old VPN."
+    $sl = Get-LinkShortlist -Index (& $w.store.GetIndex) -Text $text
+    $t = @($sl.topics | Where-Object { $_['path'] -eq 'Security/Networking' })[0]['id']
+    $reply = '{"title": "Identity-aware proxies", "summary": "A proxy that checks user and device.", "type": "concept", "topics": [{"id": "' + $t + '"}], "links": [{"target": "p1", "anchor": "checks who the user is", "strength": 3, "why": "core concept"}], "aliases": [], "intent": "add"}'
+    $ask = @('{"branches":[{"key":"Security","why":"x"}]}', '{"pages":[{"id":"p1","why":"x"}]}', '{"notFound":false,"confidence":"high","paragraphs":[{"sentences":[{"text":"It checks every request.","cites":["p1"]}]}]}')
+    $state = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'server' -Vault $w.open.vault -Lease $w.open.lease -Model $w.open.model -TestCopilot (New-FakeCopilotSend (@($reply) + $ask))
+    $body = ConvertTo-Json -InputObject @{ text = $text; mode = 'add' } -Compress
+    $add = Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body $body -State $state
+    It 'adds through the vault store and answers with intent add' {
+        $add.status | Should Be 200
+        $add.body.intent | Should Be 'add'
+        $add.body.status | Should Be 'added'
+        (Find-FakePage $w.f 'Identity-aware proxies') | Should Not BeNullOrEmpty
+        { ConvertTo-Json -InputObject $add.body -Depth 12 } | Should Not Throw
+    }
+    It 'shows the new page in the graph of the active vault' {
+        $g = Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -State $state
+        $g.status | Should Be 200
+        $g.body.source.readOnly | Should Be $false
+        @($g.body.pages | ForEach-Object { $_.title }) -contains 'Identity-aware proxies' | Should Be $true
+        @($g.body.edges | Where-Object { $_.to -eq 'p1' }).Count | Should Be 2
+    }
+    It 'answers an Ask with intent ask and sources from the index' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"mode":"ask","action":"ask","question":"How is a request checked?","sources":[],"includeArchived":false}' -State $state
+        $r.status | Should Be 200
+        $r.body.intent | Should Be 'ask'
+        $r.body.status | Should Be 'answered'
+        @($r.body.sources)[0].title | Should Be 'Zero-trust networking'
+    }
+    It 'undoes the Add through /api/add/undo' {
+        $undo = ConvertTo-Json -InputObject @{ undo = $add.body.undo } -Depth 6 -Compress
+        $u = Invoke-ApiRoute -Method 'POST' -Path '/api/add/undo' -Body $undo -State $state
+        $u.status | Should Be 200
+        $u.body.status | Should Be 'undone'
+        (Find-FakePage $w.f 'Identity-aware proxies') | Should BeNullOrEmpty
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/add/undo' -Body '{"undo":5}' -State $state).status | Should Be 400
+    }
+    Remove-Item $app -Recurse -Force
+}
+
+Describe 'Pure parts of the routes' {
+    It 'routes a submit by mode and intent; unclear goes to Add in auto mode' {
+        (Get-SubmitRoute -Text 'x' -Mode 'add').intent | Should Be 'add'
+        (Get-SubmitRoute -Text 'What is this?' -Mode 'auto').intent | Should Be 'ask'
+        (Get-SubmitRoute -Text 'https://example.org/a' -Mode 'auto').ingestMode | Should Be 'add'
+        (Get-SubmitRoute -Text 'zero trust' -Mode 'auto').ingestMode | Should Be 'auto'
+        (Get-SubmitRoute -Text '' -Mode 'auto').ContainsKey('error') | Should Be $true
+        (Get-SubmitRoute -Text '' -Mode 'auto' -Action 'save-page').intent | Should Be 'ask'
+    }
+    It 'lists a vault in a section group by its group, and the notebook around it as read only' {
+        $v = [pscustomobject]@{ vaultId = 'v1'; name = 'Wiki'; rootId = '{G}'; rootKind = 'sectiongroup'; notebookId = '{N}'; notebookName = 'Team'; location = 'https://example.invalid/Team/Wiki/' }
+        $n = [pscustomobject]@{ id = '{N}'; name = 'Team'; location = 'https://example.invalid/Team/'; structured = $false }
+        $l = ConvertTo-NotebookListing -Vaults @($v) -Notebooks @($n) -ActiveVaultId 'v1'
+        ($l | ForEach-Object { "$($_.id)|$($_.name)|$($_.vault)|$($_.active)" }) -join ',' | Should Be '{G}|Wiki (in Team)|True|True,{N}|Team|False|False'
     }
 }
 
 Describe 'The live server (test port)' {
     $ui = New-TestUi
     $status = [pscustomobject]@{ app = 'ObsidiNote'; version = 'v0.0.0'; uiPort = $script:TestPort }
-    $state = New-ServerState -AppRoot $root -Port $script:TestPort -FakeStatus $status -FakeHierarchyXml $script:Hier
+    $liveApp = New-TempAppRoot ('{"vaultId":"' + $script:VaultA + '"}')
+    $state = New-ServerState -AppRoot $liveApp -Port $script:TestPort -FakeStatus $status -FakeHierarchyXml $script:Hier
     $server = Start-UiServer -Port $script:TestPort -UiDir $ui -State $state
     $api = @{ 'X-ObsidiNote' = '1'; Origin = "http://127.0.0.1:$($script:TestPort)" }
     try {
@@ -212,7 +355,7 @@ Describe 'The live server (test port)' {
             ($r.body | ConvertFrom-Json).app | Should Be 'ObsidiNote'
             $i = Send-RawRequest -Port $script:TestPort -Method 'POST' -Path '/api/intent' -Headers $api -Body '{"text":"https://example.com/a","mode":"auto"}'
             ($i.body | ConvertFrom-Json).intent | Should Be 'add'
-            (Send-RawRequest -Port $script:TestPort -Method 'POST' -Path '/api/submit' -Headers $api -Body '{"text":"Why?","mode":"auto"}').status | Should Be 501
+            (Send-RawRequest -Port $script:TestPort -Method 'POST' -Path '/api/submit' -Headers $api -Body '{"text":"Why?","mode":"auto"}').status | Should Be 503
         }
         It 'answers the notebook list and a notebook by ?id= over HTTP' {
             $l = Send-RawRequest -Port $script:TestPort -Path '/api/notebooks' -Headers $api
@@ -234,6 +377,7 @@ Describe 'The live server (test port)' {
     } finally {
         Stop-UiServer $server
         Remove-Item $ui -Recurse -Force
+        Remove-Item $liveApp -Recurse -Force
     }
     It 'stops: the port is free again' {
         Test-UiServerRunning -Port $script:TestPort | Should Be $false

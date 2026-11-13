@@ -19,7 +19,9 @@ Set-StrictMode -Version 2.0
 $script:Here = $PSScriptRoot
 # Update.psm1 for Set-LocalAppValue only: the active vault's record ("notebook") is a setting in
 # config\obsidinote.local.json, the one file this server changes (no content, FEASIBILITY.md).
-foreach ($m in 'Log', 'AppConfig', 'Startup', 'Intent', 'OneNoteHost', 'NotebookView', 'Update') {
+# Vaults, index, store and the Add/Ask handlers: lib/VaultSession.psm1, VaultStore, AskSources,
+# GraphModel, Ingest, Ask (and the step-2 modules they import). Status for the [WARN] line of a new vault.
+foreach ($m in 'Log', 'AppConfig', 'Startup', 'Intent', 'OneNoteHost', 'NotebookView', 'Update', 'Status', 'OneNote', 'PageMeta', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'AskSources', 'GraphModel', 'Ingest', 'Ask') {
     Import-Module (Join-Path $PSScriptRoot "$m.psm1")
 }
 
@@ -94,14 +96,25 @@ function Get-CopilotTabState {
 # --- What the API reports ---------------------------------------------------------------------
 
 function New-ServerState {
-    <# The shared state of one server: plain values only (it crosses into the server's runspace).
-       -FakeStatus replaces /api/status; -FakeHierarchyXml replaces OneNote's GetHierarchy answer
-       (every scope gets this XML, OneNote counts as running), so the tests run the real parsing. #>
+    <# The shared state of one server (it crosses into the server's runspace): plain values, plus the
+       Copilot bridge object (no scriptblocks). Vault and Lease are the active vault's records
+       (lib/VaultSession.psm1), set by the start and by a vault switch; Lock serialises the lease
+       writes of the start's renewal and the server's switch.
+       -FakeStatus replaces /api/status; -FakeHierarchyXml replaces OneNote with a read-only stand-in
+       made from that XML (New-XmlOneNoteAdapter, OneNote counts as running), so the tests run the
+       real parsing. -TestAdapter / -TestCopilot: in-process tests of Invoke-ApiRoute only (objects
+       with scriptblocks; never with Start-UiServer). #>
     param([Parameter(Mandatory)][string]$AppRoot, [int]$Port, [int]$CdpPort = 9334, [bool]$CopilotSkipped = $false,
-        $FakeStatus = $null, [string]$FakeHierarchyXml = '')
+        $FakeStatus = $null, [string]$FakeHierarchyXml = '', $Copilot = $null, $Vault = $null, $Lease = $null, [string]$SessionId = '',
+        $Model = $null, $TestAdapter = $null, $TestCopilot = $null)
     $h = [hashtable]::Synchronized(@{})
     $h.AppRoot = $AppRoot; $h.Port = $Port; $h.CdpPort = $CdpPort; $h.CopilotSkipped = $CopilotSkipped
     $h.FakeStatus = $FakeStatus; $h.FakeHierarchyXml = $FakeHierarchyXml
+    $h.Copilot = $Copilot; $h.Vault = $Vault; $h.Lease = $Lease; $h.Model = $Model
+    $h.SessionId = $(if ($SessionId) { $SessionId } else { New-WriterSessionId })
+    $h.TestAdapter = $TestAdapter; $h.TestCopilot = $TestCopilot
+    $h.Lock = New-Object object
+    $h.Id = [guid]::NewGuid().ToString('N')
     $h.Stop = $false
     $h
 }
@@ -128,43 +141,235 @@ function Get-CopilotState($State) {
     Get-CopilotTabState -Pages $flat -Hosts (Get-CopilotHostList $State.AppRoot)
 }
 
-function Read-NotebookData {
-    <# THE one place the server reads notebooks (read only), so the full structure detection
-       (Get-NotebookList / Get-NotebookModel) can replace it in one spot.
-       'list'   -> @{ notebooks = @( @{ id; name; vault; active; location } ); message }
-       'view'   -> one notebook's view (-Id, or the active vault)
-       'record' -> @{ ok; record; name; message } for making vault -Id the active one #>
-    param($State, [ValidateSet('list', 'view', 'record')][string]$What, [string]$Id = '')
-    $record = Get-NotebookRecord -AppRoot $State.AppRoot
-    $getState = { Get-OneNoteState }
-    $read = @{}
+# --- OneNote, vaults and the active vault ---------------------------------------------------------
+
+$script:NotRunning = 'OneNote is not running. Start OneNote, or start ObsidiNote again.'
+$script:NoAnswer = 'OneNote did not answer. Check that OneNote is open, then try again.'
+$script:NoVault = 'No ObsidiNote vault is active. Make one with "New ObsidiNote vault", or open a notebook that holds one.'
+$script:CacheMs = 3000
+# Runspace-local state (the server's runspace imports this module itself): the COM adapter, the
+# active vault's working copy of the index, Ask's sources per conversation, connected notebooks.
+$script:ComAdapter = $null
+$script:XmlAdapter = $null
+$script:XmlAdapterSource = ''
+$script:VaultCache = $null
+$script:Model = $null
+$script:ModelKey = ''
+$script:AskConversations = @{}
+$script:ForeignCache = @{}
+
+function Get-ServerAdapter($State) {
+    <# The guarded OneNote adapter of this runspace; $null when OneNote is not running (a COM call
+       would start it). Fake mode: the read-only stand-in from the XML. #>
+    if ($State.TestAdapter) { return $State.TestAdapter }
     if ($State.FakeHierarchyXml) {
-        $fake = [string]$State.FakeHierarchyXml
-        $getState = { 'window' }
-        $read = @{ GetXml = { param($startId, $scope) $fake }.GetNewClosure(); GetLink = { param($pageId) "onenote:https://example.com/notebook#page-id=$pageId" } }
+        if (-not $script:XmlAdapter -or $script:XmlAdapterSource -ne $State.FakeHierarchyXml) {
+            $script:XmlAdapter = New-GuardedOneNote -Inner (New-XmlOneNoteAdapter -Xml $State.FakeHierarchyXml)
+            $script:XmlAdapterSource = $State.FakeHierarchyXml
+            $script:VaultCache = $null
+        }
+        return $script:XmlAdapter
     }
-    $xmlOnly = @{}
-    if ($read.ContainsKey('GetXml')) { $xmlOnly.GetXml = $read.GetXml }
-    switch ($What) {
-        'list' { return Get-OpenNotebookList -Record $record -GetState $getState @xmlOnly }
-        'view' { return Get-NotebookView -Id $Id -Record $record -GetState $getState @read }
-        'record' { return Get-VaultRecord -Id $Id -GetState $getState -ToRecord { param($path) ConvertTo-NotebookRecord $path } @xmlOnly }
+    if ((Get-OneNoteState) -eq 'none') { $script:ComAdapter = $null; return $null }
+    if (-not $script:ComAdapter) { $script:ComAdapter = Get-OneNoteAdapter }
+    $script:ComAdapter
+}
+
+function Reset-VaultCache { $script:VaultCache = $null }
+
+function Get-VaultData($State, [switch]$Fresh) {
+    <# @{ adapter; vaults (Get-VaultList); notebooks (Get-NotebookList); message }. Cached for a few
+       seconds (the window asks for the list and the status often). Read only. #>
+    $c = $script:VaultCache
+    if (-not $Fresh -and $c -and $c.at.ElapsedMilliseconds -lt $script:CacheMs -and $c.key -eq $State.Id) { return $c.data }
+    $data = @{ adapter = $null; vaults = @(); notebooks = @(); message = '' }
+    try {
+        $ad = Get-ServerAdapter $State
+        if (-not $ad) { $data.message = $script:NotRunning; return $data }
+        $data.adapter = $ad
+        $data.vaults = @(Get-VaultList -Adapter $ad)
+        $data.notebooks = @(Get-NotebookList -Adapter $ad -Vaults $data.vaults)
+        if (-not $data.notebooks.Count) { $data.message = 'No notebooks are open in OneNote.' }
+    } catch {
+        $script:ComAdapter = $null
+        $data.message = $script:NoAnswer
+        return $data
     }
+    $script:VaultCache = @{ at = [Diagnostics.Stopwatch]::StartNew(); key = $State.Id; data = $data }
+    $data
+}
+
+function Get-ActiveVaultItem($State, $Data) {
+    <# The active vault among the open ones: the one the start (or a switch) opened; while none is
+       open, the one a start would pick (record, else the only vault). Read only. #>
+    if ($State.Vault) {
+        $v = @($Data.vaults | Where-Object { $_.vaultId -eq $State.Vault.vaultId }) | Select-Object -First 1
+        if ($v) { return $v }
+    }
+    $rid = "$(Get-AppSetting -Key 'vaultId' -Default '' -AppRoot $State.AppRoot)"
+    (Select-StartVault -Vaults $Data.vaults -RecordVaultId $rid -Record (Get-NotebookRecord -AppRoot $State.AppRoot) -Notebooks $Data.notebooks).vault
+}
+
+function Get-LeaseMode($State) { if ($State.Vault -and $State.Lease -and (Test-WriterLease $State.Lease)) { 'writer' } elseif ($State.Vault) { 'readonly' } else { 'none' } }
+
+function Get-VaultListId($Vault) { if ($Vault.rootKind -eq 'notebook') { [string]$Vault.notebookId } else { [string]$Vault.rootId } }
+
+function ConvertTo-NotebookListing {
+    <# The switcher's list (pure): vaults first (one entry per vault: a whole notebook, or a section
+       group inside one), then the open notebooks that are not a vault root, read only.
+       @( @{ id; name; vault; active; location; vaultId; kind; notebookId } ). #>
+    param([object[]]$Vaults = @(), [object[]]$Notebooks = @(), [string]$ActiveVaultId = '')
+    $out = @(foreach ($v in @($Vaults)) {
+        $nb = @($Notebooks | Where-Object { $_.id -eq $v.notebookId }) | Select-Object -First 1
+        $loc = if ($nb) { Get-NotebookLocationLabel $nb.location } else { Get-NotebookLocationLabel $v.location }
+        $name = if ($v.rootKind -eq 'sectiongroup') { "$($v.name) (in $($v.notebookName))" } else { [string]$v.name }
+        [pscustomobject]@{ id = (Get-VaultListId $v); name = $name; vault = $true; active = ($ActiveVaultId -and $v.vaultId -eq $ActiveVaultId); location = $loc; vaultId = [string]$v.vaultId; kind = [string]$v.rootKind; notebookId = [string]$v.notebookId }
+    })
+    $out += @(foreach ($n in @($Notebooks | Where-Object { -not $_.structured })) {
+        [pscustomobject]@{ id = [string]$n.id; name = [string]$n.name; vault = $false; active = $false; location = (Get-NotebookLocationLabel $n.location); vaultId = ''; kind = 'notebook'; notebookId = [string]$n.id }
+    })
+    , @($out)
+}
+
+function New-EmptyView([string]$Message, [bool]$NotFound = $false) {
+    [pscustomobject]@{ available = $false; notFound = $NotFound; message = $Message; notebook = $null; sections = @(); totals = [pscustomobject]@{ sections = 0; pages = 0 }; recent = @() }
+}
+
+function Read-NotebookData {
+    <# THE one place the server reads notebooks (read only): vaults by their state page
+       (Get-VaultList), notebooks (Get-NotebookList).
+       'list' -> @{ notebooks = @( listing ); message; activeVaultId; mode }
+       'view' -> one notebook's sections and recent pages (-Id, or the active vault's notebook) #>
+    param($State, [ValidateSet('list', 'view')][string]$What, [string]$Id = '')
+    $d = Get-VaultData $State
+    if ($d.message -and -not $d.notebooks.Count) {
+        if ($What -eq 'list') { return [pscustomobject]@{ notebooks = @(); message = $d.message; activeVaultId = ''; mode = 'none' } }
+        return (New-EmptyView $d.message)
+    }
+    $active = Get-ActiveVaultItem $State $d
+    $activeId = if ($active) { [string]$active.vaultId } else { '' }
+    $list = ConvertTo-NotebookListing -Vaults $d.vaults -Notebooks $d.notebooks -ActiveVaultId $activeId
+    if ($What -eq 'list') {
+        return [pscustomobject]@{ notebooks = $list; message = $(if ($d.vaults.Count) { $d.message } else { $script:NoVault }); activeVaultId = $activeId; mode = (Get-LeaseMode $State) }
+    }
+    $entry = $null
+    if ($Id) { $entry = @($list | Where-Object { $_.id -eq $Id }) | Select-Object -First 1 }
+    elseif ($active) { $entry = @($list | Where-Object { $_.vaultId -eq $activeId }) | Select-Object -First 1 }
+    if (-not $entry) { if ($Id) { return (New-EmptyView 'That notebook is not open in OneNote.' $true) } else { return (New-EmptyView $script:NoVault) } }
+    $ad = $d.adapter
+    $getXml = { param($s, $sc) $ad.GetHierarchy($s, $sc) }.GetNewClosure()
+    $getLink = { param($pageId) try { $ad.GetHyperlinkToObject($pageId) } catch { '' } }.GetNewClosure()
+    try { $v = Get-NotebookView -Id $entry.notebookId -GetState { 'window' } -GetXml $getXml -GetLink $getLink } catch { return (New-EmptyView $script:NoAnswer) }
+    if ($v.notebook) { $v.notebook.id = $entry.id; $v.notebook.name = $entry.name; $v.notebook.vault = [bool]$entry.vault; $v.notebook.active = [bool]$entry.active }
+    $v
 }
 
 function Get-ServerStatus($State) {
     if ($State.FakeStatus) { return $State.FakeStatus }
     $one = Get-OneNoteState
-    $active = $null
-    if ($one -ne 'none') { $active = @((Read-NotebookData $State 'list').notebooks | Where-Object { $_.active }) | Select-Object -First 1 }
+    $name = ''
+    if ($State.Vault) { $name = [string]$State.Vault.name }
+    elseif ($one -ne 'none') { $a = @((Read-NotebookData $State 'list').notebooks | Where-Object { $_.active }) | Select-Object -First 1; if ($a) { $name = $a.name } }
     [pscustomobject]@{
         app     = 'ObsidiNote'
         version = (Get-AppVersionText $State.AppRoot)
         uiPort  = [int]$State.Port
-        oneNote = [pscustomobject]@{ state = $one; running = ($one -ne 'none'); notebookOpen = [bool]$active; notebook = $(if ($active) { $active.name } else { 'ObsidiNote' }) }
-        copilot = [pscustomobject]@{ state = (Get-CopilotState $State); port = [int]$State.CdpPort }
+        oneNote = [pscustomobject]@{ state = $one; running = ($one -ne 'none'); notebookOpen = [bool]$name; notebook = $(if ($name) { $name } else { 'ObsidiNote' }) }
+        copilot = [pscustomobject]@{ state = (Get-CopilotState $State); port = [int]$State.CdpPort; ready = (Test-CopilotReady $State) }
+        vault   = [pscustomobject]@{ name = $name; vaultId = $(if ($State.Vault) { [string]$State.Vault.vaultId } else { '' }); mode = (Get-LeaseMode $State) }
     }
 }
+
+function Get-ServerModel($State, $Adapter) {
+    <# The active vault's in-memory index model (the working copy; OneNote stays the store). Built
+       once per vault (or taken over from the start), then updated in place by the store. #>
+    if (-not $State.Vault) { return $null }
+    $key = "$($State.Id)|$($State.Vault.vaultId)"
+    if ($script:Model -and $script:ModelKey -eq $key) { return $script:Model }
+    if ($State.Model -and $State.Model.vaultId -eq $State.Vault.vaultId) { $script:Model = $State.Model; $State.Model = $null }
+    else {
+        Set-ServerWriteRoot $State $Adapter
+        $script:Model = (Update-VaultIndex -Adapter $Adapter -RootId $State.Vault.rootId -IndexSectionId $State.Vault.indexSectionId -VaultId $State.Vault.vaultId).model
+    }
+    $script:ModelKey = $key
+    $script:Model
+}
+
+function Set-ServerWriteRoot($State, $Adapter) {
+    if ($State.Vault -and $Adapter.PSObject.Properties['RootId'] -and $Adapter.RootId -ne $State.Vault.rootId) { Set-OneNoteWriteRoot -Adapter $Adapter -RootId $State.Vault.rootId }
+}
+
+function Switch-ServerVault($State, $Vault, $Data) {
+    <# Makes $Vault (a Get-VaultList item) the active vault: gives the old vault's lease back, opens
+       the new one (write root, lease, structure, index), keeps its record for the next start and
+       forgets Ask's follow-up state. Returns the open result. #>
+    $ad = $Data.adapter
+    [Threading.Monitor]::Enter($State.Lock)
+    try {
+        if ($State.Vault -and $State.Lease) { $null = Close-VaultSession -Adapter $ad -Vault $State.Vault -Lease $State.Lease }
+        $o = Open-VaultSession -Adapter $ad -Vault $Vault -SessionId $State.SessionId -Vaults $Data.vaults
+        $State.Vault = $o.vault; $State.Lease = $o.lease
+        $script:Model = $o.model; $script:ModelKey = "$($State.Id)|$($o.vault.vaultId)"
+    } finally { [Threading.Monitor]::Exit($State.Lock) }
+    Reset-AskState
+    $script:AskConversations = @{}
+    $script:ForeignCache = @{}
+    Reset-VaultCache
+    try {
+        # The vault's record ("notebook" + "vaultId" in config\obsidinote.local.json, the one file the
+        # server changes; no content): the next start reopens this vault.
+        $rec = Get-VaultRecordFor -Vault $Vault -Notebooks $Data.notebooks -ToRecord { param($p) ConvertTo-NotebookRecord $p }
+        if ($rec -and (Get-NotebookRecord -AppRoot $State.AppRoot) -ne $rec) { Set-LocalAppValue $State.AppRoot 'notebook' $rec }
+        if ("$(Get-AppSetting -Key 'vaultId' -Default '' -AppRoot $State.AppRoot)" -ne $o.vault.vaultId) { Set-LocalAppValue $State.AppRoot 'vaultId' $o.vault.vaultId }
+    } catch { Write-AppLog info server 'The active vault could not be recorded' }
+    Write-AppLog info server 'Active vault changed' @{ mode = $o.mode; missing = $o.missing }
+    $o
+}
+
+function Use-ActiveVault($State) {
+    <# For a route that writes or reads the active vault: @{ ok; status; error; data; adapter; model }.
+       Opens the vault a start would pick when none is open yet. #>
+    $d = Get-VaultData $State
+    if (-not $d.adapter) { return @{ ok = $false; status = 503; error = $(if ($d.message) { $d.message } else { $script:NotRunning }) } }
+    if (-not $State.Vault) {
+        $pick = Get-ActiveVaultItem $State $d
+        if (-not $pick) { return @{ ok = $false; status = 409; error = $script:NoVault } }
+        try { $null = Switch-ServerVault $State $pick $d } catch { return @{ ok = $false; status = 500; error = "The vault could not be opened: $($_.Exception.Message)" } }
+    }
+    Set-ServerWriteRoot $State $d.adapter
+    @{ ok = $true; data = $d; adapter = $d.adapter; model = (Get-ServerModel $State $d.adapter) }
+}
+
+function New-ServerStore($State, $Use) {
+    $st = $State
+    New-VaultStore -Adapter $Use.adapter -Vault $State.Vault -Model $Use.model -GetLease { $st.Lease }.GetNewClosure()
+}
+
+# --- Copilot ----------------------------------------------------------------------------------------
+
+function Test-CopilotReady($State) { [bool]($State.TestCopilot -or ($State.Copilot -and -not $State.CopilotSkipped)) }
+
+function Get-CopilotMissing([string]$Intent) {
+    @{ status = 503; body = @{ intent = $Intent; error = 'Microsoft 365 Copilot is not connected, so ObsidiNote cannot add or ask right now. Start ObsidiNote with Copilot and sign in. The map, your notebooks and Undo still work.' } }
+}
+
+function Get-AskCopilotAdapter($State) {
+    <# @{ Send; NewChat } for Ask: the test stand-in, or the bridge (lib/Ask.psm1 New-AskCopilot). #>
+    if ($State.TestCopilot) { return $State.TestCopilot }
+    Import-Module (Join-Path $script:Here 'CopilotBridge.psm1') -Global
+    New-AskCopilot -Bridge $State.Copilot
+}
+
+function Get-AddCopilot($State) {
+    <# { param($Prompt) } for Add: one prompt, the bridge's reply object back (lib/Ingest.psm1). #>
+    if ($State.TestCopilot) { $send = $State.TestCopilot.Send; return { param([string]$Prompt) & $send $Prompt }.GetNewClosure() }
+    Import-Module (Join-Path $script:Here 'CopilotBridge.psm1') -Global
+    $cmd = Get-Command Send-CopilotPrompt
+    $b = $State.Copilot
+    { param([string]$Prompt) & $cmd -Bridge $b -Text $Prompt -TimeoutSec 300 }.GetNewClosure()
+}
+
+# --- Requests (pure parts) ----------------------------------------------------------------------------
 
 function Get-QueryValue([string]$Query, [string]$Name) {
     <# One value of a query string (?a=1&b=2), URL-decoded; '' when absent. #>
@@ -180,29 +385,248 @@ function Test-NotebookId([string]$Id) {
     $Id.Length -le 200 -and $Id -match '^\{[0-9A-Fa-f-]{36}\}(\{\d+\}\{[A-Za-z]\d+\})?$'
 }
 
-function Set-ActiveVault($State, [string]$Body) {
-    <# POST /api/active-vault {id}: makes an open vault the active one by keeping its record in the
-       "notebook" setting (the start reopens it). Writes no notebook; refuses read-only notebooks. #>
-    $id = ''
-    try { $b = $Body | ConvertFrom-Json; if ($b -and $b.PSObject.Properties['id']) { $id = "$($b.id)" } } catch { }
-    if (-not (Test-NotebookId $id)) { return @{ status = 400; body = @{ error = 'id must be a OneNote notebook id.' } } }
-    $r = Read-NotebookData $State 'record' $id
-    if (-not $r.ok) { return @{ status = 409; body = @{ error = $r.message } } }
-    if ((Get-NotebookRecord -AppRoot $State.AppRoot) -ne $r.record) { Set-LocalAppValue $State.AppRoot 'notebook' $r.record }
-    Write-AppLog info server 'Active vault changed'
-    @{ status = 200; body = @{ id = $id; name = $r.name } }
-}
+function Test-VaultIdText([string]$Id) { $Id.Length -le 64 -and $Id -match '^[0-9A-Fa-f-]{8,64}$' }
 
-function Read-IntentRequest([string]$Body) {
-    <# The {text, mode} of an intent or submit request; throws on anything else. #>
+function Read-JsonBody([string]$Body) {
+    <# The request body as an object; throws on anything that is not a JSON object. #>
     $b = $null
     try { $b = $Body | ConvertFrom-Json } catch { throw 'The request is not JSON.' }
     if (-not $b -or $b -isnot [pscustomobject]) { throw 'The request is not a JSON object.' }
-    $text = if ($b.PSObject.Properties['text'] -and $null -ne $b.text) { $b.text } else { '' }
+    $b
+}
+
+function Get-BodyValue($Body, [string]$Name, $Default = '') { if ($Body.PSObject.Properties[$Name] -and $null -ne $Body.$Name) { $Body.$Name } else { $Default } }
+
+function Read-IntentRequest([string]$Body) {
+    <# The {text, mode} of an intent request; throws on anything else. #>
+    $b = Read-JsonBody $Body
+    $text = Get-BodyValue $b 'text' ''
     if ($text -isnot [string]) { throw 'text must be a string.' }
-    $mode = if ($b.PSObject.Properties['mode'] -and $b.mode) { "$($b.mode)" } else { 'auto' }
+    $mode = "$(Get-BodyValue $b 'mode' 'auto')"
+    if (-not $mode) { $mode = 'auto' }
     if ((Get-IntentModes) -notcontains $mode.ToLowerInvariant()) { throw "mode must be auto, add or ask." }
-    @{ text = $text; mode = $mode }
+    @{ text = $text; mode = $mode.ToLowerInvariant() }
+}
+
+function Get-SubmitRoute {
+    <# Where a submit goes (pure): @{ intent (add|ask); ingestMode (add|auto) } or @{ error }.
+       Explicit mode wins; auto follows the intent rules; unclear goes to Add in auto mode, where
+       Copilot's reply says add or ask (FEASIBILITY.md, Add or Ask from one input, rule 4). An Ask
+       action (follow-up, save) is always Ask. #>
+    param([string]$Text, [string]$Mode, [string]$Action = '')
+    if ($Action -and $Action -ne 'ask') { return @{ intent = 'ask'; ingestMode = '' } }
+    if ($Mode -eq 'add') { return @{ intent = 'add'; ingestMode = 'add' } }
+    if ($Mode -eq 'ask') { return @{ intent = 'ask'; ingestMode = '' } }
+    $i = (Get-Intent -Text $Text -Mode 'auto').intent
+    switch ($i) {
+        'ask' { return @{ intent = 'ask'; ingestMode = '' } }
+        'add' { return @{ intent = 'add'; ingestMode = 'add' } }
+        'empty' { return @{ error = 'Type or paste something first.' } }
+    }
+    @{ intent = 'add'; ingestMode = 'auto' }
+}
+
+# --- Routes ---------------------------------------------------------------------------------------
+
+function Set-ActiveVault($State, [string]$Body) {
+    <# POST /api/active-vault {id}: makes an open vault the active one (id = the switcher entry's id or
+       the vault id). Opens it with its writer lease and keeps its record for the next start.
+       Refuses read-only notebooks with 409. #>
+    $id = ''
+    try { $b = Read-JsonBody $Body; $id = "$(Get-BodyValue $b 'id' '')" } catch { }
+    if (-not ((Test-NotebookId $id) -or (Test-VaultIdText $id))) { return @{ status = 400; body = @{ error = 'id must be a OneNote notebook id or a vault id.' } } }
+    $d = Get-VaultData $State -Fresh
+    if (-not $d.adapter) { return @{ status = 503; body = @{ error = $(if ($d.message) { $d.message } else { $script:NotRunning }) } } }
+    $v = @($d.vaults | Where-Object { $_.vaultId -eq $id -or (Get-VaultListId $_) -eq $id }) | Select-Object -First 1
+    if (-not $v) {
+        $msg = if (@($d.notebooks | Where-Object { $_.id -eq $id }).Count) { 'That notebook is not an ObsidiNote vault; it can only be read.' } else { 'That notebook is not open in OneNote.' }
+        return @{ status = 409; body = @{ error = $msg } }
+    }
+    if ($State.Vault -and $State.Vault.vaultId -eq $v.vaultId) { return @{ status = 200; body = @{ id = (Get-VaultListId $v); name = $v.name; vaultId = $v.vaultId; mode = (Get-LeaseMode $State); missing = 0 } } }
+    try { $o = Switch-ServerVault $State $v $d } catch { return @{ status = 500; body = @{ error = "The vault could not be opened: $($_.Exception.Message)" } } }
+    @{ status = 200; body = @{ id = (Get-VaultListId $v); name = $v.name; vaultId = $v.vaultId; mode = $o.mode; missing = $o.missing } }
+}
+
+function New-VaultRoute($State, [string]$Body) {
+    <# POST /api/vault/new {name, inNotebook, confirm}: a new vault as its own notebook, or (only with
+       confirm) as a section group inside an open notebook, then made active. When OneNote cannot make
+       the notebook next to the cloud notebooks (0x80042006) it goes to OneNote's default notebook
+       folder, with a warning. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $name = ("$(Get-BodyValue $b 'name' '')").Trim()
+    $inNb = "$(Get-BodyValue $b 'inNotebook' '')"
+    $confirm = [bool](Get-BodyValue $b 'confirm' $false)
+    if (-not $name -or $name.Length -gt 60 -or $name -notmatch '^[A-Za-z0-9][A-Za-z0-9 ._-]*$') { return @{ status = 400; body = @{ error = 'Give the vault a name of letters, digits, spaces, dots, dashes or underscores (at most 60).' } } }
+    $d = Get-VaultData $State -Fresh
+    if (-not $d.adapter) { return @{ status = 503; body = @{ error = $(if ($d.message) { $d.message } else { $script:NotRunning }) } } }
+    if ($inNb) {
+        # Only an id that is one of the open notebooks ever reaches OneNote.
+        if ($inNb.Length -gt 200) { return @{ status = 400; body = @{ error = 'inNotebook must be a OneNote notebook id.' } } }
+        $nb = @($d.notebooks | Where-Object { $_.id -eq $inNb }) | Select-Object -First 1
+        if (-not $nb) { return @{ status = 404; body = @{ error = 'That notebook is not open in OneNote.' } } }
+        if ($nb.structured) { return @{ status = 409; body = @{ error = 'That notebook is already an ObsidiNote vault.' } } }
+        if (-not $confirm) { return @{ status = 409; body = @{ needsConfirm = $true; error = "This writes a section group '$name' into the notebook '$($nb.name)', which ObsidiNote does not own yet. Confirm to go ahead." } } }
+    }
+    $warning = ''
+    [Threading.Monitor]::Enter($State.Lock)
+    try {
+        try {
+            if ($inNb) { $r = New-ObsidiVault -Adapter $d.adapter -Name $name -InSectionGroupOf $inNb }
+            else { $r = New-ObsidiVault -Adapter $d.adapter -Name $name }
+        } catch {
+            if ($inNb -or "$($_.Exception.Message)" -notmatch '0x80042006|No cloud notebook') { throw }
+            $folder = $d.adapter.GetDefaultNotebookFolder()
+            if (-not $folder) { throw }
+            $r = New-ObsidiVault -Adapter $d.adapter -Name $name -Location $folder
+            $warning = "OneNote could not make the notebook next to your cloud notebooks, so it is in OneNote's default notebook folder on this PC. Move it to OneDrive in OneNote to share it."
+            try { Write-Status -ToError 'WARN' 'New vault' $warning } catch { }
+        }
+    } catch {
+        return @{ status = 500; body = @{ error = "The vault could not be made: $($_.Exception.Message)" } }
+    } finally { [Threading.Monitor]::Exit($State.Lock) }
+    $d = Get-VaultData $State -Fresh
+    $v = @($d.vaults | Where-Object { $_.vaultId -eq $r.vaultId }) | Select-Object -First 1
+    if (-not $v) { return @{ status = 500; body = @{ error = 'The vault was made but could not be found again. Restart ObsidiNote.' } } }
+    try { $o = Switch-ServerVault $State $v $d } catch { return @{ status = 500; body = @{ error = "The vault was made but could not be opened: $($_.Exception.Message)" } } }
+    Write-AppLog info server 'New vault' @{ kind = $v.rootKind; mode = $o.mode }
+    @{ status = 200; body = @{ id = (Get-VaultListId $v); vaultId = $v.vaultId; name = $v.name; kind = $v.rootKind; mode = $o.mode; warning = $warning } }
+}
+
+function Get-ForeignGraphModel($State, $Adapter, $Notebook, $Vaults, [int]$BudgetMs = 15000) {
+    <# A connected notebook's derived model, kept in memory for a few minutes; its link edges are read
+       in batches (Get-NotebookLinks) within $BudgetMs per call, later calls go on where it stopped. #>
+    if (-not $script:ForeignCache) { $script:ForeignCache = @{} }
+    $c = $script:ForeignCache[$Notebook.id]
+    if (-not $c -or $c.at.Elapsed.TotalMinutes -gt 5) {
+        $c = @{ at = [Diagnostics.Stopwatch]::StartNew(); model = (Get-NotebookModel -Adapter $Adapter -NotebookId $Notebook.id -NoLinks -Vaults $Vaults); next = 0; done = $false }
+        $script:ForeignCache[$Notebook.id] = $c
+    }
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while (-not $c.done -and $sw.ElapsedMilliseconds -lt $BudgetMs) {
+        $b = Get-NotebookLinks -Adapter $Adapter -Model $c.model -Start $c.next -BatchSize 50
+        $c.next = $b.next; $c.done = $b.done
+    }
+    $c
+}
+
+function Get-GraphRoute($State, [string]$Query) {
+    <# GET /api/graph?vault=<vault id> | ?notebook=<notebook id>; neither = the active vault. #>
+    $vid = Get-QueryValue $Query 'vault'
+    $nid = Get-QueryValue $Query 'notebook'
+    if ($vid -and -not (Test-VaultIdText $vid)) { return @{ status = 400; body = @{ error = 'vault must be a vault id.' } } }
+    if ($nid -and -not (Test-NotebookId $nid)) { return @{ status = 400; body = @{ error = 'notebook must be a OneNote notebook id.' } } }
+    $d = Get-VaultData $State
+    if (-not $d.adapter) { return @{ status = 503; body = @{ error = $(if ($d.message) { $d.message } else { $script:NotRunning }) } } }
+    $v = $null
+    if ($vid) { $v = @($d.vaults | Where-Object { $_.vaultId -eq $vid }) | Select-Object -First 1; if (-not $v) { return @{ status = 404; body = @{ error = 'That vault is not open in OneNote.' } } } }
+    elseif ($nid) { $v = @($d.vaults | Where-Object { (Get-VaultListId $_) -eq $nid }) | Select-Object -First 1 }
+    else {
+        $u = Use-ActiveVault $State
+        if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
+        $v = @($d.vaults | Where-Object { $_.vaultId -eq $State.Vault.vaultId }) | Select-Object -First 1
+    }
+    if ($v) {
+        if ($State.Vault -and $v.vaultId -eq $State.Vault.vaultId) {
+            $u = Use-ActiveVault $State
+            if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
+            $m = ConvertTo-GraphModel -Model $u.model -Source @{ kind = 'vault'; id = $v.vaultId; name = $v.name; readOnly = ((Get-LeaseMode $State) -ne 'writer') }
+        } else {
+            $model = Read-IndexModel -Adapter $d.adapter -IndexSectionId $v.indexSectionId -VaultId $v.vaultId -RootId $v.rootId
+            $m = ConvertTo-GraphModel -Model $model -Source @{ kind = 'vault'; id = $v.vaultId; name = $v.name; readOnly = $true }
+        }
+        $m['edgesComplete'] = $true
+        return @{ status = 200; body = $m }
+    }
+    $nb = @($d.notebooks | Where-Object { $_.id -eq $nid }) | Select-Object -First 1
+    if (-not $nb) { return @{ status = 404; body = @{ error = 'That notebook is not open in OneNote.' } } }
+    $c = Get-ForeignGraphModel $State $d.adapter $nb $d.vaults
+    $m = ConvertTo-GraphModel -Model $c.model -Source @{ kind = 'notebook'; id = $nb.id; name = $nb.name; readOnly = $true }
+    $m['edgesComplete'] = [bool]$c.done
+    @{ status = 200; body = $m }
+}
+
+function Get-AskSourceList($State, $Use, [string[]]$Wanted) {
+    <# The source adapters for one Ask: the active vault (ReadOnly false) and the chosen read-only
+       vaults and connected notebooks. #>
+    $ad = $Use.adapter
+    $list = @(New-AskSource -Adapter $ad -Model $Use.model -Id $State.Vault.vaultId -Name $State.Vault.name -Kind 'vault')
+    foreach ($w in @($Wanted | Where-Object { $_ } | Select-Object -Unique)) {
+        if ($w -eq $State.Vault.vaultId) { continue }
+        $v = @($Use.data.vaults | Where-Object { $_.vaultId -eq $w -or (Get-VaultListId $_) -eq $w }) | Select-Object -First 1
+        if ($v) {
+            if ($v.vaultId -eq $State.Vault.vaultId) { continue }
+            $m = Read-IndexModel -Adapter $ad -IndexSectionId $v.indexSectionId -VaultId $v.vaultId -RootId $v.rootId
+            $list += New-AskSource -Adapter $ad -Model $m -Id $w -Name $v.name -Kind 'vault' -ReadOnly
+            continue
+        }
+        $nb = @($Use.data.notebooks | Where-Object { $_.id -eq $w }) | Select-Object -First 1
+        if (-not $nb) { continue }
+        $c = Get-ForeignGraphModel $State $ad $nb $Use.data.vaults -BudgetMs 0
+        $list += New-AskSource -Adapter $ad -Model $c.model -Id $w -Name $nb.name -Kind 'notebook' -ReadOnly
+    }
+    , $list
+}
+
+function Invoke-SubmitRoute($State, [string]$Body) {
+    <# POST /api/submit: Add (Invoke-AddRequest through the vault store) or Ask (Invoke-AskRequest
+       over the index), by mode and intent. 503 without Copilot. The answer carries intent add|ask. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $text = Get-BodyValue $b 'text' (Get-BodyValue $b 'question' '')
+    if ($text -isnot [string]) { return @{ status = 400; body = @{ error = 'text must be a string.' } } }
+    $mode = ("$(Get-BodyValue $b 'mode' 'auto')").ToLowerInvariant()
+    if (-not $mode) { $mode = 'auto' }
+    if ((Get-IntentModes) -notcontains $mode) { return @{ status = 400; body = @{ error = 'mode must be auto, add or ask.' } } }
+    $action = "$(Get-BodyValue $b 'action' '')"
+    $route = Get-SubmitRoute -Text $text -Mode $mode -Action $action
+    if ($route.ContainsKey('error')) { return @{ status = 400; body = @{ error = $route.error } } }
+    $needsCopilot = -not ($route.intent -eq 'ask' -and $action -in 'save-page', 'save-open-question')
+    if ($needsCopilot -and -not (Test-CopilotReady $State)) { return (Get-CopilotMissing $route.intent) }
+    $u = Use-ActiveVault $State
+    if (-not $u.ok) { return @{ status = $u.status; body = @{ intent = $route.intent; error = $u.error } } }
+    if ($route.intent -eq 'add') {
+        $r = Invoke-AddRequest -Request @{ text = $text; mode = $route.ingestMode } -Store (New-ServerStore $State $u) -Ask (Get-AddCopilot $State)
+        $r['intent'] = 'add'
+        return @{ status = 200; body = $r }
+    }
+    $req = @{ action = $(if ($action) { $action } else { 'ask' }); question = $text; includeArchived = [bool](Get-BodyValue $b 'includeArchived' $false)
+        conversationId = "$(Get-BodyValue $b 'conversationId' '')"; turn = [int](Get-BodyValue $b 'turn' 0) }
+    $wanted = @(@(Get-BodyValue $b 'sources' @()) | ForEach-Object { "$_" } | Where-Object { (Test-NotebookId $_) -or (Test-VaultIdText $_) })
+    if (-not $script:AskConversations) { $script:AskConversations = @{} }
+    if ($req.action -eq 'follow-up' -and $script:AskConversations.ContainsKey($req.conversationId)) { $wanted = @($script:AskConversations[$req.conversationId]) }
+    $req.sources = $wanted
+    $ctx = @{ Sources = (Get-AskSourceList $State $u $wanted); Copilot = $(if ($needsCopilot) { Get-AskCopilotAdapter $State } else { $null }) }
+    $r = Invoke-AskRequest -Request $req -Context $ctx
+    $r['intent'] = 'ask'
+    if ($r.ContainsKey('conversationId') -and $r.conversationId) { $script:AskConversations[[string]$r.conversationId] = $wanted }
+    @{ status = 200; body = $r }
+}
+
+function Invoke-UndoRoute($State, [string]$Body) {
+    <# POST /api/add/undo {undo}: the Add's page to OneNote's Deleted Pages, its backlinks rewritten. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $undo = Get-BodyValue $b 'undo' $null
+    if (-not $undo -or $undo -isnot [pscustomobject]) { return @{ status = 400; body = @{ error = 'undo must be the Add result''s undo record.' } } }
+    $u = Use-ActiveVault $State
+    if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
+    @{ status = 200; body = (Undo-AddRequest -Store (New-ServerStore $State $u) -Undo $undo) }
+}
+
+function Invoke-LinkUpdateRoute($State, [string]$Body) {
+    <# POST /api/link/update {id, decision, proposed}: Update of a link page. Copilot is needed unless
+       the person decides on a summary it already proposed. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $id = "$(Get-BodyValue $b 'id' '')"
+    $decision = "$(Get-BodyValue $b 'decision' '')"
+    $proposed = Get-BodyValue $b 'proposed' $null
+    if (-not (Test-ObsnId $id)) { return @{ status = 400; body = @{ error = 'id must be an ObsidiNote page id.' } } }
+    if (@('', 'replace', 'keep') -notcontains $decision) { return @{ status = 400; body = @{ error = 'decision must be replace or keep.' } } }
+    if ($null -eq $proposed -and -not (Test-CopilotReady $State)) { return (Get-CopilotMissing 'add') }
+    $u = Use-ActiveVault $State
+    if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
+    $ask = if (Test-CopilotReady $State) { Get-AddCopilot $State } else { { throw 'Copilot is not connected.' } }
+    $r = Update-LinkSummary -Store (New-ServerStore $State $u) -Ask $ask -Id $id -Decision $decision -Proposed $proposed
+    $r['intent'] = 'add'
+    @{ status = 200; body = $r }
 }
 
 function Invoke-ApiRoute {
@@ -219,20 +643,20 @@ function Invoke-ApiRoute {
             if ($v.notFound) { return @{ status = 404; body = @{ error = $v.message } } }
             return @{ status = 200; body = $v }
         }
+        'GET /api/graph' { return (Get-GraphRoute $State $Query) }
         'POST /api/active-vault' { return (Set-ActiveVault $State $Body) }
+        'POST /api/vault/new' { return (New-VaultRoute $State $Body) }
         'POST /api/intent' {
             try { $r = Read-IntentRequest $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
             return @{ status = 200; body = (Get-Intent -Text $r.text -Mode $r.mode) }
         }
-        'POST /api/submit' {
-            # Step 1: Add and Ask are not built yet; the interface shows this message.
-            try { $r = Read-IntentRequest $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
-            $i = Get-Intent -Text $r.text -Mode $r.mode
-            return @{ status = 501; body = @{ intent = $i.intent; message = (Get-SubmitMessage $i.intent) } }
-        }
+        'POST /api/submit' { return (Invoke-SubmitRoute $State $Body) }
+        'POST /api/add/undo' { return (Invoke-UndoRoute $State $Body) }
+        'POST /api/link/update' { return (Invoke-LinkUpdateRoute $State $Body) }
     }
     @{ status = 404; body = @{ error = 'Not found.' } }
 }
+
 
 # --- Requests ---------------------------------------------------------------------------------
 
@@ -366,4 +790,5 @@ function Test-UiServerRunning {
 }
 
 Export-ModuleMember -Function Get-AllowedOrigins, Test-AllowedOrigin, Test-AllowedHost, Get-RequestVerdict, Get-UiAllowList,
-    Get-CopilotTabState, New-ServerState, Invoke-ApiRoute, Invoke-ServerLoop, Start-UiServer, Stop-UiServer, Test-UiServerRunning, Test-ClientGone
+    Get-CopilotTabState, New-ServerState, Invoke-ApiRoute, Invoke-ServerLoop, Start-UiServer, Stop-UiServer, Test-UiServerRunning, Test-ClientGone,
+    ConvertTo-NotebookListing, Get-SubmitRoute

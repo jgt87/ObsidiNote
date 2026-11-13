@@ -6,6 +6,8 @@ body { margin: 0; background: var(--sunken); }
 .page { display: flex; flex-direction: column; gap: var(--space-5); max-width: 880px; margin: 0 auto; }
 .page__title { margin: 0 0 var(--space-2); font-size: var(--text-heading); font-weight: 600; }
 
+.app-notice { max-width: 880px; margin: 0 auto var(--space-5); box-sizing: border-box; }
+
 .icon { width: 16px; height: 16px; flex: none; }
 
 .visually-hidden {

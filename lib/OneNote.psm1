@@ -55,6 +55,9 @@ function New-OneNoteComAdapter {
     $a | Add-Member ScriptMethod GetHyperlinkToObject { param([string]$Id) $l = ''; $this.Com.GetHyperlinkToObject($Id, '', [ref]$l); [string]$l }
     $a | Add-Member ScriptMethod DeleteHierarchy { param([string]$Id) $this.Com.DeleteHierarchy($Id) }
     $a | Add-Member ScriptMethod DeletePageContent { param([string]$PageId, [string]$ObjectId) $this.Com.DeletePageContent($PageId, $ObjectId) }
+    # OneNote's own folder for new notebooks (slDefaultNotebookFolder = 2): the fallback when a
+    # notebook cannot be made next to the cloud notebooks (0x80042006).
+    $a | Add-Member ScriptMethod GetDefaultNotebookFolder { $p = ''; $this.Com.GetSpecialLocation(2, [ref]$p); [string]$p }
     return $a
 }
 
@@ -123,6 +126,7 @@ function New-GuardedOneNote {
     $g | Add-Member ScriptMethod GetHierarchy { param([string]$StartId, [int]$Scope) $this.Inner.GetHierarchy($StartId, $Scope) }
     $g | Add-Member ScriptMethod GetPageContent { param([string]$PageId) $this.Inner.GetPageContent($PageId) }
     $g | Add-Member ScriptMethod GetHyperlinkToObject { param([string]$Id) $this.Inner.GetHyperlinkToObject($Id) }
+    $g | Add-Member ScriptMethod GetDefaultNotebookFolder { if ($this.Inner.PSObject.Methods['GetDefaultNotebookFolder']) { $this.Inner.GetDefaultNotebookFolder() } else { '' } }
     $g | Add-Member ScriptMethod SetRoot { param([string]$RootId) $this.RootId = $RootId; $this.Refresh() }
     $g | Add-Member ScriptMethod Refresh {
         $set = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
@@ -184,6 +188,38 @@ function New-GuardedOneNote {
     return $g
 }
 
+function New-XmlOneNoteAdapter {
+    <# A read-only stand-in made from one GetHierarchy XML (the server's fake mode, tests): every read
+       answers from that XML (a start id gives that object's subtree), page content is the page's
+       Meta and title only, links are example links. Every write throws. Holds no scriptblock state
+       from outside, so it can be made inside the server's runspace from the XML text. #>
+    param([Parameter(Mandatory)][string]$Xml)
+    $a = [pscustomobject]@{ Kind = 'xml'; Doc = ([xml]$Xml) }
+    $a | Add-Member ScriptMethod Find { param([string]$Id)
+        foreach ($n in @($this.Doc.SelectNodes('//*[@ID]'))) { if ($n.GetAttribute('ID') -eq $Id) { return $n } }
+        $null
+    }
+    $a | Add-Member ScriptMethod GetHierarchy { param([string]$StartId, [int]$Scope)
+        if (-not $StartId) { return $this.Doc.OuterXml }
+        $n = $this.Find($StartId)
+        if (-not $n) { throw "No object $StartId (0x80042014)." }
+        $d = New-Object System.Xml.XmlDocument
+        $null = $d.AppendChild($d.ImportNode($n, $true))
+        $d.OuterXml
+    }
+    $a | Add-Member ScriptMethod GetPageContent { param([string]$PageId)
+        $n = $this.Find($PageId)
+        if (-not $n) { throw "No page $PageId (0x80042014)." }
+        $meta = (@($n.ChildNodes | Where-Object { $_.LocalName -eq 'Meta' } | ForEach-Object { '<one:Meta name="' + (ConvertTo-XmlAttr $_.GetAttribute('name')) + '" content="' + (ConvertTo-XmlAttr $_.GetAttribute('content')) + '"/>' }) -join '')
+        '<?xml version="1.0"?><one:Page xmlns:one="' + $script:OneNs + '" ID="' + (ConvertTo-XmlAttr $PageId) + '">' + $meta + '<one:Title><one:OE><one:T>' + (ConvertTo-OneText $n.GetAttribute('name')) + '</one:T></one:OE></one:Title></one:Page>'
+    }
+    $a | Add-Member ScriptMethod GetHyperlinkToObject { param([string]$Id) $g = ([regex]::Match($Id, '^\{([0-9A-Fa-f-]{36})\}')).Groups[1].Value; "onenote:https://example.invalid/notebook.one#page&page-id={$g}&end" }
+    foreach ($w in 'OpenHierarchy', 'CreateNewPage', 'UpdatePageContent', 'DeleteHierarchy', 'DeletePageContent') {
+        $a | Add-Member ScriptMethod $w ([scriptblock]::Create("throw 'Read only: this stand-in cannot write ($w).'"))
+    }
+    $a
+}
+
 function Set-OneNoteWriteRoot {
     <# Makes $RootId (notebook or section group of the active vault) the only place writes may go. #>
     param([Parameter(Mandatory)]$Adapter, [AllowEmptyString()][string]$RootId)
@@ -196,4 +232,4 @@ function Get-OneNoteAdapter {
     New-GuardedOneNote -Inner (New-OneNoteComAdapter)
 }
 
-Export-ModuleMember -Function Get-OneNoteSchemaNs, New-OneNoteNsManager, ConvertTo-XmlAttr, ConvertTo-OneText, ConvertTo-OneLink, New-OneNoteComAdapter, Get-HierarchyIds, Test-NestedVaultNode, Get-VaultScopeIds, Get-PageXmlId, New-GuardedOneNote, Set-OneNoteWriteRoot, Get-OneNoteAdapter
+Export-ModuleMember -Function Get-OneNoteSchemaNs, New-OneNoteNsManager, ConvertTo-XmlAttr, ConvertTo-OneText, ConvertTo-OneLink, New-OneNoteComAdapter, Get-HierarchyIds, Test-NestedVaultNode, Get-VaultScopeIds, Get-PageXmlId, New-GuardedOneNote, New-XmlOneNoteAdapter, Set-OneNoteWriteRoot, Get-OneNoteAdapter
