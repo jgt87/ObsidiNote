@@ -12,9 +12,11 @@ knowledge graph's data, Add and Ask.
 | Vaults | Lists the ObsidiNote vaults in your open notebooks (counts only) | No |
 | Index of Vault n | Loads each vault's index and checks that every page is listed in it | No |
 | Graph of notebook #n | Builds the knowledge graph's data for each open notebook (counts of pages, topics, links) | No |
+| Markdown export of Vault n | Builds the Markdown export of each vault in memory and drops it (counts of pages, unreadable pages, size, time); nothing is saved | No |
 | Dev vault | Creates or continues the test vault `ObsidiNote-Validation` (a new notebook next to your first OneDrive notebook), runs it twice, checks that ObsidiNote refuses writes into every other notebook, and writes its index | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Add (synthetic) and Undo | Adds a made-up sentence about tidal gardens to the test vault with Copilot, then undoes it (the page goes to OneNote's Deleted Pages) | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Check for the answer | Adds a second made-up sentence with a wait of 1 second, so Copilot is still answering and the item waits in the Intake (Copilot is left working, never stopped). Then checks for the answer every 10 seconds (at most 3 minutes) until the page is filed, and undoes it | Only `ObsidiNote-Validation`, with `-WriteTest` |
+| Update waits for the answer | Adds the public link `https://example.org/`, updates it with a wait of 1 second so the update waits in the Intake, checks for the answer every 10 seconds (at most 3 minutes) until the update is done, then undoes the link page | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Ask (synthetic) | Asks "What do my notes say about tidal gardens?" against the test vault | No (Ask never writes) |
 
 ## Steps
@@ -29,8 +31,11 @@ knowledge graph's data, Add and Ask.
    powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\ObsidiNote\validation\Run-Validation.ps1" -Stage V6
    ```
    - What you should see: `[OK] Vaults  N found`, one `Vault n` line per vault, `Index of Vault n`
-     with "pages missing from the index: 0", and `Graph of ...` lines with counts. The write
-     checks show `[SKIP] write tests not run`.
+     with "pages missing from the index: 0", `Graph of ...` lines with counts, and
+     `[OK] Markdown export of Vault n  N pages, 0 unreadable, ... (in memory, not saved)`. No file
+     appears in Downloads or anywhere else. The write checks show `[SKIP] write tests not run`.
+   - A `[WARN] Markdown export ...` line with unreadable pages > 0: send the files; the export still
+     works, those pages get a line saying they could not be read.
    - If not, send this: the two newest Desktop files.
 
 4. Write pass, only in the test vault:
@@ -50,6 +55,11 @@ knowledge graph's data, Add and Ask.
        waiting` line means Copilot answered within 1 second; run the kit again.
      - In the Copilot window during that check: Copilot keeps answering the second sentence; nothing
        presses Stop. ObsidiNote waits until that answer is done before it types anything else.
+     - `[OK] Update waits for the answer (link added)`, `[OK] Update waits for the answer (waiting)`,
+       `[INFO] ... (check n)` lines, then `[OK] Update waits for the answer  final status updated`
+       (or `unchanged`) and `[OK] Update waits for the answer (undo)  status undone`. A
+       `[FAIL] ... final status mismatch` line means Copilot did not repeat the reference or the link
+       it read: send the files.
      - `[OK] Ask (synthetic)  status ...; writes 0`
      - In OneNote: a notebook `ObsidiNote-Validation` with the sections `00 Index`, `01 Intake`,
        `Notes` and the other fixed sections. A test vault made before this version had `01 Inbox`:
@@ -73,4 +83,15 @@ knowledge graph's data, Add and Ask.
      until then, `status: linked` after.
    - If not, send this: the two newest Desktop files and which message the window showed.
 
-7. Clean up when asked to (RB-03, "Cleaning up").
+7. Export as Markdown in the window (reads only): in **Knowledge graph**, open a page and press
+   **Export as Markdown**; in **List**, press **Export as Markdown** next to a topic; in the side
+   bar, press **Export all as Markdown**.
+   - What you should see: each button shows "Exported" for a few seconds and the browser's
+     downloads list a `.md` file (a page) or a `... - Markdown.zip` (a topic, everything). Open the
+     zip: one folder named after the vault, a folder per topic, one `.md` per page, starting with
+     `---` front matter; links between pages read `[[Page title]]`. Delete the files afterwards if
+     your organisation asks for that: ObsidiNote keeps no copy.
+   - If not, send this: the two newest Desktop files, which button you pressed and the message next
+     to it (no file contents).
+
+8. Clean up when asked to (RB-03, "Cleaning up").

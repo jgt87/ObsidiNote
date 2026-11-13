@@ -93,8 +93,9 @@ Describe 'The vault, index, Add and Ask modules write no files and only write On
     # OneNote is the only store (AGENTS.md invariants): the structure, index, store, Add and Ask
     # modules keep everything in memory, log ids and counts only, and every OneNote write goes
     # through the guarded adapter (lib/OneNote.psm1 New-GuardedOneNote), never a COM object of its own.
-    $storeModules = 'OneNote.psm1', 'NotebookStructure.psm1', 'PageMeta.psm1', 'Vault.psm1', 'WriterLease.psm1', 'Index.psm1', 'VaultSession.psm1', 'VaultStore.psm1', 'AskSources.psm1', 'GraphModel.psm1', 'Ingest.psm1', 'Linker.psm1', 'LinkCapture.psm1', 'Ask.psm1'
-    $readOnly = 'AskSources.psm1', 'GraphModel.psm1', 'Ingest.psm1', 'Linker.psm1', 'LinkCapture.psm1', 'Ask.psm1'
+    $storeModules = 'OneNote.psm1', 'NotebookStructure.psm1', 'PageMeta.psm1', 'Vault.psm1', 'WriterLease.psm1', 'Index.psm1', 'VaultSession.psm1', 'VaultStore.psm1', 'AskSources.psm1', 'GraphModel.psm1', 'Ingest.psm1', 'Linker.psm1', 'LinkCapture.psm1', 'Ask.psm1', 'MarkdownExport.psm1'
+    # MarkdownExport: the export is a download built in memory (user, 2026-11-13); it reads only.
+    $readOnly = 'AskSources.psm1', 'GraphModel.psm1', 'Ingest.psm1', 'Linker.psm1', 'LinkCapture.psm1', 'Ask.psm1', 'MarkdownExport.psm1'
     $writes = '(?i)\b(UpdatePageContent|UpdateHierarchy|CreateNewPage|DeleteHierarchy|DeletePageContent|RenameSection|MergeSections|MergeFiles|OpenHierarchy|CloseNotebook|Publish|SyncHierarchy|SetFilingLocation|CreateNotebook|CreateSectionGroupIn)\b'
     $code = @{}
     foreach ($f in $storeModules) { $code[$f] = @(Get-CodeLinesNoBlock (Join-Path $root "lib\$f")) }

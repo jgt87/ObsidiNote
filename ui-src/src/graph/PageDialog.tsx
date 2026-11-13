@@ -3,6 +3,8 @@
 // "Ask about this", "Edit links" and "Move in index" only call back; the app wires them.
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { ExportButton } from '../export/ExportButton'
+import { exportSourceOf } from '../export/exportApi'
 import { formatDate, plural } from './format'
 import { indexPath, type GraphIndex } from './graphIndex'
 import { primaryTopic, type GraphEdge, type GraphPage } from './model'
@@ -105,6 +107,7 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onAsk
   const topicPages = (index.pagesByArea.get(topicId) ?? []).filter((id) => id !== page.id)
   const subtopics = index.model.topics.filter((t) => t.parent === topicId)
   const pos = (index.neighbours.get(anchorId) ?? []).length
+  const src = exportSourceOf(index.model.source)
 
   return (
     <dialog
@@ -176,7 +179,7 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onAsk
               <p className="kg-lbl">Summary</p>
               <p className="kg-summary">{page.summary || 'No summary yet.'}</p>
               <p className="kg-lbl">Page content</p>
-              <p className="kg-note">The page text stays in OneNote. Open it there to read or edit it.</p>
+              <p className="kg-note">The page text stays in OneNote. Open it there to read or edit it, or export a copy as Markdown.</p>
               {page.topicIds.length > 1 && (
                 <>
                   <p className="kg-lbl">Also under</p>
@@ -229,6 +232,11 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onAsk
               <p className="kg-lbl">Topic</p>
               <p className="kg-summary">{topic ? topic.path : 'Unfiled: pages without a topic yet'}</p>
               {topic?.subjects && <p className="kg-row__sub">{topic.subjects}</p>}
+              {topic && (
+                <p className="kg-dlg__export">
+                  <ExportButton request={{ scope: 'topic', topic: topic.id, ...src }} label="Export topic as Markdown" />
+                </p>
+              )}
               {subtopics.length > 0 && (
                 <>
                   <p className="kg-lbl">Subtopics</p>
@@ -304,6 +312,7 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onAsk
         <button type="button" className="btn" onClick={() => onMoveInIndex?.(page)} disabled={ro || !onMoveInIndex} title={ro ? 'Read only source' : undefined}>
           Move in index
         </button>
+        <ExportButton request={{ scope: 'page', page: page.id, ...src }} label="Export as Markdown" />
         <span className="kg-dlg__keys">Esc closes{pos ? ' · ← → previous or next linked page' : ''}</span>
       </footer>
     </dialog>

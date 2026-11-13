@@ -1,6 +1,8 @@
 // "List": the same data as the map, as tables per topic area. The keyboard and screen-reader
 // fallback for the graph; the search filter applies here too.
 
+import { ExportButton } from '../export/ExportButton'
+import { exportSourceOf } from '../export/exportApi'
 import { formatDate } from './format'
 import type { GraphIndex } from './graphIndex'
 import type { GraphLayout } from './layout'
@@ -18,6 +20,7 @@ export function GraphList({ index, layout, matches, onOpen }: Props) {
     .map((a) => ({ a, ids: [...a.pageIds].filter((id) => !keep || keep.has(id)) }))
     .filter((x) => x.ids.length > 0)
   if (!areas.length) return <p className="kg-meta">No pages match.</p>
+  const src = exportSourceOf(index.model.source)
   return (
     <div className="kg-list">
       {areas.map(({ a, ids }) => {
@@ -28,9 +31,14 @@ export function GraphList({ index, layout, matches, onOpen }: Props) {
         })
         return (
           <section key={a.id} aria-labelledby={`kg-list-${a.id}`}>
-            <h3 id={`kg-list-${a.id}`}>
-              {a.topic?.path ?? a.name} <span>{a.sub}</span>
-            </h3>
+            <div className="kg-list__head">
+              <h3 id={`kg-list-${a.id}`}>
+                {a.topic?.path ?? a.name} <span>{a.sub}</span>
+              </h3>
+              {a.topic && (
+                <ExportButton request={{ scope: 'topic', topic: a.topic.id, ...src }} label="Export as Markdown" className="kg-linkbtn" />
+              )}
+            </div>
             <table className="kg-table">
               <thead>
                 <tr>

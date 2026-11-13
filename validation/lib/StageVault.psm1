@@ -23,7 +23,8 @@ $script:SourceBuilders = @('New-AskSource')
 $script:GraphMax = 10
 $script:AddText = 'Validation note: tidal gardens grow salt-tolerant crops where the sea reaches the land. Synthetic text from the validation kit.'
 $script:AskText = 'What do my notes say about tidal gardens?'
-$script:WaitText = 'Validation note: salt marsh hay keeps garden beds moist and adds slow nutrients. Synthetic text from the validation kit (answer check).'
+$script:LinkText = 'https://example.org/'
+$script:WaitText ='Validation note: salt marsh hay keeps garden beds moist and adds slow nutrients. Synthetic text from the validation kit (answer check).'
 
 function Get-MissingAppModules {
     <# The module names (of $Names) that are not in <AppRoot>\lib. #>
@@ -57,7 +58,7 @@ function Invoke-WithKnownParams {
 }
 
 function Add-SkipAll($Ctx, [string]$Why) {
-    foreach ($n in 'Vaults', 'Index completeness', 'Knowledge graph', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
+    foreach ($n in 'Vaults', 'Index completeness', 'Knowledge graph', 'Markdown export', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
 }
 
 function Add-VaultResults($Ctx, $Adapter) {
@@ -225,6 +226,61 @@ function Invoke-DevAnswerCheck($Ctx, $Adapter, $Dev, $Bridge) {
         $u = Measure-KitStep { Undo-AddRequest -Store $store -Undo $undo }
         Add-ValidationResult $Ctx 'V6' $(if ($u.ok -and "$(Get-KitProp $u.value 'status' '')" -eq 'undone') { 'OK' } else { 'WARN' }) "$name (undo)" "status $(Get-KitProp $u.value 'status' 'error'); $($u.ms) ms"
     }
+    Invoke-DevUpdateCheck $Ctx $store $askShort $askNormal $readChat
+}
+
+function Invoke-DevUpdateCheck($Ctx, $Store, $AskShort, $AskNormal, $ReadChat) {
+    <# A slow link update waits too (user, 2026-11-13): the synthetic public link is added, its Update
+       is sent with the 1-second wait (Pending: an Intake item "Update: ..." waits), then "Check for
+       the answer" finishes it (Copilot must repeat the reference AND the link as "source"); then
+       Undo of the link page. Statuses and timings only. #>
+    $name = 'Update waits for the answer'
+    $cmd = Get-Command Update-LinkSummary -ErrorAction SilentlyContinue
+    if (-not $cmd -or -not $cmd.Parameters.ContainsKey('Resume')) { Add-ValidationResult $Ctx 'V6' 'SKIP' $name 'not in this version yet'; return }
+    $add = Measure-KitStep { Invoke-AddRequest -Request @{ text = $script:LinkText; mode = 'add' } -Store $Store -Ask $AskNormal }
+    $st = "$(Get-KitProp $add.value 'status' 'error')"
+    $page = Get-KitProp $add.value 'page' $null
+    if ($st -ne 'added' -or -not $page) { Add-ValidationResult $Ctx 'V6' 'FAIL' "$name (link added)" "status $st; $($add.ms) ms$(if (-not $add.ok) { "; $($add.error)" })"; return }
+    Add-ValidationResult $Ctx 'V6' 'OK' "$name (link added)" "$($add.ms) ms"
+    try {
+        $up = Measure-KitStep { Update-LinkSummary -Store $Store -Ask $AskShort -Id "$(Get-KitProp $page 'id' '')" }
+        $ust = "$(Get-KitProp $up.value 'status' 'error')"
+        $inboxId = "$(Get-KitProp $up.value 'inboxId' '')"
+        if ($ust -ne 'waiting' -or -not $inboxId) { Add-ValidationResult $Ctx 'V6' $(if ($ust -in 'updated', 'unchanged') { 'WARN' } else { 'FAIL' }) "$name (waiting)" "status $ust instead of waiting; $($up.ms) ms"; return }
+        Add-ValidationResult $Ctx 'V6' 'OK' "$name (waiting)" "the update waits in the Intake; $($up.ms) ms"
+        $sw = [Diagnostics.Stopwatch]::StartNew(); $tries = 0; $last = ''
+        while ($sw.Elapsed.TotalSeconds -lt 180) {
+            $tries++
+            $c = Measure-KitStep { Receive-AddAnswer -Store $Store -Ask $AskNormal -ReadChat $ReadChat -InboxId $inboxId }
+            $last = if ($c.ok) { "$(Get-KitProp $c.value 'status' 'error')" } else { 'error' }
+            Add-ValidationResult $Ctx 'V6' 'INFO' "$name (check $tries)" "status $last; $($c.ms) ms"
+            if ($last -ne 'still-waiting') { break }
+            $until = (Get-Date).AddSeconds(10); while ((Get-Date) -lt $until) { Start-Sleep -Milliseconds 250 }
+        }
+        $ok = $last -in 'updated', 'unchanged', 'kept', 'could-not-update'
+        Add-ValidationResult $Ctx 'V6' $(if ($ok) { 'OK' } else { 'FAIL' }) $name "final status $last after $tries check(s), $([int]$sw.Elapsed.TotalSeconds) s" $(if ($last -eq 'mismatch') { 'Copilot did not repeat the reference or the link; send this log back.' } else { '' })
+    } finally {
+        $undo = Get-KitProp $add.value 'undo' $null
+        if ($undo) { $u = Measure-KitStep { Undo-AddRequest -Store $Store -Undo $undo }; Add-ValidationResult $Ctx 'V6' $(if ("$(Get-KitProp $u.value 'status' '')" -eq 'undone') { 'OK' } else { 'WARN' }) "$name (undo)" "status $(Get-KitProp $u.value 'status' 'error'); $($u.ms) ms" }
+    }
+}
+
+function Add-ExportResults($Ctx, $Adapter, [object[]]$Vaults) {
+    <# Markdown export of every vault, read only: the files are built in memory and dropped; only the
+       page count, unreadable pages, size and time are logged. Nothing is saved. #>
+    if (-not (Get-Command New-MarkdownExport -ErrorAction SilentlyContinue)) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Markdown export' 'not in this version yet'; return }
+    if (-not $Vaults.Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Markdown export' 'no vault open'; return }
+    $read = { param($Id) $Adapter.GetPageContent($Id) }.GetNewClosure()
+    foreach ($x in $Vaults) {
+        $nb = if ($x.PSObject.Properties['kitAlias']) { $x.kitAlias } else { 'a vault' }
+        $r = Measure-KitStep {
+            $m = Read-IndexModel -Adapter $Adapter -IndexSectionId $x.indexSectionId -VaultId "$($x.vaultId)" -RootId $x.rootId
+            $e = New-MarkdownExport -Model $m -ReadPage $read -SourceName 'validation' -Scope all
+            if ($e.ContainsKey('error')) { [pscustomobject]@{ pages = 0; failed = 0; kb = 0 } } else { [pscustomobject]@{ pages = $e.pages; failed = $e.failed; kb = [int]($e.bytes.Length / 1024) } }
+        }
+        if (-not $r.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' "Markdown export of $nb" $r.error; continue }
+        Add-ValidationResult $Ctx 'V6' $(if ($r.value.failed) { 'WARN' } else { 'OK' }) "Markdown export of $nb" "$($r.value.pages) pages, $($r.value.failed) unreadable, $($r.value.kb) KB zip, $($r.ms) ms (in memory, not saved)"
+    }
 }
 
 function Invoke-DevAsk($Ctx, $Adapter, $Dev, $Bridge) {
@@ -273,6 +329,8 @@ function Invoke-StageVault {
     $vaults = @(Add-VaultResults $Ctx $a.value)
     Add-IndexResults $Ctx $a.value $vaults
     Add-GraphResults $Ctx $a.value $vaults
+    if (-not @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names @('MarkdownExport')).Count) { Import-AppModules $Ctx.AppRoot @('MarkdownExport') }
+    Add-ExportResults $Ctx $a.value $vaults
     Invoke-DevVaultChecks $Ctx $a.value
 }
 

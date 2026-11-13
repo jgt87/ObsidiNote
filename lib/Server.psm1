@@ -21,7 +21,8 @@ $script:Here = $PSScriptRoot
 # config\obsidinote.local.json, the one file this server changes (no content, FEASIBILITY.md).
 # Vaults, index, store and the Add/Ask handlers: lib/VaultSession.psm1, VaultStore, AskSources,
 # GraphModel, Ingest, Ask (and the step-2 modules they import). Status for the [WARN] line of a new vault.
-foreach ($m in 'Log', 'AppConfig', 'Startup', 'Intent', 'OneNoteHost', 'NotebookView', 'Update', 'Status', 'OneNote', 'PageMeta', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'AskSources', 'GraphModel', 'Ingest', 'Ask') {
+# MarkdownExport: POST /api/export, the download the person asks for (built in memory).
+foreach ($m in 'Log', 'AppConfig', 'Startup', 'Intent', 'OneNoteHost', 'NotebookView', 'Update', 'Status', 'OneNote', 'PageMeta', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'AskSources', 'GraphModel', 'Ingest', 'Ask', 'MarkdownExport') {
     Import-Module (Join-Path $PSScriptRoot "$m.psm1")
 }
 
@@ -381,6 +382,10 @@ function Get-CopilotMissing([string]$Intent) {
 # for Add the end of the wait means 'Pending' (the item waits in the Intake), never Stop. BusyWaitSec:
 # an earlier answer still running in the chat (left running) is waited for this long before Add types.
 $script:CopilotWait = @{ TimeoutSec = 600; StallSec = 300; MaxTimeoutSec = 900; BusyWaitSec = 60 }
+# Add (new items, link updates, "Check for the answer"'s linking step) is never stopped, so its wait
+# only decides how long the window stays busy before the item shows as waiting with "Check for the
+# answer" (user, 2026-11-13: about 2 minutes; it could be busy for 15).
+$script:AddWait = @{ TimeoutSec = 120; StallSec = 120; MaxTimeoutSec = 0; BusyWaitSec = 60 }
 
 function Get-AskCopilotAdapter($State) {
     <# @{ Send; NewChat } for Ask: the test stand-in, or the bridge (lib/Ask.psm1 New-AskCopilot). #>
@@ -398,7 +403,7 @@ function Get-AddCopilot($State) {
     Import-Module (Join-Path $script:Here 'CopilotBridge.psm1') -Global
     $cmd = Get-Command Send-CopilotPrompt
     $b = $State.Copilot
-    $w = $script:CopilotWait
+    $w = $script:AddWait
     $t = $w.TimeoutSec; $st = $w.StallSec; $mx = $w.MaxTimeoutSec; $bw = $w.BusyWaitSec
     { param([string]$Prompt) & $cmd -Bridge $b -Text $Prompt -TimeoutSec $t -StallSec $st -MaxTimeoutSec $mx -LeaveRunning -BusyWaitSec $bw }.GetNewClosure()
 }
@@ -622,6 +627,52 @@ function Get-GraphRoute($State, [string]$Query) {
     @{ status = 200; body = $m }
 }
 
+function Get-ExportSource($State, [string]$VaultId, [string]$NotebookId) {
+    <# The index model to export from, like GET /api/graph: a vault (the active one when neither is
+       given) or a connected notebook. @{ ok; model; name; adapter } or @{ ok = $false; status; error }. #>
+    $d = Get-VaultData $State
+    if (-not $d.adapter) { return @{ ok = $false; status = 503; error = $(if ($d.message) { $d.message } else { $script:NotRunning }) } }
+    $v = $null
+    if ($VaultId) { $v = @($d.vaults | Where-Object { $_.vaultId -eq $VaultId }) | Select-Object -First 1; if (-not $v) { return @{ ok = $false; status = 404; error = 'That vault is not open in OneNote.' } } }
+    elseif ($NotebookId) { $v = @($d.vaults | Where-Object { (Get-VaultListId $_) -eq $NotebookId }) | Select-Object -First 1 }
+    elseif ($State.Vault) { $v = @($d.vaults | Where-Object { $_.vaultId -eq $State.Vault.vaultId }) | Select-Object -First 1 }
+    else { return @{ ok = $false; status = 409; error = 'No vault is open.' } }
+    if ($v) {
+        if ($State.Vault -and $v.vaultId -eq $State.Vault.vaultId) {
+            $u = Use-ActiveVault $State
+            if (-not $u.ok) { return @{ ok = $false; status = $u.status; error = $u.error } }
+            return @{ ok = $true; model = $u.model; name = $v.name; adapter = $d.adapter }
+        }
+        return @{ ok = $true; model = (Read-IndexModel -Adapter $d.adapter -IndexSectionId $v.indexSectionId -VaultId $v.vaultId -RootId $v.rootId); name = $v.name; adapter = $d.adapter }
+    }
+    $nb = @($d.notebooks | Where-Object { $_.id -eq $NotebookId }) | Select-Object -First 1
+    if (-not $nb) { return @{ ok = $false; status = 404; error = 'That notebook is not open in OneNote.' } }
+    $c = Get-ForeignGraphModel $State $d.adapter $nb $d.vaults -BudgetMs 0
+    @{ ok = $true; model = $c.model; name = $nb.name; adapter = $d.adapter }
+}
+
+function Invoke-ExportRoute($State, [string]$Body) {
+    <# POST /api/export {scope page|topic|all, vault?, notebook?, page?, topic?}: Markdown for one page
+       (.md), a topic or everything (.zip), as a download the person asked for (user, 2026-11-13, the
+       one exception to "content stays in OneNote"). Read only; built in memory, never on disk. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $scope = "$(Get-BodyValue $b 'scope' 'all')"
+    $vid = "$(Get-BodyValue $b 'vault' '')"; $nid = "$(Get-BodyValue $b 'notebook' '')"
+    $key = "$(Get-BodyValue $b 'page' '')"; $topic = "$(Get-BodyValue $b 'topic' '')"
+    if (@('page', 'topic', 'all') -notcontains $scope) { return @{ status = 400; body = @{ error = 'scope must be page, topic or all.' } } }
+    if ($vid -and -not (Test-VaultIdText $vid)) { return @{ status = 400; body = @{ error = 'vault must be a vault id.' } } }
+    if ($nid -and -not (Test-NotebookId $nid)) { return @{ status = 400; body = @{ error = 'notebook must be a OneNote notebook id.' } } }
+    if ($scope -eq 'page' -and ($key.Length -gt 220 -or -not ((Test-ObsnId $key) -or ($key.StartsWith('n:') -and (Test-PageIdText $key.Substring(2)))))) { return @{ status = 400; body = @{ error = 'page must be a page id of the map.' } } }
+    if ($scope -eq 'topic' -and (-not $topic.Trim() -or $topic.Length -gt 300 -or $topic -match '[\x00-\x1f]')) { return @{ status = 400; body = @{ error = 'topic must be a topic path.' } } }
+    $src = Get-ExportSource $State $vid $nid
+    if (-not $src.ok) { return @{ status = $src.status; body = @{ error = $src.error } } }
+    $ad = $src.adapter
+    $read = { param([string]$OneNoteId) $ad.GetPageContent($OneNoteId) }.GetNewClosure()
+    $x = New-MarkdownExport -Model $src.model -ReadPage $read -SourceName $src.name -Scope $scope -Key $key -Topic $topic
+    if ($x.ContainsKey('error')) { return @{ status = 404; body = @{ error = $x.error } } }
+    @{ status = 200; file = $x; body = @{ name = $x.name; pages = $x.pages; failed = $x.failed } }
+}
+
 function Get-AskSourceList($State, $Use, [string[]]$Wanted) {
     <# The source adapters for one Ask: the active vault (ReadOnly false) and the chosen read-only
        vaults and connected notebooks. #>
@@ -753,6 +804,7 @@ function Invoke-ApiRoute {
         'POST /api/add/undo' { return (Invoke-UndoRoute $State $Body) }
         'POST /api/add/fetch' { return (Invoke-AddFetchRoute $State $Body) }
         'POST /api/link/update' { return (Invoke-LinkUpdateRoute $State $Body) }
+        'POST /api/export' { return (Invoke-ExportRoute $State $Body) }
     }
     @{ status = 404; body = @{ error = 'Not found.' } }
 }
@@ -814,7 +866,20 @@ function Invoke-ServerRequest($Ctx, $State, $AllowList) {
         try { $body = Read-Body $Ctx } catch { return Send-Json $Ctx @{ error = 'The request is too large.' } 413 }
     }
     $a = Invoke-ApiRoute -Method $req.HttpMethod -Path $path -Body $body -State $State -Query $query
+    if ($a.ContainsKey('file') -and $a.file) { return Send-Download $Ctx $a.file }
     Send-Json $Ctx $a.body $a.status
+}
+
+function Get-ContentDisposition([string]$Name) {
+    <# attachment with an ASCII fallback name and the full name as RFC 5987 UTF-8. #>
+    $ascii = ($Name -replace '[^\x20-\x7e]', '_' -replace '["\\]', '_')
+    "attachment; filename=""$ascii""; filename*=UTF-8''$([Uri]::EscapeDataString($Name))"
+}
+
+function Send-Download($Ctx, $File) {
+    <# An export the person asked for (POST /api/export): the bytes straight from memory. #>
+    $Ctx.Response.Headers['Content-Disposition'] = Get-ContentDisposition ([string]$File.name)
+    Send-Bytes $Ctx 200 ([string]$File.type) ([byte[]]$File.bytes)
 }
 
 function Test-ClientGone($Exception) {

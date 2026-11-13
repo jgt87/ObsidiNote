@@ -647,7 +647,11 @@ function Receive-AddAnswer {
         $r.message = $found.message + $(if ($found.status -eq 'mismatch') { ' Nothing was written; the item still waits in your Intake.' } else { '' })
         return (Complete-AddResult $r $sw)
     }
-    $add = Invoke-AddRequest -Request @{ text = $r.text; mode = 'add' } -Store $Store -Ask $Ask -Options $Options -Resume @{ inboxPageId = $InboxId; ref = $r.ref; reply = $found.reply }
+    if ((Get-LkString $item 'requestKind') -in 'linkUpdate', 'linkSeen') {
+        $add = Receive-UpdateAnswer -Store $Store -Ask $Ask -Item $item -InboxId $InboxId -Ref $r.ref -Reply $found.reply -Options $Options -Result $r
+    } else {
+        $add = Invoke-AddRequest -Request @{ text = $r.text; mode = 'add' } -Store $Store -Ask $Ask -Options $Options -Resume @{ inboxPageId = $InboxId; ref = $r.ref; reply = $found.reply }
+    }
     if ($add.status -eq 'failed') { $add.status = 'invalid' }
     if ($add.status -in 'invalid', 'mismatch') { $add.message = "$($add.message) Nothing was written; the item still waits in your Intake." }
     $add.inboxId = $InboxId
@@ -715,18 +719,51 @@ function Update-LinkSummary {
         [ValidateSet('', 'replace', 'keep')][string]$Decision = '',
         $Proposed = $null,
         [switch]$SeenAgain,
-        [hashtable]$Options = @{}
+        [hashtable]$Options = @{},
+        # @{ ref; reply }: the answer "Check for the answer" found for a waiting update (not asked again).
+        [hashtable]$Resume = $null
     )
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $r = New-AddResult -Status 'failed' -Kind 'link'
     try { Invoke-Store $Store 'AssertWritable' | Out-Null } catch { $r.message = "Nothing was updated: $($_.Exception.Message)"; return (Complete-AddResult $r $sw) }
-    try { $r = Invoke-LinkUpdate -Store $Store -Ask $Ask -Id $Id -Decision $Decision -Proposed $Proposed -SeenAgain:$SeenAgain -Options $Options -Result $r }
+    try { $r = Invoke-LinkUpdate -Store $Store -Ask $Ask -Id $Id -Decision $Decision -Proposed $Proposed -SeenAgain:$SeenAgain -Options $Options -Result $r -Resume $Resume }
     catch { $r.status = 'failed'; $r.message = "The update stopped: $($_.Exception.Message)" }
     Complete-AddResult $r $sw
 }
 
+function Set-UpdateWaiting {
+    <# A link update whose answer did not come in time (Copilot left running): an Intake item
+       "Update: <title>" with the link, the request reference and requestKind linkUpdate (button) or
+       linkSeen (the link pasted again) becomes 'waiting', so "Check for the answer" can finish the
+       update later. The page itself is not touched. #>
+    param($Store, $Result, [string]$Url, [string]$Title, [string]$Ref, [switch]$SeenAgain, $Answer, [datetime]$Now)
+    $kind = if ($SeenAgain) { 'linkSeen' } else { 'linkUpdate' }
+    $t = Get-InboxTitle ('Update: ' + $(if ($Title) { $Title } else { $Url }))
+    $inbox = Get-StepInbox -Store $Store -Resume $null -Title $t -Text $Url -Kind 'link' -Ref $Ref -RequestKind $kind
+    if ($inbox -is [string]) { $Result.message = "Copilot did not answer in time. $inbox"; return $Result }
+    Set-InboxWaiting $Store $inbox $Ref $kind $Answer $Result $Now
+}
+
+function Receive-UpdateAnswer {
+    <# "Check for the answer" for a waiting link update (requestKind linkUpdate|linkSeen): the update
+       runs again from the answer found in the chat (Update-LinkSummary -Resume); when it is used, the
+       Intake item is marked filed with the page's id. #>
+    param($Store, [scriptblock]$Ask, $Item, [string]$InboxId, [string]$Ref, [string]$Reply, [hashtable]$Options, $Result)
+    $r = $Result
+    $norm = [string](Invoke-Store $Store 'NormalizeUrl' @{ Url = $r.text })
+    $existing = Invoke-Store $Store 'FindPageByUrl' @{ Url = $norm }
+    $id = [string](Get-LkProp $existing 'id' '')
+    if (-not $id) { $r.status = 'invalid'; $r.message = 'The page for this link is no longer in the index, so the answer is not used. Nothing was written; the item still waits in your Intake.'; return $r }
+    $up = Update-LinkSummary -Store $Store -Ask $Ask -Id $id -SeenAgain:((Get-LkString $Item 'requestKind') -eq 'linkSeen') -Options $Options -Resume @{ ref = $Ref; reply = $Reply }
+    if ($up.status -in 'updated', 'unchanged', 'kept', 'could-not-update', 'needs-confirmation') {
+        try { Invoke-Store $Store 'SetInboxStatus' @{ PageId = $InboxId; Status = 'linked'; Reason = ''; Id = $id } | Out-Null; $up.inbox = @{ pageId = $InboxId; status = 'linked' } }
+        catch { $up.warnings = @($up.warnings) + "The Intake item was not marked as filed: $($_.Exception.Message)" }
+    }
+    $up
+}
+
 function Invoke-LinkUpdate {
-    param($Store, [scriptblock]$Ask, [string]$Id, [string]$Decision, $Proposed, [switch]$SeenAgain, [hashtable]$Options, $Result)
+    param($Store, [scriptblock]$Ask, [string]$Id, [string]$Decision, $Proposed, [switch]$SeenAgain, [hashtable]$Options, $Result, $Resume = $null)
     $r = $Result
     $now = Get-IngestNow $Options
     $today = $now.ToString('yyyy-MM-dd')
@@ -758,14 +795,21 @@ function Invoke-LinkUpdate {
         $new = ConvertTo-SummaryRecord $Proposed
         if (-not $new -or -not $new.title -or -not $new.summary) { $r.message = 'The proposed summary is incomplete.'; return $r }
     } else {
-        $ref = New-RequestRef
-        $ans = Invoke-IngestAsk -Ask $Ask -Prompt (New-LinkSummaryPrompt -Url $url -Bucket $bucket -Today $now -Ref $ref)
+        $ref = if ($Resume) { [string]$Resume['ref'] } else { New-RequestRef }
+        $ans = Get-StepAnswer -Ask $Ask -Prompt (New-LinkSummaryPrompt -Url $url -Bucket $bucket -Today $now -Ref $ref) -Resume $Resume
         $r.timings.copilotMs += $ans.ms
+        if ($ans['pending']) { return (Set-UpdateWaiting -Store $Store -Result $r -Url $url -Title $view.title -Ref $ref -SeenAgain:$SeenAgain -Answer $ans -Now $now) }
         if (-not $ans.ok) { $r.message = $ans.error; return $r }
         $json = Get-ReplyJson $ans.text
         if (-not $json.ok) { $r.message = $json.error; return $r }
-        $rc = Test-ReplyRef -Reply $json.value -Ref $ref
-        if (-not $rc.ok) { $r.message = $rc.error; return $r }
+        $rc = Test-ReplyRef -Reply $json.value -Ref $ref -Required:([bool]$Resume)
+        if ($rc.ok -and $Resume) {
+            # An answer read from the chat later must be about this page's link.
+            $src = Get-LkString $json.value 'source'
+            $srcNorm = if ($src) { [string](Invoke-Store $Store 'NormalizeUrl' @{ Url = $src }) } else { '' }
+            if ($srcNorm -ne [string](Invoke-Store $Store 'NormalizeUrl' @{ Url = $url })) { $rc = @{ ok = $false; error = "The answer is about another link than this page's link." } }
+        }
+        if (-not $rc.ok) { $r.message = $rc.error; if ($Resume) { $r.status = 'mismatch' }; return $r }
         $sum = ConvertTo-LinkSummary -Reply $json.value -Bucket $bucket
         if (-not $sum.ok) { $r.message = $sum.error; return $r }
         if (-not $sum.readable) {

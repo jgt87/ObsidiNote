@@ -270,3 +270,50 @@ Describe 'The same link again: update instead of a new page' {
         (Update-LinkSummary -Store $v.store -Ask $c.ask -Id 'p404').message | Should Match 'not in the index'
     }
 }
+
+function Get-PendingUpdateAsk { { [pscustomobject]@{ Text = ''; Result = 'Pending'; ChatUrl = 'https://m365.cloud.microsoft/chat/conversation/c0ffee12' } } }
+function New-UpdateChat([string]$Text) { { param($ChatUrl) @{ state = 'read'; text = $Text; busy = $false } }.GetNewClosure() }
+function Add-RefSource([string]$Reply, [string]$Ref, [string]$Source) { $Reply.TrimEnd().TrimEnd('}') + ', "ref": "' + $Ref + '", "source": "' + $Source + '"}' }
+
+Describe 'A slow link update waits for "Check for the answer" (user, 2026-11-13)' {
+    It 'leaves the page alone and keeps an Intake item that waits, for the button and for a pasted link' {
+        $v = New-FakeVault
+        $r = Update-LinkSummary -Store $v.store -Ask (Get-PendingUpdateAsk) -Id 'p7' -Options @{ Now = $script:Now }
+        $r.status | Should Be 'waiting'
+        $r.inboxId | Should Be '{IN0}'
+        $v.st.updates.Count | Should Be 0
+        $i = $v.st.inbox['{IN0}']
+        $i.status | Should Be 'waiting'
+        $i.kind | Should Be 'link'
+        $i.requestKind | Should Be 'linkUpdate'
+        $i.title | Should Match '^Update: '
+        $r.ref | Should Be $i.ref
+        $v2 = New-FakeVault
+        $r2 = Invoke-AddRequest -Request @{ text = $script:HandbookUrl } -Store $v2.store -Ask (Get-PendingUpdateAsk) -Options @{ Now = $script:Now }
+        $r2.status | Should Be 'waiting'
+        $v2.st.inbox['{IN0}'].requestKind | Should Be 'linkSeen'
+        $v2.st.updates.Count | Should Be 0
+    }
+    It 'finishes the update from the answer with the reference and the same link, and files the item' {
+        $v = New-FakeVault
+        $w = Invoke-AddRequest -Request @{ text = $script:HandbookUrl } -Store $v.store -Ask (Get-PendingUpdateAsk) -Options @{ Now = $script:Now }
+        $c = New-FakeCopilot @($script:HandbookLinks)
+        $chat = (Add-RefSource $script:HandbookNew 'rother123' $script:HandbookUrl) + "`n" + (Add-RefSource $script:HandbookNew $w.ref $script:HandbookUrl)
+        $r = Receive-AddAnswer -Store $v.store -Ask $c.ask -ReadChat (New-UpdateChat $chat) -InboxId $w.inboxId -Options @{ Now = $script:Now }
+        $r.status | Should Be 'updated'
+        $c.q.prompts.Count | Should Be 1
+        $v.st.updates.Count | Should Be 1
+        $v.st.updates[0].meta.seenAt | Should Be '2026-11-13'
+        $v.st.inbox['{IN0}'].status | Should Be 'linked'
+        $v.st.inbox['{IN0}'].filedAs | Should Be 'p7'
+    }
+    It 'writes nothing for an answer about another link, and the item keeps waiting' {
+        $v = New-FakeVault
+        $w = Update-LinkSummary -Store $v.store -Ask (Get-PendingUpdateAsk) -Id 'p7' -Options @{ Now = $script:Now }
+        $r = Receive-AddAnswer -Store $v.store -Ask (New-FakeCopilot @()).ask -ReadChat (New-UpdateChat (Add-RefSource $script:HandbookNew $w.ref 'https://example.org/other')) -InboxId $w.inboxId
+        $r.status | Should Be 'mismatch'
+        $r.message | Should Match 'another link'
+        $v.st.updates.Count | Should Be 0
+        $v.st.inbox['{IN0}'].status | Should Be 'waiting'
+    }
+}

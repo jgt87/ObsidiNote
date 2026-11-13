@@ -424,6 +424,42 @@ Describe 'Invoke-ApiRoute: "Check for the answer" (POST /api/add/fetch, in-memor
     Remove-Item $app -Recurse -Force
 }
 
+Describe 'Invoke-ApiRoute: Markdown export (POST /api/export, in-memory OneNote)' {
+    $w = New-SyntheticVault -SessionId 'server'
+    $app = New-TempAppRoot
+    $state = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'server' -Vault $w.open.vault -Lease $w.open.lease -Model $w.open.model
+    $graph = Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -State $state
+    $writesBefore = $w.f.Writes.Count
+    It 'exports the whole active vault as a zip with one file per page of the map' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/export' -Body '{"scope":"all"}' -State $state
+        $r.status | Should Be 200
+        $r.file.type | Should Be 'application/zip'
+        $r.file.name | Should Match ' - Markdown\.zip$'
+        $r.file.pages | Should Be @($graph.body.pages).Count
+        $r.file.failed | Should Be 0
+        $r.file.bytes[0] | Should Be 0x50
+    }
+    It 'exports one page of the map as .md with its title in the front matter' {
+        $p = @($graph.body.pages | Where-Object { $_.id -eq 'p1' })[0]
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/export' -Body '{"scope":"page","page":"p1"}' -State $state
+        $r.status | Should Be 200
+        $r.file.name | Should Match '\.md$'
+        (New-Object Text.UTF8Encoding $false).GetString($r.file.bytes) | Should Match ('(?m)^title: "' + [regex]::Escape($p.title) + '"$')
+    }
+    It 'refuses bad requests and says when a topic has no pages; it writes nothing' {
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/export' -Body '{"scope":"disk"}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/export' -Body '{"scope":"page","page":"../x"}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/export' -Body '{"scope":"all","vault":"not a vault id"}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/export' -Body '{"scope":"topic","topic":"No such topic"}' -State $state).status | Should Be 404
+        $w.f.Writes.Count | Should Be $writesBefore
+        $w.f.Calls['GetPageContent'] | Should BeGreaterThan 0
+    }
+    It 'names the download for every browser (ASCII fallback plus UTF-8)' {
+        InModuleScope Server { Get-ContentDisposition ('Caf' + [char]0xE9 + ' "notes".md') } | Should Be ('attachment; filename="Caf_ _notes_.md"; filename*=UTF-8''''Caf%C3%A9%20%22notes%22.md')
+    }
+    Remove-Item $app -Recurse -Force
+}
+
 Describe 'Pure parts of the routes' {
     It 'routes a submit by mode and intent; unclear goes to Add in auto mode' {
         (Get-SubmitRoute -Text 'x' -Mode 'add').intent | Should Be 'add'

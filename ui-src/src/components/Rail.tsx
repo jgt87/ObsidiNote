@@ -1,6 +1,7 @@
 import iconUrl from '../../../assets/icon.svg'
 import type { NotebooksState, NotebookState } from '../hooks/useServerData'
 import type { AttentionNote } from '../model/attention'
+import { ExportButton } from '../export/ExportButton'
 import { plural } from '../model/format'
 import { VIEW_ORDER, VIEWS, type View } from '../model/views'
 import { GraphIcon, HistoryIcon, PlusIcon, WarnIcon } from './icons'
@@ -77,6 +78,10 @@ export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp }: 
             {nb.notebook.location ? ` (${nb.notebook.location})` : ''}
             {nb.notebook.vault ? '' : ', read only'}
           </p>
+        )}
+        {nb?.available && nb.notebook && nb.totals.pages > 0 && (
+          // The shown notebook or vault, as Obsidian-style Markdown files in a zip (POST /api/export).
+          <ExportButton request={{ scope: 'all', notebook: notebooks.shownId ?? nb.notebook.id }} label="Export all as Markdown" className="btn switcher__new" />
         )}
         <ThemeSwitch />
       </footer>

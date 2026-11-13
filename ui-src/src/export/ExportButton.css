@@ -1,0 +1,6 @@
+/* The export button, and why it did not work next to it (success shows on the button itself). */
+.export { display: inline-flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; min-width: 0; }
+.export__w { display: inline-grid; justify-items: center; }
+.export__w > * { grid-area: 1 / 1; }
+.export__w > [aria-hidden] { visibility: hidden; }
+.export__msg { font-size: var(--text-meta); color: var(--ink); max-width: 40ch; }

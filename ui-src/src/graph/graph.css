@@ -132,8 +132,12 @@
 /* ---------- list view ---------- */
 .kg-list { display: flex; flex-direction: column; gap: var(--space-5); }
 .kg-list section { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
-.kg-list h3 { margin: 0; padding: var(--space-4) var(--space-4) var(--space-3); font-size: var(--text-control); font-weight: 600;
+.kg-list__head { display: flex; gap: var(--space-3); align-items: baseline; justify-content: space-between; flex-wrap: wrap;
+  padding: var(--space-4) var(--space-4) var(--space-3); }
+.kg-list__head .export { font-size: var(--text-meta); color: var(--muted); }
+.kg-list h3 { margin: 0; min-width: 0; font-size: var(--text-control); font-weight: 600;
   display: flex; gap: var(--space-3); align-items: baseline; flex-wrap: wrap; }
+.kg-dlg__export { margin: var(--space-4) 0 0; }
 .kg-list h3 span { color: var(--muted); font-size: var(--text-meta); font-weight: 400; }
 .kg-table { width: 100%; border-collapse: collapse; font-size: var(--text-body); table-layout: fixed; }
 .kg-table th:nth-child(2) { width: 140px; }

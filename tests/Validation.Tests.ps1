@@ -395,8 +395,8 @@ Describe 'V6 skips what is not in this version yet' {
         $null = New-Item -ItemType Directory -Force -Path (Join-Path $d 'lib')
         $c = New-TestCtx -AppRoot $d -Flags @{ WriteTest = $true }
         Invoke-StageVault -Ctx $c
-        $c.Results.Count | Should Be 7
-        @($c.Results | Where-Object { $_.status -eq 'SKIP' -and $_.detail -match '^not in this version yet' }).Count | Should Be 7
+        $c.Results.Count | Should Be 8
+        @($c.Results | Where-Object { $_.status -eq 'SKIP' -and $_.detail -match '^not in this version yet' }).Count | Should Be 8
         @($c.Results | Where-Object { $_.name -eq 'Check for the answer' }).Count | Should Be 1
         Remove-Item $d -Recurse -Force
     }
