@@ -5,6 +5,8 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.7.0] - 2026-11-13
+
 ### Added
 - **Find**: press Ctrl+K anywhere to jump to a page or topic of your vault. The knowledge graph's search also takes filters (`type:`, `topic:`, `site:`, `after:`, `before:`, `is:archived`, `is:hub`, `is:unlinked`) and "quoted phrases", shows the active filters as chips you can remove, and ignores case and accents.
 - **Filter** the knowledge graph by page type and topic, or show only pages without links. Archived pages are hidden unless you ask for them; the header says how many. **Focus on this page** (in the page window, or F on a dot) shows a page and its linked pages one or two steps away. The List shows the same pages.
