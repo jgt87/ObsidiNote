@@ -1,0 +1,5 @@
+/* Demo page only: a plain shell around the graph. */
+body { margin: 0; background: var(--bg); }
+.demo { box-sizing: border-box; padding: var(--space-5) var(--space-6); max-width: 1400px; margin: 0 auto; }
+.demo-log { margin-top: var(--space-4); color: var(--muted); font-size: var(--text-meta); min-height: 1.5em; }
+.demo-bench { white-space: pre-wrap; font: var(--text-meta) var(--font-mono); color: var(--muted); }
