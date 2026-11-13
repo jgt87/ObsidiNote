@@ -1,5 +1,5 @@
 # Pester 3.4 syntax (inbox on Windows): Should Be / Should Throw.
-# lib/MarkdownExport.psm1: OneNote page XML -> Obsidian-compatible Markdown, front matter, file
+# lib/MarkdownExport.psm1: OneNote page XML -> Markdown with [[wikilinks]], front matter, file
 # names, scopes and the in-memory zip. Invented pages only; no OneNote, nothing on disk.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $env:OBSIDINOTE_DATA_DIR = Join-Path $env:TEMP 'obsidinote-test-data'

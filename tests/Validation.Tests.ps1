@@ -395,14 +395,36 @@ Describe 'V6 skips what is not in this version yet' {
         $null = New-Item -ItemType Directory -Force -Path (Join-Path $d 'lib')
         $c = New-TestCtx -AppRoot $d -Flags @{ WriteTest = $true }
         Invoke-StageVault -Ctx $c
-        $c.Results.Count | Should Be 8
-        @($c.Results | Where-Object { $_.status -eq 'SKIP' -and $_.detail -match '^not in this version yet' }).Count | Should Be 8
+        $c.Results.Count | Should Be 9
+        @($c.Results | Where-Object { $_.status -eq 'SKIP' -and $_.detail -match '^not in this version yet' }).Count | Should Be 9
+        @($c.Results | Where-Object { $_.name -eq 'Link it' }).Count | Should Be 1
         @($c.Results | Where-Object { $_.name -eq 'Check for the answer' }).Count | Should Be 1
         Remove-Item $d -Recurse -Force
     }
     It 'names only the kit''s dev vault for writing' {
         Get-DevNotebookName | Should Be 'ObsidiNote-Validation'
         Test-KitNameAllowed (Get-DevNotebookName) | Should Be $true
+    }
+}
+
+Describe 'V6 "Link it" in the dev vault (in-memory OneNote, no Copilot)' {
+    foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'Linker', 'LinkCapture', 'Ingest') { Import-Module (Join-Path $root "lib\$m.psm1") -Global }
+    . (Join-Path $here 'SyntheticVault.ps1')
+    $w = New-SyntheticVault
+    $dev = [pscustomobject]@{ vault = $w.open.vault; lease = $w.open.lease; model = $w.open.model }
+    $c = New-TestCtx -Flags @{ WriteTest = $true }
+    $before = @($w.open.model.pages.Keys | Sort-Object) -join ','
+    & (Get-Module StageVault) { param($c, $a, $d) Invoke-DevLinkIt $c $a $d } $c $w.a $dev
+    It 'links two synthetic pages, finds the link again, and takes both pages back out' {
+        $bad = @($c.Results | Where-Object { $_.status -ne 'OK' } | ForEach-Object { "$($_.name): $($_.status) $($_.detail)" })
+        ($bad -join '; ') | Should Be ''
+        (@($c.Results | ForEach-Object { $_.name }) -join ',') | Should Be 'Link it,Link it again,Link it (undo)'
+        @($c.Results | Where-Object { $_.name -eq 'Link it again' })[0].detail | Should Match '^status already-linked'
+        (@($w.open.model.pages.Keys | Sort-Object) -join ',') | Should Be $before
+        (Find-FakePage $w.f 'Validation link source') | Should BeNullOrEmpty
+    }
+    It 'logs statuses and timings only, no page titles' {
+        (@($c.Results | ForEach-Object { "$($_.detail)" }) -join ' ') | Should Not Match 'Validation link'
     }
 }
 

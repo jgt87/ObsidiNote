@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isSendKey, modeForKey } from './keys'
+import { isFindKey, isSendKey, modeForKey } from './keys'
 
 const base = { key: '', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false }
 
@@ -21,5 +21,16 @@ describe('isSendKey', () => {
     expect(isSendKey({ ...base, key: 'Enter' })).toBe(true)
     expect(isSendKey({ ...base, key: 'Enter', shiftKey: true })).toBe(false)
     expect(isSendKey({ ...base, key: 'Enter', isComposing: true })).toBe(false)
+  })
+})
+
+describe('isFindKey', () => {
+  it('opens the quick switcher on Ctrl+K or Cmd+K only', () => {
+    expect(isFindKey({ ...base, key: 'k', code: 'KeyK', ctrlKey: true })).toBe(true)
+    expect(isFindKey({ ...base, key: 'K', code: 'KeyK', metaKey: true })).toBe(true)
+    expect(isFindKey({ ...base, key: 'k', code: 'KeyK' })).toBe(false)
+    expect(isFindKey({ ...base, key: 'K', code: 'KeyK', ctrlKey: true, shiftKey: true })).toBe(false)
+    expect(isFindKey({ ...base, key: 'k', code: 'KeyK', ctrlKey: true, altKey: true })).toBe(false)
+    expect(isFindKey({ ...base, key: 'j', code: 'KeyJ', ctrlKey: true })).toBe(false)
   })
 })

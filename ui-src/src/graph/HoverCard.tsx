@@ -16,9 +16,11 @@ interface Props {
   dot: DotLayout
   view: Viewport
   stage: { w: number; h: number }
+  /** Key that focuses the map on this page; shown on the keyboard path only. */
+  focusKey?: string
 }
 
-export function HoverCard({ index, page, dot, view, stage }: Props) {
+export function HoverCard({ index, page, dot, view, stage, focusKey }: Props) {
   const [sx, sy] = toScreen(view, dot.x, dot.y)
   const off = dot.r * view.k + 12
   // Right-below the dot; flipped when it would leave the stage.
@@ -42,8 +44,21 @@ export function HoverCard({ index, page, dot, view, stage }: Props) {
         {page.readOnly ? ' · read only' : ''}
       </div>
       <div className="kg-card__foot">
-        <span>Click to open</span>
-        <span>Enter</span>
+        {focusKey ? (
+          <>
+            <span>
+              <kbd>Enter</kbd> open
+            </span>
+            <span>
+              <kbd>{focusKey}</kbd> focus on this page
+            </span>
+          </>
+        ) : (
+          <>
+            <span>Click to open</span>
+            <span>Enter</span>
+          </>
+        )}
       </div>
     </div>
   )

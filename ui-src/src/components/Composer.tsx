@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { markdownForPaste, type PasteNode } from '../add/pasteMarkdown'
 import type { Intent, Mode } from '../api'
 import { useIntent } from '../hooks/useIntent'
 import { intentLine, primaryLabel } from '../model/intentWording'
@@ -27,6 +28,21 @@ interface Props {
   children?: ReactNode
   /** Bumped to empty the box after a result was filed ("Done"). */
   clearKey?: number
+}
+
+/** The pasted HTML as an inert document (DOMParser runs no scripts and loads no images). */
+function parseHtml(html: string): PasteNode | null {
+  return new DOMParser().parseFromString(html, 'text/html').body
+}
+
+/** Puts text at the cursor as if typed, so Ctrl+Z still undoes the paste; the state follows through
+ *  the input event. Without insertText, the text is set directly and the cursor put after it. */
+function insertAtCursor(box: HTMLTextAreaElement, text: string, setText: (t: string) => void) {
+  box.focus()
+  if (document.execCommand?.('insertText', false, text)) return
+  const { selectionStart: start, selectionEnd: end, value } = box
+  setText(value.slice(0, start) + text + value.slice(end))
+  requestAnimationFrame(() => box.setSelectionRange(start + text.length, start + text.length))
 }
 
 /** The one input: Auto/Add/Ask, the live intent line, and the primary button that follows it.
@@ -69,7 +85,22 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
     onSend(text, mode, result?.intent ?? null)
   }
 
+  // Paste from a web page, Word or a mail: its structure (headings, lists, tables, bold, links)
+  // comes in as Markdown, which the server turns into OneNote formatting. Ctrl+Shift+V pastes plain.
+  const plainPasteAt = useRef(0)
+  function onPaste(e: ReactClipboardEvent<HTMLTextAreaElement>) {
+    if (Date.now() - plainPasteAt.current < 1000) {
+      plainPasteAt.current = 0
+      return
+    }
+    const md = markdownForPaste(e.clipboardData.getData('text/html'), parseHtml)
+    if (md == null) return
+    e.preventDefault()
+    insertAtCursor(e.currentTarget, md, setText)
+  }
+
   function onKeyDown(e: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'KeyV') plainPasteAt.current = Date.now()
     if (isSendKey({ ...e, isComposing: e.nativeEvent.isComposing })) {
       e.preventDefault()
       send()
@@ -105,6 +136,7 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
         placeholder="Paste a link or text, or ask a question"
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKeyDown}
+        onPaste={onPaste}
         autoFocus
         spellCheck
       />

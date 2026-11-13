@@ -1,13 +1,13 @@
-# Markdown export (user, 2026-11-13): pages of a vault or notebook as Obsidian-compatible Markdown.
+# Markdown export (user, 2026-11-13): pages of a vault or notebook as Markdown with [[wikilinks]].
 # The one way content leaves OneNote, and only as a download the person asks for: the files are
 # built in memory (a zip in a MemoryStream) and handed to the browser; nothing is written to disk
 # here and nothing is kept. The log gets counts and timings only.
 #   - one .md per page: YAML front matter (id, type, title, topics, aliases, url, summary, status,
 #     links as [[wikilinks]], the onenote: link), then the page's outlines as Markdown. ObsidiNote's
-#     generated outlines (properties, "Linked from") are left out: front matter and Obsidian's own
-#     backlinks show the same.
+#     generated outlines (properties, "Linked from") are left out: front matter and a Markdown
+#     editor's own backlinks show the same.
 #   - a link to another page of the same model becomes [[File name|text]]; file names are unique
-#     per model (the title, else " (id)" added), so wikilinks resolve in Obsidian.
+#     per model (the title, else " (id)" added), so wikilinks resolve in a Markdown editor.
 #   - folders follow the page's first topic path; no topic = Unfiled.
 #   - images, ink and attached files are not exported; a line says so where they were.
 # PS 5.1, ASCII only.
@@ -21,7 +21,7 @@ $script:LeftOut = '_(An image, drawing or attached file is left out of the expor
 # --- names --------------------------------------------------------------------------------------
 
 function ConvertTo-SafeName {
-    <# A file or folder name for Windows and Obsidian: no \/:*?"<>|#^[] or control characters,
+    <# A file or folder name for Windows and Markdown editors: no \/:*?"<>|#^[] or control characters,
        spaces collapsed, no trailing dot or space, at most $Max characters, never empty. #>
     param([string]$Name, [int]$Max = 100)
     $s = ($Name -replace '[\\/:*?"<>|#^\[\]\x00-\x1f]', ' ' -replace '\s+', ' ').Trim().TrimEnd('.').Trim()

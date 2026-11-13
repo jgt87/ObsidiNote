@@ -147,6 +147,31 @@ Describe 'Writing and loading the Index pages' {
     }
 }
 
+Describe 'Intake requests are not content (each Add showed twice on the map, 2026-11-13)' {
+    $w = New-TestVault
+    $lease = Get-Lease $w
+    $req = $w.f.AddPage($w.v.sectionIds['01 Intake'], 'https://www.example.org/a', @{ 'obsn.status' = 'filed'; 'obsn.filedAs' = 'pa' }, 1, 'https://www.example.org/a')
+    $wait = $w.f.AddPage($w.v.sectionIds['01 Intake'], 'Some pasted text', @{ 'obsn.status' = 'waiting' }, 1, 'Some pasted text')
+    $r = Update-VaultIndex -Adapter $w.a -RootId $w.v.rootId -IndexSectionId $w.v.indexSectionId -Lease $lease -VaultId $w.v.vaultId
+    It 'leaves the Intake pages out of the scan, the completeness check and the Index pages' {
+        $r.model.byOneNoteId.ContainsKey($req) | Should Be $false
+        $r.model.byOneNoteId.ContainsKey($wait) | Should Be $false
+        @($r.missing).Count | Should Be 0
+        $tree = ConvertFrom-ObsnHierarchy -Xml ($w.f.GetHierarchy($w.v.rootId, 4)) -RootId $w.v.rootId
+        @(Test-IndexComplete -Model $r.model -Tree $tree).Count | Should Be 0
+        (Read-IndexModel -Adapter $w.a -IndexSectionId $w.v.indexSectionId).byOneNoteId.ContainsKey($req) | Should Be $false
+    }
+    It 'drops Intake entries that older Index pages still list, on load and on the next start' {
+        $old = $r.model
+        $null = Add-IndexPage -Model $old -Page @{ title = 'https://www.example.org/a'; oneNoteId = $req; section = '01 Intake'; updated = '2026-11-13T00:00:00.000Z' }
+        $null = Write-IndexPages -Adapter $w.a -Model $old -IndexSectionId $w.v.indexSectionId -Lease $lease
+        (Read-IndexModel -Adapter $w.a -IndexSectionId $w.v.indexSectionId).byOneNoteId.ContainsKey($req) | Should Be $false
+        $r2 = Update-VaultIndex -Adapter $w.a -RootId $w.v.rootId -IndexSectionId $w.v.indexSectionId -Lease $lease -VaultId $w.v.vaultId
+        $r2.model.byOneNoteId.ContainsKey($req) | Should Be $false
+        $r2.model.pages.Contains('pa') | Should Be $true
+    }
+}
+
 Describe 'Large lists' {
     $m = New-IndexModel
     for ($i = 1; $i -le 30; $i++) { $null = Add-IndexPage -Model $m -Page @{ id = (New-ObsnId $i); title = "Entry $i"; oneNoteId = "{X$i}"; bucket = 'Notes'; topics = @('Big'); summary = ('s' * 40) } }

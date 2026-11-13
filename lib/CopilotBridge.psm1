@@ -1,8 +1,8 @@
 # Drives M365 Copilot Chat in Edge: types a prompt into the page and reads the
 # reply from the Chathub SignalR WebSocket, which carries the raw markdown.
 #
-# Provenance: copied from the CCBridge repo (github.com/jgt87/CCBridge), lib/CopilotBridge.psm1 at
-# commit b972eab. Changed:
+# Provenance: copied from the author's earlier Copilot bridge (its lib/CopilotBridge.psm1 at
+# commit b972eab). Changed:
 # - Config and log: selectors from config\selectors.json (+ selectors.local.json) and pacing from
 #   "pacing" in config\obsidinote.json, through lib/AppConfig.psm1; logging through lib/Log.psm1
 #   (Write-AppLog), which has no trace level.
@@ -16,7 +16,8 @@
 # - User-facing texts say ObsidiNote; texts for the person go to stderr, not Write-Host.
 # - Connect-Copilot reads "signIn" from config\obsidinote.json when -SignIn is not given, and does
 #   not retry errors that only another Edge window would follow from (Test-NoRetryError, lib/Cdp.psm1).
-# "StreamHub" and "Chathub" below are the names of Microsoft's own Copilot endpoints; gptIdentifiers
+# "Chathub" and the stream hub (URL path /StreamHub/, the one place that name stays: it is
+# Microsoft's endpoint) are Microsoft's own Copilot endpoints; gptIdentifiers
 # and #gptModeSwitcher are field and element names on Microsoft's Copilot page, kept as they are.
 # Strict mode stays off here: the module reads optional fields of Copilot's JSON records and page
 # state directly ($Rec.target, $a.writeAtCursor, $_.messageType ...), which
@@ -450,12 +451,12 @@ function New-CopilotChatUnlocked {
 
 function Wait-CopilotReady {
     <# Waits until the page has finished its own start-up work: no requests in flight (telemetry
-       excluded) for a moment and every newly opened StreamHub/Chathub connection has answered.
+       excluded) for a moment and every newly opened stream or Chathub connection has answered.
        Gives up after $MaxSec and sends anyway. Returns what it saw, for the log. #>
     param([Parameter(Mandatory)]$Bridge, [double]$MinSec = 1.0, [double]$QuietSec = 0.7, [double]$MaxSec = 10)
     $s = $Bridge.Session
     $hubPattern = [regex]::Escape($Bridge.Selectors.chatHubUrlPattern)
-    $streamPattern = [regex]::Escape((Get-SelectorOrDefault $Bridge 'streamHubUrlPattern' '/StreamHub/'))
+    $streamPattern = [regex]::Escape((Get-SelectorOrDefault $Bridge 'streamUrlPattern' '/StreamHub/'))
     $noise = '(?i)browser\.events\.data\.microsoft|/OneCollector/|/events(\?|$)|/instrument/|/logclient|telemetry|/healthz'
     $inflight = @{}; $waitingSockets = @{}; $requests = 0
     $start = Get-Date; $lastChange = Get-Date
@@ -962,8 +963,8 @@ function Add-HubRecord {
     }
 }
 
-# --- StreamHub ---------------------------------------------------------------------------
-# Some tenants deliver the reply over substrate.svc.cloud.microsoft/m365Copilot/StreamHub: a SignalR
+# --- The stream hub ----------------------------------------------------------------------
+# Some tenants deliver the reply over Microsoft's stream hub on substrate.svc.cloud.microsoft: a SignalR
 # stream whose type-2 records each carry an item. The item layout is looked up by field name (chunks
 # in writeAtCursor, snapshots in messages[], the end in result / a final flag / a type-3 completion),
 # so small layout differences do not matter. The field names seen are logged (names only).
@@ -1002,7 +1003,7 @@ function Find-StreamSignals($Node, $Sig, [int]$Depth = 0, [string]$Path = '') {
 }
 
 function Add-StreamRecord {
-    <# Feeds one StreamHub record into the stream state; sets Done when the reply has ended. #>
+    <# Feeds one stream hub record into the stream state; sets Done when the reply has ended. #>
     param($S, $Rec)
     if ($Rec.type -eq 3) {
         if ($Rec.error) { throw "Copilot stream error: $($Rec.error)" }
@@ -1026,7 +1027,7 @@ function Add-StreamRecord {
 }
 
 function Get-SocketKind($Bridge, [string]$Id, [string]$Payload) {
-    <# chat (Chathub), stream (StreamHub) or $null, by the socket's address or, for a socket opened
+    <# chat (Chathub), stream (the stream hub) or $null, by the socket's address or, for a socket opened
        before ObsidiNote connected, by the shape of its traffic. #>
     if ($Bridge.HubSockets.ContainsKey($Id)) { return $Bridge.HubSockets[$Id] }
     $kind = $null
@@ -1275,7 +1276,7 @@ function Add-TimelineNet($Bridge, $M) {
 }
 
 function Complete-StreamReply {
-    <# The reply once StreamHub has signalled its end: the text from the stream, or, when the stream
+    <# The reply once the stream hub has signalled its end: the text from the stream, or, when the stream
        carries no text ObsidiNote recognises, the exact reply text from the page (read straight away,
        after the page confirms Copilot finished). $null when the page does not confirm the end. #>
     param($Bridge, $S, $PageBefore, [string]$SentPrompt, [long]$Ms)
@@ -1305,7 +1306,7 @@ function Complete-StreamReply {
         Metering = $(if ($S.Result) { @($S.Result.meteringInformation)[0] } else { $null })
         References = @(if ($bot) { Get-ReplyReferences $bot })
         ProposedActions = @(try { Get-ProposedActions $item } catch { })
-        ActionClaims = @(Get-ActionClaims $text); Source = 'streamhub'
+        ActionClaims = @(Get-ActionClaims $text); Source = 'stream'
     }
     Write-AppLog verbose bridge 'Reply received over the Copilot stream connection' @{ ms = $Ms; end = $S.Why; text = $how; items = $S.Items; chars = $text.Length; result = $reply.Result
         chat = "$($S.Throttling.numUserMessagesInConversation)/$($S.Throttling.maxNumUserMessagesInConversation)"; fields = @($S.Keys | Sort-Object) }
@@ -1349,7 +1350,7 @@ function Get-ReplyTimelineSummary {
     $text1 = @($pages | Where-Object { "$($_.data)" -match 'len=[1-9]' } | Select-Object -First 1)
     $ret = @($tl.Events | Where-Object what -eq 'returned' | Select-Object -First 1)
     $hub = @($tl.Events | Where-Object { $_.what -match '^first (Chathub|stream connection) frame$' } | Sort-Object at | Select-Object -First 1)
-    $lastHub = @($tl.Sockets.Values | Where-Object { $_.url -match '(?i)chathub|streamhub' -and $_.last } | ForEach-Object { $_.last } | Sort-Object | Select-Object -Last 1)
+    $lastHub = @($tl.Sockets.Values | Where-Object { $_.url -match '(?i)chathub|/StreamHub' -and $_.last } | ForEach-Object { $_.last } | Sort-Object | Select-Object -Last 1)
     $o = [ordered]@{
         sentAt = $t0.ToString('HH:mm:ss.fff')
         route = $(if ($ret) { "$($ret[0].data)" } else { $null })
@@ -1574,7 +1575,7 @@ function Send-CopilotPromptUnlocked {
     $pageBusyAt = $null   # when the page last showed Copilot at work (Stop, or an agent busy)
 
     $hubPattern = [regex]::Escape($Bridge.Selectors.chatHubUrlPattern)
-    $streamPattern = [regex]::Escape($(if ($Bridge.Selectors.PSObject.Properties['streamHubUrlPattern'] -and $Bridge.Selectors.streamHubUrlPattern) { $Bridge.Selectors.streamHubUrlPattern } else { '/StreamHub/' }))
+    $streamPattern = [regex]::Escape($(if ($Bridge.Selectors.PSObject.Properties['streamUrlPattern'] -and $Bridge.Selectors.streamUrlPattern) { $Bridge.Selectors.streamUrlPattern } else { '/StreamHub/' }))
     $stream = New-StreamState
     $merger = New-ReplyMerger
     $frames = New-Object System.Collections.Generic.List[string]   # in memory only (counts for the log); never written to disk
@@ -1654,7 +1655,7 @@ function Send-CopilotPromptUnlocked {
                 $quietDone = $pageQuietSince -and ((Get-Date) - $pageQuietSince).TotalSeconds -ge 8
                 $finished = -not $st.stop -and -not $st.agentBusy -and $st.lastFresh -and ($st.lastHasCopy -or $st.copies -gt $pageBefore.copies -or $quietDone) -and $st.lastLen -gt 0 -and
                     ($sawStop -or $sendWatch.Elapsed.TotalSeconds -ge 6)
-                # When StreamHub carried this reply and has been quiet for a moment, the page need not settle.
+                # When the stream hub carried this reply and has been quiet for a moment, the page need not settle.
                 $stableNeeded = if ($stream.Items -and $stream.LastAt -and ((Get-Date) - $stream.LastAt).TotalMilliseconds -ge 300) { 0 } else { $pageStableSec }
                 if (-not $finished) { $pageDoneSince = $null }
                 elseif (-not $pageDoneSince) { $pageDoneSince = Get-Date }
@@ -1765,7 +1766,7 @@ function Send-CopilotPromptUnlocked {
         if (-not $kind) { continue }
         $frames.Add($payload)
         if ($kind -eq 'stream') {
-            # StreamHub (primary where the tenant uses it): its end-of-reply ends the wait at once.
+            # The stream hub (primary where the tenant uses it): its end-of-reply ends the wait at once.
             if ($frames.Count -eq 1 -or $stream.Items -eq 0) { Add-TimelineEvent $Bridge 'first stream connection frame' $null $(if (Test-Timeline $Bridge) { Get-BrowserTime $Bridge.Timeline $m }) }
             foreach ($rec in Read-HubRecords $payload) {
                 if ($myInvocation -and $null -ne $rec.invocationId -and [string]$rec.invocationId -ne $myInvocation) { continue }

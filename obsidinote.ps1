@@ -34,9 +34,16 @@ function Say([string]$Text) { [Console]::Error.WriteLine("[ObsidiNote] $Text") }
 # Before anything else is loaded (GitHub; skipped offline, for local edits or "autoUpdate": false).
 # The updater never fails this script; -PassThru hands back its outcome for the status line.
 [Console]::Error.WriteLine('Update')
+# The version this start was updated to, for the window's "What's new" notice (GET /api/whats-new);
+# '' when this start followed no update (a repair reinstalls the same version: nothing new to show).
+$updatedTo = ''
 if ($env:OBSIDINOTE_UPDATED) {
     # Started by the previous version right after it installed this one.
     Write-Status -ToError 'OK' 'Update' "$env:OBSIDINOTE_UPDATED; this is the new version"
+    if ("$env:OBSIDINOTE_UPDATED".StartsWith('updated')) {
+        $vf = Join-Path $PSScriptRoot 'version.txt'
+        $updatedTo = if (Test-Path -LiteralPath $vf) { ([IO.File]::ReadAllText($vf)).Trim() } else { 'unknown' }
+    }
     Remove-Item Env:\OBSIDINOTE_UPDATED -ErrorAction SilentlyContinue
 } elseif ($NoUpdate) {
     Write-Status -ToError 'OK' 'Update' 'not checked (-NoUpdate or OBSIDINOTE_NO_UPDATE=1)'
@@ -196,7 +203,7 @@ try {
     # built just now, and the Copilot bridge; it opens its own guarded OneNote adapter.
     $vRec = $null; $lRec = $null; $model = $null
     if ($vaultOpen) { $vRec = $vaultOpen.vault; $lRec = $vaultOpen.lease; $model = $vaultOpen.model }
-    $state = New-ServerState -AppRoot $PSScriptRoot -Port $uiPort -CdpPort ([int]$cs.cdpPort) -CopilotSkipped ([bool]$NoCopilot) -Copilot $copilot -Vault $vRec -Lease $lRec -SessionId $sessionId -Model $model
+    $state = New-ServerState -AppRoot $PSScriptRoot -Port $uiPort -CdpPort ([int]$cs.cdpPort) -CopilotSkipped ([bool]$NoCopilot) -Copilot $copilot -Vault $vRec -Lease $lRec -SessionId $sessionId -Model $model -UpdatedTo $updatedTo
     $server = Start-UiServer -Port $uiPort -UiDir (Join-Path $PSScriptRoot 'ui') -State $state
 } catch {
     $why = $_.Exception.Message

@@ -132,26 +132,10 @@
 @media (max-width: 900px) { .kg-hint { display: none; } }
 @media (max-width: 640px) { .kg-legend { display: none; } }
 
-/* ---------- list view ---------- */
-.kg-list { display: flex; flex-direction: column; gap: var(--space-5); }
-.kg-list section { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
-.kg-list__head { display: flex; gap: var(--space-3); align-items: baseline; justify-content: space-between; flex-wrap: wrap;
-  padding: var(--space-4) var(--space-4) var(--space-3); }
-.kg-list__head .export { font-size: var(--text-meta); color: var(--muted); }
-.kg-list h3 { margin: 0; min-width: 0; font-size: var(--text-control); font-weight: 600;
-  display: flex; gap: var(--space-3); align-items: baseline; flex-wrap: wrap; }
+/* ---------- shared bits (the List view's table lives in table/table.css) ---------- */
 .kg-dlg__export { margin: var(--space-4) 0 0; }
-.kg-list h3 span { color: var(--muted); font-size: var(--text-meta); font-weight: 400; }
-.kg-table { width: 100%; border-collapse: collapse; font-size: var(--text-body); table-layout: fixed; }
-.kg-table th:nth-child(2) { width: 140px; }
-.kg-table th:nth-child(3) { width: 64px; }
-.kg-table th:nth-child(4) { width: 110px; }
-@media (max-width: 640px) { .kg-table th:nth-child(2) { width: 96px; } .kg-table th:nth-child(4) { width: 80px; } }
-.kg-table th { text-align: left; font-weight: 600; font-size: var(--text-label); color: var(--muted); padding: var(--space-2) var(--space-4); }
-.kg-table td { padding: var(--space-2) var(--space-4); border-top: 1px solid var(--border); vertical-align: top; }
-.kg-table td.num, .kg-table th.num { text-align: right; }
 .kg-linkbtn { all: unset; cursor: pointer; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 2px; }
-.kg-linkbtn:hover { color: var(--accent); text-decoration-color: currentColor; }
+@media (hover: hover) { .kg-linkbtn:hover { color: var(--accent); text-decoration-color: currentColor; } }
 .kg-linkbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 2px; }
 .kg-tag { color: var(--muted); font-size: var(--text-label); }
 
@@ -198,3 +182,15 @@
 /* screen-reader-only text (own copy, so the graph does not depend on the app shell's CSS) */
 .kg-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ---------- graph focus (filters.ts, history.ts) ---------- */
+/* Stage message when the filters hide every page; the summary above the map has "Clear". */
+.kg-stage__empty { position: absolute; inset: 0; margin: auto; height: max-content; text-align: center;
+  color: var(--muted); font-size: var(--text-body); pointer-events: none; }
+.kg-card__foot kbd { font-family: var(--font-mono); font-size: var(--text-label); padding: 0 var(--space-1);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.kg-dlg__hist { display: inline-flex; gap: var(--space-1); flex: none; }
+/* "link it" on a mention (T3): busy state and the error line in the page dialog. */
+.kg-linkbtn:disabled { cursor: not-allowed; opacity: .5; }
+.kg-linkbtn[aria-busy="true"] { cursor: progress; opacity: 1; }
+.kg-link-error { margin: var(--space-3) 0 0; color: var(--danger); background: var(--danger-soft); border-radius: var(--radius); padding: var(--space-3) var(--space-4); font-size: var(--text-meta); }

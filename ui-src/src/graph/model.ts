@@ -56,6 +56,12 @@ export interface GraphPage {
   modified: string
   /** True when the page belongs to a read-only source (a connected notebook or another vault). */
   readOnly: boolean
+  /** Other names for the page (index `aliases`); search and mentions match them like the title. */
+  aliases: string[]
+  /** Host of a link page's source ("contoso.sharepoint.com", "example.org"); '' for other pages. */
+  site: string
+  /** Archived (in `Archive / <bucket>`, restorable). */
+  archived: boolean
 }
 
 export interface GraphEdge {
@@ -148,6 +154,9 @@ export function normalizeGraph(raw: unknown): GraphModel {
       onenoteUrl: str(p.onenoteUrl),
       modified: str(p.modified),
       readOnly: p.readOnly === true || source.readOnly,
+      aliases: asList(p.aliases as string[]).map((x) => str(x).trim()).filter(Boolean),
+      site: str(p.site),
+      archived: p.archived === true,
     })
   }
 

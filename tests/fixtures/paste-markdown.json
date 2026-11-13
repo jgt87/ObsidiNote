@@ -1,0 +1,62 @@
+[
+  {
+    "name": "heading, paragraph, bold and italic",
+    "markdown": "# Plan\n\nText with **bold** and _italic_.",
+    "markdownText": true,
+    "lines": ["h1:Plan", "p:", "p:Text with [b]bold[/] and [i]italic[/]."]
+  },
+  {
+    "name": "nested bullet and numbered lists",
+    "markdown": "- One\n  - One a\n  - One b\n- Two\n\n1. First\n2. Second\n   1. Inner",
+    "markdownText": true,
+    "lines": ["bullet:One", ">bullet:One a", ">bullet:One b", "bullet:Two", "p:", "number:First", "number:Second", ">number:Inner"]
+  },
+  {
+    "name": "table with a header row, an escaped pipe and a short row",
+    "markdown": "| Name | Note |\n| --- | --- |\n| A\\|B | **yes** |\n| C |   |",
+    "markdownText": true,
+    "lines": ["table:Name/Note;A|B/[b]yes[/];C/"]
+  },
+  {
+    "name": "links: http(s) and mailto kept, others as text",
+    "markdown": "See [the docs](https://example.com/a%20b), [mail](mailto:someone@example.com) and script.",
+    "markdownText": true,
+    "lines": ["p:See [a]the docs[/], [a]mail[/] and script."]
+  },
+  {
+    "name": "inline code, strikethrough, code block and quote",
+    "markdown": "Run `npm test` not ~~old~~\n\n```\nline 1\n  line 2\n```\n\n> Quoted",
+    "markdownText": true,
+    "lines": ["p:Run [c]npm test[/] not [s]old[/]", "p:", "code:[c]line 1[/]", "code:[c]  line 2[/]", "p:", "quote:[i]Quoted[/]"]
+  },
+  {
+    "name": "script, style, comments and Office junk dropped, image marked",
+    "markdown": "Kept\n\nBefore _(image left out)_ after",
+    "markdownText": false,
+    "lines": ["p:Kept", "p:", "p:Before [i](image left out)[/] after"]
+  },
+  {
+    "name": "Word list paragraphs and a Google Docs bold wrapper",
+    "markdown": "- Alpha\n   - Beta\n\nSteps:\n\n1. Gamma\n2. Delta\n\n**Bold** plain",
+    "markdownText": true,
+    "lines": ["bullet:Alpha", ">bullet:Beta", "p:", "p:Steps:", "p:", "number:Gamma", "number:Delta", "p:", "p:[b]Bold[/] plain"]
+  },
+  {
+    "name": "line breaks, collapsed spaces and escaped line starts",
+    "markdown": "\\# not a heading\n1\\. not a list\na\\*b with lots of space",
+    "markdownText": false,
+    "lines": ["p:# not a heading", "p:1. not a list", "p:a*b with lots of space"]
+  },
+  {
+    "name": "bold italic and spaces outside the markers",
+    "markdown": "**_both_** and **bold** next",
+    "markdownText": true,
+    "lines": ["p:[b][i]both[/][/] and [b]bold[/] next"]
+  },
+  {
+    "name": "italic only: the server would not read it as Markdown",
+    "markdown": "A _quiet_ word.",
+    "markdownText": false,
+    "lines": ["p:A [i]quiet[/] word."]
+  }
+]

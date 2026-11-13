@@ -6,6 +6,7 @@ import type { AddTarget } from '../model/notebooks'
 import { AskOptions, type AskChoices } from './AskOptions'
 import { Composer } from './Composer'
 import { RecentList } from './RecentList'
+import { WhatsNew } from './WhatsNew'
 import './HomeView.css'
 
 type Home = ReturnType<typeof useHomeFlow>
@@ -32,6 +33,7 @@ export function HomeView({ home, addTarget, notebook, choices, onChoices, source
   return (
     <div className="page">
       <h1 className="page__title">Add something, or ask your wiki</h1>
+      <WhatsNew />
       <Composer addTarget={addTarget} onSend={home.send} busy={home.busy} prefill={home.prefill} note={note} clearKey={home.clearKey}>
         <AskOptions choices={choices} options={sourceOptions} onChange={onChoices} />
       </Composer>

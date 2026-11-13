@@ -1,7 +1,7 @@
 ---
 colors:                 # this project's palette: its own decision, no shared default
-  # Greys from the system-colour starter, plus ONE hue: purple accent (2026-11-12, the colour
-  # OneNote and Obsidian share). Raw palette --purple-* in tokens.css; roles point at it.
+  # Greys from the system-colour starter, plus ONE hue: purple accent (2026-11-12, OneNote's
+  # colour). Raw palette --purple-* in tokens.css; roles point at it.
   bg: "Canvas"
   surface: "Canvas"
   ink: "CanvasText"          # text on bg/surface >= 4.5:1
@@ -27,7 +27,7 @@ components:
 # Design — ObsidiNote
 
 ## Overview
-Creative North Star: **"Quiet Atlas"**. A calm reading surface in greys with one purple accent, the colour OneNote and Obsidian share. Purple says "this is the thing to act on or the thing you picked"; everything else is grey. In the map, structure (grey cluster areas, dot size, line weight) carries the meaning; purple appears only on the focused dot and its links.
+Creative North Star: **"Quiet Atlas"**. A calm reading surface in greys with one purple accent, OneNote's colour. Purple says "this is the thing to act on or the thing you picked"; everything else is grey. In the map, structure (grey cluster areas, dot size, line weight) carries the meaning; purple appears only on the focused dot and its links.
 
 Tokens live in `src/styles/tokens.css` (copied from CommonShared `templates/tokens.css`).
 No hard-coded colours or sizes in components.
@@ -41,7 +41,7 @@ No hard-coded colours or sizes in components.
 - **One Purple** — purple (`--accent`) is the only hue. It marks the primary button, the active nav item and selected controls, keyboard focus (`--ring`), links on hover, and the focused dot with its links in the map. Never on status, data series, backgrounds or decoration; components use the role tokens, never `--purple-*`.
 
 ## Icon
-A faceted stone in the accent purples (a nod to obsidian) with a white geometric N on top (a nod to OneNote's N); original geometry, not either product's logo. Source `assets/icon.svg`; `assets/obsidinote.ico` (16 to 256 px) for the app and shortcuts; `assets/favicon.svg` + `assets/favicon.ico` (16/32/48) for the web UI. Regenerate all of them with `python -I tools/make-icon.py assets` (needs Pillow); never edit the PNG or ICO by hand.
+A faceted volcanic-glass stone in the accent purples with a white geometric N on top (a nod to OneNote's N); original geometry, not any product's logo. Source `assets/icon.svg`; `assets/obsidinote.ico` (16 to 256 px) for the app and shortcuts; `assets/favicon.svg` + `assets/favicon.ico` (16/32/48) for the web UI. Regenerate all of them with `python -I tools/make-icon.py assets` (needs Pillow); never edit the PNG or ICO by hand.
 
 ## Motion
 120–200 ms ease-out on opacity/transform only; global `prefers-reduced-motion` rule.

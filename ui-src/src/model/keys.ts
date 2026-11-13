@@ -21,6 +21,13 @@ export function modeForKey(e: KeyLike): Mode | null {
   return null
 }
 
+/** Ctrl+K (Cmd+K on a Mac) opens the quick switcher, anywhere in the app, also while typing.
+ *  Matched on the key's code too, so it works on layouts where K is elsewhere. */
+export function isFindKey(e: KeyLike): boolean {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.isComposing) return false
+  return e.code === 'KeyK' || e.key.toLowerCase() === 'k'
+}
+
 /** Enter sends; Shift+Enter adds a line; never during IME composition. */
 export function isSendKey(e: KeyLike): boolean {
   return e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing

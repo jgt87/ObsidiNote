@@ -38,27 +38,32 @@ interface Props {
   stageRef: RefObject<HTMLDivElement | null>
   /** Accessible name of the map (default "Knowledge graph"). */
   label?: string
+  /** Pages the filters leave visible (filters.ts), or null for all. Hidden pages get no dot, no
+   *  link and no place in keyboard navigation; the layout is not rerun, so dots never jump. */
+  shown?: Set<string> | null
+  /** "Focus on this page" (F on the focused dot). */
+  onFocusPage?: (id: string) => void
 }
 
-const BaseLayer = memo(function BaseLayer({ layout, links, mentions }: { layout: GraphLayout; links: boolean; mentions: boolean }) {
+type BaseProps = { layout: GraphLayout; links: boolean; mentions: boolean; shown: Set<string> | null }
+
+const BaseLayer = memo(function BaseLayer({ layout, links, mentions, shown }: BaseProps) {
+  const on = (id: string) => !shown || shown.has(id)
   return (
     <>
       <g className="kg-areas">
-        {layout.areas.map((a) => (
-          <circle key={a.id} className="kg-area" cx={a.x} cy={a.y} r={a.r} />
-        ))}
+        {layout.areas.map((a) => (a.pageIds.some(on) ? <circle key={a.id} className="kg-area" cx={a.x} cy={a.y} r={a.r} /> : null))}
       </g>
       <g>
         {layout.edges.map((e, i) => {
           const m = e.edge.kind === 'mention'
           if (m ? !mentions : !links) return null
+          if (!on(e.edge.from) || !on(e.edge.to)) return null
           return <path key={i} d={e.d} className={m ? 'kg-edge kg-edge--mention' : `kg-edge kg-s${e.edge.strength}`} />
         })}
       </g>
       <g>
-        {layout.dots.map((d) => (
-          <circle key={d.id} data-id={d.id} className={dotClass(d)} cx={d.x} cy={d.y} r={d.r} />
-        ))}
+        {layout.dots.map((d) => (on(d.id) ? <circle key={d.id} data-id={d.id} className={dotClass(d)} cx={d.x} cy={d.y} r={d.r} /> : null))}
       </g>
     </>
   )
@@ -70,7 +75,7 @@ function dotClass(d: DotLayout, extra = ''): string {
 
 const KEY_DIR: Record<string, Direction> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }
 
-export function GraphStage({ index, layout, filters, matches, active, onActive, onOpen, stageRef, label }: Props) {
+export function GraphStage({ index, layout, filters, matches, active, onActive, onOpen, stageRef, label, shown = null, onFocusPage }: Props) {
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
   const [view, setView] = useState<Viewport | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -150,8 +155,9 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   )
 
   const matchSet = useMemo(() => (matches ? new Set(matches) : null), [matches])
-  const visible = useCallback((id: string) => !matchSet || matchSet.has(id), [matchSet])
-  const activeDot = active ? layout.dotById.get(active.id) ?? null : null
+  const isShown = useCallback((id: string) => !shown || shown.has(id), [shown])
+  const visible = useCallback((id: string) => isShown(id) && (!matchSet || matchSet.has(id)), [matchSet, isShown])
+  const activeDot = active && isShown(active.id) ? layout.dotById.get(active.id) ?? null : null
 
   // Keyboard focus keeps the active dot on screen.
   useEffect(() => {
@@ -247,6 +253,9 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
     if (e.key === 'Enter' && activeDot) {
       e.preventDefault()
       onOpen(activeDot.id)
+    } else if ((e.key === 'f' || e.key === 'F') && activeDot && onFocusPage && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault()
+      onFocusPage(activeDot.id)
     } else if (e.key === 'Escape' && active) {
       e.preventDefault()
       onActive(null)
@@ -276,25 +285,26 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   }
 
   // ---------- focus layer ----------
-  const near = useMemo(() => (active ? index.neighbours.get(active.id) ?? [] : []), [index, active])
+  const near = useMemo(() => (activeDot ? (index.neighbours.get(activeDot.id) ?? []).filter(isShown) : []), [index, activeDot, isShown])
   const focusEdges = useMemo(() => {
-    if (!active) return [] as { e: GraphEdge; d: string }[]
+    if (!activeDot) return [] as { e: GraphEdge; d: string }[]
     const list: GraphEdge[] = []
-    if (filters.links) list.push(...(index.out.get(active.id) ?? []), ...(index.in.get(active.id) ?? []))
-    if (filters.mentions) list.push(...(index.mentions.get(active.id) ?? []))
+    if (filters.links) list.push(...(index.out.get(activeDot.id) ?? []), ...(index.in.get(activeDot.id) ?? []))
+    if (filters.mentions) list.push(...(index.mentions.get(activeDot.id) ?? []))
     return list.flatMap((e) => {
+      if (!isShown(e.from) || !isShown(e.to)) return []
       const a = layout.dotById.get(e.from)
       const b = layout.dotById.get(e.to)
       return a && b ? [{ e, d: edgePath(a.x, a.y, b.x, b.y) }] : []
     })
-  }, [index, layout, active, filters.links, filters.mentions])
+  }, [index, layout, activeDot, filters.links, filters.mentions, isShown])
 
   const sharp: DotLayout[] = useMemo(() => {
-    const ids = active ? [...near] : matches ? matches.slice(0, 400) : []
-    return ids.map((id) => layout.dotById.get(id)).filter((d): d is DotLayout => !!d && d.id !== active?.id)
-  }, [active, near, matches, layout])
+    const ids = activeDot ? [...near] : matches ? matches.filter(isShown).slice(0, 400) : []
+    return ids.map((id) => layout.dotById.get(id)).filter((d): d is DotLayout => !!d && d.id !== activeDot?.id)
+  }, [activeDot, near, matches, layout, isShown])
 
-  const dim = !!active || !!matches
+  const dim = !!activeDot || !!matches
 
   // ---------- labels ----------
   // Candidates in priority order (focused page first); placeLabels drops the ones that would
@@ -312,12 +322,17 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   } else if (matches) {
     for (const d of sharp.slice(0, 40)) addLabel(d, d.hub ? 'kg-plabel kg-plabel--hub' : 'kg-plabel')
   } else {
-    for (const d of layout.dots) if (d.hub) addLabel(d, 'kg-plabel kg-plabel--hub')
+    // A narrowed map with few pages left labels all of them (hubs first); otherwise hubs only.
+    const few = !!shown && shown.size <= 60 && !filters.hubsOnly
+    for (const d of layout.dots) if (d.hub && isShown(d.id)) addLabel(d, 'kg-plabel kg-plabel--hub')
+    if (few) for (const d of layout.dots) if (!d.hub && isShown(d.id)) addLabel(d, 'kg-plabel')
   }
   const labels = placeLabels(candidates)
 
-  const page = active ? index.pageById.get(active.id) : undefined
-  const announce = page ? `${page.title}, ${indexPath(index, primaryTopic(page))}, ${plural(near.length, 'linked page')}. Enter opens.` : ''
+  const page = activeDot ? index.pageById.get(activeDot.id) : undefined
+  const announce = page
+    ? `${page.title}, ${indexPath(index, primaryTopic(page))}, ${plural(near.length, 'linked page')}. Enter opens${onFocusPage ? ', F focuses on this page' : ''}.`
+    : ''
 
   return (
     <div
@@ -348,14 +363,14 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
       >
         <g transform={`matrix(${v.k} 0 0 ${v.k} ${-v.x * v.k} ${-v.y * v.k})`}>
           <g className="kg-base" data-dim={dim}>
-            <BaseLayer layout={layout} links={filters.links} mentions={filters.mentions} />
+            <BaseLayer layout={layout} links={filters.links} mentions={filters.mentions} shown={shown} />
           </g>
           <g className="kg-focus">
             {focusEdges.map(({ e, d }, i) => (
               <path key={i} d={d} className={e.kind === 'mention' ? 'kg-edge kg-edge--mention' : `kg-edge kg-s${e.strength}`} />
             ))}
             {sharp.map((d) => (
-              <circle key={d.id} data-id={d.id} className={dotClass(d, active ? ' kg-dot--near' : '')} cx={d.x} cy={d.y} r={d.r} />
+              <circle key={d.id} data-id={d.id} className={dotClass(d, activeDot ? ' kg-dot--near' : '')} cx={d.x} cy={d.y} r={d.r} />
             ))}
             {activeDot && (
               <>
@@ -369,6 +384,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
 
       <div className="kg-labels" aria-hidden="true">
         {layout.areas.map((a) => {
+          if (shown && !a.pageIds.some(isShown)) return null
           const [x, y] = toScreen(v, a.x, a.y - a.r)
           return (
             <div key={a.id} className="kg-alabel" data-dim={dim} style={{ left: x, top: y - 4 }}>
@@ -385,7 +401,15 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
       </div>
       </div>
 
-      {page && activeDot && <HoverCard index={index} page={page} dot={activeDot} view={v} stage={size} />}
+      {page && activeDot && (
+        <HoverCard index={index} page={page} dot={activeDot} view={v} stage={size} focusKey={onFocusPage && active?.via === 'keyboard' ? 'F' : undefined} />
+      )}
+
+      {shown && shown.size === 0 && (
+        <p className="kg-stage__empty" role="status">
+          No pages match these filters.
+        </p>
+      )}
 
       <div className="kg-toolbar" onPointerDown={(e) => e.stopPropagation()}>
         <button ref={toolbarRef} type="button" className="btn btn--ghost" aria-label="Zoom in" title="Zoom in (+)" onClick={() => zoomBy(1.25)}>
@@ -404,7 +428,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
           <span>Hover a dot to focus it</span>
           <span>Click to open</span>
           <span>Scroll to zoom · drag to pan</span>
-          <span className="kg-sr">Arrow keys or Tab move between pages, Enter opens, Esc leaves the map.</span>
+          <span className="kg-sr">Arrow keys or Tab move between pages, Enter opens, F focuses on the page, Esc leaves the map.</span>
         </span>
       </div>
 

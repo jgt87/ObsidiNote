@@ -12,7 +12,14 @@ Import-Module (Join-Path $PSScriptRoot 'Vault.psm1')
 Import-Module (Join-Path $PSScriptRoot 'WriterLease.psm1')
 
 $script:IndexSection = '00 Index'
+# Intake pages are Add requests, not content: a filed one has become its own page, a waiting or
+# failed one shows in the window's Intake card. Listing them made every Add show twice on the map
+# (the filed page, and its request under Unfiled with the pasted text as title; seen live 2026-11-13).
+# '01 Inbox' is the section's old name (before the one-time rename).
+$script:RequestSections = @((Get-ObsnIntakeSection), '01 Inbox')
 $script:MaxLinesPerPage = 400
+
+function Test-RequestSection([string]$Full) { $script:RequestSections -contains $Full }
 $script:MaxMetaChars = 30000
 
 # ---------------------------------------------------------------- model
@@ -158,7 +165,21 @@ function Read-IndexModel {
     <# Fast load of a vault's index: one hierarchy read of its `00 Index` section. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)][string]$IndexSectionId, [string]$VaultId = '', [string]$RootId = '')
-    ConvertFrom-IndexSectionXml -Xml ($Adapter.GetHierarchy($IndexSectionId, 4)) -VaultId $VaultId -RootId $RootId
+    $m = ConvertFrom-IndexSectionXml -Xml ($Adapter.GetHierarchy($IndexSectionId, 4)) -VaultId $VaultId -RootId $RootId
+    Remove-RequestEntries $m
+    $m
+}
+
+function Remove-RequestEntries {
+    <# Index pages written before 2026-11-13 can still list Intake pages; a vault that is only read
+       (never rewritten by this session) would show them. Drops them from a loaded model. #>
+    param([Parameter(Mandatory)][hashtable]$Model)
+    foreach ($k in @($Model.pages.Keys)) {
+        $p = $Model.pages[$k]
+        if (-not (Test-RequestSection ([string]$p.section))) { continue }
+        $Model.pages.Remove($k)
+        if ($p.oneNoteId -and $Model.byOneNoteId.ContainsKey($p.oneNoteId)) { $Model.byOneNoteId.Remove($p.oneNoteId) }
+    }
 }
 
 # ---------------------------------------------------------------- rebuild: content pages' Meta
@@ -203,6 +224,7 @@ function ConvertFrom-VaultScan {
             }
             continue
         }
+        if (Test-RequestSection $s.full) { continue }
         foreach ($p in $s.pages) { $null = Add-IndexPage -Model $m -Page (Get-PageRecordFromHierarchy $p) }
     }
     $m
@@ -241,9 +263,10 @@ function Merge-IndexWithScan {
 # ---------------------------------------------------------------- completeness
 
 function Get-ContentPageList {
-    <# Every page of the vault tree outside `00 Index` (the recycle bin is already left out). #>
+    <# Every page of the vault tree outside `00 Index` and the Intake (the recycle bin is already
+       left out). #>
     param([Parameter(Mandatory)][hashtable]$Tree)
-    @(foreach ($s in $Tree.sections) { if ($s.full -ne $script:IndexSection) { foreach ($p in $s.pages) { $p } } })
+    @(foreach ($s in $Tree.sections) { if ($s.full -ne $script:IndexSection -and -not (Test-RequestSection $s.full)) { foreach ($p in $s.pages) { $p } } })
 }
 
 function Test-IndexComplete {

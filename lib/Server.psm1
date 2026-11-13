@@ -22,7 +22,8 @@ $script:Here = $PSScriptRoot
 # Vaults, index, store and the Add/Ask handlers: lib/VaultSession.psm1, VaultStore, AskSources,
 # GraphModel, Ingest, Ask (and the step-2 modules they import). Status for the [WARN] line of a new vault.
 # MarkdownExport: POST /api/export, the download the person asks for (built in memory).
-foreach ($m in 'Log', 'AppConfig', 'Startup', 'Intent', 'OneNoteHost', 'NotebookView', 'Update', 'Status', 'OneNote', 'PageMeta', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'AskSources', 'GraphModel', 'Ingest', 'Ask', 'MarkdownExport') {
+# WhatsNew: GET /api/whats-new, the running version's CHANGELOG.md lines (read only).
+foreach ($m in 'Log', 'AppConfig', 'Startup', 'Intent', 'OneNoteHost', 'NotebookView', 'Update', 'Status', 'OneNote', 'PageMeta', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'AskSources', 'GraphModel', 'Ingest', 'Ask', 'MarkdownExport', 'WhatsNew') {
     Import-Module (Join-Path $PSScriptRoot "$m.psm1")
 }
 
@@ -104,16 +105,18 @@ function New-ServerState {
        -FakeStatus replaces /api/status; -FakeHierarchyXml replaces OneNote with a read-only stand-in
        made from that XML (New-XmlOneNoteAdapter, OneNote counts as running), so the tests run the
        real parsing. -TestAdapter / -TestCopilot: in-process tests of Invoke-ApiRoute only (objects
-       with scriptblocks; never with Start-UiServer). #>
+       with scriptblocks; never with Start-UiServer). UpdatedTo: the version this start was updated
+       to ('' when it followed no update), for GET /api/whats-new. #>
     param([Parameter(Mandatory)][string]$AppRoot, [int]$Port, [int]$CdpPort = 9334, [bool]$CopilotSkipped = $false,
         $FakeStatus = $null, [string]$FakeHierarchyXml = '', $Copilot = $null, $Vault = $null, $Lease = $null, [string]$SessionId = '',
-        $Model = $null, $TestAdapter = $null, $TestCopilot = $null)
+        $Model = $null, $TestAdapter = $null, $TestCopilot = $null, [string]$UpdatedTo = '')
     $h = [hashtable]::Synchronized(@{})
     $h.AppRoot = $AppRoot; $h.Port = $Port; $h.CdpPort = $CdpPort; $h.CopilotSkipped = $CopilotSkipped
     $h.FakeStatus = $FakeStatus; $h.FakeHierarchyXml = $FakeHierarchyXml
     $h.Copilot = $Copilot; $h.Vault = $Vault; $h.Lease = $Lease; $h.Model = $Model
     $h.SessionId = $(if ($SessionId) { $SessionId } else { New-WriterSessionId })
     $h.TestAdapter = $TestAdapter; $h.TestCopilot = $TestCopilot
+    $h.UpdatedTo = $UpdatedTo
     $h.Lock = New-Object object
     $h.Id = [guid]::NewGuid().ToString('N')
     $h.Stop = $false
@@ -778,6 +781,26 @@ function Invoke-LinkUpdateRoute($State, [string]$Body) {
     @{ status = 200; body = $r }
 }
 
+function Invoke-LinkAddRoute($State, [string]$Body) {
+    <# POST /api/link/add {from, to[, vault]}: "Link it" for a mention in the active vault (lib/Ingest.psm1
+       Add-PageLink; no Copilot). 400 bad or equal ids, 409 another source or read only, 404 a page
+       that is not in the index, 200 linked or already-linked. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $from = "$(Get-BodyValue $b 'from' '')"; $to = "$(Get-BodyValue $b 'to' '')"
+    if (-not (Test-ObsnId $from) -or -not (Test-ObsnId $to)) { return @{ status = 400; body = @{ error = 'from and to must be ObsidiNote page ids.' } } }
+    if ($from -eq $to) { return @{ status = 400; body = @{ error = 'A page cannot be linked to itself.' } } }
+    $vault = "$(Get-BodyValue $b 'vault' '')"
+    if ("$(Get-BodyValue $b 'notebook' '')" -or ($vault -and (-not $State.Vault -or $vault -ne [string]$State.Vault.vaultId))) {
+        return @{ status = 409; body = @{ error = 'Only pages of the active vault can be linked; other sources are read only.' } }
+    }
+    $u = Use-ActiveVault $State
+    if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
+    $r = Add-PageLink -Store (New-ServerStore $State $u) -From $from -To $to
+    $code = switch ($r.status) { 'linked' { 200 } 'already-linked' { 200 } 'refused' { 409 } 'not-found' { 404 } 'invalid' { 400 } default { 500 } }
+    if ($code -ne 200) { return @{ status = $code; body = @{ error = $r.message; status = $r.status } } }
+    @{ status = 200; body = $r }
+}
+
 function Invoke-ApiRoute {
     <# The answer to one API call: @{ status; body }. The body is an object for ConvertTo-Json. #>
     param([string]$Method, [string]$Path, [string]$Body, $State, [string]$Query = '')
@@ -793,6 +816,7 @@ function Invoke-ApiRoute {
             return @{ status = 200; body = $v }
         }
         'GET /api/graph' { return (Get-GraphRoute $State $Query) }
+        'GET /api/whats-new' { return @{ status = 200; body = (Get-WhatsNew -AppRoot $State.AppRoot -UpdatedTo "$($State.UpdatedTo)") } }
         'POST /api/active-vault' { return (Set-ActiveVault $State $Body) }
         'POST /api/vault/new' { return (New-VaultRoute $State $Body) }
         'POST /api/vault/setup' { return (Set-UpVaultRoute $State $Body) }
@@ -804,6 +828,7 @@ function Invoke-ApiRoute {
         'POST /api/add/undo' { return (Invoke-UndoRoute $State $Body) }
         'POST /api/add/fetch' { return (Invoke-AddFetchRoute $State $Body) }
         'POST /api/link/update' { return (Invoke-LinkUpdateRoute $State $Body) }
+        'POST /api/link/add' { return (Invoke-LinkAddRoute $State $Body) }
         'POST /api/export' { return (Invoke-ExportRoute $State $Body) }
     }
     @{ status = 404; body = @{ error = 'Not found.' } }

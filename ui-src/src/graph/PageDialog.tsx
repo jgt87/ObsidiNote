@@ -1,5 +1,7 @@
 // The page modal: a native <dialog> (Esc closes; the map puts focus back on the dot).
-// ← and → step to the previous or next linked page of the page it was opened on.
+// ← and → step to the previous or next linked page of the page it was opened on. Back/Forward
+// (header buttons, Alt+← / Alt+→) walk the pages visited in this dialog (history.ts).
+// "Focus on this page" narrows the map to the page and its linked pages (filters.ts).
 // "Ask about this", "Edit links" and "Move in index" only call back; the app wires them.
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
@@ -8,14 +10,16 @@ import { exportSourceOf } from '../export/exportApi'
 import { formatDate, plural } from './format'
 import { indexPath, type GraphIndex } from './graphIndex'
 import { primaryTopic, type GraphEdge, type GraphPage } from './model'
+import { canGoBack, canGoForward, currentPage, goBack, goForward, startHistory, visit, type PageHistory } from './history'
 import { stepLinked } from './view'
 
 export interface PageActions {
   onAsk?: (page: GraphPage) => void
   onEditLinks?: (page: GraphPage) => void
   onMoveInIndex?: (page: GraphPage) => void
-  /** "link it" on a mention: turn the mention into a link (from -> to). */
-  onLinkMention?: (from: GraphPage, to: GraphPage) => void
+  /** "link it" on a mention: turn the mention into a link (from -> to). A promise keeps the button
+   *  busy until it settles; its rejection's message shows in the dialog. */
+  onLinkMention?: (from: GraphPage, to: GraphPage) => void | Promise<unknown>
 }
 
 interface Props extends PageActions {
@@ -25,6 +29,8 @@ interface Props extends PageActions {
   anchorId: string
   onNavigate: (id: string) => void
   onClose: () => void
+  /** "Focus on this page": the map shows only this page and its linked pages. */
+  onFocusPage?: (id: string) => void
 }
 
 type Tab = 'page' | 'topic' | 'neighbourhood'
@@ -40,15 +46,33 @@ function Bars({ s }: { s: number }) {
   )
 }
 
-export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onAsk, onEditLinks, onMoveInIndex, onLinkMention }: Props) {
+export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFocusPage, onAsk, onEditLinks, onMoveInIndex, onLinkMention }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [tab, setTab] = useState<Tab>('page')
+  // Back/Forward over the pages visited in this dialog (history.ts); gone when it closes.
+  const [hist, setHist] = useState<PageHistory>(() => startHistory(pageId))
+  // "link it": the mention being linked (busy) and the last error, per page shown.
+  const [linking, setLinking] = useState<{ key: string; error: string; pageId: string } | null>(null)
   const page = index.pageById.get(pageId)
 
   useEffect(() => {
     const d = ref.current
     if (d && !d.open) d.showModal()
   }, [])
+  // A page set from outside (not through go/back/forward) still counts as a visit.
+  useEffect(() => {
+    setHist((h) => (currentPage(h) === pageId ? h : visit(h, pageId)))
+  }, [pageId])
+
+  const go = (id: string) => {
+    setHist((h) => visit(h, id))
+    onNavigate(id)
+  }
+  const move = (next: PageHistory) => {
+    if (next === hist) return
+    setHist(next)
+    onNavigate(currentPage(next))
+  }
 
   if (!page) return null
   const topicId = primaryTopic(page)
@@ -65,11 +89,17 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onAsk
 
   const step = (delta: 1 | -1) => {
     const next = stepLinked(index, anchorId, page.id, delta)
-    if (next) onNavigate(next)
+    if (next) go(next)
   }
   const onKeyDown = (e: KeyboardEvent<HTMLDialogElement>) => {
     const t = e.target as HTMLElement
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      // Alt+Left/Right: Back/Forward in this dialog (never the browser's own history).
+      e.preventDefault()
+      move(e.key === 'ArrowLeft' ? goBack(hist) : goForward(hist))
+      return
+    }
     if (t.getAttribute('role') === 'tab') {
       // Arrows move between tabs inside the tab list (ARIA tabs pattern).
       e.preventDefault()
@@ -85,7 +115,7 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onAsk
   }
 
   const open = (id: string) => (
-    <button type="button" className="kg-linkbtn kg-row__sub" onClick={() => onNavigate(id)} aria-label={`Open ${title(id)}`}>
+    <button type="button" className="kg-linkbtn kg-row__sub" onClick={() => go(id)} aria-label={`Open ${title(id)}`}>
       open
     </button>
   )
@@ -147,6 +177,18 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onAsk
             )}
           </div>
         </div>
+        <nav className="kg-dlg__hist" aria-label="Pages visited">
+          <button type="button" className="btn btn--icon btn--ghost" aria-label="Back" title="Back (Alt+←)" disabled={!canGoBack(hist)} onClick={() => move(goBack(hist))}>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              <path d="M10 3L5 8l5 5" />
+            </svg>
+          </button>
+          <button type="button" className="btn btn--icon btn--ghost" aria-label="Forward" title="Forward (Alt+→)" disabled={!canGoForward(hist)} onClick={() => move(goForward(hist))}>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              <path d="M6 3l5 5-5 5" />
+            </svg>
+          </button>
+        </nav>
         <button type="button" className="btn btn--icon" aria-label="Close" onClick={() => ref.current?.close()}>
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
             <path d="M4 4l8 8M12 4l-8 8" />
@@ -213,8 +255,22 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onAsk
                           {ro || !onLinkMention ? (
                             open(other)
                           ) : (
-                            <button type="button" className="kg-linkbtn kg-row__sub" onClick={() => onLinkMention(page, index.pageById.get(other)!)}>
-                              link it
+                            <button
+                              type="button"
+                              className="kg-linkbtn kg-row__sub"
+                              aria-label={`Link it: ${title(page.id)} and ${title(other)}`}
+                              aria-busy={linking?.key === `${e.from}>${e.to}` && !linking.error}
+                              disabled={!!linking && !linking.error}
+                              onClick={() => {
+                                const key = `${e.from}>${e.to}`
+                                setLinking({ key, error: '', pageId: page.id })
+                                Promise.resolve(onLinkMention(page, index.pageById.get(other)!)).then(
+                                  () => setLinking(null),
+                                  (err: unknown) => setLinking({ key, pageId: page.id, error: err instanceof Error && err.message ? err.message : 'The link could not be added.' }),
+                                )
+                              }}
+                            >
+                              {linking?.key === `${e.from}>${e.to}` && !linking.error ? 'linking…' : 'link it'}
                             </button>
                           )}
                         </li>
@@ -222,6 +278,11 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onAsk
                     })
                   : none('No unlinked mentions.')}
               </ul>
+              {linking?.error && linking.pageId === page.id && (
+                <p className="kg-link-error" role="alert">
+                  {linking.error}
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -313,7 +374,23 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onAsk
           Move in index
         </button>
         <ExportButton request={{ scope: 'page', page: page.id, ...src }} label="Export as Markdown" />
-        <span className="kg-dlg__keys">Esc closes{pos ? ' · ← → previous or next linked page' : ''}</span>
+        {onFocusPage && (
+          <button
+            type="button"
+            className="btn"
+            title="Show only this page and its linked pages"
+            onClick={() => {
+              onFocusPage(page.id)
+              ref.current?.close()
+            }}
+          >
+            Focus on this page
+          </button>
+        )}
+        <span className="kg-dlg__keys">
+          Esc closes{pos ? ' · ← → previous or next linked page' : ''}
+          {canGoBack(hist) || canGoForward(hist) ? ' · Alt+← → back or forward' : ''}
+        </span>
       </footer>
     </dialog>
   )

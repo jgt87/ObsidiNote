@@ -1,9 +1,12 @@
 // The route-level view: loads the model, then shows the graph, or loading / empty / error.
 // The merge renders <GraphView load={() => fetchGraph({ vault })} ... /> for the Map nav entry.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { addLink } from './graphApi'
 import { KnowledgeGraph, type KnowledgeGraphProps } from './KnowledgeGraph'
+import { mentionBetween, withMentions } from './mentions'
 import type { GraphModel } from './model'
+import type { PageActions } from './PageDialog'
 import './graph.css'
 
 type State = { status: 'loading' } | { status: 'ready'; model: GraphModel } | { status: 'error'; message: string }
@@ -17,9 +20,35 @@ export interface GraphViewProps extends Omit<KnowledgeGraphProps, 'model'> {
   onAdd?: () => void
 }
 
-export function GraphView({ load, sourceKey, onAdd, ...rest }: GraphViewProps) {
+export function GraphView({ load, sourceKey, onAdd, onLinkMention, ...rest }: GraphViewProps) {
   const [state, setState] = useState<State>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
+  const loaded = state.status === 'ready' ? state.model : null
+  // Mentions, not linked: found here from titles, aliases and summaries (the server sends links only).
+  const model = useMemo(() => (loaded ? withMentions(loaded) : null), [loaded])
+
+  // After "Link it": read the model again without the loading state, so the map and the open
+  // dialog stay and the mention turns into a link in place.
+  const refresh = useCallback(async () => {
+    const m = await load(new AbortController().signal)
+    setState({ status: 'ready', model: m })
+  }, [load])
+
+  const writable = !!model && model.source.kind === 'vault' && !model.source.readOnly
+  const linkMention = useMemo<PageActions['onLinkMention']>(() => {
+    if (onLinkMention) return onLinkMention
+    if (!model || !writable) return undefined
+    return async (a, b) => {
+      // The link goes from the page that mentions to the page it names.
+      const m = mentionBetween(model, a.id, b.id)
+      const from = m ? m.from : a.id
+      const to = m ? m.to : b.id
+      await addLink({ from, to, vault: model.source.id })
+      await refresh().catch(() => {
+        throw new Error('The link was added, but the map could not be read again. Reload the map to see it.')
+      })
+    }
+  }, [onLinkMention, model, writable, refresh])
 
   useEffect(() => {
     const ctl = new AbortController()
@@ -54,7 +83,7 @@ export function GraphView({ load, sourceKey, onAdd, ...rest }: GraphViewProps) {
       </div>
     )
   }
-  if (state.model.pages.length === 0) {
+  if (!model || model.pages.length === 0) {
     return (
       <div className="kg">
         {title && <h1 className="kg-title">{title}</h1>}
@@ -70,7 +99,7 @@ export function GraphView({ load, sourceKey, onAdd, ...rest }: GraphViewProps) {
       </div>
     )
   }
-  return <KnowledgeGraph model={state.model} {...rest} />
+  return <KnowledgeGraph model={model} onLinkMention={linkMention} {...rest} />
 }
 
 /** Loading: the title and one line of text, nothing drawn on the map. design: no placeholder areas;

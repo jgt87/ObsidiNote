@@ -3,10 +3,11 @@
 # the API, and a live server on a test port (never the real 8767) with fake OneNote/Copilot data.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $here
-$env:OBSIDINOTE_DATA_DIR = Join-Path $env:TEMP 'obsidinote-test-data'
+# OBSIDINOTE_TEST_PORT / OBSIDINOTE_TEST_TAG let parallel checkouts run this file at the same time.
+$env:OBSIDINOTE_DATA_DIR = Join-Path $env:TEMP ('obsidinote-test-data' + $(if ($env:OBSIDINOTE_TEST_TAG) { '-' + $env:OBSIDINOTE_TEST_TAG } else { '' }))
 Import-Module (Join-Path $root 'lib\Server.psm1') -Force
 
-$script:TestPort = 18767
+$script:TestPort = if ($env:OBSIDINOTE_TEST_PORT) { [int]$env:OBSIDINOTE_TEST_PORT } else { 18767 }
 
 function New-TestUi {
     $d = Join-Path $env:TEMP ('obsn-ui-' + [guid]::NewGuid().ToString('N'))
@@ -456,6 +457,44 @@ Describe 'Invoke-ApiRoute: Markdown export (POST /api/export, in-memory OneNote)
     }
     It 'names the download for every browser (ASCII fallback plus UTF-8)' {
         InModuleScope Server { Get-ContentDisposition ('Caf' + [char]0xE9 + ' "notes".md') } | Should Be ('attachment; filename="Caf_ _notes_.md"; filename*=UTF-8''''Caf%C3%A9%20%22notes%22.md')
+    }
+    Remove-Item $app -Recurse -Force
+}
+
+Describe 'Invoke-ApiRoute: "Link it" (POST /api/link/add, in-memory OneNote)' {
+    $w = New-SyntheticVault -SessionId 'server'
+    $app = New-TempAppRoot
+    $state = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'server' -Vault $w.open.vault -Lease $w.open.lease -Model $w.open.model
+    It 'refuses bad, equal and foreign ids and other sources without writing' {
+        $before = $w.f.Writes.Count
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/link/add' -Body 'not json' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/link/add' -Body '{"from":"p2"}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/link/add' -Body '{"from":"p2","to":"../x"}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/link/add' -Body '{"from":"p2","to":"x1"}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/link/add' -Body '{"from":"p2","to":"p2"}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/link/add' -Body '{"from":"p2","to":"p99"}' -State $state).status | Should Be 404
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/link/add' -Body '{"from":"p2","to":"p1","vault":"cccccccc-0000-4000-8000-000000000003"}' -State $state).status | Should Be 409
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/link/add' -Body '{"from":"p2","to":"p1","notebook":"{X}"}' -State $state).status | Should Be 409
+        $w.f.Writes.Count | Should Be $before
+    }
+    It 'links two pages of the active vault, then says already-linked' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/link/add' -Body ('{"from":"p2","to":"p1","vault":"' + $w.v.vaultId + '"}') -State $state
+        $r.status | Should Be 200
+        $r.body.status | Should Be 'linked'
+        { ConvertTo-Json -InputObject $r.body -Depth 6 } | Should Not Throw
+        $g = Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -State $state
+        @($g.body.edges | Where-Object { $_.from -eq 'p2' -and $_.to -eq 'p1' }).Count | Should Be 1
+        $again = Invoke-ApiRoute -Method 'POST' -Path '/api/link/add' -Body '{"from":"p1","to":"p2"}' -State $state
+        $again.status | Should Be 200
+        $again.body.status | Should Be 'already-linked'
+    }
+    It 'refuses with 409 while this session is read only' {
+        $state.Lease = @{ mode = 'readonly'; sessionId = 'other'; holder = 'other'; expires = (Get-Date).AddMinutes(1); statePageId = ''; indexSectionId = '' }
+        $before = $w.f.Writes.Count
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/link/add' -Body '{"from":"p3","to":"p2"}' -State $state
+        $r.status | Should Be 409
+        $r.body.error | Should Match 'Read only'
+        $w.f.Writes.Count | Should Be $before
     }
     Remove-Item $app -Recurse -Force
 }

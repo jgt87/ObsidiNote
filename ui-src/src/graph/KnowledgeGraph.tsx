@@ -2,6 +2,8 @@
 // filter chips, search ("/"), Graph or List, and the page dialog.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { archivedHidden, emptyFilter, pruneFilter, visiblePageIds, type GraphFilter } from './filters'
+import { FilterButton, FilterSummary } from './FilterPanel'
 import { plural } from './format'
 import { buildIndex } from './graphIndex'
 import { GraphList } from './GraphList'
@@ -10,6 +12,8 @@ import { layoutGraph } from './layout'
 import type { GraphModel } from './model'
 import { LockIcon, PageDialog, type PageActions } from './PageDialog'
 import { searchPages } from './view'
+import { SearchFilters } from '../search/SearchFilters'
+import type { FindRequest } from '../search/switcherModel'
 import './graph.css'
 
 export interface KnowledgeGraphProps extends PageActions {
@@ -20,6 +24,9 @@ export interface KnowledgeGraphProps extends PageActions {
   initialMode?: 'graph' | 'list'
   /** Pages to show first ("Show on map" from an Ask answer): highlighted, the first one focused. */
   focusIds?: string[]
+  /** A quick-switcher pick (open a page, or set the search); applied once, then onRequestDone. */
+  request?: FindRequest | null
+  onRequestDone?: () => void
 }
 
 /** Width / height of the stage, in steps of 0.1 (the layout only reruns when the shape really changes). */
@@ -43,7 +50,7 @@ function roundAspect(w: number, h: number): number {
   return Math.min(3, Math.max(0.6, Math.round((w / h) * 10) / 10))
 }
 
-export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode = 'graph', focusIds, ...actions }: KnowledgeGraphProps) {
+export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode = 'graph', focusIds, request, onRequestDone, ...actions }: KnowledgeGraphProps) {
   const index = useMemo(() => buildIndex(model), [model])
   const [mode, setMode] = useState<'graph' | 'list'>(initialMode)
   const stageRef = useRef<HTMLDivElement>(null)
@@ -57,7 +64,25 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   const searchRef = useRef<HTMLInputElement>(null)
   const returnTo = useRef<HTMLElement | null>(null)
 
-  const matches = useMemo(() => (query.trim() ? searchPages(index, query) : focus.length ? focus : null), [index, query, focus])
+  // Filters (filters.ts) hide pages; the search then only finds visible ones. The list gets the
+  // same set through `matches`, so map and list always show the same pages.
+  const [filter, setFilterState] = useState<GraphFilter>(emptyFilter)
+  const liveFilter = useMemo(() => pruneFilter(index, filter), [index, filter])
+  const shown = useMemo(() => visiblePageIds(index, liveFilter), [index, liveFilter])
+  const allShown = shown.size === model.pages.length
+  const hiddenArchived = archivedHidden(index, liveFilter)
+  const searchMatches = useMemo(() => (query.trim() ? searchPages(index, query) : focus.length ? focus : null), [index, query, focus])
+  const matches = useMemo(() => (searchMatches && !allShown ? searchMatches.filter((id) => shown.has(id)) : searchMatches), [searchMatches, shown, allShown])
+  const listMatches = useMemo(() => matches ?? (allShown ? null : [...shown]), [matches, shown, allShown])
+  const setFilter = (f: GraphFilter) => {
+    setFilterState(f)
+    const next = visiblePageIds(index, f)
+    setActive((a) => (a && !next.has(a.id) ? null : a))
+  }
+  const focusOn = useCallback((id: string) => {
+    setFilterState((f) => ({ ...f, focus: { id, depth: f.focus?.depth ?? 1 } }))
+    setActive({ id, via: 'keyboard' })
+  }, [])
 
   // "/" focuses the search, anywhere on the page, unless the user is typing or a dialog is open.
   useEffect(() => {
@@ -101,6 +126,18 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
     setDialog({ pageId: id, anchorId: id })
   }, [])
 
+  // Quick switcher: only for this model's source (a graph still showing another source waits).
+  useEffect(() => {
+    if (!request || request.sourceId !== model.source.id) return
+    onQuery(request.query ?? '')
+    if (request.pageId && index.pageById.has(request.pageId)) {
+      setActive({ id: request.pageId, via: 'keyboard' })
+      returnTo.current = null
+      setDialog({ pageId: request.pageId, anchorId: request.pageId })
+    }
+    onRequestDone?.()
+  }, [request, model]) // once per request; again when the asked source's model arrives
+
   const close = () => {
     const last = dialog?.pageId
     setDialog(null)
@@ -129,6 +166,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           <span className="kg-meta">
             {src.name ? `${src.name} · ` : ''}
             {plural(model.pages.length, 'page')} in {plural(layout.areas.filter((a) => a.topic).length, 'topic')} · {plural(index.linkCount, 'link')}
+            {hiddenArchived > 0 ? ` · ${hiddenArchived} archived hidden` : ''}
           </span>
           {src.readOnly && (
             <span className="kg-readonly" title={src.kind === 'notebook' ? 'Connected notebook: ObsidiNote never writes here' : 'Not the active vault: ObsidiNote never writes here'}>
@@ -144,6 +182,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
               {chip('hubsOnly', 'Labels: hubs only')}
             </>
           )}
+          <FilterButton index={index} filter={liveFilter} onChange={setFilter} />
           <label htmlFor="kg-search" className="kg-sr">
             Search pages and topics
           </label>
@@ -171,11 +210,25 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           </div>
         </div>
       </div>
+      <SearchFilters query={query} onQuery={onQuery} />
+
+      <FilterSummary index={index} filter={liveFilter} onChange={setFilter} shown={shown.size} />
 
       {mode === 'graph' ? (
-        <GraphStage index={index} layout={layout} filters={filters} matches={matches} active={active} onActive={setActive} onOpen={open} stageRef={stageRef} />
+        <GraphStage
+          index={index}
+          layout={layout}
+          filters={filters}
+          shown={allShown ? null : shown}
+          matches={matches}
+          active={active}
+          onActive={setActive}
+          onOpen={open}
+          onFocusPage={focusOn}
+          stageRef={stageRef}
+        />
       ) : (
-        <GraphList index={index} layout={layout} matches={matches} onOpen={open} />
+        <GraphList index={index} layout={layout} matches={listMatches} onOpen={open} />
       )}
 
       {dialog && (
@@ -186,6 +239,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           anchorId={dialog.anchorId}
           onNavigate={(id) => setDialog((d) => (d ? { ...d, pageId: id } : d))}
           onClose={close}
+          onFocusPage={focusOn}
           {...actions}
         />
       )}

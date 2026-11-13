@@ -5,9 +5,9 @@
 # and only by sso-setup.cmd after the person confirms; Edge policies and the normal Edge profile
 # are never touched.
 #
-# Provenance: ported from the CCBridge repo (github.com/jgt87/CCBridge), lib/Sso.psm1. Changed:
-# ObsidiNote's port and profile (lib/AppConfig.psm1); Get-DeviceJoinStatus moved in from CCBridge's
-# lib/Prereq.psm1; no file is written here (Invoke-SsoSetup returns its lines and
+# Provenance: ported from the author's earlier Copilot bridge (its lib/Sso.psm1). Changed:
+# ObsidiNote's port and profile (lib/AppConfig.psm1); Get-DeviceJoinStatus moved in from that
+# project's lib/Prereq.psm1; no file is written here (Invoke-SsoSetup returns its lines and
 # tools/sso-setup.ps1 writes them); the setup log names tab hosts only, never paths; added
 # Get-ProfileSsoState for the start's status line (from Edge's files, without opening Edge).
 # Read only from Edge's files: the account type (Local State) and named switch values

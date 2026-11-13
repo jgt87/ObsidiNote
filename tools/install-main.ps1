@@ -4,7 +4,7 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/jgt87/ObsidiNote/main/install.ps1 | iex"
 #
-# (The same install sequence as CCBridge/StreamHub.) That command fetches the one-line bootstrap
+# That command fetches the one-line bootstrap
 # install.ps1 in the repo root, which downloads this file and runs it with -File.
 #
 # Optional: set $env:OBSIDINOTE_DIR to install somewhere else, and

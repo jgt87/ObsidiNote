@@ -1,0 +1,37 @@
+/* Filter popover and the active-filter summary (FilterPanel.tsx). Tokens only; the accent marks
+   only the ticked boxes (accent-color) and the pressed steps toggle. */
+
+.kg-fp { position: relative; display: inline-flex; }
+.kg-fp__panel {
+  position: absolute; top: calc(100% + var(--space-2)); right: 0; z-index: var(--z-popover);
+  width: 300px; max-width: calc(100vw - 32px); box-sizing: border-box;
+  display: flex; flex-direction: column; gap: var(--space-4);
+  padding: var(--space-4); background: var(--raised); color: var(--ink);
+  border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-menu);
+}
+.kg-fp__set { margin: 0; padding: 0; border: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.kg-fp__set legend { padding: 0; margin-bottom: var(--space-2); font-size: var(--text-meta); font-weight: 600; color: var(--muted); }
+.kg-fp__list { display: flex; flex-direction: column; max-height: 168px; overflow: auto; }
+.kg-fp__opt { display: flex; align-items: center; gap: var(--space-3); min-height: 28px; padding: 0 var(--space-2);
+  border-radius: var(--radius-sm); font-size: var(--text-body); cursor: pointer; }
+.kg-fp__opt[data-depth="1"] { padding-left: calc(var(--space-2) + 16px); }
+.kg-fp__opt[data-depth="2"] { padding-left: calc(var(--space-2) + 32px); }
+.kg-fp__opt[data-depth="3"], .kg-fp__opt[data-depth="4"] { padding-left: calc(var(--space-2) + 48px); }
+@media (hover: hover) { .kg-fp__opt:hover { background: var(--hover); } }
+.kg-fp__opt input { margin: 0; flex: none; }
+.kg-fp__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kg-fp__count { color: var(--muted); font-size: var(--text-meta); font-variant-numeric: tabular-nums; }
+.kg-fp__none { margin: 0; color: var(--muted); font-size: var(--text-meta); }
+.kg-fp__foot { display: flex; justify-content: space-between; gap: var(--space-3);
+  border-top: 1px solid var(--border); padding-top: var(--space-3); }
+@media (max-width: 640px) {
+  .kg-fp__panel { position: fixed; top: auto; left: var(--space-4); right: var(--space-4); width: auto; bottom: var(--space-4);
+    max-height: calc(100dvh - 2 * var(--space-4)); overflow: auto; }
+}
+
+.kg-fsum { display: flex; align-items: center; gap: var(--space-2) var(--space-4); flex-wrap: wrap;
+  color: var(--muted); font-size: var(--text-meta); font-variant-numeric: tabular-nums; margin-top: calc(-1 * var(--space-2)); }
+.kg-fsum b { color: var(--ink); font-weight: 600; }
+.kg-fsum__count { color: var(--ink); }
+.kg-fsum__focus { display: inline-flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.kg-fsum__parts { min-width: 0; overflow-wrap: anywhere; }

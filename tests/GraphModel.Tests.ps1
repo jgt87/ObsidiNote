@@ -40,6 +40,15 @@ Describe 'ConvertTo-GraphModel' {
         @($g.pages | Where-Object { $_.id -eq 'p2' })[0].onenoteUrl | Should Be ''
         @($g.pages | Where-Object { $_.id -eq 'p3' })[0].archived | Should Be $true
     }
+    It 'passes aliases and a link page''s site on' {
+        $m = New-TestModel
+        $null = Add-IndexPage -Model $m -Page @{ id = 'p4'; title = 'Example site'; type = 'link-web'; bucket = 'Web links'; section = 'Web links'; oneNoteId = '{D}'; aliases = @('ES'); host = 'example.org' }
+        $p = @((ConvertTo-GraphModel -Model $m -Source @{ kind = 'vault'; id = 'v1'; name = 'S'; readOnly = $false }).pages | Where-Object { $_.id -eq 'p4' })[0]
+        ($p.aliases -join ',') | Should Be 'ES'
+        $p.site | Should Be 'example.org'
+        $json = ConvertTo-Json -InputObject $g -Depth 12 -Compress
+        $json | Should Match '"aliases":\[\]'
+    }
     It 'serialises lists as lists (one item, none) for the interface' {
         $json = ConvertTo-Json -InputObject $g -Depth 12 -Compress
         $json | Should Match '"topicIds":\[\]'

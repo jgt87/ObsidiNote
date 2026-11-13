@@ -7,6 +7,7 @@
 #     paths, the first is where the dot is drawn; no topics = the Unfiled area.
 #   - edges = the pages' own links (strength 1-3, why); links to pages that are not in the model are
 #     left out. links = in + out per page; hubs = pages with many links.
+#   - aliases (other names) and site (a link page's host) feed search and mentions in the interface.
 # Pure: no COM, no disk. PS 5.1, ASCII only.
 Set-StrictMode -Version 2.0
 Import-Module (Join-Path $PSScriptRoot 'PageMeta.psm1')
@@ -49,6 +50,7 @@ function ConvertTo-GraphModel {
             links = $d; isHub = ($d -ge $script:HubLinks); unlinked = ($d -eq 0)
             summary = [string]$p.summary; onenoteUrl = $(if ([string]$p.link -match '^(?i)onenote:') { [string]$p.link } else { '' })
             modified = [string]$p.updated; readOnly = $ro; archived = ($p.status -eq 'archived')
+            aliases = @(@($p.aliases) | Where-Object { $_ } | ForEach-Object { [string]$_ }); site = [string]$p.host
         }
     })
     [ordered]@{

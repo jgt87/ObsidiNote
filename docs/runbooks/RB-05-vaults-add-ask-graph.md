@@ -17,6 +17,7 @@ knowledge graph's data, Add and Ask.
 | Add (synthetic) and Undo | Adds a made-up sentence about tidal gardens to the test vault with Copilot, then undoes it (the page goes to OneNote's Deleted Pages) | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Check for the answer | Adds a second made-up sentence with a wait of 1 second, so Copilot is still answering and the item waits in the Intake (Copilot is left working, never stopped). Then checks for the answer every 10 seconds (at most 3 minutes) until the page is filed, and undoes it | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Update waits for the answer | Adds the public link `https://example.org/`, updates it with a wait of 1 second so the update waits in the Intake, checks for the answer every 10 seconds (at most 3 minutes) until the update is done, then undoes the link page | Only `ObsidiNote-Validation`, with `-WriteTest` |
+| Link it | Makes two made-up pages in the test vault, links the first to the second as "Link it" does in the window, checks that a second "Link it" writes nothing, then undoes both pages. No Copilot needed | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Ask (synthetic) | Asks "What do my notes say about tidal gardens?" against the test vault | No (Ask never writes) |
 
 ## Steps
@@ -60,6 +61,9 @@ knowledge graph's data, Add and Ask.
        (or `unchanged`) and `[OK] Update waits for the answer (undo)  status undone`. A
        `[FAIL] ... final status mismatch` line means Copilot did not repeat the reference or the link
        it read: send the files.
+     - `[OK] Link it  status linked; backlinks 1; ... ms`, then `[OK] Link it again  status
+       already-linked`, then `[OK] Link it (undo)  2 of 2 test pages back out`. Two pages titled
+       "Validation link source" and "Validation link target" are then in the test vault's Deleted Pages.
      - `[OK] Ask (synthetic)  status ...; writes 0`
      - In OneNote: a notebook `ObsidiNote-Validation` with the sections `00 Index`, `01 Intake`,
        `Notes` and the other fixed sections. A test vault made before this version had `01 Inbox`:
@@ -94,4 +98,11 @@ knowledge graph's data, Add and Ask.
    - If not, send this: the two newest Desktop files, which button you pressed and the message next
      to it (no file contents).
 
-8. Clean up when asked to (RB-03, "Cleaning up").
+8. Knowledge graph after an update with the Intake fix: start ObsidiNote once (this rewrites your
+   vault's Index pages), open **Knowledge graph**.
+   - What you should see: each page you added appears once, in its topic. No dot under **Unfiled**
+     is titled with a link or text you pasted (those were Add requests from the Intake). Unfiled
+     only holds pages without a topic, such as pages you typed in OneNote yourself.
+   - If not, send this: the two newest Desktop files and how many Unfiled dots you see.
+
+9. Clean up when asked to (RB-03, "Cleaning up").

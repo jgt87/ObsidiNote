@@ -2,6 +2,7 @@
 
 import type { GraphIndex } from './graphIndex'
 import type { Bounds, DotLayout } from './layout'
+import { parseQuery, rankPages } from '../search/query'
 
 /** screen = (world - (x, y)) * k */
 export interface Viewport {
@@ -64,27 +65,9 @@ export function nextInDirection(dots: DotLayout[], from: DotLayout, dir: Directi
   return best
 }
 
-/** Search: case-insensitive match on title, then topic names and paths. */
+/** Search: free words and filters (src/search/query.ts), best match first; [] for an empty query. */
 export function searchPages(index: GraphIndex, query: string): string[] {
-  const q = query.trim().toLowerCase()
-  if (!q) return []
-  const titleHits: string[] = []
-  const topicHits: string[] = []
-  for (const p of index.model.pages) {
-    const t = p.title.toLowerCase()
-    if (t.includes(q)) {
-      titleHits.push(p.id)
-      continue
-    }
-    if (p.topicIds.some((id) => index.topicById.get(id)?.path.toLowerCase().includes(q))) topicHits.push(p.id)
-  }
-  // Titles starting with the query first.
-  titleHits.sort((a, b) => {
-    const sa = index.pageById.get(a)!.title.toLowerCase().startsWith(q) ? 0 : 1
-    const sb = index.pageById.get(b)!.title.toLowerCase().startsWith(q) ? 0 : 1
-    return sa - sb
-  })
-  return [...titleHits, ...topicHits]
+  return rankPages(index, parseQuery(query)).map((r) => r.id)
 }
 
 export interface LabelBox {

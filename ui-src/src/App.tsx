@@ -13,6 +13,8 @@ import { attentionNotes } from './model/attention'
 import { askAboutText } from './model/handoff'
 import { addTargetFor, askSourceChoices, graphRefFor } from './model/notebooks'
 import { viewFromHash, VIEWS, type View } from './model/views'
+import { QuickSwitcher } from './search/QuickSwitcher'
+import type { FindRequest } from './search/switcherModel'
 
 export function App() {
   const [view, setView] = useState<View>(() => viewFromHash(window.location.hash))
@@ -48,6 +50,11 @@ export function App() {
   const ref = graphRefFor(shown)
   const refKey = JSON.stringify(ref)
   const loadGraph = useCallback((signal: AbortSignal) => fetchGraph(JSON.parse(refKey), signal), [refKey])
+  // Quick switcher (Ctrl+K): searches the ACTIVE vault; a pick shows that vault's graph.
+  const [findRequest, setFindRequest] = useState<FindRequest | null>(null)
+  const activeEntry = notebooks.list.find((n) => n.id === notebooks.activeId)
+  const findKey = activeEntry?.vault ? JSON.stringify(graphRefFor(activeEntry)) : null
+  const loadFind = useCallback((signal: AbortSignal) => fetchGraph(findKey ? JSON.parse(findKey) : {}, signal), [findKey])
   const sourceOptions = useMemo(() => askSourceChoices(notebooks.list, notebooks.activeId), [notebooks.list, notebooks.activeId])
 
   return (
@@ -70,6 +77,8 @@ export function App() {
             load={loadGraph}
             sourceKey={refKey}
             focusIds={graphFocus}
+            request={findRequest}
+            onRequestDone={() => setFindRequest(null)}
             onAdd={() => goto('home')}
             onAsk={(page) => {
               home.askAbout(askAboutText(page.title))
@@ -83,6 +92,16 @@ export function App() {
           </EmptyView>
         )}
       </main>
+      <QuickSwitcher
+        vaultKey={findKey}
+        load={loadFind}
+        onPick={(r) => {
+          if (notebooks.activeId) notebooks.choose(notebooks.activeId)
+          setGraphFocus([])
+          setFindRequest(r)
+          goto('graph')
+        }}
+      />
       {newVaultOpen && (
         <NewVaultDialog
           notebooks={notebooks.list}

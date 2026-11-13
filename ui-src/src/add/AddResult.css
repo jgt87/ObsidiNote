@@ -1,6 +1,7 @@
 /* The Add result screen. Colours, type and controls come from src/styles/tokens.css: greys, with
    the one purple accent only on the primary button, links on hover and the focus ring. */
-.add-result { display: flex; flex-direction: column; gap: var(--space-5); max-width: 880px; margin: 0 auto; }
+/* Same width as the box above it (the page's own width), so the two line up (operator, 2026-11-13). */
+.add-result { display: flex; flex-direction: column; gap: var(--space-5); }
 .add-result__top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-4); }
 .add-result__title { margin: 0; font-size: var(--text-heading); font-weight: 600; overflow-wrap: anywhere; }
 .add-result__status { display: flex; align-items: center; gap: var(--space-2); }

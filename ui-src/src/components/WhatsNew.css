@@ -1,0 +1,54 @@
+/* "Updated to vX.Y.Z": a quiet card above the box, greys only (no accent: it is news, not an action). */
+.whats-new {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.whats-new__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.whats-new__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-control);
+  font-weight: 600;
+  color: var(--ink);
+}
+.whats-new__dismiss { flex: none; color: var(--muted); }
+@media (hover: hover) { .whats-new__dismiss:hover { color: var(--ink); } }
+.whats-new__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.whats-new__item {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: var(--space-4);
+  font-size: var(--text-body);
+  line-height: 1.45;
+  color: var(--ink);
+}
+.whats-new__kind {
+  padding-top: 1px;
+  font-size: var(--text-meta);
+  font-weight: 600;
+  color: var(--muted);
+}
+.whats-new__text { overflow-wrap: anywhere; }
+.whats-new__empty { margin: 0; font-size: var(--text-body); color: var(--muted); }
+.whats-new__more { align-self: flex-start; }
+
+@media (max-width: 480px) {
+  .whats-new__item { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+}

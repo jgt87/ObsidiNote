@@ -3,8 +3,9 @@
 # same kit runs on every version. Read only on the person's notebooks (vault list, index
 # completeness, graph model counts). With -WriteTest it writes ONLY into the dev vault notebook
 # ObsidiNote-Validation, through the app's own write guard (Set-OneNoteWriteRoot): it creates or
-# continues that vault, writes its index, and runs an Add of a synthetic text with Undo, and an Ask
-# with a synthetic question. Counts and timings only. Keep this file ASCII.
+# continues that vault, writes its index, and runs an Add of a synthetic text with Undo, "Link it"
+# between two synthetic pages (then both undone), and an Ask with a synthetic question. Counts and
+# timings only. Keep this file ASCII.
 Set-StrictMode -Version 2.0
 $script:AppLib = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'lib'
 Import-Module (Join-Path $PSScriptRoot 'ValidationCore.psm1')
@@ -58,7 +59,7 @@ function Invoke-WithKnownParams {
 }
 
 function Add-SkipAll($Ctx, [string]$Why) {
-    foreach ($n in 'Vaults', 'Index completeness', 'Knowledge graph', 'Markdown export', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
+    foreach ($n in 'Vaults', 'Index completeness', 'Knowledge graph', 'Markdown export', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
 }
 
 function Add-VaultResults($Ctx, $Adapter) {
@@ -283,6 +284,59 @@ function Add-ExportResults($Ctx, $Adapter, [object[]]$Vaults) {
     }
 }
 
+function New-DevLinkPage($Store, [string]$Title) {
+    <# One synthetic page of the kit in the dev vault (no Copilot): id, page, index entry. #>
+    $id = [string](& $Store.NewId)
+    $page = @{ id = $id; type = 'note'; bucket = (& $Store.BucketForType -Type 'note'); title = $Title; summary = 'Synthetic page of the validation kit.'; topics = @(); aliases = @(); links = @(); status = ''; outlines = @(@{ role = 'body'; lines = @('Synthetic page of the validation kit.') }) }
+    $cp = & $Store.CreatePage -Page $page
+    $page.pageId = [string]$cp['pageId']; $page.link = [string]$cp['link']; $page.section = [string]$cp['section']
+    $null = & $Store.IndexAddPage -Page $page
+    @{ id = $id; pageId = $page.pageId }
+}
+
+function Invoke-DevLinkIt($Ctx, $Adapter, $Dev) {
+    <# "Link it" (lib/Ingest.psm1 Add-PageLink, POST /api/link/add): two synthetic pages of the kit,
+       one linked to the other, the same link again (already linked), then both pages back out
+       (Undo: OneNote's Deleted Pages, out of the index). No Copilot. Statuses and timings only. #>
+    $name = 'Link it'
+    $miss = @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names $script:Needs.add)
+    if ($miss.Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' $name "not in this version yet ($($miss -join ', ') missing)"; return }
+    Import-AppModules $Ctx.AppRoot $script:Needs.add
+    $builder = Find-KitCommand $script:StoreBuilders
+    if (-not $builder -or -not (Get-Command Add-PageLink -ErrorAction SilentlyContinue)) { Add-ValidationResult $Ctx 'V6' 'SKIP' $name 'not in this version yet'; return }
+    $lease = $Dev.lease
+    # The closure is made here, not inside Measure-KitStep's block: made there, it did not see $lease
+    # when the kit ran under Pester (the store then reported "Read only").
+    $getLease = { $lease }.GetNewClosure()
+    $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = $getLease; AppRoot = $Ctx.AppRoot } }
+    if (-not $s.ok -or -not $Dev.model) { Add-ValidationResult $Ctx 'V6' 'FAIL' $name "the store could not be made: $(if ($s.ok) { 'no index model' } else { $s.error })"; return }
+    $store = $s.value
+    $a = $null; $b = $null
+    try {
+        $mk = Measure-KitStep { New-DevLinkPage $store 'Validation link source' }
+        if ($mk.ok) { $a = $mk.value; $mk2 = Measure-KitStep { New-DevLinkPage $store 'Validation link target' }; if ($mk2.ok) { $b = $mk2.value } else { $mk = $mk2 } }
+        if (-not $a -or -not $b) { Add-ValidationResult $Ctx 'V6' 'FAIL' $name "the two test pages could not be made: $($mk.error)"; return }
+        $l = Measure-KitStep { Add-PageLink -Store $store -From $a.id -To $b.id }
+        $st = "$(Get-KitProp $l.value 'status' 'error')"
+        Add-ValidationResult $Ctx 'V6' $(if ($l.ok -and $st -eq 'linked') { 'OK' } else { 'FAIL' }) $name "status $st; backlinks $(Get-KitProp $l.value 'backlinks' 0); $($l.ms) ms (two test pages made in $($mk.ms) ms)"
+        $again = Measure-KitStep { Add-PageLink -Store $store -From $b.id -To $a.id }
+        $st2 = "$(Get-KitProp $again.value 'status' 'error')"
+        Add-ValidationResult $Ctx 'V6' $(if ($again.ok -and $st2 -eq 'already-linked') { 'OK' } else { 'FAIL' }) "$name again" "status $st2 (expected already-linked); $($again.ms) ms"
+    } finally {
+        $done = 0; $tried = 0
+        # The source first, so the target's "Linked from" is rewritten without it; then the target.
+        $undos = @()
+        if ($a) { $undos += , @{ id = $a.id; pageId = $a.pageId; targets = @($(if ($b) { $b.id } else { @() })) } }
+        if ($b) { $undos += , @{ id = $b.id; pageId = $b.pageId; targets = @() } }
+        foreach ($rec in $undos) {
+            $tried++
+            $u = Measure-KitStep { Undo-AddRequest -Store $store -Undo $rec }
+            if ($u.ok -and "$(Get-KitProp $u.value 'status' '')" -eq 'undone') { $done++ }
+        }
+        if ($tried) { Add-ValidationResult $Ctx 'V6' $(if ($done -eq $tried) { 'OK' } else { 'WARN' }) "$name (undo)" "$done of $tried test pages back out (OneNote's Deleted Pages)" }
+    }
+}
+
 function Invoke-DevAsk($Ctx, $Adapter, $Dev, $Bridge) {
     $miss = @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names $script:Needs.ask)
     if ($miss.Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Ask' "not in this version yet ($($miss -join ', ') missing)"; return }
@@ -301,7 +355,7 @@ function Invoke-DevAsk($Ctx, $Adapter, $Dev, $Bridge) {
 
 function Invoke-DevVaultChecks($Ctx, $Adapter) {
     if (-not (Get-KitFlag $Ctx 'WriteTest')) {
-        foreach ($n in 'Dev vault', 'Add and Undo', 'Check for the answer', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n 'write tests not run' 'Add -WriteTest; they write only into the notebook ObsidiNote-Validation.' }
+        foreach ($n in 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n 'write tests not run' 'Add -WriteTest; they write only into the notebook ObsidiNote-Validation.' }
         return
     }
     $dev = $null
@@ -312,6 +366,7 @@ function Invoke-DevVaultChecks($Ctx, $Adapter) {
         if (-not (Get-KitFlag $Ctx 'NoCopilot')) { $bridge = Connect-KitCopilot -Ctx $Ctx -Stage 'V6' }
         Invoke-DevAdd $Ctx $Adapter $dev $bridge
         Invoke-DevAnswerCheck $Ctx $Adapter $dev $bridge
+        Invoke-DevLinkIt $Ctx $Adapter $dev
         Invoke-DevAsk $Ctx $Adapter $dev $bridge
     } catch { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Dev vault' $_.Exception.Message }
     finally { if ($dev -and $dev.lease) { try { $null = Clear-WriterLease -Adapter $Adapter -Lease $dev.lease } catch { } } }

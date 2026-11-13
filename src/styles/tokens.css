@@ -11,7 +11,7 @@
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
 
-/* raw palette: the only hue (purple, as in OneNote and Obsidian). Components never use these
+/* raw palette: the only hue (purple, as in OneNote). Components never use these
    directly; they use the role tokens (--accent, --ring...). */
 :root {
   --purple-300: #C4B5FD;

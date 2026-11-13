@@ -8,7 +8,12 @@ import { GraphView } from '../GraphView'
 import { layoutGraph } from '../layout'
 import type { GraphModel } from '../model'
 import { syntheticGraph } from '../synthetic'
+import { QuickSwitcher } from '../../search/QuickSwitcher'
+import type { FindRequest } from '../../search/switcherModel'
 import './demo.css'
+
+// Quick switcher (Ctrl+K) on the same synthetic model.
+const loadFind = () => new Promise<GraphModel>((resolve) => setTimeout(() => resolve(model), 150))
 
 const q = new URLSearchParams(location.search)
 const pages = Number(q.get('pages') ?? 100)
@@ -24,6 +29,7 @@ const model = syntheticGraph({ pages: state === 'empty' ? 0 : pages, topics, see
 function Demo() {
   const [log, setLog] = useState('')
   const [fail, setFail] = useState(state === 'error')
+  const [find, setFind] = useState<FindRequest | null>(null)
   const load = useCallback(
     (signal: AbortSignal) =>
       new Promise<GraphModel>((resolve, reject) => {
@@ -40,9 +46,17 @@ function Demo() {
         onAsk={(p) => setLog(`Ask about this: ${p.title}`)}
         onEditLinks={(p) => setLog(`Edit links: ${p.title}`)}
         onMoveInIndex={(p) => setLog(`Move in index: ${p.title}`)}
-        onLinkMention={(a, b) => setLog(`Link it: ${a.title} → ${b.title}`)}
+        onLinkMention={(a, b) =>
+          // Never the real route here (the dev server proxies /api to a running app). ?link=fail shows the error.
+          new Promise<void>((resolve, reject) =>
+            setTimeout(() => (q.get('link') === 'fail' ? reject(new Error('Read only: another ObsidiNote is writing in this vault.')) : (setLog(`Link it: ${a.title} → ${b.title}`), resolve())), q.get('link') === 'slow' ? 60_000 : 400),
+          )
+        }
         onAdd={() => setLog('Add')}
+        request={find}
+        onRequestDone={() => setFind(null)}
       />
+      <QuickSwitcher vaultKey="demo" load={loadFind} onPick={setFind} />
       <div className="demo-log" aria-live="polite">
         {log}
         {fail && (

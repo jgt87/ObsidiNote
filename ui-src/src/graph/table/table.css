@@ -1,0 +1,139 @@
+/* List view: one table of all pages (GraphList + TableGroupRows). Tokens only; the one accent
+   colour is the focus ring and the link hover, as everywhere in the graph. */
+
+.kg-tbl {
+  --kg-tbl-head-h: 32px;
+  --kg-tbl-row-h: 34px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  /* design: the table takes the map's place and height; it scrolls inside its own area. */
+  height: calc(100dvh - 112px);
+  min-height: 360px;
+  min-width: 0;
+}
+
+/* ---------- bar above the table ---------- */
+.kg-tbl__bar { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; min-height: var(--control-h-sm); }
+.kg-tbl__groupby { display: inline-flex; align-items: center; gap: var(--space-3); font-size: var(--text-meta); color: var(--muted); }
+.kg-tbl select.kg-tbl__select { height: var(--control-h-sm); font-size: var(--text-meta); }
+
+/* ---------- scroll area ---------- */
+.kg-tbl__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  /* design: same frame as the map stage it replaces. */
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.kg-tbl__table {
+  width: 100%;
+  /* narrower windows scroll sideways inside the area; the Page column (>= 260px) stays in view */
+  min-width: 880px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: var(--text-body);
+}
+.kg-tbl__c-type { width: 120px; }
+.kg-tbl__c-topics { width: 170px; }
+.kg-tbl__c-site { width: 160px; }
+.kg-tbl__c-links { width: 64px; }
+.kg-tbl__c-changed { width: 100px; }
+
+.kg-tbl__table th,
+.kg-tbl__table td {
+  padding: 0 var(--space-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  background: var(--surface);
+}
+.kg-tbl__table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* header: sticky, sortable */
+.kg-tbl__table thead th {
+  position: sticky;
+  top: 0;
+  z-index: calc(var(--z-sticky) + 1);
+  height: var(--kg-tbl-head-h);
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-label);
+  font-weight: 600;
+  color: var(--muted);
+}
+.kg-tbl__sort {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+/* design: in the right-aligned Links column the arrow goes before the label, so the label lines
+   up with the numbers. */
+.kg-tbl__table th.num .kg-tbl__sort { flex-direction: row-reverse; }
+.kg-tbl__sort:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (hover: hover) { .kg-tbl__sort:hover { color: var(--ink); } }
+.kg-tbl__table th[aria-sort] { color: var(--ink); }
+.kg-tbl__arrow { width: 12px; height: 12px; flex: none; }
+
+/* group heading rows: sticky under the header */
+.kg-tbl__group th {
+  position: sticky;
+  top: var(--kg-tbl-head-h);
+  z-index: var(--z-sticky);
+  height: var(--kg-tbl-row-h);
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
+  background: var(--sunken);
+  font-weight: 400;
+  overflow: visible; /* the focus ring of the fold button is not clipped; the name truncates itself */
+}
+.kg-tbl__grouphead { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
+.kg-tbl__grouphead .export { margin-left: auto; flex: none; font-size: var(--text-meta); color: var(--muted); }
+.kg-tbl__fold {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.kg-tbl__fold:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.kg-tbl__groupname { font-size: var(--text-control); font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
+.kg-tbl__count { flex: none; font-size: var(--text-meta); color: var(--muted); font-variant-numeric: tabular-nums; }
+.kg-tbl__chev { width: 14px; height: 14px; flex: none; color: var(--muted); transition: transform var(--dur-fast) var(--ease-out); }
+.kg-tbl__chev.is-open { transform: rotate(90deg); }
+
+/* rows */
+.kg-tbl__table tbody td { height: var(--kg-tbl-row-h); box-sizing: border-box; border-bottom: 1px solid var(--border); }
+@media (hover: hover) {
+  .kg-tbl__table tbody tr:not(.kg-tbl__group):not(.kg-tbl__more):hover td {
+    background-image: linear-gradient(var(--hover), var(--hover));
+  }
+}
+.kg-tbl__title { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.kg-tbl__title .kg-linkbtn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kg-tbl__title .kg-tag { flex: none; }
+
+/* the Page column stays in view when the table scrolls sideways */
+.kg-tbl__table .kg-tbl__page { position: sticky; left: 0; }
+.kg-tbl__table thead .kg-tbl__page { z-index: calc(var(--z-sticky) + 2); }
+.kg-tbl__table tbody .kg-tbl__page { z-index: 1; }
+
+.kg-tbl__more td { color: var(--muted); }
+.kg-tbl__table td.kg-tbl__empty { color: var(--muted); text-align: center; height: 120px; border-bottom: 0; }
+
+@media (pointer: coarse) {
+  .kg-tbl { --kg-tbl-row-h: 44px; }
+}

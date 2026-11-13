@@ -1,7 +1,7 @@
 # No in-memory download-and-run forms that antivirus flags as malware: WebClient DownloadString
 # feeding a script, or encoded commands. Defender blocked "iex ((New-Object Net.WebClient).
 # DownloadString(...))" as Trojan:PowerShell/Sacepos.C on 2026-11-12. The README's install line
-# stays the same as CCBridge/StreamHub ("irm <url> | iex"), by the operator's decision.
+# stays the operator's established form ("irm <url> | iex"), by the operator's decision.
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 
 # Built from pieces, so this file does not match itself.

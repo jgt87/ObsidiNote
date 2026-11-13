@@ -1,15 +1,15 @@
 # Minimal Chrome DevTools Protocol client for Windows PowerShell 5.1.
 # Launches Edge with a debug port and talks to a page target over a WebSocket.
 #
-# Provenance: copied from the CCBridge repo (github.com/jgt87/CCBridge), lib/Cdp.psm1 at commit
-# b972eab. Changed: logs through ObsidiNote's lib/Log.psm1 (Write-AppLog) instead of CCBridge's
-# Log.psm1; Start-CdpEdge defaults to ObsidiNote's own session (debug port 9334 and the profile
+# Provenance: copied from the author's earlier Copilot bridge (its lib/Cdp.psm1 at commit
+# b972eab). Changed: logs through ObsidiNote's lib/Log.psm1 (Write-AppLog) instead of that
+# project's Log.psm1; Start-CdpEdge defaults to ObsidiNote's own session (debug port 9334 and the profile
 # <data dir>\edge-profile, from lib/AppConfig.psm1) and no longer clears Edge's cache from a flag
 # file; comments name ObsidiNote. The protocol code itself is unchanged.
 # Added in ObsidiNote: Start-CdpEdge never starts a second Edge for its profile (it waits for one
 # that is starting, and stops with a clear message when Edge holds the profile without the debug
 # port or policy blocks the port), waits up to 45 s instead of 15 s, and the Edge policy check
-# (Get-EdgePolicyValue, ported from CCBridge's lib/Prereq.psm1).
+# (Get-EdgePolicyValue, ported from that project's lib/Prereq.psm1).
 # Strict mode stays off here: CDP messages are JSON whose optional fields (id, error, method,
 # exceptionDetails) are read directly, which Set-StrictMode -Version 2.0 turns into errors.
 # Keep this file ASCII: PS 5.1 reads BOM-less files as ANSI.

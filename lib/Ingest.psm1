@@ -912,4 +912,81 @@ function Invoke-LinkUpdate {
     $r
 }
 
-Export-ModuleMember -Function Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle
+$script:LinkItWhy = 'Linked by you (mentioned in the text)'
+
+function Test-PagesLinked {
+    <# True when $A links to $B or $B to $A: the page records' links or an index edge. #>
+    param($Index, [string]$A, [string]$B)
+    $pages = Get-IndexPageMap $Index
+    foreach ($pair in @(@($A, $B), @($B, $A))) {
+        $p = $pages[$pair[0]]
+        foreach ($l in @(Get-LkProp $p 'links' @())) {
+            if ([string](Get-LkProp $l 'target' (Get-LkProp $l 't' '')) -eq $pair[1]) { return $true }
+        }
+    }
+    foreach ($e in @(Get-LkProp $Index 'edges' @())) {
+        $f = [string](Get-LkProp $e 'from' ''); $t = [string](Get-LkProp $e 'to' '')
+        if (($f -eq $A -and $t -eq $B) -or ($f -eq $B -and $t -eq $A)) { return $true }
+    }
+    $false
+}
+
+function Add-PageLink {
+    <# "Link it": the person links page $From to page $To (both of the active vault; a mention the
+       graph found, no Copilot). Writes the link (strength 1, why "Linked by you ...") into the from
+       page's own obsn.links Meta (the page's Meta wins over the index record), rewrites the to page's
+       "Linked from" outline, and updates the from page's index record, which regenerates only the
+       affected Index pages. No other outline is written; never "Your notes".
+       Returns @{ status = linked | already-linked | refused | not-found | invalid | failed; message;
+       from; to; backlinks; warnings; ms }. refused = read only (no writer lease). Never throws. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Store, [AllowEmptyString()][string]$From = '', [AllowEmptyString()][string]$To = '')
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $r = [ordered]@{ status = 'failed'; message = ''; from = $From; to = $To; backlinks = 0; warnings = @(); ms = 0 }
+    try {
+        if (-not $From -or -not $To) { $r.status = 'invalid'; $r.message = 'Both pages are needed.' }
+        elseif ($From -eq $To) { $r.status = 'invalid'; $r.message = 'A page cannot be linked to itself.' }
+        else { $r = Invoke-PageLinkWrite -Store $Store -From $From -To $To -Result $r }
+    } catch {
+        $r.status = 'failed'
+        $r.message = "The link was not added: $($_.Exception.Message)"
+    }
+    $r.ms = [int]$sw.ElapsedMilliseconds
+    Write-AppLog info ingest 'Link it finished' @{ status = $r.status; from = $From; to = $To; backlinks = $r.backlinks; ms = $r.ms }
+    $r
+}
+
+function Invoke-PageLinkWrite {
+    param($Store, [string]$From, [string]$To, $Result)
+    $r = $Result
+    try { Invoke-Store $Store 'AssertWritable' | Out-Null } catch { $r.status = 'refused'; $r.message = "Nothing was linked: $($_.Exception.Message)"; return $r }
+    $idx = Invoke-Store $Store 'GetIndex'
+    $pages = Get-IndexPageMap $idx
+    foreach ($id in @($From, $To)) {
+        if (-not $pages.ContainsKey($id)) { $r.status = 'not-found'; $r.message = "Page $id is not in this vault's index."; return $r }
+    }
+    if (Test-PagesLinked -Index $idx -A $From -B $To) { $r.status = 'already-linked'; $r.message = 'These pages are linked already.'; return $r }
+    $rec = $pages[$From]
+    $pageId = Get-LkString $rec 'pageId'
+    if (-not $pageId) { throw "page $From has no OneNote page" }
+
+    # The page's own Meta is the truth for its links (the index mirrors it).
+    $pg = Invoke-Store $Store 'ReadPage' @{ PageId = $pageId }
+    $metaLinks = @(Get-LkProp (Get-LkProp $pg 'meta' @{}) 'links' @())
+    $src = if ($metaLinks.Count) { $metaLinks } else { @(Get-LkProp $rec 'links' @()) }
+    $links = @(@($src) | Where-Object { $_ } | ForEach-Object { @{ target = [string](Get-LkProp $_ 'target' (Get-LkProp $_ 't' '')); strength = [int](Get-LkProp $_ 'strength' (Get-LkProp $_ 's' 1)); why = [string](Get-LkProp $_ 'why' (Get-LkProp $_ 'w' '')) } } | Where-Object { $_['target'] })
+    if (@($links | Where-Object { $_['target'] -eq $To }).Count) { $r.status = 'already-linked'; $r.message = 'These pages are linked already.'; return $r }
+    $merged = @($links) + @(@{ target = $To; strength = 1; why = $script:LinkItWhy })
+
+    Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = @{ links = $merged }; Outlines = @(); Title = $null } | Out-Null
+    $bl = Update-Backlinks -Store $Store -Index $idx -Targets @($To) -ExcludeId '' -Add @{ id = $From; title = (Get-LkString $rec 'title'); link = (Get-LkString $rec 'link') }
+    $r.backlinks = $bl.count
+    $r.warnings = @($r.warnings) + @($bl.warnings)
+    try { Invoke-Store $Store 'IndexUpdatePage' @{ Page = @{ id = $From; links = $merged } } | Out-Null }
+    catch { $r.warnings = @($r.warnings) + "The index was not updated; the next start reads the page again ($($_.Exception.Message))." }
+    $r.status = 'linked'
+    $r.message = "Linked: $(Get-LkString $rec 'title') -> $(Get-LkString $pages[$To] 'title')"
+    $r
+}
+
+Export-ModuleMember -Function Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle, Add-PageLink, Test-PagesLinked

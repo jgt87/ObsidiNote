@@ -1,6 +1,6 @@
 # Pester 3.4 syntax (inbox on Windows): Should Be / Should Throw.
-# The Copilot bridge (lib/CopilotBridge.psm1): its pure parts, ported from the CCBridge tests
-# (ReplyMerge, StreamHub, DamagedHtml, CopilotLock, BusyCopilot, CopilotTheme, HumanInTheLoop and
+# The Copilot bridge (lib/CopilotBridge.psm1): its pure parts, ported from the earlier bridge's tests
+# (ReplyMerge, stream hub, DamagedHtml, CopilotLock, BusyCopilot, CopilotTheme, HumanInTheLoop and
 # Agents), plus ObsidiNote's own session and no-content rules. No network and no Edge: Copilot's
 # page and connection are mocked. The fixtures are recorded Chathub frames, scrubbed (ids zeroed;
 # timestamps, locale, metering, tenant and user fields removed).
@@ -184,7 +184,7 @@ Describe 'Copilot tab hosts and selectors' {
     }
     It 'reads the shipped selectors.json with every selector the bridge needs' {
         $s = Get-CopilotSelectors
-        foreach ($k in 'chatUrl', 'editor', 'sendButton', 'stopButton', 'chatHubUrlPattern', 'streamHubUrlPattern', 'replyContainer', 'copyReplyButton', 'newChatButton') {
+        foreach ($k in 'chatUrl', 'editor', 'sendButton', 'stopButton', 'chatHubUrlPattern', 'streamUrlPattern', 'replyContainer', 'copyReplyButton', 'newChatButton') {
             "$($s.$k)" | Should Not BeNullOrEmpty
         }
         Test-CopilotUrl $s.chatUrl $s | Should Be $true
@@ -433,7 +433,7 @@ Describe 'Waiting for the send lock (Local\ObsidiNoteCopilot)' {
 }
 
 Describe 'ObsidiNote''s own Edge session' {
-    It 'connects on port 9334 with the profile in the data folder, never CCBridge''s 9333' {
+    It 'connects on port 9334 with the profile in the data folder, never 9333 (another tool''s Edge)' {
         $global:obsnEdge = $null
         Mock -ModuleName CopilotBridge Start-CdpEdge { $global:obsnEdge = @{ port = $Port; profile = $ProfileDir }; throw 'Copilot message box never appeared; not signed in?' }
         { Connect-Copilot -SignInTimeoutSec 1 } | Should Throw 'never appeared'

@@ -80,7 +80,7 @@ export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp }: 
           </p>
         )}
         {nb?.available && nb.notebook && nb.totals.pages > 0 && (
-          // The shown notebook or vault, as Obsidian-style Markdown files in a zip (POST /api/export).
+          // The shown notebook or vault, as Markdown files with [[wikilinks]] in a zip (POST /api/export).
           <ExportButton request={{ scope: 'all', notebook: notebooks.shownId ?? nb.notebook.id }} label="Export all as Markdown" className="btn switcher__new" />
         )}
         <ThemeSwitch />

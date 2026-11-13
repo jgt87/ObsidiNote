@@ -1,12 +1,12 @@
 {
-  "_provenance": "Copied from the CCBridge repo (github.com/jgt87/CCBridge), config/selectors.json at commit b972eab. Changed: the workIq note (it named a capture tool ObsidiNote does not have). Override single keys in config/selectors.local.json (a nested object there replaces the whole object).",
+  "_provenance": "Copied from the author's earlier Copilot bridge (its config/selectors.json at commit b972eab). Changed: the workIq note (it named a capture tool ObsidiNote does not have). Override single keys in config/selectors.local.json (a nested object there replaces the whole object).",
   "chatUrl": "https://www.microsoft365.com/chat",
   "chatHosts": ["microsoft365.com", "m365.cloud.microsoft"],
   "editor": "#m365-chat-editor-target-element, [role='textbox'][contenteditable='true']",
   "sendButton": "button[aria-label='Send'], button.fai-SendButton",
   "stopButton": "button[aria-label*='Stop' i]",
   "chatHubUrlPattern": "/Chathub/",
-  "streamHubUrlPattern": "/StreamHub/",
+  "streamUrlPattern": "/StreamHub/",
   "newChatButton": "a[aria-label='New chat' i], button[aria-label='New chat' i]",
   "workIq": {
     "toggle": "",

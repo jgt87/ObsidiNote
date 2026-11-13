@@ -38,3 +38,29 @@ export async function fetchGraph(ref: GraphSourceRef = {}, signal?: AbortSignal,
   }
   return normalizeGraph(body)
 }
+
+export const LINK_ADD_ROUTE = '/api/link/add'
+
+export type LinkAddStatus = 'linked' | 'already-linked'
+
+/**
+ * "Link it": POST /api/link/add {from, to, vault} links page `from` to page `to` in the active vault
+ * (the server refuses read-only and other sources with 409). Resolves with the outcome; throws
+ * GraphLoadError with the server's message otherwise.
+ */
+export async function addLink(req: { from: string; to: string; vault?: string }, fetcher: typeof fetch = fetch): Promise<LinkAddStatus> {
+  let res: Response
+  try {
+    res = await fetcher(LINK_ADD_ROUTE, {
+      method: 'POST',
+      headers: { 'X-ObsidiNote': '1', 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.vault ? req : { from: req.from, to: req.to }),
+    })
+  } catch {
+    throw new GraphLoadError('ObsidiNote is not answering. Is it still running?', 0)
+  }
+  const body: unknown = await res.json().catch(() => null)
+  const b = (body && typeof body === 'object' ? body : {}) as { status?: unknown; error?: unknown }
+  if (res.status !== 200) throw new GraphLoadError(b.error ? String(b.error) : `The server answered ${res.status}.`, res.status)
+  return b.status === 'already-linked' ? 'already-linked' : 'linked'
+}

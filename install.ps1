@@ -1,4 +1,4 @@
-# ObsidiNote installer bootstrap (the same install command as CCBridge/StreamHub):
+# ObsidiNote installer bootstrap:
 #   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/jgt87/ObsidiNote/main/install.ps1 | iex"
 # This file is ONE line of code on purpose: some shells hand a piped script to iex line by line,
 # which breaks every multi-line block. That line downloads the real installer

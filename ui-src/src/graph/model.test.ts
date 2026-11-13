@@ -114,6 +114,9 @@ describe('index and view helpers', () => {
     expect(index.pageById.get(searchPages(index, 'zero')[0])!.title).toBe('Zero-trust networking')
     expect(searchPages(index, 'networking').length).toBeGreaterThan(1)
     expect(searchPages(index, '   ')).toEqual([])
+    // Filters alone list every page they hold (src/search/query.ts has the full cases).
+    expect(new Set(searchPages(index, 'is:hub'))).toEqual(new Set(m.pages.filter((p) => p.isHub).map((p) => p.id)))
+    expect(searchPages(index, 'topic:security').every((id) => index.pageById.get(id)!.topicIds.some((t) => index.topicById.get(t)!.path.startsWith('Security')))).toBe(true)
   })
 
   it('moves by arrow to the nearest dot in that direction', () => {

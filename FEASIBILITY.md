@@ -1,6 +1,6 @@
 # ObsidiNote: feasibility study
 
-Sister project of CCBridge / StreamHub. Question: can we build an Obsidian-style personal wiki
+Question: can we build a self-linking personal wiki, in the style of Markdown note apps,
 where anything you add is indexed and linked to related topics automatically, with
 M365 Copilot as the only reasoning layer and OneNote or Loop as the repository?
 
@@ -15,9 +15,9 @@ Status: research only (2026-11-12). Nothing built yet.
 
 ---
 
-## 1. What Obsidian actually is (and what it is not)
+## 1. What a Markdown note app actually is (and what it is not)
 
-| Obsidian concept | What it does | Notes |
+| Concept | What it does | Notes |
 |---|---|---|
 | Vault | A folder of plain Markdown files; local-first | The files are the database |
 | `[[Wikilinks]]` | Link to a note by title; you can link to a note that does not exist yet (it gets created later) | Links are typed **by the user** |
@@ -27,15 +27,15 @@ Status: research only (2026-11-12). Nothing built yet.
 | Graph view | Notes as nodes, links as edges; global and local graphs | Rendered from the link index |
 | MOCs / hub notes | Hand-written "map of content" notes that index a topic | A convention, not a feature |
 | Daily notes, templates, Canvas | Capture flow and visual boards | |
-| AI plugins (Smart Connections, Copilot for Obsidian) | Use embeddings to suggest "related notes" | Plugins only. Core Obsidian links **nothing** by itself |
+| AI plugins | Use embeddings to suggest "related notes" | Plugins only. The core app links **nothing** by itself |
 
-The point for us: **Obsidian does no automatic linking.** Its value comes from cheap links,
-backlinks and the graph; the user does the thinking. ObsidiNote has to supply what Obsidian
-leaves to the user: classifying, linking, and keeping hub notes up to date. Copilot does that.
+The point for us: **such apps do no automatic linking.** Their value comes from cheap links,
+backlinks and the graph; the user does the thinking. ObsidiNote has to supply what they
+leave to the user: classifying, linking, and keeping hub notes up to date. Copilot does that.
 
 ## 2. Mapping onto OneNote
 
-| Obsidian | OneNote equivalent | How (COM API) |
+| Markdown note app | OneNote equivalent | How (COM API) |
 |---|---|---|
 | Vault | One dedicated notebook on OneDrive (e.g. `ObsidiNote`) | `OpenHierarchy` / `CreateNewPage` |
 | Folder | Section / section group (e.g. `Intake`, `Notes`, `Topics`, `Sources`) | `GetHierarchy` |
@@ -49,7 +49,7 @@ leaves to the user: classifying, linking, and keeping hub notes up to date. Copi
 
 **Verified (2026-11-12, consumer account):** `OneNote.Application` (desktop OneNote 16.0.20326)
 is registered and `GetHierarchy` works from **Windows PowerShell 5.1**. In PowerShell 7 the same
-call threw an "Unexpected HRESULT" COM error, so stay on 5.1, which the CCBridge rules require
+call threw an "Unexpected HRESULT" COM error, so stay on 5.1, which the Copilot bridge requires
 anyway. No notebooks were open, so we have not yet tested writing.
 
 **P1 result (2026-11-12, `probes/p1-roundtrip.ps1`): PASS.** The script created a cloud
@@ -82,8 +82,8 @@ Requirements and limits:
 - **No public API to read or write Loop pages.** A Microsoft Q&A thread from Feb 2026 asks for
   one; the only answer points to the Feedback Portal. Loop pages are Fluid documents in
   SharePoint Embedded or OneDrive (`.loop`, Copilot Pages are `.page`).
-- **Writing** would mean driving `loop.cloud.microsoft` in Edge over CDP, the same way CCBridge
-  drives Copilot. But Loop's editor is a collaborative Fluid editor. Typing structured content
+- **Writing** would mean driving `loop.cloud.microsoft` in Edge over CDP, the same way the
+  bridge drives Copilot. But Loop's editor is a collaborative Fluid editor. Typing structured content
   and page links into it through synthetic input is much harder to get right than one chat box,
   and it breaks whenever the UI changes.
 - **Reading by Copilot:** `.loop` and `.page` are supported reference types in Copilot Notebooks.
@@ -93,8 +93,8 @@ Requirements and limits:
 ## 4. Copilot's role
 
 Copilot has no memory between chats, cannot write to OneNote or Loop, and on the work tenant is
-limited to about 80k characters per prompt and about 30 messages per chat (see the CCBridge
-notes). So we use it as a **stateless reasoning function**. The harness does everything else.
+limited to about 80k characters per prompt and about 30 messages per chat (measured with the
+earlier Copilot bridge). So we use it as a **stateless reasoning function**. The harness does everything else.
 
 **Ingest / link call.** Input: the new item, plus a shortlist of existing pages (id, title,
 aliases, one-line summary). Output: strict JSON, for example
@@ -109,7 +109,7 @@ aliases, one-line summary). Output: strict JSON, for example
 - Shortlist first, then reason: a local pre-filter (OneNote `FindPages`, keyword and alias
   overlap) picks about 30 to 60 candidate pages. That keeps prompts small no matter how large
   the vault gets.
-- Use JSON, not Markdown links, because Copilot's citation filter removes `[x]:` text. CCBridge
+- Use JSON, not Markdown links, because Copilot's citation filter removes `[x]:` text. The bridge
   already rebuilds the raw reply around this.
 - Batch several items per call; the daily Copilot limit is the scarcest resource.
 
@@ -182,7 +182,7 @@ Consequences:
   Shortlist  -- in-memory index (loaded from the Index section) -->  candidates
         |
         v
-  Copilot (via CCBridge lib)  -->  JSON: title, topics, links, aliases
+  Copilot (via the bridge)    -->  JSON: title, topics, links, aliases
         |
         v
   Validator  (ids exist, anchors appear in the text, no duplicate page)
@@ -198,7 +198,7 @@ Consequences:
   in-memory working copy (refreshed from the Index section)  -->  graph view in web UI
 ```
 
-- Reuse from CCBridge: `CopilotBridge.psm1` (Edge CDP, reply rebuild, Copilot mutex), the
+- Reuse from the author's earlier Copilot bridge: `CopilotBridge.psm1` (Edge CDP, reply rebuild, Copilot mutex), the
   server and UI shell (React + Kokonut UI, monochrome), and the MCP pattern so a coding agent
   can drop items into the Intake.
 - **Source data is read-only.** ObsidiNote writes only inside its own notebook. Existing
@@ -493,8 +493,10 @@ the index, like a library catalogue, not by searching all pages.
   - on **Links**: every internal link by site or team, and every web link by domain;
   - on **Archive**: every archived page, by original bucket (deleted pages leave the index; the
     state page keeps a 60-day "Recently deleted" list);
-  - on **Unfiled**: pages without a topic path, including your own pages and Intake items that
-    failed, until they are placed;
+  - on **Unfiled**: pages without a topic path, including your own pages, until they are placed.
+    Intake pages are not listed: they are Add requests, not content (a filed one has become its
+    own page; a waiting or failed one shows in the window's Intake card). Listing them made every
+    Add show twice on the map (2026-11-13);
   - under **Other sections**: sections you made yourself, listed per section.
 
   The root **Index** page links to all of these, plus counts (pages per bucket, topics, links,
@@ -507,7 +509,7 @@ the index, like a library catalogue, not by searching all pages.
 
 ### Interface (user requirement, 2026-11-12)
 
-The product is a **local web app**, the same shape as CCBridge: a PS 5.1 server on 127.0.0.1
+The product is a **local web app**: a PS 5.1 server on 127.0.0.1
 serving a prebuilt React UI, so nothing is installed at runtime. Three views:
 
 | View | What the user does | What happens |
@@ -596,8 +598,8 @@ quality) only needs Copilot to reason, so any Copilot account works. Steps are i
 | # | Probe | Pass if |
 |---|---|---|
 | P1 | **PASS on a consumer OneDrive (2026-11-12). Still to run on a business tenant.** COM round trip on a consumer and a business account: create a test notebook on OneDrive, add two pages, add an `onenote:` link between them, update an outline, read it back | Everything works from PS 5.1 without admin rights |
-| P2 | Linking quality: 20 invented notes (dummy data), with and without a shortlist, through CCBridge | Valid JSON every time; at least 80% of the links look sensible on review |
-| P3 | **Set up 2026-11-12 14:34 UTC.** Marker `OBSN-PROBE-7Q4K` is on page "Zero-trust networking" in notebook ObsidiNote-Probe on a consumer OneDrive. The question was not sent yet because the CCBridge MCP failed with `Set-WorkSign not recognized`. Copilot grounding: put a unique marker phrase on a test page, then ask Copilot Chat (with Work IQ) about it after 1 hour and after 24 hours | Copilot finds and cites the page, which shows route 2 works |
+| P2 | Linking quality: 20 invented notes (dummy data), with and without a shortlist, through the Copilot bridge | Valid JSON every time; at least 80% of the links look sensible on review |
+| P3 | **Set up 2026-11-12 14:34 UTC.** Marker `OBSN-PROBE-7Q4K` is on page "Zero-trust networking" in notebook ObsidiNote-Probe on a consumer OneDrive. The question was not sent yet because the bridge's MCP server failed with `Set-WorkSign not recognized`. Copilot grounding: put a unique marker phrase on a test page, then ask Copilot Chat (with Work IQ) about it after 1 hour and after 24 hours | Copilot finds and cites the page, which shows route 2 works |
 | P4 | Same as P3 with a Loop page and a Copilot Page | Shows whether Loop is worth keeping as a read-only copy |
 | P5 | *(optional)* Drive Loop over CDP: create a page, type a heading and a link | Only if the user wants Loop as a write target |
 | P7 | Internal link summary: paste a SharePoint page URL and a OneDrive document URL into Copilot Chat (business tenant, Work IQ on) with the fixed summary prompt | Copilot returns the fixed page shape from the real content; a link without access gives a clear "cannot open" |

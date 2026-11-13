@@ -80,6 +80,10 @@ export function syntheticGraph(opts: SyntheticOptions = {}): GraphModel {
       onenoteUrl: `onenote:#example-page-${pages.length + 1}`,
       modified: new Date(day - Math.floor(rnd() * 90) * 86_400_000).toISOString(),
       readOnly,
+      // Derived without extra random draws, so the seeded pages stay the same.
+      aliases: hub ? [] : pages.length % 7 === 3 ? [`${title.split(' ')[0]} (alias)`] : [],
+      site: kind === 'link-web' ? `site${pages.length % 3}.example` : kind === 'link-internal' ? 'team.example' : '',
+      archived: !hub && pages.length % 23 === 22,
     }
     pages.push(page)
     return page

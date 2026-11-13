@@ -1,0 +1,22 @@
+/* Search filters under the graph's search box: greys only; the accent marks focus (the ring) and
+   the hover of "Clear filters", as for the composer's text buttons. */
+.sf { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3);
+  font-size: var(--text-meta); color: var(--muted); }
+.sf__label { color: var(--muted); }
+.sf__chip { display: inline-flex; align-items: center; gap: var(--space-2); max-width: 100%;
+  height: 24px; padding: 0 var(--space-2) 0 var(--space-3); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill); background: var(--surface); color: var(--ink);
+  font: inherit; font-size: var(--text-meta); cursor: pointer; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: background-color var(--dur) ease-out; }
+.sf__key { color: var(--muted); }
+.sf__chip svg { width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+.sf__clear { padding: 0 var(--space-2); height: 24px; border: 0; background: none; color: var(--muted);
+  font: inherit; font-size: var(--text-meta); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+@media (hover: hover) {
+  .sf__chip:hover { background: var(--hover); }
+  .sf__clear:hover { color: var(--accent); }
+}
+@media (pointer: coarse) {
+  .sf__chip, .sf__clear { min-height: var(--control-h-sm); }
+}
