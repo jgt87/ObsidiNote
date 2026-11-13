@@ -43,7 +43,7 @@ interface Props {
 const BaseLayer = memo(function BaseLayer({ layout, links, mentions }: { layout: GraphLayout; links: boolean; mentions: boolean }) {
   return (
     <>
-      <g>
+      <g className="kg-areas">
         {layout.areas.map((a) => (
           <circle key={a.id} className="kg-area" cx={a.x} cy={a.y} r={a.r} />
         ))}

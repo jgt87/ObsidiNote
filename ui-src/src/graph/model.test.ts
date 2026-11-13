@@ -3,7 +3,7 @@ import { fetchGraph, graphUrl } from './graphApi'
 import { buildIndex, indexPath } from './graphIndex'
 import { clampStrength, normalizeGraph } from './model'
 import { syntheticGraph } from './synthetic'
-import { fitViewport, focusSet, nextInDirection, placeLabels, searchPages, stepLinked, zoomAt } from './view'
+import { fitViewport, focusSet, MAX_FIT, nextInDirection, placeLabels, searchPages, stepLinked, zoomAt } from './view'
 
 describe('normalizeGraph', () => {
   it('repairs PowerShell one-item lists and nulls', () => {
@@ -136,12 +136,19 @@ describe('index and view helpers', () => {
   })
 
   it('fits and zooms around a point', () => {
-    const v = fitViewport({ x: 0, y: 0, w: 200, h: 100 }, 400, 400)
-    expect(v.k).toBe(2)
-    expect(v.y).toBe(-50)
+    const v = fitViewport({ x: 0, y: 0, w: 800, h: 400 }, 400, 400)
+    expect(v.k).toBe(0.5)
+    expect(v.y).toBe(-200)
     const z = zoomAt(v, 2, 100, 100, 0.1)
-    expect(z.k).toBe(4)
+    expect(z.k).toBe(1)
     // the world point under the cursor stays put
     expect(v.x + 100 / v.k).toBeCloseTo(z.x + 100 / z.k)
+  })
+
+  it('does not blow a small graph up past MAX_FIT, and centres it', () => {
+    const v = fitViewport({ x: 0, y: 0, w: 100, h: 50 }, 1000, 500)
+    expect(v.k).toBe(MAX_FIT)
+    expect(v.x + 500 / v.k).toBeCloseTo(50)
+    expect(v.y + 250 / v.k).toBeCloseTo(25)
   })
 })

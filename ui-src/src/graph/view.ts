@@ -12,11 +12,13 @@ export interface Viewport {
 
 export const MIN_ZOOM_FACTOR = 0.5
 export const MAX_ZOOM = 8
+/** "Fit to screen" never zooms in further than this: a vault with a few pages keeps normal-sized dots. */
+export const MAX_FIT = 1.6
 
 /** Viewport that shows the whole bounds centred in a w x h stage. */
 export function fitViewport(b: Bounds, w: number, h: number): Viewport {
   if (w <= 0 || h <= 0 || b.w <= 0 || b.h <= 0) return { x: b.x, y: b.y, k: 1 }
-  const k = Math.min(w / b.w, h / b.h)
+  const k = Math.min(w / b.w, h / b.h, MAX_FIT)
   return { k, x: b.x - (w / k - b.w) / 2, y: b.y - (h / k - b.h) / 2 }
 }
 

@@ -3,8 +3,9 @@
 //
 // 1. Topic areas: one circle per topic that is the primary topic of at least one page (plus
 //    "Unfiled" when needed), in topic-tree order (depth first, siblings by path). Each is packed
-//    tangent to the areas already placed, at the free spot closest to its parent area (or to the
-//    centre, stretched to the stage's aspect). Areas never overlap.
+//    tangent to the areas already placed, at the free spot that keeps the picture smallest when
+//    fitted to the stage (so the areas fill the stage's shape) and close to its parent area (a
+//    subtopic) or the centre. Areas never overlap.
 // 2. Pages: inside their primary topic's area. Hubs and well-linked pages start in the middle
 //    (sunflower order), then a few hundred cheap steps pull linked pages together, push dots
 //    apart and keep every dot inside its area (link-density clustering).
@@ -63,7 +64,7 @@ export interface LayoutOptions {
   aspect?: number
 }
 
-export const AREA_GAP = 44
+export const AREA_GAP = 36
 export const LABEL_SPACE = 34
 const CURVE = 0.18
 
@@ -136,7 +137,9 @@ export function topicOrder(topics: GraphTopic[]): GraphTopic[] {
 function areaRadius(dotRadii: number[]): number {
   let sum = 0
   for (const r of dotRadii) sum += (r + 4.5) * (r + 4.5)
-  return Math.max(46, Math.sqrt(sum / 0.55) + 12)
+  // design: dots fill about 40% of an area, so a topic reads as a roomy grey field with its
+  // pages spread inside (the README map), not a tight clump.
+  return Math.max(52, Math.sqrt(sum / 0.4) + 14)
 }
 
 interface Circle {
@@ -148,11 +151,13 @@ interface Circle {
 /** Packs circles in order; each goes to the free tangent spot nearest its target. */
 export function packAreas(radii: number[], targets: (number | null)[], aspect: number, gap = AREA_GAP): Circle[] {
   const placed: Circle[] = []
+  const box = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
   const steps = 36
   for (let i = 0; i < radii.length; i++) {
     const r = radii[i]
     if (i === 0) {
       placed.push({ x: 0, y: 0, r })
+      grow(box, placed[0])
       continue
     }
     const t = targets[i]
@@ -177,20 +182,33 @@ export function packAreas(radii: number[], targets: (number | null)[], aspect: n
           }
         }
         if (!ok) continue
-        // Distance to the target, with the x axis shrunk by the aspect so the cloud of areas
-        // grows as wide as the stage; label space counts on the y axis.
+        // Two parts: how big the picture gets when fitted to the stage (width over the aspect,
+        // or height with label space, whichever is larger), so the areas fill the stage's shape;
+        // and the distance to the target (x shrunk by the aspect). A subtopic weighs the
+        // distance to its parent far more, so it stays next to it.
+        const fw = (Math.max(box.maxX, x + r) - Math.min(box.minX, x - r)) / aspect
+        const fh = Math.max(box.maxY, y + r) - Math.min(box.minY, y - r - LABEL_SPACE)
         const sx = (x - tx) / aspect
         const sy = y - ty
-        const score = sx * sx + sy * sy * 1.15
+        const score = Math.max(fw, fh) + Math.sqrt(sx * sx + sy * sy) * (t === null ? 0.35 : 4)
         if (score < bestScore - 1e-9) {
           bestScore = score
           best = { x, y, r }
         }
       }
     }
-    placed.push(best ?? { x: 0, y: 0, r })
+    const c = best ?? { x: 0, y: 0, r }
+    placed.push(c)
+    grow(box, c)
   }
   return placed
+}
+
+function grow(box: { minX: number; maxX: number; minY: number; maxY: number }, c: Circle): void {
+  box.minX = Math.min(box.minX, c.x - c.r)
+  box.maxX = Math.max(box.maxX, c.x + c.r)
+  box.minY = Math.min(box.minY, c.y - c.r - LABEL_SPACE)
+  box.maxY = Math.max(box.maxY, c.y + c.r)
 }
 
 // ---------- 2. pages inside an area ----------

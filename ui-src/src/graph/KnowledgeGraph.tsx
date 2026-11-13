@@ -1,7 +1,7 @@
 // The knowledge graph view for one loaded model: header (source, counts, read-only marker),
 // filter chips, search ("/"), Graph or List, and the page dialog.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import { plural } from './format'
 import { buildIndex } from './graphIndex'
 import { GraphList } from './GraphList'
@@ -22,16 +22,38 @@ export interface KnowledgeGraphProps extends PageActions {
   focusIds?: string[]
 }
 
+/** Width / height of the stage, in steps of 0.1 (the layout only reruns when the shape really changes). */
+function useStageAspect(stageRef: RefObject<HTMLDivElement | null>, mode: string): number {
+  const [aspect, setAspect] = useState(() => roundAspect(Math.max(1, window.innerWidth - 300), Math.max(1, window.innerHeight - 112)))
+  useLayoutEffect(() => {
+    const el = stageRef.current
+    if (!el) return
+    const measure = () => {
+      if (el.clientWidth > 0 && el.clientHeight > 0) setAspect(roundAspect(el.clientWidth, el.clientHeight))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [stageRef, mode]) // the stage only exists in graph mode
+  return aspect
+}
+
+function roundAspect(w: number, h: number): number {
+  return Math.min(3, Math.max(0.6, Math.round((w / h) * 10) / 10))
+}
+
 export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode = 'graph', focusIds, ...actions }: KnowledgeGraphProps) {
   const index = useMemo(() => buildIndex(model), [model])
-  const layout = useMemo(() => layoutGraph(model, {}, index), [model, index])
+  const [mode, setMode] = useState<'graph' | 'list'>(initialMode)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const aspect = useStageAspect(stageRef, mode)
+  const layout = useMemo(() => layoutGraph(model, { aspect }, index), [model, index, aspect])
   const focus = useMemo(() => (focusIds ?? []).filter((id) => index.pageById.has(id)), [focusIds, index])
   const [filters, setFilters] = useState<Filters>({ links: true, mentions: false, hubsOnly: false })
   const [query, setQuery] = useState('')
-  const [mode, setMode] = useState<'graph' | 'list'>(initialMode)
   const [active, setActive] = useState<Active | null>(() => (focus.length ? { id: focus[0], via: 'keyboard' } : null))
   const [dialog, setDialog] = useState<{ pageId: string; anchorId: string } | null>(null)
-  const stageRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const returnTo = useRef<HTMLElement | null>(null)
 

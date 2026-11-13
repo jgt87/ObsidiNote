@@ -5,13 +5,13 @@
 
 .kg {
   --kg-stage-bg: var(--surface);
-  --kg-area: color-mix(in srgb, var(--ink) 5%, transparent);
+  --kg-area: color-mix(in srgb, var(--ink) 6.5%, transparent);
   --kg-line: var(--ink);
   --kg-dot-fill: var(--surface);
   --kg-dot-line: var(--ink);
   --kg-unlinked-line: var(--muted);
   --kg-focus: var(--accent);
-  --kg-fade: 0.2;
+  --kg-fade: 0.35;
   --kg-label-halo: var(--surface);
   --kg-bar-off: color-mix(in srgb, var(--ink) 16%, transparent);
 
@@ -41,8 +41,8 @@
 .kg-stage {
   position: relative;
   width: 100%;
-  aspect-ratio: 1100 / 760;
-  max-height: calc(100dvh - 140px);
+  /* design: the map fills the window down to the bottom padding (header row + main padding). */
+  height: calc(100dvh - 112px);
   min-height: 360px;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -61,22 +61,23 @@
 
 .kg-area { fill: var(--kg-area); }
 .kg-edge { fill: none; stroke: var(--kg-line); stroke-linecap: round; vector-effect: non-scaling-stroke; }
-.kg-s1 { stroke-width: 0.75px; stroke-opacity: 0.2; }
-.kg-s2 { stroke-width: 1.2px; stroke-opacity: 0.3; }
-.kg-s3 { stroke-width: 1.8px; stroke-opacity: 0.42; }
-.kg-edge--mention { stroke-width: 0.75px; stroke-opacity: 0.22; stroke-dasharray: 3 3; }
+.kg-s1 { stroke-width: 0.8px; stroke-opacity: 0.26; }
+.kg-s2 { stroke-width: 1.2px; stroke-opacity: 0.36; }
+.kg-s3 { stroke-width: 1.8px; stroke-opacity: 0.48; }
+.kg-edge--mention { stroke-width: 0.8px; stroke-opacity: 0.28; stroke-dasharray: 3 3; }
 .kg-dot { fill: var(--kg-dot-fill); stroke: var(--kg-dot-line); stroke-width: 1.1px; vector-effect: non-scaling-stroke; cursor: pointer; }
 .kg-dot--hub { stroke-width: 1.5px; }
 .kg-dot--unlinked { stroke: var(--kg-unlinked-line); stroke-dasharray: 2 2; }
 
-.kg-base { transition: opacity var(--dur) var(--ease-out); }
-.kg-base[data-dim="true"] { opacity: var(--kg-fade); }
-.kg-focus .kg-edge { stroke: var(--kg-focus); stroke-opacity: 0.85; }
-.kg-focus .kg-s1 { stroke-width: 1.4px; }
-.kg-focus .kg-s2 { stroke-width: 2px; }
-.kg-focus .kg-s3 { stroke-width: 2.8px; }
-.kg-focus .kg-edge--mention { stroke-opacity: 0.6; stroke-width: 1px; }
-.kg-dot--near { stroke-width: 1.6px; }
+/* Focus fades the links and dots of the base layer; the topic areas stay, so the map keeps its shape. */
+.kg-base > g { transition: opacity var(--dur) var(--ease-out); }
+.kg-base[data-dim="true"] > g:not(.kg-areas) { opacity: var(--kg-fade); }
+.kg-focus .kg-edge { stroke: var(--kg-focus); stroke-opacity: 0.9; }
+.kg-focus .kg-s1 { stroke-width: 1.8px; }
+.kg-focus .kg-s2 { stroke-width: 2.6px; }
+.kg-focus .kg-s3 { stroke-width: 3.4px; }
+.kg-focus .kg-edge--mention { stroke-opacity: 0.7; stroke-width: 1.4px; }
+.kg-dot--near { stroke-width: 2px; }
 .kg-dot--on { fill: var(--kg-focus); stroke: var(--kg-focus); stroke-dasharray: none; }
 .kg-ring { fill: none; stroke: var(--ring); stroke-width: 2px; vector-effect: non-scaling-stroke; pointer-events: none; }
 
@@ -88,9 +89,11 @@
 }
 .kg-alabel { display: flex; flex-direction: column; align-items: center; line-height: 1.25;
   transition: opacity var(--dur) var(--ease-out); }
-.kg-alabel b { font-size: var(--text-control); font-weight: 600; }
+.kg-alabel b { font-size: var(--text-meta); font-weight: 600; }
 .kg-alabel span { font-size: var(--text-label); color: var(--muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
-.kg-alabel[data-dim="true"] { opacity: 0.4; }
+.kg-alabel[data-dim="true"] { opacity: 0.75; }
+/* Narrow: areas are small, so only the topic name; the counts stay in List and the hover card. */
+@media (max-width: 640px) { .kg-alabel span { display: none; } }
 .kg-plabel { font-size: var(--text-label); line-height: 1.2; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .kg-plabel--hub { font-size: var(--text-meta); font-weight: 600; }
 .kg-plabel--on { font-size: var(--text-body); font-weight: 600; }

@@ -113,6 +113,19 @@ describe('packAreas', () => {
   })
 })
 
+describe('the areas fill the stage shape', () => {
+  it('gives bounds close to the stage aspect, so the picture does not float in the middle', () => {
+    for (const pages of [30, 100, 1000]) {
+      for (const aspect of [1.45, 1.8]) {
+        const l = layoutGraph(syntheticGraph({ pages, topics: pages > 300 ? 12 : 6 }), { aspect })
+        const ratio = l.bounds.w / l.bounds.h
+        expect(ratio / aspect).toBeGreaterThan(0.85)
+        expect(ratio / aspect).toBeLessThan(1.15)
+      }
+    }
+  })
+})
+
 describe('edges', () => {
   it('curve: the control point sits perpendicular to the midpoint', () => {
     const [cx, cy] = controlPoint(0, 0, 100, 0)
