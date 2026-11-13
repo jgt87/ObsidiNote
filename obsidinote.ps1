@@ -144,7 +144,7 @@ function Close-ObsidiVaultLease($State) {
 # --- 4. Microsoft 365 Copilot and the interface -----------------------------------------------
 # Copilot in ObsidiNote's own Edge window (debug port "cdpPort", 9334 by default; profile
 # %LOCALAPPDATA%\ObsidiNote\edge-profile; "signIn" single-sign-on or private). Connect-Copilot waits
-# up to 300 s for a sign-in. Without Copilot ObsidiNote cannot classify or link: exit 3.
+# up to 600 s for a sign-in. Without Copilot ObsidiNote cannot classify or link: exit 3.
 $copilot = $null
 if (-not $NoCopilot) {
     Import-Module (Join-Path $PSScriptRoot 'lib\CopilotBridge.psm1') -Force
@@ -154,7 +154,7 @@ if (-not $NoCopilot) {
     $cs = Get-CopilotSettings
     if ((Test-EdgeForcedSignIn) -and (Get-EdgeProfileAccount -ProfileDir $cs.profileDir) -ne 'work') {
         $signIn = Invoke-EdgeProfileSignIn -ProfileDir $cs.profileDir -Port ([int]$cs.cdpPort) -OnWait {
-            Write-Status -ToError 'WARN' 'Edge sign-in' 'one time: sign in to Edge with your work account' -Hint 'Edge on this PC requires it. In the Edge window that just opened, sign in with your work account (waiting up to 5 minutes; ObsidiNote continues by itself).'
+            Write-Status -ToError 'WARN' 'Edge sign-in' 'one time: sign in to Edge with your work account' -Hint 'Edge on this PC requires it. In the Edge window that just opened, sign in with your work account (waiting up to 10 minutes; ObsidiNote continues by itself).'
         }
         Write-Status -ToError $(if ($signIn.ok) { 'OK' } else { 'FAIL' }) 'Edge sign-in' $signIn.detail
         if (-not $signIn.ok) { exit 3 }

@@ -29,7 +29,7 @@ Each start shows one status line per step (`[OK]`, `[WARN]` or `[FAIL]`):
 2. **This computer**: Windows PowerShell 5.1, desktop OneNote, Microsoft Edge and its policies, the debug port, ObsidiNote's Edge profile (signed in or not, single sign-on on or off) and GitHub. A `[FAIL]` line says what to fix.
 3. **OneNote**: opens the notebook of your ObsidiNote vault, which also starts OneNote, and waits until OneNote answers. This is the vault you last chose in the window. Without one, it looks for a notebook called ObsidiNote or one with a `00 Index` section. The first time the vault is found, its location is saved as `"notebook"` in `config\obsidinote.local.json`.
    **Vault**: continues in the vault you used last (`"vaultId"`), else in the only vault that is open. It takes the vault's writer lease, so this ObsidiNote is the one that writes there (a second one runs read only and says so), and checks the vault's index against the notebook: pages missing from the index are added and counted. No vault open, or several and none chosen: a `[WARN]` line, and you choose or make one in the window.
-4. **Copilot**: opens Microsoft 365 Copilot in an Edge window of its own. It has its own profile in `%LOCALAPPDATA%\ObsidiNote\edge-profile`, so your normal Edge is not touched. ObsidiNote waits up to 5 minutes for a sign-in. Later starts reuse it.
+4. **Copilot**: opens Microsoft 365 Copilot in an Edge window of its own. It has its own profile in `%LOCALAPPDATA%\ObsidiNote\edge-profile`, so your normal Edge is not touched. ObsidiNote waits up to 10 minutes for a sign-in. Later starts reuse it.
 5. **ObsidiNote**: opens the ObsidiNote window, a new window of ObsidiNote's Edge, at `http://127.0.0.1:8767`. The console shows `[OK] ObsidiNote  open at http://127.0.0.1:8767`.
 
 ObsidiNote keeps running while its console window is open. **Close that console window (or press Ctrl+C in it) to stop ObsidiNote.** Starting ObsidiNote again while it runs opens the window of the one that is running.
@@ -48,7 +48,7 @@ On a PC with a Windows work account, run **`sso-setup.cmd`** once (in the Obsidi
 - **"Edge profile is already open in an Edge window ... without its debug port"**: an Edge window with ObsidiNote's profile is open, but ObsidiNote cannot control it. Close every window of ObsidiNote's Edge (also check the taskbar), then start again.
 - **"Edge policy BrowserSignin = 2"**: your organisation requires you to sign in to Edge itself first. In the Edge window ObsidiNote opened, sign in to Edge with your work account (Edge's own prompt, or the profile picture at the top left), then start again.
 - **"Edge policy RemoteDebuggingAllowed = 0"**: ObsidiNote cannot drive Copilot on that computer. Ask IT to allow it.
-- **"Copilot message box never appeared"**: sign in to Copilot in ObsidiNote's Edge window within 5 minutes and choose "Stay signed in", then start again.
+- **"Copilot message box never appeared"**: sign in to Copilot in ObsidiNote's Edge window within 10 minutes and choose "Stay signed in", then start again.
 - Still stuck: send the last 30 lines of `%LOCALAPPDATA%\ObsidiNote\logs\obsidinote.log`. They hold ids, counts, timings and states only, never your content.
 
 ## Features

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { setUpVault, type NewVaultResult } from '../api'
 import './NewVaultDialog.css'
 
-/** "Set up ObsidiNote in this notebook": the confirm step before ObsidiNote writes its sections
+/** "Set up this notebook": the confirm step before ObsidiNote writes its sections
  *  into an empty notebook it does not own yet (user, 2026-11-13). Nothing is written until the
  *  person presses "Set it up". */
 export function SetUpVaultDialog({ id, name, onClose, onDone }: { id: string; name: string; onClose: () => void; onDone: (r: NewVaultResult) => void }) {

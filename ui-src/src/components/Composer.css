@@ -87,7 +87,8 @@ kbd {
 .composer__text {
   width: 100%;
   box-sizing: border-box;
-  min-height: 72px;
+  /* About six lines before it scrolls; still resizable (user, 2026-11-13: "make it higher"). */
+  min-height: 9em;
   padding: 0;
   border: 0;
   resize: vertical;

@@ -67,8 +67,8 @@ export function NotebookSwitcher({ notebooks, onNewVault, onSetUp }: Props) {
         )}
       </p>
       {onSetUp && (
-        <button type="button" className="btn btn--sm btn--primary switcher__new" onClick={onSetUp}>
-          Set up ObsidiNote in this notebook
+        <button type="button" className="btn btn--sm switcher__new" onClick={onSetUp}>
+          Set up this notebook
         </button>
       )}
       {newVault}

@@ -135,7 +135,7 @@ function Invoke-EdgeProfileSignIn {
     param(
         [Parameter(Mandatory)][string]$ProfileDir,
         [Parameter(Mandatory)][int]$Port,
-        [int]$TimeoutSec = 300,
+        [int]$TimeoutSec = 600,
         [int]$PollMs = 2000,
         [scriptblock]$GetAccount = { param($d) Get-EdgeProfileAccount -ProfileDir $d },
         [scriptblock]$GetUse = { param($d, $p) Get-EdgeProfileUse -ProfileDir $d -Port $p },

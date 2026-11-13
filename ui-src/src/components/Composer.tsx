@@ -100,7 +100,7 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
         id="composer-text"
         ref={area}
         className="composer__text"
-        rows={3}
+        rows={6}
         value={text}
         placeholder="Paste a link or text, or ask a question"
         onChange={(e) => setText(e.target.value)}

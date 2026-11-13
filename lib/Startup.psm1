@@ -62,8 +62,8 @@ function Get-CopilotFailureHint {
     if ($Message -match 'BrowserSignin') { return 'Sign in to Edge itself with your work account in the window ObsidiNote opened, then start ObsidiNote again.' }
     if ($Message -match 'policy') { return 'Ask IT to allow Edge''s remote debugging (RemoteDebuggingAllowed) for ObsidiNote, then start it again.' }
     if ($Message -match 'never appeared') {
-        if ($Sso -eq 'off') { return 'Run sso-setup.cmd once so Copilot signs in by itself, then start ObsidiNote again. Or sign in to Copilot in ObsidiNote''s Edge window within 5 minutes and choose "Stay signed in".' }
-        return 'Sign in to Microsoft 365 Copilot in ObsidiNote''s Edge window within 5 minutes (choose "Stay signed in"), then start ObsidiNote again. Without Copilot: start with -NoCopilot.'
+        if ($Sso -eq 'off') { return 'Run sso-setup.cmd once so Copilot signs in by itself, then start ObsidiNote again. Or sign in to Copilot in ObsidiNote''s Edge window within 10 minutes and choose "Stay signed in".' }
+        return 'Sign in to Microsoft 365 Copilot in ObsidiNote''s Edge window within 10 minutes (choose "Stay signed in"), then start ObsidiNote again. Without Copilot: start with -NoCopilot.'
     }
     'Start ObsidiNote again. If it fails again, send the last 30 lines of %LOCALAPPDATA%\ObsidiNote\logs\obsidinote.log (they hold no content). Without Copilot: start with -NoCopilot.'
 }

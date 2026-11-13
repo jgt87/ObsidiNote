@@ -5,7 +5,9 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+- ObsidiNote waits up to 10 minutes (was 5) for the sign-in to Edge and to Microsoft 365 Copilot.
+- The text box is about twice as high (six lines). The side bar's buttons ("Set up this notebook", "New ObsidiNote vault") look alike: as wide as the notebook list, one line, the same style.
 
 ## [v0.4.1] - 2026-11-13
 

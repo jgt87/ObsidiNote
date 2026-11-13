@@ -25,7 +25,7 @@ once.
    an Edge window opens with Edge's own sign-in.
    - Sign in to Edge with your work account. Use the same account as for Microsoft 365.
    - What you should see: the console then shows `[OK] Edge sign-in ...` by itself (it waits up
-     to 5 minutes), and Copilot opens in that Edge window.
+     to 10 minutes), and Copilot opens in that Edge window.
    - If the Edge window closes at once and nothing asks you to sign in: see RB-06, "Edge window
      closes at once".
 

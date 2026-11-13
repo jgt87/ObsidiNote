@@ -11,7 +11,7 @@ and send it with the kit's Desktop files.
   `BrowserSignin = 2`), and ObsidiNote's own profile was not signed in yet.
 - Fix: start ObsidiNote (v0.2.5 or later). It shows `[WARN] Edge sign-in  one time: sign in to Edge
   with your work account` and opens Edge's own sign-in. Sign in to Edge with your work account.
-  It waits up to 5 minutes and goes on by itself. This is needed once.
+  It waits up to 10 minutes and goes on by itself. This is needed once.
 - Check: the kit's V3 line `Edge profile  account: work; ...; Edge sign-in required: yes`.
 
 ## 'uter' is not recognized, or 'aces' is not recognized

@@ -151,7 +151,7 @@ Describe 'What to do when Copilot cannot be reached' {
         Get-CopilotFailureHint 'ObsidiNote''s Edge profile is already open in an Edge window that was started without its debug port (port 9334)' | Should Match 'Close every window'
         Get-CopilotFailureHint 'Edge on this PC must be signed in to before it can be used (Edge policy BrowserSignin = 2)' | Should Match 'Sign in to Edge itself'
         Get-CopilotFailureHint 'Copilot message box never appeared; not signed in?' -Sso 'off' | Should Match 'Run sso-setup\.cmd once'
-        Get-CopilotFailureHint 'Copilot message box never appeared; not signed in?' -Sso 'on' | Should Match 'within 5 minutes'
+        Get-CopilotFailureHint 'Copilot message box never appeared; not signed in?' -Sso 'on' | Should Match 'within 10 minutes'
         Get-CopilotFailureHint 'Lost the connection to the Copilot tab in Edge (x)' | Should Match 'last 30 lines of %LOCALAPPDATA%\\ObsidiNote\\logs\\obsidinote\.log'
     }
 }

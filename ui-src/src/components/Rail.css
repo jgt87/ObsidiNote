@@ -52,7 +52,9 @@
 .switcher__select { width: 100%; min-width: 0; font-size: var(--text-body); }
 .switcher__note { margin: 0; font-size: var(--text-meta); color: var(--muted); }
 .switcher__note b { color: var(--ink); font-weight: 600; }
-.switcher__new { align-self: flex-start; }
+/* The side bar's buttons look alike (user, 2026-11-13): the switcher's full width, one height, one
+   line, the same secondary style (the box's Send stays the page's one primary button). */
+.switcher__new { align-self: stretch; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rail__muted { margin: 0; padding: 0 var(--space-3); font-size: var(--text-meta); color: var(--muted); }
 
 .rail__footer { margin-top: auto; display: flex; flex-direction: column; gap: var(--space-4); }

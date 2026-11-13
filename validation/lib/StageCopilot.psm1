@@ -27,7 +27,7 @@ function Add-ProfileResult($Ctx, $Facts) {
 
 function Connect-KitCopilot {
     <# Connects once per run (shared by V3, V5 and V6); $null with a result line when it cannot.
-       -NoSignInWait: a missing sign-in comes back at once instead of waiting 5 minutes. #>
+       -NoSignInWait: a missing sign-in comes back at once instead of waiting 10 minutes. #>
     param([Parameter(Mandatory)]$Ctx, [string]$Stage = 'V3')
     if ($Ctx.Bridge) { return $Ctx.Bridge }
     if (Get-KitFlag $Ctx 'NoCopilot') { Add-ValidationResult $Ctx $Stage 'SKIP' 'Copilot' 'not run (-NoCopilot)'; return $null }
