@@ -5,6 +5,10 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [v0.4.1] - 2026-11-13
+
 ### Added
 - **Set up ObsidiNote in this notebook.** When the notebook shown is empty (no pages), the side bar offers to set it up as your vault. After you confirm, ObsidiNote adds its sections to it and makes it the active vault. A notebook with pages of yours is never set up this way.
 
