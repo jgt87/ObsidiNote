@@ -5,6 +5,8 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.6.1] - 2026-11-13
+
 ### Changed
 - The knowledge graph looks like the picture in this README: larger grey topic areas spread over the whole graph (it now fills the window down to the bottom), small bold topic names above them, slightly clearer grey links, and thicker purple links to the pages around the one under the pointer. The topic areas stay grey while you hover, and the other pages fade less. A vault with only a few pages no longer shows giant dots. On a phone, topic areas show only their name.
 
