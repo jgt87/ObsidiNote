@@ -11,9 +11,9 @@ import { flushSync } from 'react-dom'
 import { plural } from './format'
 import { indexPath, type GraphIndex } from './graphIndex'
 import { HoverCard } from './HoverCard'
-import { edgePath, type DotLayout, type GraphLayout } from './layout'
+import { bundleEdges, edgePath, type BundleLayout, type DotLayout, type GraphLayout } from './layout'
 import { primaryTopic, type GraphEdge } from './model'
-import { fitViewport, MIN_ZOOM_FACTOR, nextInDirection, pan, placeLabels, toScreen, zoomAt, type Direction, type LabelBox, type Viewport } from './view'
+import { FIT_BOTTOM, fitViewport, labelMode, MIN_ZOOM_FACTOR, nextInDirection, pan, placeAreaLabels, placeLabels, toScreen, zoomAt, type Direction, type LabelBox, type Viewport } from './view'
 
 export interface Filters {
   links: boolean
@@ -46,9 +46,14 @@ interface Props {
   onFocusPage?: (id: string) => void
 }
 
-type BaseProps = { layout: GraphLayout; links: boolean; mentions: boolean; shown: Set<string> | null }
+type BaseProps = { layout: GraphLayout; links: boolean; mentions: boolean; shown: Set<string> | null; bundles: BundleLayout[] }
 
-const BaseLayer = memo(function BaseLayer({ layout, links, mentions, shown }: BaseProps) {
+/** Line width of a bundle: grows with the number of links it stands for, capped. */
+export function bundleWidth(count: number): number {
+  return Math.min(5, 1 + Math.log2(count) * 1.1)
+}
+
+const BaseLayer = memo(function BaseLayer({ layout, links, mentions, shown, bundles }: BaseProps) {
   const on = (id: string) => !shown || shown.has(id)
   return (
     <>
@@ -56,10 +61,16 @@ const BaseLayer = memo(function BaseLayer({ layout, links, mentions, shown }: Ba
         {layout.areas.map((a) => (a.pageIds.some(on) ? <circle key={a.id} className="kg-area" cx={a.x} cy={a.y} r={a.r} /> : null))}
       </g>
       <g>
+        {/* Links between topics: one line per pair of areas (bundleEdges); their page-to-page
+            lines are drawn only for the focused page (focus layer). */}
+        {links && bundles.map((b) => <path key={`${b.a}|${b.b}`} d={b.d} className="kg-edge kg-bundle" style={{ strokeWidth: `${bundleWidth(b.count)}px` }} />)}
         {layout.edges.map((e, i) => {
           const m = e.edge.kind === 'mention'
           if (m ? !mentions : !links) return null
           if (!on(e.edge.from) || !on(e.edge.to)) return null
+          const a = layout.dotById.get(e.edge.from)
+          const b = layout.dotById.get(e.edge.to)
+          if (a && b && a.area !== b.area) return null
           return <path key={i} d={e.d} className={m ? 'kg-edge kg-edge--mention' : `kg-edge kg-s${e.edge.strength}`} />
         })}
       </g>
@@ -100,7 +111,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
     return () => ro.disconnect()
   }, [stageRef])
 
-  const fit = useMemo(() => fitViewport(layout.bounds, size.w, size.h), [layout.bounds, size.w, size.h])
+  const fit = useMemo(() => fitViewport(layout.bounds, size.w, size.h, FIT_BOTTOM), [layout.bounds, size.w, size.h])
   // A new layout or the first measurement: show everything.
   useEffect(() => {
     if (size.w > 0) setView(fit)
@@ -325,8 +336,18 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   const dim = !!activeDot || !!matches
 
   // ---------- labels ----------
-  // Candidates in priority order (focused page first); placeLabels drops the ones that would
-  // overlap a label already placed, so labels never pile up on each other.
+  // Topic names first, each where it touches no other topic (placeAreaLabels); page names then
+  // keep clear of them. Candidates in priority order (focused page first); placeLabels drops the
+  // ones that would overlap a label already placed, so labels never pile up on each other.
+  const areaLabels = placeAreaLabels(
+    layout.areas
+      .filter((a) => !shown || a.pageIds.some(isShown))
+      .map((a) => {
+        const [x, y] = toScreen(v, a.x, a.y)
+        return { id: a.id, x, y, r: a.r * v.k, name: a.name, sub: a.sub }
+      }),
+  )
+  const areaById = new Map(layout.areas.map((a) => [a.id, a]))
   const candidates: LabelBox[] = []
   const addLabel = (d: DotLayout, cls: string) => {
     const [x, y] = toScreen(v, d.x, d.y)
@@ -340,12 +361,16 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   } else if (matches) {
     for (const d of sharp.slice(0, 40)) addLabel(d, d.hub ? 'kg-plabel kg-plabel--hub' : 'kg-plabel')
   } else {
-    // A narrowed map with few pages left labels all of them (hubs first); otherwise hubs only.
-    const few = !!shown && shown.size <= 60 && !filters.hubsOnly
+    // A small map, or one zoomed in, names every page (hubs first); otherwise hubs only (labelMode).
+    const all = labelMode(shown ? shown.size : layout.dots.length, v.k, fit.k, filters.hubsOnly) === 'all'
     for (const d of layout.dots) if (d.hub && isShown(d.id)) addLabel(d, 'kg-plabel kg-plabel--hub')
-    if (few) for (const d of layout.dots) if (!d.hub && isShown(d.id)) addLabel(d, 'kg-plabel')
+    if (all) for (const d of layout.dots) if (!d.hub && isShown(d.id)) addLabel(d, 'kg-plabel')
   }
-  const labels = placeLabels(candidates)
+  const labels = placeLabels(
+    candidates,
+    areaLabels.map((l) => l.rect),
+  )
+  const bundles = useMemo(() => bundleEdges(layout, shown), [layout, shown])
 
   const page = activeDot ? index.pageById.get(activeDot.id) : undefined
   const announce = page
@@ -381,7 +406,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
       >
         <g transform={`matrix(${v.k} 0 0 ${v.k} ${-v.x * v.k} ${-v.y * v.k})`}>
           <g className="kg-base" data-dim={dim}>
-            <BaseLayer layout={layout} links={filters.links} mentions={filters.mentions} shown={shown} />
+            <BaseLayer layout={layout} links={filters.links} mentions={filters.mentions} shown={shown} bundles={bundles} />
           </g>
           <g className="kg-focus">
             {focusEdges.map(({ e, d }, i) => (
@@ -401,13 +426,12 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
       </svg>
 
       <div className="kg-labels" aria-hidden="true">
-        {layout.areas.map((a) => {
-          if (shown && !a.pageIds.some(isShown)) return null
-          const [x, y] = toScreen(v, a.x, a.y - a.r)
+        {areaLabels.map((l) => {
+          const a = areaById.get(l.id)!
           return (
-            <div key={a.id} className="kg-alabel" data-dim={dim} style={{ left: x, top: y - 4 }}>
+            <div key={l.id} className="kg-alabel" data-dim={dim} data-at={l.at} style={{ left: l.x, top: l.top }}>
               <b>{a.name}</b>
-              <span>{a.sub}</span>
+              {l.withSub && <span>{a.sub}</span>}
             </div>
           )
         })}
@@ -420,7 +444,15 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
       </div>
 
       {page && activeDot && (
-        <HoverCard index={index} page={page} dot={activeDot} view={v} stage={size} focusKey={onFocusPage && active?.via === 'keyboard' ? 'F' : undefined} />
+        <HoverCard
+          index={index}
+          page={page}
+          dot={activeDot}
+          view={v}
+          stage={size}
+          near={near.map((id) => layout.dotById.get(id)).filter((d): d is DotLayout => !!d)}
+          focusKey={onFocusPage && active?.via === 'keyboard' ? 'F' : undefined}
+        />
       )}
 
       {shown && shown.size === 0 && (
@@ -464,6 +496,14 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
             <path className="kg-edge kg-s3" d="M0 9H22" />
           </svg>
           thicker line = stronger link
+        </span>
+        <span className="kg-legend__item">
+          <svg viewBox="0 0 22 12" aria-hidden="true">
+            <circle className="kg-area" cx="4" cy="6" r="4" />
+            <path className="kg-edge kg-bundle" d="M8 6H14" style={{ strokeWidth: '2.5px' }} />
+            <circle className="kg-area" cx="18" cy="6" r="4" />
+          </svg>
+          line between topics = their links
         </span>
         <span className="kg-legend__item">
           <svg viewBox="0 0 22 12" aria-hidden="true">

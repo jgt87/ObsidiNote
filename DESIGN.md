@@ -36,7 +36,7 @@ No hard-coded colours or sizes in components.
 - **The Colour Is Content Rule** — accent marks action, focus, selection; never decoration.
 - **Flat-By-Default** — shadows only on floating layers (menus, dialogs, popovers).
 - **Paired-Signal** — every status colour comes with text or an icon.
-- **Weight Is Relevance** — in the map, link strength is line weight and opacity; clusters are grey areas, labelled by topic.
+- **Weight Is Relevance** — in the map, link strength is line weight and opacity; clusters are grey areas, labelled by topic. Links between two topics are one soft line from area to area whose width is the number of links (the page-to-page lines appear for the focused page only); topic names never lie on another topic.
 - **Every Dot Is Content** — in the map, each dot is a real note, file or link, and each grey area is a topic with a visible label (name, page count, main subjects). No decorative dots, specks, particles or background patterns.
 - **One Purple** — purple (`--accent`) is the only hue. It marks the primary button, the active nav item and selected controls, keyboard focus (`--ring`), links on hover, and the focused dot with its links in the map. Never on status, data series, backgrounds or decoration; components use the role tokens, never `--purple-*`.
 

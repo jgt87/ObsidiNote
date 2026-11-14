@@ -65,6 +65,9 @@
 .kg-s2 { stroke-width: 1.2px; stroke-opacity: 0.36; }
 .kg-s3 { stroke-width: 1.8px; stroke-opacity: 0.48; }
 .kg-edge--mention { stroke-width: 0.8px; stroke-opacity: 0.28; stroke-dasharray: 3 3; }
+/* One line per pair of topics for the links between their pages; its width (set inline from the
+   number of links, GraphStage bundleWidth) carries the meaning, so it stays soft. */
+.kg-bundle { stroke-opacity: 0.22; }
 .kg-dot { fill: var(--kg-dot-fill); stroke: var(--kg-dot-line); stroke-width: 1.1px; vector-effect: non-scaling-stroke; cursor: pointer; }
 .kg-dot--hub { stroke-width: 1.5px; }
 .kg-dot--unlinked { stroke: var(--kg-unlinked-line); stroke-dasharray: 2 2; }
@@ -87,8 +90,12 @@
   position: absolute; transform: translate(-50%, -100%); white-space: nowrap; pointer-events: none;
   text-shadow: 0 0 2px var(--kg-label-halo), 0 0 2px var(--kg-label-halo), 0 0 3px var(--kg-label-halo);
 }
+/* Topic names: placed by view.ts placeAreaLabels, anchored at their top centre (above, inside the
+   top of, or below their area, wherever they touch no other topic). */
 .kg-alabel { display: flex; flex-direction: column; align-items: center; line-height: 1.25;
-  transition: opacity var(--dur) var(--ease-out); }
+  transform: translate(-50%, 0); transition: opacity var(--dur) var(--ease-out); }
+/* Inside its area the name lies over dots and lines: a soft backing in the stage colour keeps it readable. */
+.kg-alabel[data-at="inside"] { padding: 1px var(--space-3); border-radius: var(--radius); background: color-mix(in srgb, var(--kg-stage-bg) 82%, transparent); }
 .kg-alabel b { font-size: var(--text-meta); font-weight: 600; }
 .kg-alabel span { font-size: var(--text-label); color: var(--muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
 .kg-alabel[data-dim="true"] { opacity: 0.75; }
@@ -140,7 +147,9 @@
   font-size: var(--text-label); flex-wrap: wrap; max-width: calc(100% - 2 * var(--space-4)); }
 .kg-legend__item { display: inline-flex; align-items: center; gap: var(--space-2); }
 .kg-legend svg { width: 22px; height: 12px; flex: none; overflow: visible; }
-@media (max-width: 900px) { .kg-hint { display: none; } }
+/* The hints give way to the legend when both do not fit on one line (2026-11-14: the legend's topic
+   line made it wider). Screen readers still get the help through aria-describedby. */
+@media (max-width: 1500px) { .kg-hint, .kg-toolbar__sep { display: none; } }
 @media (max-width: 640px) { .kg-legend { display: none; } }
 
 /* ---------- shared bits (the List view's table lives in table/table.css) ---------- */

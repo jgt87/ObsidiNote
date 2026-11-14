@@ -5,6 +5,17 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.8.1] - 2026-11-14
+
+### Changed
+- The knowledge graph is easier to read:
+  - A small vault fills the frame instead of a third of it, and every page is named when there are up to 60 pages, or when you zoom in.
+  - Links between topics show as one line per pair of topics, thicker when more pages are linked; the page-to-page lines show when you point at a page.
+  - Topic names never lie on another topic: each sits above, inside the top of, or below its own area.
+  - The Unfiled area is only as big as its pages need, and sits at the edge.
+  - The preview card opens on the side away from the page's linked pages.
+  - The picture no longer runs under the zoom buttons and the legend.
+
 ## [v0.8.0] - 2026-11-14
 
 ### Added

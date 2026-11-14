@@ -134,12 +134,17 @@ export function topicOrder(topics: GraphTopic[]): GraphTopic[] {
   return out
 }
 
-function areaRadius(dotRadii: number[]): number {
+/** Smallest area: a topic, and the Unfiled area (only as big as its few pages need; operator,
+ *  2026-11-14: two unfiled pages got as much room as a full topic). */
+export const MIN_AREA_R = 52
+export const MIN_UNFILED_R = 30
+
+function areaRadius(dotRadii: number[], min = MIN_AREA_R): number {
   let sum = 0
   for (const r of dotRadii) sum += (r + 4.5) * (r + 4.5)
   // design: dots fill about 40% of an area, so a topic reads as a roomy grey field with its
   // pages spread inside (the README map), not a tight clump.
-  return Math.max(52, Math.sqrt(sum / 0.4) + 14)
+  return Math.max(min, Math.sqrt(sum / 0.4) + 14)
 }
 
 interface Circle {
@@ -148,8 +153,9 @@ interface Circle {
   r: number
 }
 
-/** Packs circles in order; each goes to the free tangent spot nearest its target. */
-export function packAreas(radii: number[], targets: (number | null)[], aspect: number, gap = AREA_GAP): Circle[] {
+/** Packs circles in order; each goes to the free tangent spot nearest its target. A circle marked
+ *  `outer` (Unfiled) is not pulled to the centre, so it lands at the rim of the picture. */
+export function packAreas(radii: number[], targets: (number | null)[], aspect: number, gap = AREA_GAP, outer: boolean[] = []): Circle[] {
   const placed: Circle[] = []
   const box = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
   const steps = 36
@@ -187,10 +193,12 @@ export function packAreas(radii: number[], targets: (number | null)[], aspect: n
         // and the distance to the target (x shrunk by the aspect). A subtopic weighs the
         // distance to its parent far more, so it stays next to it.
         const fw = (Math.max(box.maxX, x + r) - Math.min(box.minX, x - r)) / aspect
-        const fh = Math.max(box.maxY, y + r) - Math.min(box.minY, y - r - LABEL_SPACE)
+        const fh = Math.max(box.maxY, y + r + LABEL_SPACE) - Math.min(box.minY, y - r - LABEL_SPACE)
         const sx = (x - tx) / aspect
         const sy = y - ty
-        const score = Math.max(fw, fh) + Math.sqrt(sx * sx + sy * sy) * (t === null ? 0.35 : 4)
+        // Unfiled (outer) gets no pull to the centre, so it ends up at the rim.
+        const pull = t !== null ? 4 : outer[i] ? 0 : 0.35
+        const score = Math.max(fw, fh) + Math.sqrt(sx * sx + sy * sy) * pull
         if (score < bestScore - 1e-9) {
           bestScore = score
           best = { x, y, r }
@@ -208,7 +216,7 @@ function grow(box: { minX: number; maxX: number; minY: number; maxY: number }, c
   box.minX = Math.min(box.minX, c.x - c.r)
   box.maxX = Math.max(box.maxX, c.x + c.r)
   box.minY = Math.min(box.minY, c.y - c.r - LABEL_SPACE)
-  box.maxY = Math.max(box.maxY, c.y + c.r)
+  box.maxY = Math.max(box.maxY, c.y + c.r + LABEL_SPACE)
 }
 
 // ---------- 2. pages inside an area ----------
@@ -360,6 +368,58 @@ function contain(d: DotLayout, area: AreaLayout): void {
   }
 }
 
+// ---------- links between topics ----------
+
+export interface BundleLayout {
+  /** Area ids, a < b. */
+  a: string
+  b: string
+  /** Links between pages of the two areas (either direction). */
+  count: number
+  /** SVG path from rim to rim. */
+  d: string
+}
+
+/**
+ * One line per pair of topic areas, standing for all the links between their pages (operator,
+ * 2026-11-14: page-to-page links across topics crossed the whole map). The page-level lines show
+ * when a page is focused. Only links (not mentions), and only between pages that are shown.
+ */
+export function bundleEdges(layout: GraphLayout, shown: Set<string> | null = null): BundleLayout[] {
+  const areaById = new Map(layout.areas.map((a) => [a.id, a]))
+  const counts = new Map<string, number>()
+  for (const { edge } of layout.edges) {
+    if (edge.kind === 'mention') continue
+    if (shown && (!shown.has(edge.from) || !shown.has(edge.to))) continue
+    const da = layout.dotById.get(edge.from)
+    const db = layout.dotById.get(edge.to)
+    if (!da || !db || da.area === db.area) continue
+    const [a, b] = da.area < db.area ? [da.area, db.area] : [db.area, da.area]
+    const key = `${a}\u0000${b}`
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  const out: BundleLayout[] = []
+  for (const [key, count] of [...counts].sort((x, y) => cmp(x[0], y[0]))) {
+    const [a, b] = key.split('\u0000')
+    const A = areaById.get(a)!
+    const B = areaById.get(b)!
+    const dx = B.x - A.x
+    const dy = B.y - A.y
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1
+    const ux = dx / dist
+    const uy = dy / dist
+    out.push({ a, b, count, d: edgePath(A.x + ux * A.r, A.y + uy * A.r, B.x - ux * B.r, B.y - uy * B.r) })
+  }
+  return out
+}
+
+/** True when an edge runs between two different topic areas (drawn as part of a bundle). */
+export function crossesAreas(layout: GraphLayout, from: string, to: string): boolean {
+  const a = layout.dotById.get(from)
+  const b = layout.dotById.get(to)
+  return !!a && !!b && a.area !== b.area
+}
+
 // ---------- 3. all together ----------
 
 export function layoutGraph(model: GraphModel, opts: LayoutOptions = {}, index: GraphIndex = buildIndex(model)): GraphLayout {
@@ -368,7 +428,9 @@ export function layoutGraph(model: GraphModel, opts: LayoutOptions = {}, index: 
   const areaIds: (string)[] = ordered.map((t) => t.id)
   if (index.pagesByArea.has(UNFILED_ID)) areaIds.push(UNFILED_ID)
 
-  const radii = areaIds.map((id) => areaRadius((index.pagesByArea.get(id) ?? []).map((pid) => dotRadius(index.pageById.get(pid)!))))
+  const radii = areaIds.map((id) =>
+    areaRadius((index.pagesByArea.get(id) ?? []).map((pid) => dotRadius(index.pageById.get(pid)!)), id === UNFILED_ID ? MIN_UNFILED_R : MIN_AREA_R),
+  )
   const slot = new Map(areaIds.map((id, i) => [id, i]))
   const targets = areaIds.map((id) => {
     // Nearest ancestor that has its own area: subtopics sit next to their parent.
@@ -380,7 +442,7 @@ export function layoutGraph(model: GraphModel, opts: LayoutOptions = {}, index: 
     }
     return null
   })
-  const circles = packAreas(radii, targets, aspect)
+  const circles = packAreas(radii, targets, aspect, AREA_GAP, areaIds.map((id) => id === UNFILED_ID))
 
   const areas: AreaLayout[] = areaIds.map((id, i) => {
     const topic = index.topicById.get(id) ?? null
@@ -422,7 +484,8 @@ export function layoutGraph(model: GraphModel, opts: LayoutOptions = {}, index: 
     minX = Math.min(minX, a.x - a.r)
     maxX = Math.max(maxX, a.x + a.r)
     minY = Math.min(minY, a.y - a.r - LABEL_SPACE)
-    maxY = Math.max(maxY, a.y + a.r)
+    // Room for a topic name placed under its area (view.ts placeAreaLabels) at the bottom edge.
+    maxY = Math.max(maxY, a.y + a.r + LABEL_SPACE)
   }
   const pad = 24
   const bounds: Bounds = areas.length

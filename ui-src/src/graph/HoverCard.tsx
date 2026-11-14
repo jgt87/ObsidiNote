@@ -5,7 +5,7 @@ import { formatDate } from './format'
 import { indexPath, type GraphIndex } from './graphIndex'
 import type { DotLayout } from './layout'
 import { primaryTopic, type GraphPage } from './model'
-import { toScreen, type Viewport } from './view'
+import { cardPosition, toScreen, type Viewport } from './view'
 
 const W = 280
 const H = 168
@@ -16,20 +16,20 @@ interface Props {
   dot: DotLayout
   view: Viewport
   stage: { w: number; h: number }
+  /** The focused page's linked pages: the card goes where it covers the fewest of them. */
+  near?: DotLayout[]
   /** Key that focuses the map on this page; shown on the keyboard path only. */
   focusKey?: string
 }
 
-export function HoverCard({ index, page, dot, view, stage, focusKey }: Props) {
+export function HoverCard({ index, page, dot, view, stage, near = [], focusKey }: Props) {
   const [sx, sy] = toScreen(view, dot.x, dot.y)
   const off = dot.r * view.k + 12
-  // Right-below the dot; flipped when it would leave the stage.
-  let left = sx + off
-  let top = sy + off
-  if (left + W > stage.w - 8) left = sx - off - W
-  if (top + H > stage.h - 8) top = sy - off - H
-  left = Math.max(8, Math.min(left, stage.w - W - 8))
-  top = Math.max(8, top)
+  const points = near.map((d) => {
+    const [x, y] = toScreen(view, d.x, d.y)
+    return { x, y }
+  })
+  const { left, top } = cardPosition({ x: sx, y: sy }, off, points, stage, { w: W, h: H })
   const out = index.out.get(page.id)?.length ?? 0
   const back = index.in.get(page.id)?.length ?? 0
   const added = formatDate(page.modified)
