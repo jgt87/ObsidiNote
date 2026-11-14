@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatModified, plural } from './format'
+import { formatModified, pageTypeLabel, plural } from './format'
 
 // Local times, so the test holds in any time zone.
 const now = new Date(2026, 10, 12, 16, 0)
@@ -22,5 +22,14 @@ describe('plural', () => {
   it('counts', () => {
     expect(plural(1, 'page')).toBe('1 page')
     expect(plural(3, 'page')).toBe('3 pages')
+  })
+})
+
+describe('pageTypeLabel', () => {
+  it('reads a page type as words', () => {
+    expect(pageTypeLabel('link-web')).toBe('web link')
+    expect(pageTypeLabel('link-internal')).toBe('internal link')
+    expect(pageTypeLabel('project-part')).toBe('project part')
+    expect(pageTypeLabel('')).toBe('')
   })
 })

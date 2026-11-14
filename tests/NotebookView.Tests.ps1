@@ -48,8 +48,29 @@ Describe 'ConvertTo-NotebookView' {
         @($v.recent | Where-Object { $_.title -eq 'Gone' }).Count | Should Be 0
     }
     It 'lists the most recently changed pages first, with the section path' {
-        ($v.recent | ForEach-Object { $_.title }) -join ',' | Should Be 'Tuesday,Identity-aware proxies,Untitled page,ObsidiNote'
+        # The vault's 00 Index pages (here its state page "ObsidiNote") are not content: left out of
+        # Recently changed (2026-11-14: the start rewrites them, so they filled the list), still counted.
+        ($v.recent | ForEach-Object { $_.title }) -join ',' | Should Be 'Tuesday,Identity-aware proxies,Untitled page'
+        $v.totals.pages | Should Be 4
         $v.recent[0].section | Should Be 'Journal / 2026'
+    }
+    It 'gives each recent page the id the knowledge graph uses (n:<OneNote id> without an obsn.id)' {
+        $v.recent[1].pageId | Should Be 'n:{11111111-1111-1111-1111-111111111115}{1}{E1}'
+        $v.recent[1].type | Should Be ''
+    }
+    It 'leaves out Index and Intake pages only where a vault root holds them' {
+        $nbId = '{BBBBBBBB-0000-0000-0000-000000000001}{1}{B0}'
+        $x = '<?xml version="1.0"?><one:Notebooks xmlns:one="http://schemas.microsoft.com/office/onenote/2013/onenote"><one:Notebook name="V" ID="' + $nbId + '" path="https://example.invalid/V/"><one:SectionGroup name="Team" ID="{BBBBBBBB-0000-0000-0000-000000000009}{1}{B0}"><one:Section name="00 Index" ID="{BBBBBBBB-0000-0000-0000-000000000002}{1}{B0}"><one:Page ID="{BBBBBBBB-0000-0000-0000-000000000003}{1}{E1}" name="Topic hub" lastModifiedTime="2026-11-14T09:00:00.000Z" /></one:Section><one:Section name="01 Intake" ID="{BBBBBBBB-0000-0000-0000-000000000004}{1}{B0}"><one:Page ID="{BBBBBBBB-0000-0000-0000-000000000005}{1}{E1}" name="Request" lastModifiedTime="2026-11-14T10:00:00.000Z" /></one:Section><one:Section name="Notes" ID="{BBBBBBBB-0000-0000-0000-000000000006}{1}{B0}"><one:Page ID="{BBBBBBBB-0000-0000-0000-000000000007}{1}{E1}" name="Real page" lastModifiedTime="2026-11-14T08:00:00.000Z" /></one:Section></one:SectionGroup><one:Section name="01 Intake" ID="{BBBBBBBB-0000-0000-0000-000000000008}{1}{B0}"><one:Page ID="{BBBBBBBB-0000-0000-0000-00000000000A}{1}{E1}" name="My own intake page" lastModifiedTime="2026-11-14T07:00:00.000Z" /></one:Section></one:Notebook></one:Notebooks>'
+        $o = ConvertTo-NotebookView -Xml $x -Id $nbId
+        # the vault inside the group: its Index and Intake pages left out; the notebook's own
+        # "01 Intake" (no "00 Index" next to it) is the person's section and stays
+        ($o.recent | ForEach-Object { $_.title }) -join ',' | Should Be 'Real page,My own intake page'
+    }
+    It 'uses the page''s obsn.id and type when it has them' {
+        $nbId = '{AAAAAAAA-0000-0000-0000-000000000001}{1}{B0}'
+        $x = '<?xml version="1.0"?><one:Notebooks xmlns:one="http://schemas.microsoft.com/office/onenote/2013/onenote"><one:Notebook name="V" ID="' + $nbId + '" path="https://example.invalid/V/"><one:Section name="Notes" ID="{AAAAAAAA-0000-0000-0000-000000000002}{1}{B0}"><one:Page ID="{AAAAAAAA-0000-0000-0000-000000000003}{1}{E1}" name="Zero trust" lastModifiedTime="2026-11-14T08:00:00.000Z"><one:Meta name="obsn.id" content="p7" /><one:Meta name="obsn.type" content="concept" /></one:Page></one:Section></one:Notebook></one:Notebooks>'
+        $o = ConvertTo-NotebookView -Xml $x -Id $nbId
+        "$($o.recent[0].pageId)|$($o.recent[0].type)" | Should Be 'p7|concept'
     }
     It 'passes on onenote: links only' {
         $v.recent[1].link | Should Match '^onenote:https://'

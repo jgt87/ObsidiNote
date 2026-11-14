@@ -21,9 +21,11 @@
 Set-StrictMode -Version 2.0
 
 $script:PromptMax = 75000        # characters per prompt (the tenant limit is about 80k)
-$script:StaleDays = 90           # a cited link summary older than this offers Update
-$script:MaxBranches = 4          # step 1 picks at most this many branches
-$script:MaxPages = 8             # step 2 picks at most this many pages
+$script:StaleDays = 90           # a cited link summary older than this offers Update (the default)
+$script:ActiveStaleDays = 90     # this request's: Context.StaleDays, the vault setting linkStaleDays
+$script:DefaultMaxPages = 20     # pages Ask may read (vault setting askMaxPages, 1-50; operator 2026-11-14, was 8)
+$script:MaxPages = 20            # this request's: Context.MaxPages, else the default
+$script:MaxBranches = 4          # step 1 picks at most this many branches: 4, more for many pages (Get-AskBranchLimit)
 $script:SummaryMax = 240         # step 2: characters of a page summary
 $script:SubtopicsMax = 30        # step 2: subtopics listed per branch
 $script:ChatMessagesMax = 27     # a Copilot chat takes about 30 messages; start a new one before that
@@ -35,6 +37,13 @@ function Get-AskSettings {
     <# The limits Ask works with (for the UI and the tests). #>
     @{ promptMax = $script:PromptMax; staleDays = $script:StaleDays; maxBranches = $script:MaxBranches
         maxPages = $script:MaxPages; summaryMax = $script:SummaryMax; chatMessagesMax = $script:ChatMessagesMax }
+}
+
+function Get-AskBranchLimit {
+    <# Branches step 1 may pick for a page limit: 4 up to 20 pages, then one more per 5 pages, at most
+       8 (50 pages need more places to look than 4 branches usually hold). Pure. #>
+    param([int]$MaxPages)
+    [int][Math]::Min(8, [Math]::Max(4, [Math]::Ceiling($MaxPages / 5.0)))
 }
 
 function Reset-AskState { <# Forgets all follow-up state (tests, vault switch). #> $script:Conversations = [ordered]@{}; $script:CurrentChat = '' }
@@ -499,7 +508,7 @@ function ConvertTo-AskSourceItem {
     param($Record, [int]$Number, [datetime]$Now)
     $sum = ConvertTo-AskDate $Record.summarizedAt
     $isLink = ($Record.type -like 'link-*') -or [bool]$Record.url
-    $stale = $isLink -and $null -ne $sum -and ($Now - $sum).TotalDays -gt $script:StaleDays
+    $stale = $isLink -and $null -ne $sum -and ($Now - $sum).TotalDays -gt $script:ActiveStaleDays
     $url = [string]$Record.url
     if ($url -notmatch '^(?i)https?://') { $url = '' }
     @{
@@ -582,6 +591,9 @@ function New-AskResult {
         ok = $true; intent = 'ask'; mode = 'ask'; status = $Status; conversationId = $Conv.id; turn = ($Conv.turns.Count + 1)
         question = $Question; writes = 0; note = 'Asking never changes your notebook.'
         path = $null; answer = $null; sources = @(); staleLinks = @(); invalidCitations = @(); notFound = $null
+        # Pages read for the answer that it does not cite (operator, 2026-11-14: show that nothing
+        # relevant was skipped); same item shape as sources, n = 0.
+        unused = @()
         budget = @{ promptMax = $script:PromptMax; step1Chars = 0; step2Chars = 0; step3Chars = 0; trimmedPages = @() }
         message = ''
     }
@@ -621,9 +633,17 @@ function Invoke-AskRequest {
                           sources = @(source ids to read besides the active vault); includeArchived;
                           conversationId (follow-up, save-page); turn (save-page, default the last) }
     .PARAMETER Context  @{ Sources = @(source adapters); Copilot = @{ Send; NewChat }; Now = [datetime]
-                          (optional); OnProgress = { param([int]$Step, [string]$Label) } (optional) }
+                          (optional); OnProgress = { param([int]$Step, [string]$Label) } (optional);
+                          StaleDays (optional: after how many days a cited link page offers Update) }
     #>
     param([Parameter(Mandatory)]$Request, [Parameter(Mandatory)]$Context)
+    $sd = [int](Get-AskProp $Context 'StaleDays' 0)
+    $script:ActiveStaleDays = if ($sd -gt 0) { $sd } else { $script:StaleDays }
+    # How many pages Ask may read (vault setting askMaxPages). The step 3 prompt keeps its size: with
+    # more pages each page's text gets a smaller share (Get-AskTextShares), so 50 still fits.
+    $mp = [int](Get-AskProp $Context 'MaxPages' 0)
+    $script:MaxPages = if ($mp -ge 1 -and $mp -le 50) { $mp } else { $script:DefaultMaxPages }
+    $script:MaxBranches = Get-AskBranchLimit $script:MaxPages
     $action = [string](Get-AskProp $Request 'action' 'ask')
     if (-not $action) { $action = 'ask' }
     $question = ([string](Get-AskProp $Request 'question' (Get-AskProp $Request 'text' ''))).Trim()
@@ -792,6 +812,9 @@ function Complete-AskAnswer {
         $Result.message = "Answered from $($ans.cited) $(if ($ans.cited -eq 1) { 'page' } else { 'pages' })."
     }
     $cited = @(foreach ($r in $ans.sources) { Copy-AskRecord $r })
+    $citedKeys = @{}
+    foreach ($r in $cited) { $citedKeys[[string]$r.key] = $true }
+    $Result.unused = @(foreach ($r in $Sent) { if (-not $citedKeys.ContainsKey([string]$r.key)) { ConvertTo-AskSourceItem (Copy-AskRecord $r) 0 $Now } })
     $Conv.turns.Add(@{ question = $Question; result = $Result; cited = $cited })
     Add-AskConversation $Conv
     $Result
@@ -860,6 +883,6 @@ function Get-AskSavePage {
     @{ ok = $true; status = 'page-spec'; writes = 0; pageSpec = (New-AskAnswerPageSpec $turn) }
 }
 
-Export-ModuleMember -Function Invoke-AskRequest, New-AskCopilot, Get-AskSettings, Reset-AskState,
+Export-ModuleMember -Function Invoke-AskRequest, New-AskCopilot, Get-AskSettings, Reset-AskState, Get-AskBranchLimit,
     Limit-AskText, Get-AskTextShares, ConvertFrom-AskReply, Format-AskAge, Read-AskAnswer,
     New-AskStep1Prompt, New-AskStep2Prompt, New-AskStep3Prompt, Get-AskSources

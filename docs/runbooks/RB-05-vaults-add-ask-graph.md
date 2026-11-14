@@ -18,6 +18,7 @@ knowledge graph's data, Add and Ask.
 | Check for the answer | Adds a second made-up sentence with a wait of 1 second, so Copilot is still answering and the item waits in the Intake (Copilot is left working, never stopped). Then checks for the answer every 10 seconds (at most 3 minutes) until the page is filed, and undoes it | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Update waits for the answer | Adds the public link `https://example.org/`, updates it with a wait of 1 second so the update waits in the Intake, checks for the answer every 10 seconds (at most 3 minutes) until the update is done, then undoes the link page | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Upgrade plan of Vault n | Counts the link pages the next start would move to another section (new internal-link rule); moves nothing | No |
+| Settings of Vault n | How many of the vault's settings are in OneNote and which are missing (names only, no values); the next start adds the missing ones | No |
 | Upgrade move | Makes a made-up link page with a company-tenant address under Web links (as an older version filed it), lets the upgrade move it to Internal links, checks it is found again there, then undoes it | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Link it | Makes two made-up pages in the test vault, links the first to the second as "Link it" does in the window, checks that a second "Link it" writes nothing, then undoes both pages. No Copilot needed | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Ask (synthetic) | Asks "What do my notes say about tidal gardens?" against the test vault | No (Ask never writes) |
@@ -35,6 +36,8 @@ knowledge graph's data, Add and Ask.
    ```
    - What you should see: `[OK] Vaults  N found`, one `Vault n` line per vault, `Index of Vault n`
      with "pages missing from the index: 0", `Graph of ...` lines with counts, and
+     `[INFO] Settings of Vault n  7 of 7 in OneNote` (before the first start of the version with
+     vault settings: `0 of 7 ...; missing: ...`),
      `[OK] Markdown export of Vault n  N pages, 0 unreadable, ... (in memory, not saved)`. No file
      appears in Downloads or anywhere else. The write checks show `[SKIP] write tests not run`.
    - A `[WARN] Markdown export ...` line with unreadable pages > 0: send the files; the export still
@@ -92,10 +95,10 @@ knowledge graph's data, Add and Ask.
    - If not, send this: the two newest Desktop files and which message the window showed.
 
 7. Export as Markdown in the window (reads only): in **Knowledge graph**, open a page and press
-   **Export as Markdown**; in **List**, press **Export as Markdown** next to a topic; in the side
-   bar, press **Export all as Markdown**.
+   **Export as Markdown**; on its **Topic** tab press **Export topic as Markdown**; in **List**, press
+   **Export as Markdown** next to a topic. The side bar has no export button any more.
    - What you should see: each button shows "Exported" for a few seconds and the browser's
-     downloads list a `.md` file (a page) or a `... - Markdown.zip` (a topic, everything). Open the
+     downloads list a `.md` file (a page) or a `... - Markdown.zip` (a topic). Open the
      zip: one folder named after the vault, a folder per topic, one `.md` per page, starting with
      `---` front matter; links between pages read `[[Page title]]`. Delete the files afterwards if
      your organisation asks for that: ObsidiNote keeps no copy.
@@ -133,4 +136,48 @@ knowledge graph's data, Add and Ask.
       version, press **Edit**, set **From** to Outlook mail, **Save**: in **Sources** it moves to
       the Outlook area.
 
-11. Clean up when asked to (RB-03, "Cleaning up").
+11. Vault settings in OneNote (writes only the vault's own settings): start ObsidiNote once.
+    - What you should see in the console, the first time: `[OK] Settings  settings added to the vault
+      in OneNote with their defaults: internalHosts, graphView, labelsHubsOnly, relatedCount,
+      linkStaleDays, askIncludeArchived, graphShowArchived`. The next start shows no Settings line.
+      If you had `"internalHosts"` in `config\obsidinote.local.json`, open **Settings** in the side
+      bar's menu: your addresses are listed there.
+    - In **Knowledge graph**, press **Sources**, close the window and start ObsidiNote again: the
+      map opens on **Sources**. Press **Topics** to go back.
+    - In **Settings**, add `intranet.example.com`, set "Related pages" to 4, tick "Include archived
+      pages" under Ask, **Save**, open it again: all three are still there, and Ask's options show
+      "Include archived pages" ticked. Put them back (empty, 3, unticked) and **Save**.
+    - In **Settings**, "Related pages" is a list from 1 to 10. Type 1000 in the days field: a marked
+      line says "7 to 730 only; it becomes 730 when you leave the field" and **Save** is off; press
+      Tab: the field shows 730. Put 90 back and press **Cancel**.
+    - Run step 3 again: `[INFO] Settings of Vault n  7 of 7 in OneNote`.
+    - If not, send this: the two newest Desktop files and the console's Settings line (no addresses).
+
+12. Add or ask window (writes only when you press Add):
+    - The box is two lines high when empty and grows when you paste a long text. Auto / Add / Ask
+      sit on the left. "Ask reads" shows only after you type a question or press **Ask**.
+    - **Add a file**: pick a short Word document of your own, then a PDF, then drag an Outlook mail
+      from desktop Outlook onto the box. Each time the box shows "File: <name>" and the text, and
+      **From** says "File you dropped". Press **Add** only if you want to keep it. A scanned PDF or
+      a picture shows a marked line saying it cannot be read.
+    - Drag a Word file from your **OneDrive** folder in File Explorer (and one from a synced
+      SharePoint library) onto the box: the line under the box says "is in your OneDrive or
+      SharePoint: the page keeps its link". Press **Add**: the page is under **Internal links**;
+      **Open link** on it opens the file in the browser. In **Sources**, it sits under OneDrive or
+      its SharePoint site. Say whether the link opened the right file (no names or addresses).
+    - Paste a few lines from an Outlook mail, press **Add**, then open the page: its **From** says
+      Outlook mail (this was lost before this version).
+    - In **Recently changed**, click a title: the knowledge graph opens with that page's window.
+    - Open **History**: your recent Adds with Added / Updated / Not added; **Open** shows the page.
+      **Undo** on a test page you added: it asks first, then the page is in OneNote's Deleted Pages.
+    - If an Add says "Waiting for Copilot", go to another view and back: the item is listed under
+      **Waiting for Copilot** with **Check for the answer**.
+    - Ask a question whose answer is spread over several of your pages (for example a project and
+      its meetings). Above the answer: "Combined from N pages in M topics"; each source says "Used in
+      N sentences"; **Also read, not used** lists the other pages it read. Open one of those to see
+      whether it should have been used, and say so (no titles needed: "yes, 1 of 3 should have").
+      In **Settings**, set "Pages Ask may read" to 50, ask the same question again: say whether the
+      answer got better, worse or stayed the same, and how long it took.
+    - If not, send this: the two newest Desktop files, which file type (no file), and the message shown.
+
+13. Clean up when asked to (RB-03, "Cleaning up").

@@ -14,6 +14,8 @@ import { bySource, type GroupBy } from './sourceView'
 import { LockIcon, PageDialog, type PageActions } from './PageDialog'
 import { searchPages } from './view'
 import { SearchFilters } from '../search/SearchFilters'
+import { getSettings, saveSetting } from '../api'
+import type { VaultSettings } from '../model/vaultSettings'
 import type { FindRequest } from '../search/switcherModel'
 import './graph.css'
 
@@ -68,6 +70,28 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   const mapLayout = sourceLayout ?? layout
   const focus = useMemo(() => (focusIds ?? []).filter((id) => index.pageById.has(id)), [focusIds, index])
   const [filters, setFilters] = useState<Filters>({ links: true, mentions: false, hubsOnly: false })
+  // The map opens with the vault's settings (kept in OneNote, model/vaultSettings.ts) and a change
+  // made here is saved there, when this window may change them; otherwise it lasts this session.
+  const canSave = useRef(false)
+  useEffect(() => {
+    let live = true
+    getSettings()
+      .then((s) => {
+        if (!live) return
+        canSave.current = s.canChange
+        setGroupBy(s.settings.graphView)
+        setFilters((f) => ({ ...f, hubsOnly: s.settings.labelsHubsOnly }))
+        if (s.settings.graphShowArchived) setFilterState((f) => ({ ...f, showArchived: true }))
+      })
+      .catch(() => {}) // the defaults stay; the map works without them
+    return () => {
+      live = false
+    }
+  }, [])
+  const remember = <K extends 'graphView' | 'labelsHubsOnly'>(key: K, value: VaultSettings[K]) => {
+    // Only on the active vault's own map: another vault or a connected notebook is read only.
+    if (canSave.current && !model.source.readOnly) saveSetting(key, value).catch(() => {})
+  }
   const [query, setQuery] = useState('')
   const [active, setActive] = useState<Active | null>(() => (focus.length ? { id: focus[0], via: 'keyboard' } : null))
   const [dialog, setDialog] = useState<{ pageId: string; anchorId: string } | null>(null)
@@ -174,10 +198,23 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   }
 
   const chip = (key: keyof Filters, label: string) => (
-    <button type="button" className="btn btn--sm" aria-pressed={filters[key]} onClick={() => setFilters((f) => ({ ...f, [key]: !f[key] }))}>
+    <button
+      type="button"
+      className="btn btn--sm"
+      aria-pressed={filters[key]}
+      onClick={() => {
+        const next = !filters[key]
+        setFilters((f) => ({ ...f, [key]: next }))
+        if (key === 'hubsOnly') remember('labelsHubsOnly', next)
+      }}
+    >
       {label}
     </button>
   )
+  const chooseGroup = (g: GroupBy) => {
+    setGroupBy(g)
+    remember('graphView', g)
+  }
 
   const src = model.source
   return (
@@ -201,10 +238,10 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           {mode === 'graph' && (
             <>
               <div className="kg-seg" role="group" aria-label="Group the map by">
-                <button type="button" className="btn btn--sm" aria-pressed={groupBy === 'topics'} onClick={() => setGroupBy('topics')}>
+                <button type="button" className="btn btn--sm" aria-pressed={groupBy === 'topics'} onClick={() => chooseGroup('topics')}>
                   Topics
                 </button>
-                <button type="button" className="btn btn--sm" aria-pressed={groupBy === 'sources'} onClick={() => setGroupBy('sources')}>
+                <button type="button" className="btn btn--sm" aria-pressed={groupBy === 'sources'} onClick={() => chooseGroup('sources')}>
                   Sources
                 </button>
               </div>

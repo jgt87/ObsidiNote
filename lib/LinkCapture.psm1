@@ -15,6 +15,9 @@ Import-Module (Join-Path $PSScriptRoot 'Linker.psm1')
 $script:InternalKinds = @('site', 'page', 'document', 'list', 'file', 'channel', 'message', 'loop-page', 'other')
 $script:WebKinds = @('article', 'docs', 'tool', 'video', 'other')
 $script:Problems = @('no-access', 'not-found', 'other')
+# A dropped file's text in the summary prompt: at most this many characters (the prompt's tenant
+# limit is about 80k; the rest of the prompt stays small).
+$script:SourceTextMax = 40000
 
 function Get-PastedUrl {
     <# The URL when the item is one http(s) URL and nothing else (white space and <> around it are
@@ -77,11 +80,16 @@ function New-LinkSummaryPrompt {
     param([Parameter(Mandatory)][string]$Url, [Parameter(Mandatory)][ValidateSet('Internal links', 'Web links')][string]$Bucket, [datetime]$Today = (Get-Date),
         # The request's reference code: Copilot repeats it as "ref" and the link it read as "source",
         # so an answer read from the chat later is only used for this request and this link.
-        [string]$Ref = '')
+        [string]$Ref = '',
+        # A file the person dropped whose OneDrive/SharePoint address was found (2026-11-14): its text
+        # as read in the window. Copilot summarizes this text and does not open the address.
+        [string]$SourceText = '')
     $internal = $Bucket -eq 'Internal links'
     $kinds = if ($internal) { $script:InternalKinds } else { $script:WebKinds }
     $sb = New-Object System.Text.StringBuilder
-    if ($internal) {
+    if ($SourceText) {
+        [void]$sb.AppendLine('Summarize this file for my personal wiki. Its text is below, between the lines FILE TEXT START and FILE TEXT END; use only that text and do not open the URL. The URL is where the file lives.')
+    } elseif ($internal) {
         [void]$sb.AppendLine('Open this Microsoft 365 item with my own access and summarize it for my personal wiki.')
     } else {
         [void]$sb.AppendLine('Read this web page and summarize it for my personal wiki.')
@@ -90,6 +98,13 @@ function New-LinkSummaryPrompt {
     [void]$sb.AppendLine('')
     [void]$sb.AppendLine("URL: $Url")
     [void]$sb.AppendLine('')
+    if ($SourceText) {
+        $t = if ($SourceText.Length -gt $script:SourceTextMax) { $SourceText.Substring(0, $script:SourceTextMax) + "`n(cut here)" } else { $SourceText }
+        [void]$sb.AppendLine('FILE TEXT START')
+        [void]$sb.AppendLine($t)
+        [void]$sb.AppendLine('FILE TEXT END')
+        [void]$sb.AppendLine('')
+    }
     [void]$sb.AppendLine('Reply with exactly one JSON object and nothing else: no Markdown, no code fence, no text before or after it.')
     $refPart = if ($Ref) { ', "ref": "' + $Ref + '", "source": "..."' } else { '' }
     [void]$sb.AppendLine('{"readable": true, "problem": "", "title": "...", "where": "...", "kind": "...", "summary": "...", "keyFacts": ["..."], "useFor": "...", "sensitivity": ""' + $refPart + '}')

@@ -12,6 +12,7 @@ Import-Module (Join-Path $PSScriptRoot 'Vault.psm1')
 Import-Module (Join-Path $PSScriptRoot 'WriterLease.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
 Import-Module (Join-Path $PSScriptRoot 'NotebookView.psm1')
+Import-Module (Join-Path $PSScriptRoot 'VaultSettings.psm1')
 
 $script:LeaseTtlSec = 120
 $script:RenewEverySec = 60
@@ -76,10 +77,12 @@ function Open-VaultSession {
     <# Opens $Vault (a Get-VaultList item) as the active vault: the guarded adapter's write root, the
        writer lease (writer or read-only), then, as the writer, the structure (Open-ObsidiVault) and
        the index (Update-VaultIndex: load, scan, completeness, Index pages written). Read-only: the
-       index is read and checked, nothing is written. Returns @{ vault (record); lease (record);
-       model; missing (count); mode; written }. #>
+       index is read and checked, nothing is written. Then the vault's settings in OneNote are checked
+       (Sync-VaultSettings: missing keys added with their defaults as the writer, existing values
+       never changed; $LocalSettings fills a missing key once). Returns @{ vault (record); lease
+       (record); model; missing (count); mode; written; settings (the values to use); settingsResult }. #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)]$Vault, [Parameter(Mandatory)][string]$SessionId, [object[]]$Vaults = $null, [int]$TtlSec = $script:LeaseTtlSec)
+    param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)]$Vault, [Parameter(Mandatory)][string]$SessionId, [object[]]$Vaults = $null, [int]$TtlSec = $script:LeaseTtlSec, [hashtable]$LocalSettings = @{})
     Set-OneNoteWriteRoot -Adapter $Adapter -RootId $Vault.rootId
     $lease = Request-WriterLease -Adapter $Adapter -IndexSectionId $Vault.indexSectionId -SessionId $SessionId -TtlSec $TtlSec
     if ($lease.mode -eq 'writer') {
@@ -92,7 +95,8 @@ function Open-VaultSession {
     # Missing from the index = pages the scan found that the Index pages did not list (added), plus
     # any the completeness check still had to add; as the writer they are now on the Index pages.
     $missing = @($ix.added).Count + @($ix.missing).Count
-    @{ vault = (ConvertTo-VaultRecord $Vault); lease = (ConvertTo-LeaseRecord $lease); model = $ix.model; missing = $missing; mode = $lease.mode; written = [bool]$ix.write }
+    $set = Sync-VaultSettings -Adapter $Adapter -IndexSectionId $Vault.indexSectionId -Writer ($lease.mode -eq 'writer') -Local $LocalSettings
+    @{ vault = (ConvertTo-VaultRecord $Vault); lease = (ConvertTo-LeaseRecord $lease); model = $ix.model; missing = $missing; mode = $lease.mode; written = [bool]$ix.write; settings = $set.effective; settingsResult = $set }
 }
 
 function Update-SessionLease {

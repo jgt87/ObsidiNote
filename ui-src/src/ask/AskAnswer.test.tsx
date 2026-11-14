@@ -46,6 +46,7 @@ const answered: AskResult = {
     { n: 1, id: 'p1', key: 'p1', title: 'Example proxy page', path: 'Projects / Example portal', link: 'onenote:#example', updated: '', age: 'today', type: 'note', archived: false, sourceId: 'v1', sourceName: 'Vault', readOnly: false, stale: false, summarizedAge: '' },
     { n: 2, id: 'p2', key: 'p2', title: 'Example link page', path: 'Projects / Example portal', link: 'onenote:#example2', updated: '', age: 'last month', type: 'link-web', archived: false, sourceId: 'v1', sourceName: 'Vault', readOnly: false, stale: true, summarizedAge: '4 months ago' },
   ],
+  unused: [{ n: 0, id: 'p3', key: 'p3', title: 'Example meeting notes', path: 'Meetings', link: 'onenote:#example3', updated: '', age: 'last week', type: 'meeting', archived: false, sourceId: 'v1', sourceName: 'Vault', readOnly: false, stale: false, summarizedAge: '' }],
   staleLinks: [{ n: 2, id: 'p2', title: 'Example link page', summarizedAt: '2026-07-01T00:00:00', ageDays: 120, offer: 'update', label: 'Summary is 120 days old. Update it?' }],
   invalidCitations: ['p9'],
   notFound: null,
@@ -65,6 +66,16 @@ describe('AskView', () => {
     for (const label of ['Ask a follow-up', 'Save answer as a page', 'Show on map', 'Asking never changes your notebook.']) {
       expect(html).toContain(label)
     }
+  })
+
+  it('shows what the answer was made from: pages and topics, sentences per page, pages read but not used (2026-11-14)', () => {
+    const html = renderToStaticMarkup(<AskView state={{ kind: 'result', result: answered }} {...actions} />)
+    expect(html).toContain('Combined from 2 pages in 1 topic.')
+    // a share bar per cited source, with its percent and sentences in words (2026-11-14)
+    expect(html).toMatch(/role="meter"[^>]*aria-valuenow="\d+"/)
+    expect(html).toMatch(/\d+% of the answer, \d+ sentences?/)
+    expect(html).toContain('Also read, not used (1)')
+    expect(html).toContain('Example meeting notes')
   })
 
   it('sends a cited link page to its own address and makes addresses in the answer clickable (2026-11-13)', () => {

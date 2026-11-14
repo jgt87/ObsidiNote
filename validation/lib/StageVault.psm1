@@ -21,7 +21,7 @@ $script:Needs = @{
     ask   = @('Ask', 'AskSources')
     # Loaded where they are used, and only when this version has them (tests/ModuleImports.Tests.ps1
     # reads every list here).
-    later = @('GraphModel', 'MarkdownExport', 'Upgrade')
+    later = @('GraphModel', 'MarkdownExport', 'Upgrade', 'VaultSettings')
 }
 # The functions that connect Add and Ask to OneNote (the store and source adapters,
 # lib/VaultStore.psm1 and lib/AskSources.psm1). They are called with the arguments they declare.
@@ -65,7 +65,7 @@ function Invoke-WithKnownParams {
 }
 
 function Add-SkipAll($Ctx, [string]$Why) {
-    foreach ($n in 'Vaults', 'Index completeness', 'Upgrade plan', 'Knowledge graph', 'Markdown export', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
+    foreach ($n in 'Vaults', 'Index completeness', 'Upgrade plan', 'Vault settings', 'Knowledge graph', 'Markdown export', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
 }
 
 function Add-VaultResults($Ctx, $Adapter) {
@@ -406,6 +406,26 @@ function Add-UpgradePlanResults($Ctx, [object[]]$Vaults, $Adapter) {
     }
 }
 
+function Add-SettingsResults($Ctx, [object[]]$Vaults, $Adapter) {
+    <# Read only: per vault, which of its settings are in OneNote (lib/VaultSettings.psm1); the next
+       start of ObsidiNote adds the missing ones with their defaults. Key names only, no values. #>
+    if (@(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names @('VaultSettings')).Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Vault settings' 'not in this version yet'; return }
+    Import-AppModules $Ctx.AppRoot @('VaultSettings')
+    foreach ($x in $Vaults) {
+        $nb = if ($x.PSObject.Properties['kitAlias']) { $x.kitAlias } else { 'a vault' }
+        $r = Measure-KitStep {
+            $st = Get-VaultState -Adapter $Adapter -IndexSectionId $x.indexSectionId
+            Get-VaultSettingsPlan -Stored (ConvertFrom-SettingsValue ([string]$st.meta['obsn.settings']))
+        }
+        if (-not $r.ok) { Add-ValidationResult $Ctx 'V6' 'WARN' "Settings of $nb" $r.error; continue }
+        $all = @((Get-VaultSettingDefaults).Keys).Count
+        $miss = @($r.value.added)
+        $bad = @($r.value.invalid)
+        $detail = "$($all - $miss.Count) of $all in OneNote" + $(if ($miss.Count) { "; missing: $($miss -join ', ') (the next start adds them with their defaults)" } else { '' }) + $(if ($bad.Count) { "; not usable: $($bad -join ', ') (kept, defaults used)" } else { '' })
+        Add-ValidationResult $Ctx 'V6' $(if ($bad.Count) { 'WARN' } else { 'INFO' }) "Settings of $nb" $detail
+    }
+}
+
 function Invoke-DevAsk($Ctx, $Adapter, $Dev, $Bridge) {
     $miss = @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names $script:Needs.ask)
     if ($miss.Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Ask' "not in this version yet ($($miss -join ', ') missing)"; return }
@@ -454,6 +474,7 @@ function Invoke-StageVault {
     $vaults = @(Add-VaultResults $Ctx $a.value)
     Add-IndexResults $Ctx $a.value $vaults
     Add-UpgradePlanResults $Ctx $vaults $a.value
+    Add-SettingsResults $Ctx $vaults $a.value
     Add-GraphResults $Ctx $a.value $vaults
     if (-not @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names @('MarkdownExport')).Count) { Import-AppModules $Ctx.AppRoot @('MarkdownExport') }
     Add-ExportResults $Ctx $a.value $vaults

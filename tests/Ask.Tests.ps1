@@ -290,8 +290,55 @@ Describe 'Ask: read-only sources' {
     }
 }
 
+Describe 'Ask: how many pages, and which ones it used (operator, 2026-11-14)' {
+    BeforeEach { Reset-AskState }
+
+    It 'asks for at most the vault''s page limit (default 20) and looks in more branches for many pages' {
+        Get-AskBranchLimit 8 | Should Be 4
+        Get-AskBranchLimit 20 | Should Be 4
+        Get-AskBranchLimit 30 | Should Be 6
+        Get-AskBranchLimit 50 | Should Be 8
+        $v = New-Vault
+        $cp = New-FakeCopilot @(@{ branches = @(@{ key = 'Projects' }) }, @{ pages = @(@{ id = 'p5' }) }, (New-Answer @(@{ text = 'VPN off.'; cites = @('p5') })))
+        $null = Invoke-AskRequest -Request @{ question = 'VPN?' } -Context @{ Sources = @($v); Copilot = $cp; Now = $script:Now }
+        $cp.prompts[1] | Should Match 'Pick at most 20 pages'
+        $cp2 = New-FakeCopilot @(@{ branches = @(@{ key = 'Projects' }) }, @{ pages = @(@{ id = 'p5' }) }, (New-Answer @(@{ text = 'VPN off.'; cites = @('p5') })))
+        $null = Invoke-AskRequest -Request @{ question = 'VPN?' } -Context @{ Sources = @($v); Copilot = $cp2; Now = $script:Now; MaxPages = 50 }
+        $cp2.prompts[0] | Should Match 'Pick at most 8 branches'
+        $cp2.prompts[1] | Should Match 'Pick at most 50 pages'
+    }
+
+    It 'fits 50 long pages in one answer prompt, each keeping a fair share of its text' {
+        $long = ('Tidal gardens need salt marsh hay and careful tides. ' * 200)   # about 10,600 characters
+        $pages = @(1..50 | ForEach-Object { @{ key = "p$_"; title = "Page $_"; path = 'Projects/Tidal'; text = $long } })
+        $p = New-AskStep3Prompt -Question 'What do we know about tidal gardens?' -Pages $pages
+        $p.text.Length | Should BeLessThan 75001
+        @($p.trimmed).Count | Should Be 50
+        # every page keeps more than 1,000 characters (its summary and first paragraphs)
+        foreach ($i in 1..50) { $p.text | Should Match ("=== Page p$i" + ': ') }
+        [Math]::Floor(($p.text.Length - 2000) / 50) | Should BeGreaterThan 1000
+    }
+
+    It 'lists the pages it read but did not cite' {
+        $v = New-Vault
+        $cp = New-FakeCopilot @(@{ branches = @(@{ key = 'Projects' }) }, @{ pages = @(@{ id = 'p5' }, @{ id = 'p4' }) }, (New-Answer @(@{ text = 'VPN off.'; cites = @('p5') })))
+        $r = Invoke-Ask $v $cp @{ question = 'VPN?' }
+        (@($r.sources | ForEach-Object { $_.id }) -join ',') | Should Be 'p5'
+        (@($r.unused | ForEach-Object { $_.id }) -join ',') | Should Be 'p4'
+        $r.unused[0].n | Should Be 0
+    }
+}
+
 Describe 'Ask: stale link summaries' {
     BeforeEach { Reset-AskState }
+
+    It 'uses the vault''s refresh age when the context gives one (setting linkStaleDays)' {
+        $v = New-Vault
+        $cp = New-FakeCopilot @(@{ branches = @(@{ key = 'Projects' }) }, @{ pages = @(@{ id = 'p5' }) }, (New-Answer @(@{ text = 'VPN off.'; cites = @('p5') })))
+        $r = Invoke-AskRequest -Request @{ question = 'VPN?' } -Context @{ Sources = @($v); Copilot = $cp; Now = $script:Now; StaleDays = 200 }
+        @($r.staleLinks).Count | Should Be 0
+        $r.sources[0].stale | Should Be $false
+    }
 
     It 'offers Update for a cited link summary older than 90 days' {
         $v = New-Vault

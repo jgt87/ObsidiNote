@@ -20,6 +20,8 @@ export const ORIGINS: Origin[] = [
   { id: 'onedrive', label: 'OneDrive file', source: 'OneDrive', kind: 'm365' },
   { id: 'sharepoint', label: 'SharePoint page', source: 'SharePoint', kind: 'm365' },
   { id: 'web', label: 'Web page', source: 'Other web sites', kind: 'other' },
+  // A file dropped on the box (2026-11-14): its text is read in the browser (add/fileText.ts).
+  { id: 'file', label: 'File you dropped', source: 'Files', kind: 'other' },
 ]
 
 /** The label of "no origin". */

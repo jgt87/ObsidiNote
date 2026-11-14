@@ -5,6 +5,27 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.8.4] - 2026-11-14
+
+### Added
+- Add a file: drop a file on the box, or press **Add a file**. Its text is read in the window, in memory (Word, PowerPoint, Excel, PDF with text, Outlook .msg, .eml, text and web pages; up to 10 MB, 60,000 characters), put in the box to check, and added like pasted text with "From: File you dropped". The file itself is not stored. Scanned PDFs, images and old .doc/.xls files get a message saying what to do instead.
+- A dropped file that is in your OneDrive or SharePoint (a folder OneDrive syncs on this PC) keeps its link: the page becomes that file's link page (under Internal links, and under its OneDrive or SharePoint site in Sources), summarized from the text read in the window; dropping it again updates that page. ObsidiNote finds the file by name, size and date only. A link dragged in from a browser tab is added like a pasted link.
+- Ask shows what an answer was made from: "Combined from 5 pages in 3 topics" above it; per source a bar with its share of the answer ("50% of the answer, 2 sentences"; a sentence citing two pages counts half for each; pointing at a source turns its bar and the sentences that came from it purple); and **Also read, not used** for pages it read that the answer does not cite.
+- **Waiting for Copilot** on the home page: every item still waiting for Copilot, how long it has waited, **Check for the answer** and **Remove**, so it is not lost once its result is gone.
+- **History** lists what Add and link Update did in your vault (added, updated, waiting, not added, undone), newest first, read from the vault's Intake; **Open** shows the page, **Undo** and **Remove** ask first and send the page to OneNote's Deleted Pages.
+- **Settings** in the side bar's menu, kept in the vault in OneNote so every PC that opens it uses the same: company addresses that count as internal links, after how many days Ask offers Update for a link page (was fixed at 90), how many related pages Add links a new page to (was fixed at 3), whether Ask includes archived pages, and how the knowledge graph opens (Topics or Sources, "Labels: hubs only", archived pages shown). Topics/Sources and "Labels: hubs only" are also saved when you change them on the map. At every start ObsidiNote adds any missing setting with its default and never sets an existing one back. A read-only window shows them without changing them. The theme stays per PC.
+
+### Changed
+- Ask reads up to 20 pages for an answer (was 8), from more topics when needed; **Settings** sets it from 1 to 50. With more pages each page is read more briefly (at 50 about 1,500 characters each), so the request to Copilot keeps its size.
+- `"internalHosts"` in `config\obsidinote.local.json` is copied into the vault once, at the first start of this version, when the vault has no list yet; after that, change it under **Settings**.
+- The Add or ask box: Auto / Add / Ask sit on the left with the shortcut help next to them; the box starts at two lines and grows with its text up to six; "Ask reads" shows only when the text will be asked.
+- Recently changed: a title opens the page window (summary, links, Edit, Export), with **OneNote** next to it; each row shows the page type and section. It lists your pages only: the vault's generated Index pages and Intake requests, which every start rewrites, filled the list before.
+- Side bar: the menu (Add or ask, Knowledge graph, History, Settings) is at the top, under the name; the notebook switcher comes after it.
+- Export as Markdown is no longer in the side bar: export a page from its window (**Export as Markdown**), a topic from the page window's Topic tab or from List.
+
+### Fixed
+- Add: the **From** choice (Outlook mail, Teams chat, ...) is now really sent with the Add; since v0.8.2 the window left it out, so every page was stored as typed in ObsidiNote. Pages added since then can be corrected with **Edit**.
+
 ## [v0.8.3] - 2026-11-14
 
 ### Fixed

@@ -72,3 +72,21 @@ export const ChevronIcon = () => (
     <path d="m6.5 4.5 3.5 3.5-3.5 3.5" />
   </Icon>
 )
+
+/** A file: a page with a folded corner (Add a file). */
+export const FileIcon = () => (
+  <Icon>
+    <path d="M4 2.5h5l3 3v8H4z" />
+    <path d="M9 2.5v3h3" />
+  </Icon>
+)
+
+/** Settings: three sliders (lines with a knob each), not a gear, to stay in the set's simple strokes. */
+export const SettingsIcon = () => (
+  <Icon>
+    <path d="M2.5 4h2M7.5 4h6M2.5 8h6.5M12 8h1.5M2.5 12h1M6.5 12h7" />
+    <circle cx="6" cy="4" r="1.5" />
+    <circle cx="10.5" cy="8" r="1.5" />
+    <circle cx="5" cy="12" r="1.5" />
+  </Icon>
+)

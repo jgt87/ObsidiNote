@@ -259,6 +259,25 @@ Describe 'Request reference in every Add prompt' {
     }
 }
 
+Describe 'A dropped file found in OneDrive becomes its link page (operator, 2026-11-14)' {
+    It 'summarizes the file text, not the address, and files the link page under that address' {
+        $v = New-FakeVault
+        $c = New-FakeCopilot @('{"readable": false, "problem": "other"}')
+        $fileUrl = 'https://contoso-my.sharepoint.com/personal/x/Documents/Budget%20review.docx'
+        $r = Invoke-AddRequest -Request @{ text = "File: Budget review.docx`n`nThe Q3 budget moves 10% to tidal gardens."; mode = 'add'; origin = 'file'; fileUrl = $fileUrl } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+        $r.kind | Should Be 'link'
+        $c.q.prompts[0] | Should Match 'do not open the URL'
+        $c.q.prompts[0] | Should Match 'The Q3 budget moves 10% to tidal gardens'
+        $c.q.prompts[0] | Should Match ([regex]::Escape("URL: $fileUrl"))
+    }
+    It 'ignores a fileUrl that is not https and adds the text as text' {
+        $v = New-FakeVault
+        $c = New-FakeCopilot @((Get-GoodReply))
+        $r = Invoke-AddRequest -Request @{ text = $script:Text; mode = 'add'; fileUrl = 'file:///C:/x.docx' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+        $r.kind | Should Be 'text'
+    }
+}
+
 Describe 'Copilot still answering (Pending): the item waits' {
     $v = New-FakeVault
     $r = New-WaitingItem $v

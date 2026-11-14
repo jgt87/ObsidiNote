@@ -283,6 +283,15 @@ Describe 'Invoke-ApiRoute: notebooks and vaults (read only)' {
         (Invoke-ApiRoute -Method 'POST' -Path '/api/link/update' -Body '{"id":"p1"}' -State $state).status | Should Be 503
         (Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"  ","mode":"auto"}' -State $state).status | Should Be 400
     }
+    It 'locates a dropped file only with a valid name, size and time, and refuses a non-https fileUrl' {
+        $state.TestSyncRoots = @()
+        $ok = Invoke-ApiRoute -Method 'POST' -Path '/api/file/locate' -Body '{"name":"Budget review.docx","size":100,"modified":1762767000000}' -State $state
+        "$($ok.status):$($ok.body.status)" | Should Be '200:no-sync'
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/file/locate' -Body '{"name":"..\\x.docx","size":1,"modified":1}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/file/locate' -Body '{"name":"a.docx","size":"1","modified":1}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"x","mode":"add","fileUrl":"file:///C:/x.docx"}' -State $state).status | Should Be 400
+        $state.TestSyncRoots = $null
+    }
     It 'checks origin on Add like Edit does: null is typed, an unknown id is refused' {
         (Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"x","mode":"add","origin":null}' -State $state).status | Should Be 503
         (Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"x","mode":"add","origin":"teams"}' -State $state).status | Should Be 503
@@ -350,6 +359,50 @@ Describe 'Invoke-ApiRoute: switching vault, a new vault (in-memory OneNote)' {
         $r.status | Should Be 200
         $r.body.kind | Should Be 'notebook'
         $r.body.warning | Should Be ''
+    }
+    Remove-Item $app -Recurse -Force
+}
+
+Describe 'Invoke-ApiRoute: vault settings in OneNote (operator, 2026-11-14)' {
+    $w = New-SyntheticVault -SessionId 'start'
+    $null = Close-VaultSession -Adapter $w.a -Vault $w.open.vault -Lease $w.open.lease
+    $app = New-TempAppRoot
+    # A local internalHosts from before settings moved to OneNote; the vault's own value wins.
+    [IO.File]::WriteAllText((Join-Path $app 'config\obsidinote.local.json'), '{"internalHosts":["intranet.example.invalid"]}')
+    $st = Get-VaultState -Adapter $w.a -IndexSectionId $w.open.vault.indexSectionId
+    $w.f.Nodes[$st.statePageId].meta['obsn.settings'] = '{"graphView":"sources","internalHosts":["wiki.example.invalid"]}'
+    $state = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'server'
+    It 'answers the defaults before a vault is open, read only' {
+        $r = Invoke-ApiRoute -Method 'GET' -Path '/api/settings' -State $state
+        $r.body.settings.graphView | Should Be 'topics'
+        $r.body.canChange | Should Be $false
+    }
+    It 'reads the vault''s settings on a switch, adds the missing key, keeps the existing ones' {
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/active-vault' -Body ('{"id":"' + $w.v.vaultId + '"}') -State $state).status | Should Be 200
+        $r = Invoke-ApiRoute -Method 'GET' -Path '/api/settings' -State $state
+        $r.body.settings.graphView | Should Be 'sources'
+        (@($r.body.settings.internalHosts) -join ',') | Should Be 'wiki.example.invalid'
+        $r.body.canChange | Should Be $true
+        (Get-VaultState -Adapter $w.a -IndexSectionId $w.open.vault.indexSectionId).meta['obsn.settings'] | Should Be '{"graphView":"sources","internalHosts":["wiki.example.invalid"],"labelsHubsOnly":false,"relatedCount":3,"linkStaleDays":90,"askIncludeArchived":false,"graphShowArchived":false,"askMaxPages":20}'
+        (& (Get-Module Server) { param($s) Get-ServerLinkRules $s } $state).InternalHosts | Should Be 'wiki.example.invalid'
+    }
+    It 'changes one setting in OneNote and uses it at once' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/settings' -Body '{"key":"internalHosts","value":["hr.example.invalid"]}' -State $state
+        $r.status | Should Be 200
+        (& (Get-Module Server) { param($s) Get-ServerLinkRules $s } $state).InternalHosts | Should Be 'hr.example.invalid'
+        (Get-VaultState -Adapter $w.a -IndexSectionId $w.open.vault.indexSectionId).meta['obsn.settings'] | Should Match '"internalHosts":\["hr.example.invalid"\]'
+    }
+    It 'passes the related-pages count to Add' {
+        (& (Get-Module Server) { param($s) Get-AddOptions $s } $state).RelatedCount | Should Be 3
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/settings' -Body '{"key":"relatedCount","value":5}' -State $state).status | Should Be 200
+        (& (Get-Module Server) { param($s) Get-AddOptions $s } $state).RelatedCount | Should Be 5
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/settings' -Body '{"key":"relatedCount","value":50}' -State $state).status | Should Be 400
+    }
+    It 'refuses an unknown key, a bad value and a read-only window' {
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/settings' -Body '{"key":"theme","value":"dark"}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/settings' -Body '{"key":"graphView","value":"timeline"}' -State $state).status | Should Be 400
+        $state.Lease.mode = 'readonly'
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/settings' -Body '{"key":"graphView","value":"topics"}' -State $state).status | Should Be 409
     }
     Remove-Item $app -Recurse -Force
 }

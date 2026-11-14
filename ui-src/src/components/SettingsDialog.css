@@ -1,0 +1,26 @@
+/* design: the Settings window; the small form dialog of NewVaultDialog.css, wider, one scroll area
+   (the body) between a fixed head and the actions. Groups are fieldsets with a heading, no boxes. */
+.st { width: min(560px, calc(100vw - 32px)); overflow: hidden; }
+/* The form fills the dialog's max-height (tokens.css, 72vh) so only the body scrolls and the
+   actions always stay in view. */
+.st form { display: flex; flex-direction: column; max-height: 72vh; }
+.st__head, .nv__actions { flex: none; }
+.st__head { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-6) var(--space-6) var(--space-3); }
+.st__body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--space-6); padding: var(--space-2) var(--space-6) var(--space-4); overflow-y: auto; scrollbar-gutter: stable; }
+.st__group { display: flex; flex-direction: column; gap: var(--space-3); margin: 0; padding: 0; border: 0; min-width: 0; }
+.st__legend { padding: 0; margin-bottom: var(--space-2); font-size: var(--text-body); font-weight: 600; }
+.st__num { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.st__num-label { font-size: var(--text-body); }
+.st__num-field { width: 72px; box-sizing: border-box; text-align: right; font-variant-numeric: tabular-nums; }
+.st__num-field[aria-invalid="true"] { border-color: var(--danger); }
+.st__select { box-sizing: border-box; }
+/* A problem reads as one: soft fill, strong text and an icon, never colour alone (rules/ui.md). */
+.st__num-error {
+  flex-basis: 100%; display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius);
+  background: var(--danger-soft); color: var(--danger); font-size: var(--text-body); font-weight: 600;
+}
+.st__num-error .icon { flex: none; }
+/* No spin arrows: the range is in the text next to it and Enter/leave settles the value. */
+.st__num-field::-webkit-outer-spin-button, .st__num-field::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.st__num-field { -moz-appearance: textfield; appearance: textfield; }

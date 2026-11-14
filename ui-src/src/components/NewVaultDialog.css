@@ -6,6 +6,7 @@
 .nv__muted { margin: 0; font-size: var(--text-body); color: var(--muted); }
 .nv__label { font-size: var(--text-label); color: var(--muted); }
 .nv__field { width: 100%; box-sizing: border-box; }
+.nv__area { height: auto; min-height: 96px; padding: var(--space-2) var(--space-3); resize: vertical; font-family: var(--font-mono, inherit); }
 .nv__check { display: inline-flex; align-items: center; gap: var(--space-3); font-size: var(--text-body); cursor: pointer; }
 .nv__check input { accent-color: var(--accent); margin: 0; }
 .nv__error { margin: 0; font-size: var(--text-body); color: var(--ink); }

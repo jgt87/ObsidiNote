@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ApiError, normalizeSubmitResult } from './api'
+import { ApiError, normalizeSubmitResult, submit } from './api'
 import { willAsk } from './hooks/useHomeFlow'
 
 describe('normalizeSubmitResult', () => {
@@ -25,5 +25,32 @@ describe('willAsk', () => {
     expect(willAsk('auto', 'ask')).toBe(true)
     expect(willAsk('auto', 'unclear')).toBe(false)
     expect(willAsk('add', 'ask')).toBe(false)
+  })
+})
+
+describe('submit: what is sent to the server', () => {
+  async function sentBody(req: Parameters<typeof submit>[0]): Promise<Record<string, unknown>> {
+    let body = ''
+    const real = globalThis.fetch
+    globalThis.fetch = (async (_u: unknown, init?: RequestInit) => {
+      body = String(init?.body ?? '')
+      return new Response(JSON.stringify({ intent: 'add', status: 'added', kind: 'text' }), { status: 200 })
+    }) as typeof fetch
+    try {
+      await submit(req)
+    } finally {
+      globalThis.fetch = real
+    }
+    return JSON.parse(body)
+  }
+  it('sends the "From" choice and a dropped file\'s address (origin was left out until 2026-11-14)', async () => {
+    const b = await sentBody({ text: 'x', mode: 'add', origin: 'teams', fileUrl: 'https://contoso-my.sharepoint.com/a.docx' })
+    expect(b.origin).toBe('teams')
+    expect(b.fileUrl).toBe('https://contoso-my.sharepoint.com/a.docx')
+  })
+  it('leaves both out when not set (typed text)', async () => {
+    const b = await sentBody({ text: 'x', mode: 'add' })
+    expect('origin' in b).toBe(false)
+    expect('fileUrl' in b).toBe(false)
   })
 })

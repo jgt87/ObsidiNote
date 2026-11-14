@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { markdownForPaste, type PasteNode } from '../add/pasteMarkdown'
 import { originOfPaste, originStillApplies, pasteMark } from '../add/pasteOrigin'
+import { MAX_FILE_BYTES, readFileText } from '../add/fileText'
+import { locateFile, type LocateResult } from '../api'
 import { ORIGINS, TYPED_LABEL } from '../model/origins'
 import type { Intent, Mode } from '../api'
 import { useIntent } from '../hooks/useIntent'
 import { intentLine, primaryLabel } from '../model/intentWording'
 import { isSendKey, modeForKey } from '../model/keys'
 import type { AddTarget } from '../model/notebooks'
-import { AddIcon, AskIcon, InfoIcon } from './icons'
+import { AddIcon, AskIcon, FileIcon, InfoIcon, WarnIcon } from './icons'
 import { ModeSwitch } from './ModeSwitch'
 import './Composer.css'
 
@@ -22,7 +24,7 @@ interface Props {
   addTarget: AddTarget | null
   /** Sends the text; the box keeps it until the server has processed it (then `clearKey` changes).
    *  origin: where the text came from ('' = typed), the "From:" choice (model/origins.ts). */
-  onSend: (text: string, mode: Mode, intent: Intent | null, origin: string) => void
+  onSend: (text: string, mode: Mode, intent: Intent | null, origin: string, fileUrl?: string) => void
   busy: boolean
   prefill?: Prefill | null
   /** A line above the buttons, e.g. "Follow-up to ..." with its own cancel. */
@@ -101,12 +103,72 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
   }, [prefill])
 
   useEffect(() => {
-    if (clearKey) setText('')
+    if (clearKey) {
+      setText('')
+      setFileNote(null)
+    }
   }, [clearKey])
+
+  // The box starts small (2 lines) and grows with its text up to about six lines, then scrolls
+  // (operator, 2026-11-14), so the result and the lists under it stay in view.
+  useEffect(() => {
+    const el = area.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [text])
+
+  // A file dropped on the box, or picked with "Add a file": its text is read here, in memory
+  // (add/fileText.ts), and put in the box like a paste; nothing is stored or uploaded as a file.
+  const [fileNote, setFileNote] = useState<{ text: string; error: boolean } | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const picker = useRef<HTMLInputElement>(null)
+  async function takeFile(file: File | undefined) {
+    if (!file || busy) return
+    if (file.size > MAX_FILE_BYTES) {
+      setFileNote({ text: 'This file is larger than 10 MB. Paste the part you want to keep instead.', error: true })
+      return
+    }
+    setFileNote({ text: `Reading ${file.name}…`, error: false })
+    const r = await readFileText(file.name, file.type, new Uint8Array(await file.arrayBuffer()))
+    if (!r.ok) {
+      setFileNote({ text: r.message, error: true })
+      return
+    }
+    setText(r.text)
+    setMode('add') // a file is something to keep, never a question
+    setOrigin('file')
+    setMark(pasteMark(r.text))
+    setFileUrl(null)
+    const cut = r.message ? ` ${r.message}` : ''
+    setFileNote({ text: `${file.name} is in the box.${cut} Looking for it in OneDrive…`, error: false })
+    area.current?.focus()
+    // Where the file lives online, when it is in a folder OneDrive syncs here (operator, 2026-11-14):
+    // the Add then makes that file's link page and keeps its address.
+    let found: LocateResult | null = null
+    try {
+      found = await locateFile(file.name, file.size, file.lastModified)
+    } catch {
+      found = null
+    }
+    if (found?.status === 'found' && found.url) {
+      setFileUrl({ url: found.url, text: r.text })
+      setFileNote({ text: `${file.name} is in your OneDrive or SharePoint: the page keeps its link.${cut} Check the text, then press Add.`, error: false })
+    } else {
+      const why = found?.status === 'many' ? ' (more than one file matched, so no link is kept)' : ''
+      setFileNote({ text: `${file.name} is in the box${why}.${cut} Check it, then press Add.`, error: false })
+    }
+  }
+  // The address of the dropped file, while its text is still what is in the box.
+  const [fileUrl, setFileUrl] = useState<{ url: string; text: string } | null>(null)
+  const liveFileUrl = fileUrl && fileUrl.text === text ? fileUrl.url : ''
+
+  // Ask's options (what Ask reads) only when the text will be asked (operator, 2026-11-14).
+  const asking = mode === 'ask' || (mode === 'auto' && result?.intent === 'ask')
 
   function send() {
     if (empty || busy) return
-    onSend(text, mode, result?.intent ?? null, showFrom ? origin : '')
+    onSend(text, mode, result?.intent ?? null, showFrom ? origin : '', liveFileUrl)
   }
 
   // Paste from a web page, Word or a mail: its structure (headings, lists, tables, bold, links)
@@ -141,7 +203,39 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
 
   const LineIcon = result?.intent === 'ask' ? AskIcon : result?.intent === 'add' ? AddIcon : InfoIcon
   return (
-    <section className="composer" aria-label="Add or ask">
+    <section
+      className="composer"
+      aria-label="Add or ask"
+      data-dragging={dragging || undefined}
+      onDragOver={(e) => {
+        const types = [...e.dataTransfer.types]
+        if (!types.includes('Files') && !types.includes('text/uri-list')) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
+        setDragging(true)
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false)
+      }}
+      onDrop={(e) => {
+        setDragging(false)
+        if (e.dataTransfer.files.length) {
+          e.preventDefault()
+          void takeFile(e.dataTransfer.files[0])
+          return
+        }
+        // A link dragged from a browser tab (a OneDrive or SharePoint file, a web page): the same as
+        // pasting it, so it becomes that address's link page.
+        const link = (e.dataTransfer.getData('text/uri-list') || '').split(/\r?\n/).find((l) => /^https?:\/\//i.test(l.trim()))
+        if (link) {
+          e.preventDefault()
+          setText(link.trim())
+          setFileNote(null)
+          area.current?.focus()
+        }
+      }}
+    >
+      {/* Left-aligned, the help next to it: one row of controls for the box (operator, 2026-11-14). */}
       <div className="composer__top">
         <ModeSwitch mode={mode} onChange={(m) => { setMode(m); area.current?.focus() }} />
         <div className="composer__help">
@@ -155,7 +249,29 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
             <span><kbd>Shift</kbd> <kbd>Enter</kbd></span><span>New line</span>
           </div>
         </div>
+        {/* The drop's keyboard and touch path: the same reading, from a file picker. */}
+        <button type="button" className="btn btn--sm btn--ghost composer__file-btn" onClick={() => picker.current?.click()} disabled={busy}>
+          <FileIcon />
+          Add a file
+        </button>
+        <input
+          ref={picker}
+          type="file"
+          className="visually-hidden"
+          tabIndex={-1}
+          aria-hidden="true"
+          accept=".docx,.docm,.pptx,.xlsx,.xlsm,.pdf,.msg,.eml,.txt,.md,.csv,.tsv,.json,.log,.html,.htm"
+          onChange={(e) => {
+            void takeFile(e.target.files?.[0])
+            e.target.value = ''
+          }}
+        />
       </div>
+      {dragging && (
+        <p className="composer__drop" aria-hidden="true">
+          Drop the file to put its text in the box
+        </p>
+      )}
       <label htmlFor="composer-text" className="visually-hidden">
         Text, link or question
       </label>
@@ -163,15 +279,21 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
         id="composer-text"
         ref={area}
         className="composer__text"
-        rows={6}
+        rows={2}
         value={text}
-        placeholder="Paste a link or text, or ask a question"
+        placeholder="Paste a link or text, drop a file, or ask a question"
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
         autoFocus
         spellCheck
       />
+      {fileNote && (
+        <p className={fileNote.error ? 'composer__file-note composer__file-note--error' : 'composer__file-note'} role={fileNote.error ? 'alert' : 'status'}>
+          {fileNote.error && <WarnIcon />}
+          {fileNote.text}
+        </p>
+      )}
       {showFrom && (
         <div className="composer__from">
           <label htmlFor="composer-from">From</label>
@@ -215,7 +337,7 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
           {busy ? 'Working…' : primaryLabel(result)}
         </button>
       </div>
-      {children}
+      {asking && children}
     </section>
   )
 }

@@ -7,19 +7,25 @@ import { AskOptions, type AskChoices } from './AskOptions'
 import { Composer } from './Composer'
 import { RecentList } from './RecentList'
 import { WhatsNew } from './WhatsNew'
+import { WaitingList } from '../activity/WaitingList'
 import './HomeView.css'
 
 type Home = ReturnType<typeof useHomeFlow>
 
 /** Add or ask: the box, Ask's options, then the result of the last send (Add result, Ask answer or
  *  a notice), or the recently changed pages while nothing was sent. */
-export function HomeView({ home, addTarget, notebook, choices, onChoices, sourceOptions }: {
+export function HomeView({ home, addTarget, notebook, choices, onChoices, sourceOptions, activityKey, onOpenRecent, onOpenActive }: {
   home: Home
   addTarget: AddTarget | null
   notebook: NotebookState
   choices: AskChoices
   onChoices: (c: AskChoices) => void
   sourceOptions: { id: string; label: string }[]
+  /** Changes when the waiting list should be read again (a vault switch, a send finished). */
+  activityKey: string
+  /** Opens a page of the shown notebook / of the active vault in the page window. */
+  onOpenRecent: (pageId: string) => void
+  onOpenActive: (pageId: string) => void
 }) {
   const { flow } = home
   const note = home.followUp ? (
@@ -38,7 +44,9 @@ export function HomeView({ home, addTarget, notebook, choices, onChoices, source
         <AskOptions choices={choices} options={sourceOptions} onChange={onChoices} />
       </Composer>
       <FlowArea home={home} />
-      {flow.kind === 'idle' && <RecentList notebook={notebook} />}
+      {/* Items still waiting for Copilot stay reachable after their Add result is gone. */}
+      <WaitingList refreshKey={activityKey} onOpen={onOpenActive} />
+      {flow.kind === 'idle' && <RecentList notebook={notebook} onOpen={onOpenRecent} />}
     </div>
   )
 }

@@ -246,6 +246,8 @@ $script:Origins = @(
     [ordered]@{ id = 'onedrive'; label = 'OneDrive file'; source = 'OneDrive'; kind = 'm365' }
     [ordered]@{ id = 'sharepoint'; label = 'SharePoint page'; source = 'SharePoint'; kind = 'm365' }
     [ordered]@{ id = 'web'; label = 'Web page'; source = 'Other web sites'; kind = 'other' }
+    # A file dropped on the box (2026-11-14): its text is read in the browser, never stored on disk.
+    [ordered]@{ id = 'file'; label = 'File you dropped'; source = 'Files'; kind = 'other' }
 )
 
 function Get-OriginList { , @($script:Origins) }
@@ -279,6 +281,8 @@ function Get-LinkSource {
     $h = ($p.hostPort -replace ':[0-9]+$', '').TrimEnd('.')
     if (-not $h) { return $null }
     if ($h -match '-my\.sharepoint\.com$') { return @{ id = 'onedrive'; name = 'OneDrive'; kind = 'm365' } }
+    # Personal OneDrive (a dropped file's address from its synced folder, 2026-11-14).
+    foreach ($r in '*.docs.live.net', 'onedrive.live.com') { if (Test-HostRule -HostName $h -Rule $r) { return @{ id = 'onedrive'; name = 'OneDrive'; kind = 'm365' } } }
     if (Test-HostRule -HostName $h -Rule '*.sharepoint.com') {
         $m = [regex]::Match($p.path, '^/(?i:sites|teams)/([^/]+)')
         if ($m.Success) {

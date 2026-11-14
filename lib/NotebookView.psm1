@@ -54,13 +54,18 @@ function ConvertTo-SectionTree($Parent, [string]$Prefix, [Collections.Generic.Li
     <# The sections and section groups under $Parent in OneNote's order; collects every page with
        its section path in $AllPages. #>
     $out = New-Object Collections.Generic.List[object]
+    # In a vault root (it holds a "00 Index" section), the generated Index pages and the Intake
+    # requests are not content: Recently changed leaves them out (they are rewritten at every start
+    # and would fill the list; 2026-11-14). They still count in the totals.
+    $vaultRoot = [bool](@($Parent.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -eq 'Section' -and "$($_.GetAttribute('name'))" -eq '00 Index' }).Count)
     foreach ($n in @($Parent.ChildNodes)) {
         if ($n.NodeType -ne 'Element' -or (Test-InRecycleBin $n)) { continue }
         $name = "$($n.GetAttribute('name'))"
         $path = if ($Prefix) { "$Prefix / $name" } else { $name }
         if ($n.LocalName -eq 'Section') {
             $pages = Get-SectionPages $n
-            foreach ($p in $pages) { $AllPages.Add([pscustomobject]@{ node = $p; section = $path }) }
+            $notContent = $vaultRoot -and $name -in '00 Index', '01 Intake', '01 Inbox'
+            foreach ($p in $pages) { $AllPages.Add([pscustomobject]@{ node = $p; section = $path; notContent = $notContent }) }
             $out.Add([pscustomobject]@{ name = $name; kind = 'section'; pages = $pages.Count; children = @() })
         } elseif ($n.LocalName -eq 'SectionGroup') {
             $kids = ConvertTo-SectionTree $n $path $AllPages   # one array (the function returns it whole)
@@ -140,12 +145,21 @@ function ConvertTo-NotebookView {
     $all = New-Object Collections.Generic.List[object]
     $tree = ConvertTo-SectionTree $nb '' $all
     $sectionCount = @($nb.SelectNodes(".//*[local-name()='Section']") | Where-Object { -not (Test-InRecycleBin $_) -and -not (Test-InRecycleBin $_.ParentNode) }).Count
-    $latest = @($all | Sort-Object -Property @{ Expression = { "$($_.node.GetAttribute('lastModifiedTime'))" } } -Descending | Select-Object -First $Recent)
+    $latest = @($all | Where-Object { -not $_.notContent } | Sort-Object -Property @{ Expression = { "$($_.node.GetAttribute('lastModifiedTime'))" } } -Descending | Select-Object -First $Recent)
     $recentList = @(foreach ($p in $latest) {
         $link = "$(& $GetLink "$($p.node.GetAttribute('ID'))")"
         if ($link -notmatch '^(?i)onenote:') { $link = '' }
         $title = "$($p.node.GetAttribute('name'))".Trim()
-        [pscustomobject]@{ title = $(if ($title) { $title } else { 'Untitled page' }); section = $p.section; modified = "$($p.node.GetAttribute('lastModifiedTime'))"; link = $link }
+        # The page's id as the knowledge graph knows it (its obsn.id, else n:<OneNote id>) and its type,
+        # so the home page opens it in the page window (operator, 2026-11-14).
+        $oid = ''; $type = ''
+        foreach ($c in @($p.node.ChildNodes)) {
+            if ($c.NodeType -ne 'Element' -or $c.LocalName -ne 'Meta') { continue }
+            if ($c.GetAttribute('name') -eq 'obsn.id') { $oid = "$($c.GetAttribute('content'))" }
+            elseif ($c.GetAttribute('name') -eq 'obsn.type') { $type = "$($c.GetAttribute('content'))" }
+        }
+        $gid = if ($oid) { $oid } else { 'n:' + "$($p.node.GetAttribute('ID'))" }
+        [pscustomobject]@{ title = $(if ($title) { $title } else { 'Untitled page' }); section = $p.section; modified = "$($p.node.GetAttribute('lastModifiedTime'))"; link = $link; pageId = $gid; type = $type }
     })
     [pscustomobject]@{
         available = $true

@@ -20,6 +20,13 @@ export function formatModified(iso: string, now: Date = new Date()): string {
   return d.getFullYear() === now.getFullYear() ? dayMonth.format(d) : dayMonthYear.format(d)
 }
 
+/** A page type as words for a list row ("link-web" -> "web link", "project-part" -> "project part"). */
+export function pageTypeLabel(type: string): string {
+  if (!type) return ''
+  const m = /^link-(\w+)$/.exec(type)
+  return m ? `${m[1]} link` : type.replace(/-/g, ' ')
+}
+
 export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`
 }

@@ -1,10 +1,9 @@
 import iconUrl from '../../../assets/icon.svg'
 import type { NotebooksState, NotebookState } from '../hooks/useServerData'
 import type { AttentionNote } from '../model/attention'
-import { ExportButton } from '../export/ExportButton'
 import { plural } from '../model/format'
 import { VIEW_ORDER, VIEWS, type View } from '../model/views'
-import { GraphIcon, HistoryIcon, PlusIcon, WarnIcon } from './icons'
+import { GraphIcon, HistoryIcon, PlusIcon, SettingsIcon, WarnIcon } from './icons'
 import { RetryButton } from './RetryButton'
 import { NotebookSwitcher } from './NotebookSwitcher'
 import { SectionTree } from './SectionTree'
@@ -22,9 +21,11 @@ interface Props {
   onSetUp: () => void
   /** Tries to connect Copilot again; resolves to '' when it worked, else what the person should know. */
   onRetryCopilot: () => Promise<string>
+  /** Opens Settings (kept in the vault in OneNote); none without an active vault. */
+  onSettings?: () => void
 }
 
-export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp, onRetryCopilot }: Props) {
+export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp, onRetryCopilot, onSettings }: Props) {
   const nb = notebook.data
   const canSetUp = Boolean(nb?.notebook?.canSetUp && nb.notebook.id === notebooks.shownId)
   return (
@@ -34,8 +35,7 @@ export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp, on
         <span>ObsidiNote</span>
       </div>
 
-      <NotebookSwitcher notebooks={notebooks} onNewVault={onNewVault} onSetUp={canSetUp ? onSetUp : null} />
-
+      {/* The menu first, under the name; the notebook switcher below it (operator, 2026-11-14). */}
       <ul className="rail__nav">
         {VIEW_ORDER.map((v) => {
           const Icon = NAV_ICONS[v]
@@ -48,7 +48,18 @@ export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp, on
             </li>
           )
         })}
+        {onSettings && (
+          // Not a view: opens the Settings window (kept in the vault in OneNote).
+          <li>
+            <button type="button" className="rail__link rail__link--btn" onClick={onSettings}>
+              <SettingsIcon />
+              Settings
+            </button>
+          </li>
+        )}
       </ul>
+
+      <NotebookSwitcher notebooks={notebooks} onNewVault={onNewVault} onSetUp={canSetUp ? onSetUp : null} />
 
       <section className="rail__notebook" aria-labelledby="rail-sections">
         <h2 id="rail-sections" className="rail__label">
@@ -85,10 +96,8 @@ export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp, on
               {nb.notebook.location ? ` (${nb.notebook.location})` : ''}
               {nb.notebook.vault ? '' : ', read only'}
             </p>
-            {nb.totals.pages > 0 && (
-              // The shown notebook or vault, as Markdown files with [[wikilinks]] in a zip (POST /api/export).
-              <ExportButton request={{ scope: 'all', notebook: notebooks.shownId ?? nb.notebook.id }} label="Export all as Markdown" className="btn switcher__new" />
-            )}
+            {/* Export as Markdown lives in the page window, per page and per topic (operator,
+                2026-11-14: not a button in the side bar). */}
           </div>
         )}
         <div className="rail__theme">

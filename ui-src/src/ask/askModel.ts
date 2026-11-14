@@ -27,6 +27,7 @@ export function normalizeAskResult(raw: AskResult): AskResult {
     path: normalizePath(raw.path),
     answer: raw.answer ? { ...raw.answer, paragraphs: normalizeParagraphs(raw.answer.paragraphs) } : null,
     sources: list(raw.sources),
+    unused: list(raw.unused),
     staleLinks: list(raw.staleLinks),
     invalidCitations: list(raw.invalidCitations),
     notFound: raw.notFound
@@ -105,4 +106,46 @@ export function notFoundText(reason: string | undefined): string {
     default:
       return 'The pages that were read do not answer it.'
   }
+}
+
+/** "Combined from 5 pages in 3 topics": how many cited pages the answer joins, and from how many
+ *  topics (their index paths). '' for an answer from one page (operator, 2026-11-14). */
+export function combinedLine(sources: AskSource[]): string {
+  if (sources.length < 2) return ''
+  const topics = new Set(sources.map((s) => s.path || '(no topic)'))
+  return `Combined from ${sources.length} pages in ${topics.size} ${topics.size === 1 ? 'topic' : 'topics'}.`
+}
+
+/** How many sentences of the answer cite each source number. */
+export function sentencesPerSource(paragraphs: AskParagraph[]): Map<number, number> {
+  const m = new Map<number, number>()
+  for (const p of paragraphs) for (const s of p.sentences) for (const n of new Set(s.cites)) m.set(n, (m.get(n) ?? 0) + 1)
+  return m
+}
+
+/** What share of the answer came from each source (operator, 2026-11-14: "a bar ... how much of the
+ *  answer came from each source"). Each cited sentence's length is split evenly over the sources it
+ *  cites; sentences without a source are left out, so the shares of the cited sources add up to 1.
+ *  Returns source number -> share (0..1). */
+export function answerShares(paragraphs: AskParagraph[]): Map<number, number> {
+  const chars = new Map<number, number>()
+  let total = 0
+  for (const p of paragraphs)
+    for (const s of p.sentences) {
+      const cites = [...new Set(s.cites)]
+      if (!cites.length) continue
+      const len = Math.max(1, s.text.trim().length)
+      total += len
+      for (const n of cites) chars.set(n, (chars.get(n) ?? 0) + len / cites.length)
+    }
+  const out = new Map<number, number>()
+  if (!total) return out
+  for (const [n, c] of chars) out.set(n, c / total)
+  return out
+}
+
+/** A share as a whole percent for the label; a share above 0 never shows as 0%. */
+export function sharePercent(share: number): number {
+  if (share <= 0) return 0
+  return Math.max(1, Math.round(share * 100))
 }

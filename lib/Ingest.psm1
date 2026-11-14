@@ -357,6 +357,15 @@ function Invoke-AddRequest {
     $mode = (Get-LkString $Request 'mode').ToLowerInvariant()
     if (-not $mode -or $Resume) { $mode = 'add' }
     $url = Get-PastedUrl $text
+    # A dropped file whose OneDrive/SharePoint address was found (2026-11-14, operator: "the link to
+    # the original file should be stored"): its link page, summarized from the text read in the
+    # window (Options.SourceText), one page per address like a pasted link.
+    $fileUrl = Get-LkString $Request 'fileUrl'
+    if ($fileUrl -and $fileUrl -match '^(?i)https://[^\s]+$' -and $text.Trim()) {
+        $Options = @{} + $Options
+        $Options['SourceText'] = $text
+        $url = $fileUrl
+    }
     $r = New-AddResult -Status 'failed' -Kind $(if ($url) { 'link' } else { 'text' })
     if (-not $text.Trim()) { $r.message = 'There is nothing to add.'; return (Complete-AddResult $r $sw) }
     $missing = Get-MissingStoreFunctions $Store
@@ -506,7 +515,7 @@ function Invoke-LinkAdd {
     $r.inbox = @{ pageId = $inbox['pageId']; status = $(if ($Resume) { 'waiting' } else { 'new' }) }
     $r.timings.inboxMs = [int]$t0.ElapsedMilliseconds
 
-    $ans = Get-StepAnswer -Ask $Ask -Prompt (New-LinkSummaryPrompt -Url $norm -Bucket $bucket -Today $now -Ref $ref) -Resume $Resume
+    $ans = Get-StepAnswer -Ask $Ask -Prompt (New-LinkSummaryPrompt -Url $norm -Bucket $bucket -Today $now -Ref $ref -SourceText ([string](Get-IngestOption $Options 'SourceText' ''))) -Resume $Resume
     $r.timings.copilotMs += $ans.ms
     if ($ans['pending']) { return (Set-InboxWaiting $Store $inbox $ref 'linkSummary' $ans $r $now) }
     if (-not $ans.ok) { $r.message = $ans.error; Set-InboxFailed $Store $inbox $ans.error $r; return $r }
@@ -687,6 +696,8 @@ function Undo-AddRequest {
         $recPage = Get-LkString $rec 'pageId'
         if (-not $pageId) { $pageId = $recPage }
         if ($recPage -and $recPage -ne $pageId) { throw "page $id does not match the page that was added" }
+        # Undo from History sends only the id: the pages it links to come from its index record.
+        if (-not $targets.Count) { $targets = @(@(Get-LkProp $rec 'links' @()) | Where-Object { $_ } | ForEach-Object { [string](Get-LkProp $_ 'target' (Get-LkProp $_ 't' '')) } | Where-Object { $_ }) }
         Invoke-Store $Store 'DeletePage' @{ PageId = $pageId } | Out-Null
         try { Invoke-Store $Store 'IndexRemovePage' @{ Id = $id } | Out-Null }
         catch { $r.warnings = @($r.warnings) + "The index still lists the page; the next start removes it ($($_.Exception.Message))." }
@@ -805,7 +816,7 @@ function Invoke-LinkUpdate {
         if (-not $new -or -not $new.title -or -not $new.summary) { $r.message = 'The proposed summary is incomplete.'; return $r }
     } else {
         $ref = if ($Resume) { [string]$Resume['ref'] } else { New-RequestRef }
-        $ans = Get-StepAnswer -Ask $Ask -Prompt (New-LinkSummaryPrompt -Url $url -Bucket $bucket -Today $now -Ref $ref) -Resume $Resume
+        $ans = Get-StepAnswer -Ask $Ask -Prompt (New-LinkSummaryPrompt -Url $url -Bucket $bucket -Today $now -Ref $ref -SourceText ([string](Get-IngestOption $Options 'SourceText' ''))) -Resume $Resume
         $r.timings.copilotMs += $ans.ms
         if ($ans['pending']) { return (Set-UpdateWaiting -Store $Store -Result $r -Url $url -Title $view.title -Ref $ref -SeenAgain:$SeenAgain -Answer $ans -Now $now) }
         if (-not $ans.ok) { $r.message = $ans.error; return $r }

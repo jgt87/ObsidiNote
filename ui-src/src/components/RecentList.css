@@ -3,7 +3,7 @@
 .recent__list { list-style: none; margin: 0; padding: 0; }
 .recent__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--space-5);
   padding: var(--space-3) var(--space-5);
@@ -18,6 +18,9 @@
   font-weight: 500;
   text-decoration: none;
 }
+/* The title opens the page window: a button that reads as the row's link. */
+.recent__open { padding: 0; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+@media (hover: hover) { .recent__open:hover { color: var(--accent); text-decoration-color: currentColor; } }
 a.recent__title { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
 @media (hover: hover) { a.recent__title:hover { color: var(--accent); text-decoration-color: currentColor; } }
 .recent__path, .recent__when { font-size: var(--text-meta); color: var(--muted); }

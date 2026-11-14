@@ -1,9 +1,10 @@
 import type { NotebookState } from '../hooks/useServerData'
-import { formatModified } from '../model/format'
+import { formatModified, pageTypeLabel } from '../model/format'
 import './RecentList.css'
 
-/** The 10 most recently changed pages of the notebook; a title opens the page in OneNote. */
-export function RecentList({ notebook }: { notebook: NotebookState }) {
+/** The 10 most recently changed pages of the notebook. A title opens the page window (the same as in
+ *  the knowledge graph: summary, links, Edit, Export; operator 2026-11-14); "OneNote" opens it there. */
+export function RecentList({ notebook, onOpen }: { notebook: NotebookState; onOpen?: (pageId: string) => void }) {
   const nb = notebook.data
   let body: React.JSX.Element
   if (!nb && notebook.loading) body = <p className="recent__state" role="status">Reading your notebook...</p>
@@ -21,23 +22,37 @@ export function RecentList({ notebook }: { notebook: NotebookState }) {
   else {
     body = (
       <ul className="recent__list">
-        {nb.recent.map((p, i) => (
-          <li key={`${p.link || p.title}:${i}`} className="recent__row">
-            <div className="recent__main">
-              {p.link ? (
-                <a className="recent__title" href={p.link} title={`Open "${p.title}" in OneNote`}>
-                  {p.title}
+        {nb.recent.map((p, i) => {
+          const where = [pageTypeLabel(p.type ?? ''), p.section].filter(Boolean)
+          return (
+            <li key={`${p.pageId || p.link || p.title}:${i}`} className="recent__row">
+              <div className="recent__main">
+                {p.pageId && onOpen ? (
+                  <button type="button" className="recent__title recent__open" onClick={() => onOpen(p.pageId!)} title={`Open "${p.title}"`}>
+                    {p.title}
+                  </button>
+                ) : p.link ? (
+                  <a className="recent__title" href={p.link} title={`Open "${p.title}" in OneNote`}>
+                    {p.title}
+                  </a>
+                ) : (
+                  <span className="recent__title">{p.title}</span>
+                )}
+                <span className="recent__path">{where.join(' in ')}</span>
+              </div>
+              <time className="recent__when" dateTime={p.modified}>
+                {formatModified(p.modified)}
+              </time>
+              {p.pageId && onOpen && p.link ? (
+                <a className="btn btn--sm btn--ghost recent__onenote" href={p.link} aria-label={`Open "${p.title}" in OneNote`}>
+                  OneNote
                 </a>
               ) : (
-                <span className="recent__title">{p.title}</span>
+                <span />
               )}
-              <span className="recent__path">{p.section}</span>
-            </div>
-            <time className="recent__when" dateTime={p.modified}>
-              {formatModified(p.modified)}
-            </time>
-          </li>
-        ))}
+            </li>
+          )
+        })}
       </ul>
     )
   }

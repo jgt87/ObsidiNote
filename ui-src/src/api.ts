@@ -4,6 +4,7 @@
 import { normalizeAddResult, type AddResult } from './add/types'
 import { normalizeAskResult } from './ask/askModel'
 import type { AskResult } from './ask/types'
+import { normalizeSettings, type VaultSettings } from './model/vaultSettings'
 
 export type Mode = 'auto' | 'add' | 'ask'
 export type Intent = 'add' | 'ask' | 'unclear' | 'empty'
@@ -26,6 +27,10 @@ export interface RecentPage {
   section: string
   modified: string
   link: string
+  /** The page's id in the knowledge graph (obsn id, or n:<OneNote id>); '' from an older server. */
+  pageId?: string
+  /** ObsidiNote's page type ('' for the person's own pages). */
+  type?: string
 }
 
 /** An entry of the notebook switcher. vault = an ObsidiNote vault (found by its state page; a whole
@@ -88,9 +93,22 @@ export interface SubmitRequest {
   includeArchived?: boolean
   /** Where an Add's text came from (model/origins.ts); left out = typed. */
   origin?: string
+  /** A dropped file's OneDrive/SharePoint address (locateFile): the Add makes that file's link page. */
+  fileUrl?: string
 }
 
 const HEADERS: Record<string, string> = { 'X-ObsidiNote': '1' }
+
+export interface LocateResult {
+  status: 'found' | 'none' | 'many' | 'no-sync'
+  url: string
+}
+
+/** Looks for a dropped file in the folders OneDrive syncs on this PC (name, size, time only; the
+ *  browser never says where a dropped file is). */
+export function locateFile(name: string, size: number, modified: number): Promise<LocateResult> {
+  return call<LocateResult>('/api/file/locate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, size, modified }) })
+}
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -169,6 +187,24 @@ export function setUpVault(id: string, confirm: boolean): Promise<NewVaultResult
   return call('/api/vault/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, confirm }) })
 }
 
+export interface SettingsAnswer {
+  settings: VaultSettings
+  /** False in a read-only window or without a vault: the settings are shown, not changed. */
+  canChange: boolean
+}
+
+/** The active vault's settings, kept in OneNote (GET /api/settings). */
+export async function getSettings(): Promise<SettingsAnswer> {
+  const r = await call<{ settings: unknown; canChange: unknown }>('/api/settings')
+  return { settings: normalizeSettings(r.settings), canChange: r.canChange === true }
+}
+
+/** Changes one vault setting in OneNote; the answer is the settings as they are now. */
+export async function saveSetting<K extends keyof VaultSettings>(key: K, value: VaultSettings[K]): Promise<SettingsAnswer> {
+  const r = await call<{ settings: unknown; canChange: unknown }>('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) })
+  return { settings: normalizeSettings(r.settings), canChange: r.canChange === true }
+}
+
 function postJson(text: string, mode: Mode, signal?: AbortSignal): RequestInit {
   return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, mode }), signal }
 }
@@ -180,7 +216,16 @@ export function getIntent(text: string, mode: Mode, signal?: AbortSignal): Promi
 /** Add or Ask by mode and intent (the server decides auto). 503 = Copilot is not connected, 409 = no
  *  active vault: both throw ApiError with the server's message. */
 export async function submit(req: SubmitRequest, signal?: AbortSignal): Promise<SubmitResult> {
-  const body = { text: req.text, mode: req.mode, sources: req.sources ?? [], includeArchived: Boolean(req.includeArchived) }
+  // origin and fileUrl go along only when set (2026-11-14: origin was left out here, so "From"
+  // never reached the server; api.test.ts now checks the body that is sent).
+  const body = {
+    text: req.text,
+    mode: req.mode,
+    sources: req.sources ?? [],
+    includeArchived: Boolean(req.includeArchived),
+    ...(req.origin ? { origin: req.origin } : {}),
+    ...(req.fileUrl ? { fileUrl: req.fileUrl } : {}),
+  }
   const raw = await call<Record<string, unknown>>('/api/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal })
   return normalizeSubmitResult(raw)
 }

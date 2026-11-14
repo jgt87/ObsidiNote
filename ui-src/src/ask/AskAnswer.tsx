@@ -1,6 +1,6 @@
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import { splitLinks, webUrl } from '../model/links'
-import { confidenceLabel, pathChips, sourceAnchor, sourceOrigin } from './askModel'
+import { answerShares, combinedLine, confidenceLabel, pathChips, sentencesPerSource, sharePercent, sourceAnchor, sourceOrigin } from './askModel'
 import type { AskResult, AskSource } from './types'
 import './Ask.css'
 
@@ -48,6 +48,14 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
   const byNumber = new Map(result.sources.map((s) => [s.n, s]))
   const stale = new Map(result.staleLinks.map((l) => [l.id, l]))
   const dropped = result.invalidCitations.length
+  // What the answer was made from (operator, 2026-11-14): pages and topics, sentences per page,
+  // and the pages read but not used.
+  const combined = combinedLine(result.sources)
+  const used = sentencesPerSource(result.answer?.paragraphs ?? [])
+  const shares = answerShares(result.answer?.paragraphs ?? [])
+  // The source the pointer (or keyboard focus) is on: its sentences in the answer turn to the accent
+  // (operator, 2026-11-14). Session state of this card only.
+  const [lit, setLit] = useState<number | null>(null)
   return (
     <div className="ask">
       <div>
@@ -59,12 +67,17 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
 
       <section className="card" aria-label="Answer">
         <p className="ask-label">Answer</p>
+        {combined && <p className="ask-muted ask-combined">{combined}</p>}
         {result.answer?.paragraphs.map((p, i) => (
           <p key={i} className="ask-paragraph">
             {p.sentences.map((s, j) => (
               <Fragment key={j}>
                 {j > 0 ? ' ' : null}
-                <span className={s.unsupported ? 'ask-unsupported' : undefined} title={s.unsupported ? 'No source was read for this sentence' : undefined}>
+                <span
+                  className={s.unsupported ? 'ask-unsupported' : undefined}
+                  data-lit={lit !== null && s.cites.includes(lit) ? '' : undefined}
+                  title={s.unsupported ? 'No source was read for this sentence' : undefined}
+                >
                   <LinkedText text={s.text} />
                 </span>
                 {s.unsupported && <span className="visually-hidden"> (no source)</span>}
@@ -99,7 +112,18 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
             const st = stale.get(s.id)
             const origin = sourceOrigin(s)
             return (
-              <li key={s.n} id={anchor(s.n)} className="ask-src" tabIndex={-1}>
+              <li
+                key={s.n}
+                id={anchor(s.n)}
+                className="ask-src"
+                tabIndex={-1}
+                onMouseEnter={() => setLit(s.n)}
+                onMouseLeave={() => setLit((v) => (v === s.n ? null : v))}
+                onFocus={() => setLit(s.n)}
+                onBlur={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setLit((v) => (v === s.n ? null : v))
+                }}
+              >
                 <span className="ask-muted ask-src__n">{s.n}</span>
                 <div className="ask-src__main">
                   <SourceTitle source={s} onShowPage={actions.onShowPage} />
@@ -108,6 +132,11 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
                     {origin && ` · ${origin}`}
                     {s.archived && ' · archived'}
                   </div>
+                  {shares.get(s.n) ? (
+                    // How much of the answer came from this page (answerShares): one bar in the accent,
+                    // the percent in text beside it; the sentence count stays in words.
+                    <ShareBar share={shares.get(s.n)!} sentences={used.get(s.n) ?? 0} />
+                  ) : null}
                   {st && (
                     <div className="ask-stale">
                       <span className="ask-muted">{st.label}</span>
@@ -136,7 +165,39 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
         </ol>
       </section>
 
+      {result.unused.length > 0 && (
+        // Pages Ask read that the answer does not cite: shows nothing relevant was skipped unseen.
+        <details className="card ask-unused">
+          <summary className="ask-label ask-unused__summary">
+            Also read, not used ({result.unused.length})
+          </summary>
+          <ul className="ask-unused__list">
+            {result.unused.map((s) => (
+              <li key={s.key} className="ask-unused__row">
+                <SourceTitle source={s} onShowPage={actions.onShowPage} />
+                <span className="ask-muted"> · {s.path}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       <AskActions {...actions} />
+    </div>
+  )
+}
+
+/** A source's share of the answer: a thin bar (track + accent fill with a rounded end) and its
+ *  percent and sentence count in text, so the number never depends on reading the bar. */
+function ShareBar({ share, sentences }: { share: number; sentences: number }) {
+  const pct = sharePercent(share)
+  const words = `${pct}% of the answer, ${sentences} ${sentences === 1 ? 'sentence' : 'sentences'}`
+  return (
+    <div className="ask-share" title={`${(share * 100).toFixed(1)}% of the cited answer text came from this page`}>
+      <span className="ask-share__track" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Share of the answer">
+        <span className="ask-share__fill" style={{ width: `${Math.max(2, pct)}%` }} />
+      </span>
+      <span className="ask-muted ask-share__label">{words}</span>
     </div>
   )
 }

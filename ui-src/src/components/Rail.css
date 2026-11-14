@@ -4,8 +4,8 @@
   gap: 0;
   width: 248px;
   flex: none;
-  /* Stays in place while the page scrolls (operator, 2026-11-13). The logo and the switcher/nav at
-     the top and the footer (notes, export, theme) at the bottom are always visible; only the section
+  /* Stays in place while the page scrolls (operator, 2026-11-13). The logo and the nav/switcher at
+     the top and the footer (notes, counts, theme) at the bottom are always visible; only the section
      list scrolls, inside its own box (operator, 2026-11-14). */
   position: sticky;
   top: 0;
@@ -17,7 +17,7 @@
   border-right: 1px solid var(--border);
 }
 
-/* Distinct groups (operator, 2026-11-14): logo, notebook, menu, sections, then the footer; each
+/* Distinct groups (operator, 2026-11-14): logo, menu, notebook, sections, then the footer; each
    group after the first starts with a divider line and the same space above and below it. */
 /* nav.rail: one element more than the groups' own one-class rules (.switcher, .rail__nav set padding). */
 nav.rail > * + * {
@@ -52,6 +52,8 @@ nav.rail > .rail__footer { margin-top: auto; }
 }
 @media (hover: hover) { .rail__link:hover:not([aria-current="page"]) { background: var(--hover); } }
 .rail__link[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+/* Settings opens a window, not a view: a button that looks like the menu's links. */
+.rail__link--btn { width: 100%; box-sizing: border-box; border: 0; background: transparent; font: inherit; font-size: var(--text-body); text-align: left; cursor: pointer; }
 
 .rail__label {
   margin: 0 0 var(--space-2);

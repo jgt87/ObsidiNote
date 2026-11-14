@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { reconnectCopilot } from './api'
+import { getSettings, reconnectCopilot } from './api'
 import type { AskChoices } from './components/AskOptions'
-import { EmptyView } from './components/EmptyView'
+import { ActivityView } from './activity/ActivityView'
 import { HomeView } from './components/HomeView'
-import { HistoryIcon } from './components/icons'
 import { NewVaultDialog } from './components/NewVaultDialog'
 import { SetUpVaultDialog } from './components/SetUpVaultDialog'
+import { SettingsDialog } from './components/SettingsDialog'
 import { Rail } from './components/Rail'
 import { fetchGraph, GraphView } from './graph'
 import { useHomeFlow } from './hooks/useHomeFlow'
@@ -37,6 +37,19 @@ export function App() {
   const [graphFocus, setGraphFocus] = useState<string[]>([])
   const [newVaultOpen, setNewVaultOpen] = useState(false)
   const [setUpOpen, setSetUpOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  // Saved settings reach the open graph by remounting it (it reads them when it opens).
+  const [graphReload, setGraphReload] = useState(0)
+  // Ask's "Include archived pages" starts from the vault's setting (kept in OneNote), per vault.
+  useEffect(() => {
+    let live = true
+    getSettings()
+      .then((r) => live && setChoices((c) => ({ ...c, includeArchived: r.settings.askIncludeArchived })))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [notebooks.activeId])
   const [notice, setNotice] = useState('')
 
   const goto = (v: View) => { window.location.hash = VIEWS[v].hash }
@@ -67,10 +80,21 @@ export function App() {
   const findKey = activeEntry?.vault ? JSON.stringify(graphRefFor(activeEntry)) : null
   const loadFind = useCallback((signal: AbortSignal) => fetchGraph(findKey ? JSON.parse(findKey) : {}, signal), [findKey])
   const sourceOptions = useMemo(() => askSourceChoices(notebooks.list, notebooks.activeId), [notebooks.list, notebooks.activeId])
+  // A page opened from the home page or History: the knowledge graph of its notebook with the page
+  // window open (the same FindRequest the Ctrl+K switcher uses; operator, 2026-11-14).
+  const openPage = (entry: typeof shown, pageId: string) => {
+    if (!entry) return
+    if (entry.id !== notebooks.shownId) notebooks.choose(entry.id)
+    setGraphFocus([])
+    setFindRequest({ sourceId: entry.vault && entry.vaultId ? entry.vaultId : entry.id, pageId })
+    goto('graph')
+  }
+  // The waiting list and History read the Intake again after a vault switch or a finished send.
+  const activityKey = `${notebooks.activeId ?? ''}|${home.flow.kind}|${home.clearKey}`
 
   return (
     <div className="shell">
-      <Rail view={view} notebooks={notebooks} notebook={notebook} notes={attentionNotes(status, serverDown)} onNewVault={() => setNewVaultOpen(true)} onSetUp={() => setSetUpOpen(true)} onRetryCopilot={retryCopilot} />
+      <Rail view={view} notebooks={notebooks} notebook={notebook} notes={attentionNotes(status, serverDown)} onNewVault={() => setNewVaultOpen(true)} onSetUp={() => setSetUpOpen(true)} onRetryCopilot={retryCopilot} onSettings={notebooks.activeId ? () => setSettingsOpen(true) : undefined} />
       <main className="main">
         {notice && (
           <p className="home-notice app-notice" role="status">
@@ -81,10 +105,21 @@ export function App() {
           </p>
         )}
         {view === 'home' && (
-          <HomeView home={home} addTarget={addTarget} notebook={notebook} choices={choices} onChoices={setChoices} sourceOptions={sourceOptions} />
+          <HomeView
+            home={home}
+            addTarget={addTarget}
+            notebook={notebook}
+            choices={choices}
+            onChoices={setChoices}
+            sourceOptions={sourceOptions}
+            activityKey={activityKey}
+            onOpenRecent={(id) => openPage(shown, id)}
+            onOpenActive={(id) => openPage(activeEntry, id)}
+          />
         )}
         {view === 'graph' && (
           <GraphView
+            key={graphReload}
             load={loadGraph}
             sourceKey={refKey}
             focusIds={graphFocus}
@@ -97,11 +132,7 @@ export function App() {
             }}
           />
         )}
-        {view === 'history' && (
-          <EmptyView title="History" icon={<HistoryIcon />}>
-            History comes in a later step. It will list everything ObsidiNote adds to your notebook, so you can open or undo it.
-          </EmptyView>
-        )}
+        {view === 'history' && <ActivityView refreshKey={activityKey} onOpen={(id) => openPage(activeEntry, id)} />}
       </main>
       <QuickSwitcher
         vaultKey={findKey}
@@ -113,6 +144,15 @@ export function App() {
           goto('graph')
         }}
       />
+      {settingsOpen && (
+        <SettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(s) => {
+            setChoices((c) => ({ ...c, includeArchived: s.askIncludeArchived }))
+            setGraphReload((n) => n + 1)
+          }}
+        />
+      )}
       {newVaultOpen && (
         <NewVaultDialog
           notebooks={notebooks.list}

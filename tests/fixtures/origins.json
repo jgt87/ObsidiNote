@@ -4,5 +4,6 @@
   { "id": "word", "label": "Word document", "source": "Word", "kind": "m365" },
   { "id": "onedrive", "label": "OneDrive file", "source": "OneDrive", "kind": "m365" },
   { "id": "sharepoint", "label": "SharePoint page", "source": "SharePoint", "kind": "m365" },
-  { "id": "web", "label": "Web page", "source": "Other web sites", "kind": "other" }
+  { "id": "web", "label": "Web page", "source": "Other web sites", "kind": "other" },
+  { "id": "file", "label": "File you dropped", "source": "Files", "kind": "other" }
 ]

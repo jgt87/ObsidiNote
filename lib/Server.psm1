@@ -24,7 +24,7 @@ $script:Here = $PSScriptRoot
 # MarkdownExport: POST /api/export, the download the person asks for (built in memory).
 # WhatsNew: GET /api/whats-new, the running version's CHANGELOG.md lines (read only).
 # NotebookStructure: the company names for link buckets and the page types for editing.
-foreach ($m in 'Log', 'AppConfig', 'Startup', 'Intent', 'OneNoteHost', 'NotebookView', 'Update', 'Status', 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'AskSources', 'GraphModel', 'Ingest', 'Ask', 'MarkdownExport', 'WhatsNew') {
+foreach ($m in 'Log', 'AppConfig', 'Startup', 'Intent', 'OneNoteHost', 'NotebookView', 'Update', 'Status', 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'AskSources', 'GraphModel', 'Ingest', 'Ask', 'MarkdownExport', 'WhatsNew', 'VaultSettings', 'Activity', 'SyncedFiles') {
     Import-Module (Join-Path $PSScriptRoot "$m.psm1")
 }
 
@@ -111,7 +111,7 @@ function New-ServerState {
        to ('' when it followed no update), for GET /api/whats-new. #>
     param([Parameter(Mandatory)][string]$AppRoot, [int]$Port, [int]$CdpPort = 9334, [bool]$CopilotSkipped = $false,
         $FakeStatus = $null, [string]$FakeHierarchyXml = '', $Copilot = $null, $Vault = $null, $Lease = $null, [string]$SessionId = '',
-        $Model = $null, $TestAdapter = $null, $TestCopilot = $null, [string]$UpdatedTo = '', $TestConnect = $null)
+        $Model = $null, $TestAdapter = $null, $TestCopilot = $null, [string]$UpdatedTo = '', $TestConnect = $null, $VaultSettings = $null)
     $h = [hashtable]::Synchronized(@{})
     $h.AppRoot = $AppRoot; $h.Port = $Port; $h.CdpPort = $CdpPort; $h.CopilotSkipped = $CopilotSkipped
     $h.FakeStatus = $FakeStatus; $h.FakeHierarchyXml = $FakeHierarchyXml
@@ -119,6 +119,9 @@ function New-ServerState {
     $h.SessionId = $(if ($SessionId) { $SessionId } else { New-WriterSessionId })
     $h.TestAdapter = $TestAdapter; $h.TestCopilot = $TestCopilot; $h.TestConnect = $TestConnect
     $h.UpdatedTo = $UpdatedTo
+    # The active vault's settings from OneNote (lib/VaultSettings.psm1), refreshed on a vault switch
+    # and by POST /api/settings; the defaults until a vault is open.
+    $h.VaultSettings = $(if ($VaultSettings) { $VaultSettings } else { Get-VaultSettingDefaults })
     $h.Lock = New-Object object
     $h.Id = [guid]::NewGuid().ToString('N')
     $h.Stop = $false
@@ -333,8 +336,8 @@ function Switch-ServerVault($State, $Vault, $Data) {
     [Threading.Monitor]::Enter($State.Lock)
     try {
         if ($State.Vault -and $State.Lease) { $null = Close-VaultSession -Adapter $ad -Vault $State.Vault -Lease $State.Lease }
-        $o = Open-VaultSession -Adapter $ad -Vault $Vault -SessionId $State.SessionId -Vaults $Data.vaults
-        $State.Vault = $o.vault; $State.Lease = $o.lease
+        $o = Open-VaultSession -Adapter $ad -Vault $Vault -SessionId $State.SessionId -Vaults $Data.vaults -LocalSettings (Get-LocalVaultSettings $State)
+        $State.Vault = $o.vault; $State.Lease = $o.lease; $State.VaultSettings = $o.settings
         $script:Model = $o.model; $script:ModelKey = "$($State.Id)|$($o.vault.vaultId)"
     } finally { [Threading.Monitor]::Exit($State.Lock) }
     Reset-AskState
@@ -366,13 +369,33 @@ function Use-ActiveVault($State) {
     @{ ok = $true; data = $d; adapter = $d.adapter; model = (Get-ServerModel $State $d.adapter) }
 }
 
+function Get-LocalVaultSettings($State) {
+    <# Local values that fill a vault setting missing in OneNote, once (internalHosts from before
+       2026-11-14, when it was a local setting). Never replaces a value in OneNote. #>
+    @{ internalHosts = @(@(Get-AppSetting -Key 'internalHosts' -Default @() -AppRoot $State.AppRoot) | ForEach-Object { "$_" } | Where-Object { $_ }) }
+}
+
+function Get-VaultSettingValue($State, [string]$Key) {
+    <# One setting of the active vault (in OneNote), else its default. #>
+    $set = $State.VaultSettings
+    if ($set -and $set.Contains($Key)) { return $set[$Key] }
+    (Get-VaultSettingDefaults)[$Key]
+}
+
+function Get-AddOptions($State) {
+    <# Add's options from the vault's settings: how many related pages a new page links to. #>
+    @{ RelatedCount = [int](Get-VaultSettingValue $State 'relatedCount') }
+}
+
 function Get-ServerLinkRules($State) {
-    <# The link rules: the "internalHosts" setting, and the company's tenant names from the active
-       vault's location and the notebook record (never stored; Get-CompanyNames). The vault store files
-       with them and the graph's Sources view groups with them, so both agree on internal vs web. #>
+    <# The link rules: the vault's "internalHosts" setting (in OneNote, lib/VaultSettings.psm1), and
+       the company's tenant names from the active vault's location and the notebook record (never
+       stored; Get-CompanyNames). The vault store files with them and the graph's Sources view groups
+       with them, so both agree on internal vs web. #>
     $loc = if ($State.Vault) { [string]$State.Vault.location } else { '' }
+    $set = $State.VaultSettings
     @{
-        InternalHosts = @(@(Get-AppSetting -Key 'internalHosts' -Default @() -AppRoot $State.AppRoot) | ForEach-Object { "$_" } | Where-Object { $_ })
+        InternalHosts = @(if ($set -and $set.Contains('internalHosts')) { @($set['internalHosts']) | ForEach-Object { "$_" } | Where-Object { $_ } } else { @() })
         CompanyNames  = @(Get-CompanyNames -Locations @($loc, (Get-NotebookRecord -AppRoot $State.AppRoot)))
     }
 }
@@ -779,12 +802,15 @@ function Invoke-SubmitRoute($State, [string]$Body) {
     if ($origin -isnot [string]) { return @{ status = 400; body = @{ error = 'origin must be text.' } } }
     $origin = $origin.Trim()
     if (-not (Test-OriginId $origin)) { return @{ status = 400; body = @{ error = 'Unknown origin.' } } }
+    # fileUrl: a dropped file's OneDrive/SharePoint address (POST /api/file/locate); https only.
+    $fileUrl = "$(Get-BodyValue $b 'fileUrl' '')"
+    if ($fileUrl -and ($fileUrl -notmatch '^(?i)https://[^\s]+$' -or $fileUrl.Length -gt 2000)) { return @{ status = 400; body = @{ error = 'fileUrl must be an https address.' } } }
     $needsCopilot = -not ($route.intent -eq 'ask' -and $action -in 'save-page', 'save-open-question')
     if ($needsCopilot -and -not (Test-CopilotReady $State)) { return (Get-CopilotMissing $route.intent) }
     $u = Use-ActiveVault $State
     if (-not $u.ok) { return @{ status = $u.status; body = @{ intent = $route.intent; error = $u.error } } }
     if ($route.intent -eq 'add') {
-        $r = Invoke-AddRequest -Request @{ text = $text; mode = $route.ingestMode; origin = $origin } -Store (New-ServerStore $State $u) -Ask (Get-AddCopilot $State)
+        $r = Invoke-AddRequest -Request @{ text = $text; mode = $route.ingestMode; origin = $origin; fileUrl = $fileUrl } -Store (New-ServerStore $State $u) -Ask (Get-AddCopilot $State) -Options (Get-AddOptions $State)
         $r['intent'] = 'add'
         return @{ status = 200; body = $r }
     }
@@ -794,7 +820,7 @@ function Invoke-SubmitRoute($State, [string]$Body) {
     if (-not $script:AskConversations) { $script:AskConversations = @{} }
     if ($req.action -eq 'follow-up' -and $script:AskConversations.ContainsKey($req.conversationId)) { $wanted = @($script:AskConversations[$req.conversationId]) }
     $req.sources = $wanted
-    $ctx = @{ Sources = (Get-AskSourceList $State $u $wanted); Copilot = $(if ($needsCopilot) { Get-AskCopilotAdapter $State } else { $null }) }
+    $ctx = @{ Sources = (Get-AskSourceList $State $u $wanted); Copilot = $(if ($needsCopilot) { Get-AskCopilotAdapter $State } else { $null }); StaleDays = [int](Get-VaultSettingValue $State 'linkStaleDays'); MaxPages = [int](Get-VaultSettingValue $State 'askMaxPages') }
     $r = Invoke-AskRequest -Request $req -Context $ctx
     $r['intent'] = 'ask'
     if ($r.ContainsKey('conversationId') -and $r.conversationId) { $script:AskConversations[[string]$r.conversationId] = $wanted }
@@ -826,7 +852,7 @@ function Invoke-AddFetchRoute($State, [string]$Body) {
     if (-not (Test-CopilotReady $State)) { return (Get-CopilotMissing 'add') }
     $u = Use-ActiveVault $State
     if (-not $u.ok) { return @{ status = $u.status; body = @{ intent = 'add'; error = $u.error } } }
-    $r = Receive-AddAnswer -Store (New-ServerStore $State $u) -Ask (Get-AddCopilot $State) -ReadChat (Get-AddChatReader $State) -InboxId $id
+    $r = Receive-AddAnswer -Store (New-ServerStore $State $u) -Ask (Get-AddCopilot $State) -ReadChat (Get-AddChatReader $State) -InboxId $id -Options (Get-AddOptions $State)
     $r['intent'] = 'add'
     if ($r.status -eq 'refused') { return @{ status = 409; body = @{ intent = 'add'; error = $r.message } } }
     @{ status = 200; body = $r }
@@ -845,7 +871,7 @@ function Invoke-LinkUpdateRoute($State, [string]$Body) {
     $u = Use-ActiveVault $State
     if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
     $ask = if (Test-CopilotReady $State) { Get-AddCopilot $State } else { { throw 'Copilot is not connected.' } }
-    $r = Update-LinkSummary -Store (New-ServerStore $State $u) -Ask $ask -Id $id -Decision $decision -Proposed $proposed
+    $r = Update-LinkSummary -Store (New-ServerStore $State $u) -Ask $ask -Id $id -Decision $decision -Proposed $proposed -Options (Get-AddOptions $State)
     $r['intent'] = 'add'
     @{ status = 200; body = $r }
 }
@@ -908,6 +934,84 @@ function Invoke-PageEditRoute($State, [string]$Body) {
     @{ status = 200; body = $r }
 }
 
+function Get-SettingsRoute($State) {
+    <# GET /api/settings: the active vault's settings (from OneNote, checked at the start or the vault
+       switch; defaults without a vault) and whether this ObsidiNote may change them. #>
+    $set = [ordered]@{}
+    foreach ($k in $State.VaultSettings.Keys) { $set[$k] = $State.VaultSettings[$k] }
+    if ($set.Contains('internalHosts')) { $set['internalHosts'] = [object[]]@($set['internalHosts'] | Where-Object { $_ }) }
+    @{ status = 200; body = [ordered]@{ settings = $set; canChange = [bool]($State.Vault -and (Get-LeaseMode $State) -eq 'writer') } }
+}
+
+function Set-SettingsRoute($State, [string]$Body) {
+    <# POST /api/settings {key, value}: changes one vault setting in OneNote (Set-VaultSetting; the
+       other keys stay). 400 unknown key or bad value, 409 no vault or read only. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $key = Get-BodyValue $b 'key' ''
+    if ($key -isnot [string] -or -not (Get-VaultSettingDefaults).Contains($key)) { return @{ status = 400; body = @{ error = 'Unknown setting.' } } }
+    $value = Get-BodyValue $b 'value' $null
+    if ($value -is [array]) { $value = @($value) }
+    $u = Use-ActiveVault $State
+    if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
+    if ((Get-LeaseMode $State) -ne 'writer') { return @{ status = 409; body = @{ error = 'This ObsidiNote is read only; the window that holds the vault can change its settings.' } } }
+    try { $eff = Set-VaultSetting -Adapter $u.adapter -IndexSectionId ([string]$State.Vault.indexSectionId) -Key $key -Value $value }
+    catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $State.VaultSettings = $eff
+    Reset-VaultCache
+    Get-SettingsRoute $State
+}
+
+function Get-ActivityRoute($State) {
+    <# GET /api/activity: what Add and link Update did in the active vault, from its Intake
+       (lib/Activity.psm1): waiting, added, updated, failed, undone. Read only. #>
+    $u = Use-ActiveVault $State
+    if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
+    $v = $State.Vault
+    $tree = ConvertFrom-ObsnHierarchy -Xml ($u.adapter.GetHierarchy([string]$v.rootId, 4)) -RootId ([string]$v.rootId)
+    $intake = Get-ObsnIntakeSection
+    $pages = @(foreach ($sec in @($tree.sections)) { if ($sec.full -eq $intake) { @($sec.pages) } })
+    $index = @{}
+    foreach ($p in @($u.model.pages.Values)) { $index[[string]$p.key] = @{ title = [string]$p.title; type = [string]$p.type } }
+    $items = Get-ActivityList -Pages $pages -Index $index   # returns , @(...): assign as is
+    @{ status = 200; body = [ordered]@{ items = @($items); canChange = ((Get-LeaseMode $State) -eq 'writer') } }
+}
+
+function Invoke-IntakeRemoveRoute($State, [string]$Body) {
+    <# POST /api/intake/remove {inboxId}: an Intake item that never became a page (waiting, failed,
+       stopped) goes to OneNote's Deleted Pages. 400 bad id, 409 read only or an item that was filed
+       (Undo removes its page instead). #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $id = "$(Get-BodyValue $b 'inboxId' '')"
+    if (-not (Test-PageIdText $id)) { return @{ status = 400; body = @{ error = 'inboxId must be the Intake item''s page id.' } } }
+    $u = Use-ActiveVault $State
+    if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
+    if ((Get-LeaseMode $State) -ne 'writer') { return @{ status = 409; body = @{ error = 'This ObsidiNote is read only; the window that holds the vault can remove it.' } } }
+    $store = New-ServerStore $State $u
+    try { $item = & $store.ReadInboxItem $id } catch { return @{ status = 404; body = @{ error = 'That is not an item of this vault''s Intake.' } } }
+    if (-not (Test-RemovableInboxStatus ([string]$item.status))) { return @{ status = 409; body = @{ error = 'This item became a page; use Undo to remove that page.' } } }
+    try { & $store.DeletePage $id | Out-Null } catch { return @{ status = 500; body = @{ error = "It could not be removed: $($_.Exception.Message)" } } }
+    Write-AppLog info server 'Intake item removed' @{ status = [string]$item.status }
+    @{ status = 200; body = @{ status = 'removed'; message = "Removed. It is in OneNote's Deleted Pages for 60 days." } }
+}
+
+function Invoke-FileLocateRoute($State, [string]$Body) {
+    <# POST /api/file/locate {name, size, modified (ms since 1970, UTC)}: the web address of a dropped
+       file when it is in a folder OneDrive syncs here (lib/SyncedFiles.psm1). 200 {status, url};
+       400 for a bad request. Reads directory entries only; the log gets the status and time. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $name = Get-BodyValue $b 'name' ''
+    $size = Get-BodyValue $b 'size' $null
+    $mod = Get-BodyValue $b 'modified' $null
+    if ($name -isnot [string] -or -not $name -or $name.Length -gt 255 -or $name -match '[\\/:*?"<>|\x00-\x1f]') { return @{ status = 400; body = @{ error = 'name must be a file name.' } } }
+    if (-not ($size -is [int] -or $size -is [long]) -or $size -lt 0) { return @{ status = 400; body = @{ error = 'size must be a whole number.' } } }
+    if (-not ($mod -is [int] -or $mod -is [long] -or $mod -is [double]) -or $mod -le 0) { return @{ status = 400; body = @{ error = 'modified must be a time in milliseconds.' } } }
+    $when = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$mod).UtcDateTime
+    $r = if ($State.ContainsKey('TestSyncRoots') -and $null -ne $State.TestSyncRoots) { Find-SyncedFile -Name $name -Size ([int64]$size) -ModifiedUtc $when -Roots @($State.TestSyncRoots) } else { Find-SyncedFile -Name $name -Size ([int64]$size) -ModifiedUtc $when }
+    $found = [string]$r.status; $took = [int]$r.ms   # the status and time only, never the name or address
+    Write-AppLog info server 'File located' @{ status = $found; ms = $took }
+    @{ status = 200; body = [ordered]@{ status = $r.status; url = $r.url } }
+}
+
 function Invoke-ApiRoute {
     <# The answer to one API call: @{ status; body }. The body is an object for ConvertTo-Json. #>
     param([string]$Method, [string]$Path, [string]$Body, $State, [string]$Query = '')
@@ -939,6 +1043,11 @@ function Invoke-ApiRoute {
         'POST /api/page/edit' { return (Invoke-PageEditRoute $State $Body) }
         'POST /api/export' { return (Invoke-ExportRoute $State $Body) }
         'POST /api/copilot/reconnect' { return (Invoke-CopilotReconnectRoute $State) }
+        'GET /api/settings' { return (Get-SettingsRoute $State) }
+        'GET /api/activity' { return (Get-ActivityRoute $State) }
+        'POST /api/intake/remove' { return (Invoke-IntakeRemoveRoute $State $Body) }
+        'POST /api/file/locate' { return (Invoke-FileLocateRoute $State $Body) }
+        'POST /api/settings' { return (Set-SettingsRoute $State $Body) }
     }
     @{ status = 404; body = @{ error = 'Not found.' } }
 }

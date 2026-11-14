@@ -124,6 +124,7 @@ if (-not $NoOneNote) {
     Import-Module (Join-Path $PSScriptRoot 'lib\OneNote.psm1') -Force
     Import-Module (Join-Path $PSScriptRoot 'lib\Vault.psm1') -Force
     Import-Module (Join-Path $PSScriptRoot 'lib\VaultSession.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot 'lib\VaultSettings.psm1') -Force
     Import-Module (Join-Path $PSScriptRoot 'lib\Update.psm1') -Force
     try {
         $mainAdapter = Get-OneNoteAdapter
@@ -131,7 +132,10 @@ if (-not $NoOneNote) {
         $notebooks = @(Get-NotebookList -Adapter $mainAdapter -Vaults $vaults)
         $pick = Select-StartVault -Vaults $vaults -RecordVaultId "$(Get-AppSetting -Key 'vaultId' -Default '' -AppRoot $PSScriptRoot)" -Record (Get-NotebookRecord -AppRoot $PSScriptRoot) -Notebooks $notebooks
         if ($pick.vault) {
-            $vaultOpen = Open-VaultSession -Adapter $mainAdapter -Vault $pick.vault -SessionId $sessionId -Vaults $vaults
+            # Vault settings live in OneNote (lib/VaultSettings.psm1); a local "internalHosts" fills
+            # the OneNote key once when it is missing, never over an existing value.
+            $localSet = @{ internalHosts = @(@(Get-AppSetting -Key 'internalHosts' -Default @() -AppRoot $PSScriptRoot) | ForEach-Object { "$_" } | Where-Object { $_ }) }
+            $vaultOpen = Open-VaultSession -Adapter $mainAdapter -Vault $pick.vault -SessionId $sessionId -Vaults $vaults -LocalSettings $localSet
             try {
                 if ("$(Get-AppSetting -Key 'vaultId' -Default '' -AppRoot $PSScriptRoot)" -ne $vaultOpen.vault.vaultId) { Set-LocalAppValue $PSScriptRoot 'vaultId' $vaultOpen.vault.vaultId }
             } catch { }
@@ -139,6 +143,10 @@ if (-not $NoOneNote) {
         $vs = Format-VaultStatus -Open $vaultOpen -Why $pick.why -VaultCount $vaults.Count
     } catch { $vs = Format-VaultStatus -Open $null -Problem $_.Exception.Message }
     Write-Status -ToError $vs.status 'Vault' $vs.detail -Hint $vs.hint
+    if ($vaultOpen) {
+        $ss = Format-VaultSettingsStatus $vaultOpen.settingsResult
+        if ($ss) { Write-Status -ToError $ss.status 'Settings' $ss.detail -Hint $ss.hint }
+    }
     # Upgrade: existing pages follow rules that changed since they were filed (lib/Upgrade.psm1; writer
     # only, idempotent; a line only when something was or should be done). Never stops the start.
     if ($vaultOpen) {
@@ -147,7 +155,7 @@ if (-not $NoOneNote) {
             Import-Module (Join-Path $PSScriptRoot 'lib\VaultStore.psm1') -Force
             Import-Module (Join-Path $PSScriptRoot 'lib\Upgrade.psm1') -Force
             $upLease = $vaultOpen.lease
-            $upHosts = @(@(Get-AppSetting -Key 'internalHosts' -Default @() -AppRoot $PSScriptRoot) | ForEach-Object { "$_" } | Where-Object { $_ })
+            $upHosts = @(@($vaultOpen.settings.internalHosts) | Where-Object { $_ })
             $upNames = @(Get-CompanyNames -Locations @([string]$vaultOpen.vault.location, (Get-NotebookRecord -AppRoot $PSScriptRoot)))
             $upStore = New-VaultStore -Adapter $mainAdapter -Vault $vaultOpen.vault -Model $vaultOpen.model -GetLease { $upLease }.GetNewClosure() -InternalHosts $upHosts -CompanyNames $upNames
             $up = Format-UpgradeStatus (Invoke-VaultUpgrade -Store $upStore)
@@ -217,8 +225,9 @@ try {
     # The server's runspace gets the active vault's records (plain values), the index working copy
     # built just now, and the Copilot bridge; it opens its own guarded OneNote adapter.
     $vRec = $null; $lRec = $null; $model = $null
-    if ($vaultOpen) { $vRec = $vaultOpen.vault; $lRec = $vaultOpen.lease; $model = $vaultOpen.model }
-    $state = New-ServerState -AppRoot $PSScriptRoot -Port $uiPort -CdpPort ([int]$cs.cdpPort) -CopilotSkipped ([bool]$NoCopilot) -Copilot $copilot -Vault $vRec -Lease $lRec -SessionId $sessionId -Model $model -UpdatedTo $updatedTo
+    $vSet = $null
+    if ($vaultOpen) { $vRec = $vaultOpen.vault; $lRec = $vaultOpen.lease; $model = $vaultOpen.model; $vSet = $vaultOpen.settings }
+    $state = New-ServerState -AppRoot $PSScriptRoot -Port $uiPort -CdpPort ([int]$cs.cdpPort) -CopilotSkipped ([bool]$NoCopilot) -Copilot $copilot -Vault $vRec -Lease $lRec -SessionId $sessionId -Model $model -UpdatedTo $updatedTo -VaultSettings $vSet
     $server = Start-UiServer -Port $uiPort -UiDir (Join-Path $PSScriptRoot 'ui') -State $state
 } catch {
     $why = $_.Exception.Message

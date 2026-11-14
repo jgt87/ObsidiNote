@@ -109,6 +109,8 @@ export interface AskResult {
   path: AskPath | null
   answer: { paragraphs: AskParagraph[]; confidence: Confidence } | null
   sources: AskSource[]
+  /** Pages read for the answer that it does not cite (n = 0); [] from an older server. */
+  unused: AskSource[]
   staleLinks: AskStaleLink[]
   invalidCitations: string[]
   notFound: AskNotFound | null

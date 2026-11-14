@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { list, normalizeAskResult, notFoundText, pathChips, PROGRESS_LABELS, sourceAnchor } from './askModel'
+import { answerShares, combinedLine, list, normalizeAskResult, notFoundText, pathChips, PROGRESS_LABELS, sentencesPerSource, sharePercent, sourceAnchor } from './askModel'
 import type { AskResult } from './types'
 
 // Invented example data only.
@@ -38,6 +38,7 @@ function result(over: Partial<AskResult> = {}): AskResult {
     },
     answer: { paragraphs: [{ sentences: [{ text: 'A.', cites: [1], unsupported: false }] }], confidence: 'high' },
     sources: [],
+    unused: [],
     staleLinks: [],
     invalidCitations: [],
     notFound: null,
@@ -64,6 +65,8 @@ describe('normalizeAskResult', () => {
     expect(r.sources).toHaveLength(1)
     expect(r.invalidCitations).toEqual([])
     expect(r.answer?.paragraphs[0].sentences[0].cites).toEqual([1])
+    // an older server sends no unused list at all
+    expect(normalizeAskResult({ ...raw, unused: undefined as unknown as AskResult['unused'] }).unused).toEqual([])
   })
 })
 
@@ -94,5 +97,35 @@ describe('wording', () => {
   })
   it('gives each source row an anchor per conversation and turn', () => {
     expect(sourceAnchor('c1', 2, 3)).toBe('ask-c1-2-src-3')
+  })
+})
+
+describe('what an answer was made from (operator, 2026-11-14)', () => {
+  const src = (n: number, path: string) => ({ n, id: `p${n}`, key: `p${n}`, title: `Page ${n}`, path, link: '', updated: '', age: '', type: '', archived: false, sourceId: 'v1', sourceName: '', readOnly: false, stale: false, summarizedAge: '' })
+  it('says how many pages from how many topics', () => {
+    expect(combinedLine([src(1, 'Security / Networking'), src(2, 'Projects'), src(3, 'Security / Networking')])).toBe('Combined from 3 pages in 2 topics.')
+    expect(combinedLine([src(1, 'A'), src(2, 'A')])).toBe('Combined from 2 pages in 1 topic.')
+    expect(combinedLine([src(1, 'A')])).toBe('')
+  })
+  it('counts the sentences that cite each page, once per sentence', () => {
+    const m = sentencesPerSource([{ sentences: [{ text: 'a', cites: [1, 2] }, { text: 'b', cites: [1, 1] }] }, { sentences: [{ text: 'c', cites: [2] }] }] as never)
+    expect(m.get(1)).toBe(2)
+    expect(m.get(2)).toBe(2)
+    expect(m.get(3)).toBeUndefined()
+  })
+})
+
+describe('answerShares: how much of the answer came from each source (2026-11-14)', () => {
+  it('splits each cited sentence over its sources by length; uncited sentences do not count', () => {
+    const m = answerShares([{ sentences: [{ text: 'aaaaaaaaaa', cites: [1], unsupported: false }, { text: 'bbbbbbbbbb', cites: [1, 2], unsupported: false }, { text: 'no source here', cites: [], unsupported: true }] }] as never)
+    expect(m.get(1)).toBeCloseTo(0.75)
+    expect(m.get(2)).toBeCloseTo(0.25)
+    expect([...m.values()].reduce((a, b) => a + b, 0)).toBeCloseTo(1)
+  })
+  it('gives nothing for an answer without citations, and shows small shares as at least 1%', () => {
+    expect(answerShares([]).size).toBe(0)
+    expect(sharePercent(0.004)).toBe(1)
+    expect(sharePercent(0)).toBe(0)
+    expect(sharePercent(0.756)).toBe(76)
   })
 })
