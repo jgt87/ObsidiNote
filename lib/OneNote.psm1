@@ -64,6 +64,20 @@ function New-OneNoteComAdapter {
         $d.DocumentElement.SetAttribute('name', $NewName)
         $this.Com.UpdateHierarchy($d.OuterXml)
     }
+    # Moving a page to another section: the target section's hierarchy (scope 4, pages) with the
+    # page's element from its own section added, through UpdateHierarchy (probes/p9-move.ps1, seen on
+    # desktop OneNote 2026-11-13). The page keeps its content, Meta and outlines and the page-id in its
+    # onenote: link, but gets a NEW hierarchy id: callers find it again by its obsn.id Meta.
+    $a | Add-Member ScriptMethod MovePage { param([string]$PageId, [string]$FromSectionId, [string]$ToSectionId)
+        $s = ''; $this.Com.GetHierarchy($FromSectionId, 4, [ref]$s); [xml]$src = $s
+        $el = $null
+        foreach ($n in @($src.SelectNodes('//*[@ID]'))) { if ($n.LocalName -eq 'Page' -and $n.GetAttribute('ID') -eq $PageId) { $el = $n; break } }
+        if (-not $el) { throw "MovePage: page $PageId is not in section $FromSectionId." }
+        $t = ''; $this.Com.GetHierarchy($ToSectionId, 4, [ref]$t); [xml]$dst = $t
+        if ($dst.DocumentElement.LocalName -ne 'Section') { throw "MovePage: $ToSectionId is not a section." }
+        $null = $dst.DocumentElement.AppendChild($dst.ImportNode($el, $true))
+        $this.Com.UpdateHierarchy($dst.OuterXml)
+    }
     # OneNote's own folder for new notebooks (slDefaultNotebookFolder = 2): the fallback when a
     # notebook cannot be made next to the cloud notebooks (0x80042006).
     $a | Add-Member ScriptMethod GetDefaultNotebookFolder { $p = ''; $this.Com.GetSpecialLocation(2, [ref]$p); [string]$p }
@@ -177,6 +191,12 @@ function New-GuardedOneNote {
         if (-not $NewName -or $NewName.Length -gt 50 -or $NewName -match '[\\/:*?"<>|#%]') { throw 'Write refused (RenameSection): not a valid section name.' }
         $this.Inner.RenameSection($SectionId, $NewName)
     }
+    $g | Add-Member ScriptMethod MovePage { param([string]$PageId, [string]$FromSectionId, [string]$ToSectionId)
+        # The page, where it is, and where it goes must all be inside the active vault.
+        foreach ($x in $PageId, $FromSectionId, $ToSectionId) { $this.Assert($x, 'MovePage') }
+        $this.Inner.MovePage($PageId, $FromSectionId, $ToSectionId)
+        $this.Refresh()   # the moved page has a new id; it is inside the vault like its section
+    }
     $g | Add-Member ScriptMethod OpenHierarchy { param([string]$Path, [string]$RelativeToId, [int]$CreateType)
         if ($CreateType -ne 0) { $this.Assert($RelativeToId, 'OpenHierarchy create') }
         elseif ($RelativeToId) { throw 'Write refused (OpenHierarchy): opening below another object is not used; read the hierarchy instead.' }
@@ -229,7 +249,7 @@ function New-XmlOneNoteAdapter {
         '<?xml version="1.0"?><one:Page xmlns:one="' + $script:OneNs + '" ID="' + (ConvertTo-XmlAttr $PageId) + '">' + $meta + '<one:Title><one:OE><one:T>' + (ConvertTo-OneText $n.GetAttribute('name')) + '</one:T></one:OE></one:Title></one:Page>'
     }
     $a | Add-Member ScriptMethod GetHyperlinkToObject { param([string]$Id) $g = ([regex]::Match($Id, '^\{([0-9A-Fa-f-]{36})\}')).Groups[1].Value; "onenote:https://example.invalid/notebook.one#page&page-id={$g}&end" }
-    foreach ($w in 'OpenHierarchy', 'CreateNewPage', 'UpdatePageContent', 'DeleteHierarchy', 'DeletePageContent', 'RenameSection') {
+    foreach ($w in 'OpenHierarchy', 'CreateNewPage', 'UpdatePageContent', 'DeleteHierarchy', 'DeletePageContent', 'RenameSection', 'MovePage') {
         $a | Add-Member ScriptMethod $w ([scriptblock]::Create("throw 'Read only: this stand-in cannot write ($w).'"))
     }
     $a

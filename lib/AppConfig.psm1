@@ -10,9 +10,11 @@ $script:FetchBadPorts = @(0, 1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37
     512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995,
     1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080)
 
-# Ports other programs on this machine own: 9333 is the other Copilot helper's Edge, 3000 and 3100
-# are reserved local servers. Sharing 9333 would make both programs drive the same Edge window.
-$script:ReservedPorts = @(9333, 3000, 3100)
+# Ports other programs on this machine own: 9333 is the other Copilot helper's Edge, 8765 its web
+# interface and 8766 the port it moves to when 8765 is taken (operator, 2026-11-14: the two programs
+# never share a local port); 3000 and 3100 are reserved local servers. Sharing 9333 would make both
+# programs drive the same Edge window; sharing 8765/8766 would open one program's window on the other.
+$script:ReservedPorts = @(9333, 8765, 8766, 3000, 3100)
 
 $script:DefaultCdpPort = 9334
 # The interface's local server (lib/Server.psm1), on 127.0.0.1 only.

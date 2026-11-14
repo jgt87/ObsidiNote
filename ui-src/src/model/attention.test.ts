@@ -24,6 +24,12 @@ describe('attentionNotes', () => {
     expect(attentionNotes(status({}, 'skipped'), false).map((n) => n.id)).toEqual(['copilot'])
     expect(attentionNotes(status({}, 'not-running'), false)[0].text).toMatch('Edge window is closed')
   })
+  it('offers the refresh button when Copilot is gone, not when it was turned off for this start', () => {
+    expect(attentionNotes(status({}, 'not-running'), false)[0].retry).toBe(true)
+    expect(attentionNotes(status({}, 'no-tab'), false)[0].retry).toBe(true)
+    expect(attentionNotes(status({}, 'skipped'), false)[0].retry).toBe(false)
+    expect(attentionNotes(status({ running: false, notebookOpen: false, state: 'none' }), false)[0].retry).toBeUndefined()
+  })
   it('says when the server does not answer', () => {
     expect(attentionNotes(null, true).map((n) => n.id)).toEqual(['server'])
   })

@@ -2,21 +2,25 @@
 // ← and → step to the previous or next linked page of the page it was opened on. Back/Forward
 // (header buttons, Alt+← / Alt+→) walk the pages visited in this dialog (history.ts).
 // "Focus on this page" narrows the map to the page and its linked pages (filters.ts).
-// "Ask about this", "Edit links" and "Move in index" only call back; the app wires them.
+// "Ask about this" only calls back; "Edit" opens the edit form (PageEditForm.tsx: title, details,
+// address, links), saved through onEditPage, which the app wires to POST /api/page/edit.
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { ExportButton } from '../export/ExportButton'
 import { exportSourceOf } from '../export/exportApi'
+import type { PageEditRequest } from './editModel'
 import { formatDate, plural } from './format'
 import { indexPath, type GraphIndex } from './graphIndex'
 import { primaryTopic, type GraphEdge, type GraphPage } from './model'
 import { canGoBack, canGoForward, currentPage, goBack, goForward, startHistory, visit, type PageHistory } from './history'
+import { PageEditForm } from './PageEditForm'
 import { stepLinked } from './view'
 
 export interface PageActions {
   onAsk?: (page: GraphPage) => void
-  onEditLinks?: (page: GraphPage) => void
-  onMoveInIndex?: (page: GraphPage) => void
+  /** Saves an edit of a page of the active vault; resolves once the map shows it. Read-only sources
+   *  get no Edit button. */
+  onEditPage?: (req: PageEditRequest) => Promise<unknown>
   /** "link it" on a mention: turn the mention into a link (from -> to). A promise keeps the button
    *  busy until it settles; its rejection's message shows in the dialog. */
   onLinkMention?: (from: GraphPage, to: GraphPage) => void | Promise<unknown>
@@ -46,9 +50,12 @@ function Bars({ s }: { s: number }) {
   )
 }
 
-export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFocusPage, onAsk, onEditLinks, onMoveInIndex, onLinkMention }: Props) {
+export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFocusPage, onAsk, onEditPage, onLinkMention }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [tab, setTab] = useState<Tab>('page')
+  // Edit form open for this page (closes when another page is shown).
+  const [editing, setEditing] = useState(false)
+  useEffect(() => setEditing(false), [pageId])
   // Back/Forward over the pages visited in this dialog (history.ts); gone when it closes.
   const [hist, setHist] = useState<PageHistory>(() => startHistory(pageId))
   // "link it": the mention being linked (busy) and the last error, per page shown.
@@ -215,7 +222,18 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
       </div>
 
       <div id="kg-tabpanel" role="tabpanel" aria-labelledby={`kg-tab-${tab}`} className="kg-dlg__body">
-        {tab === 'page' && (
+        {editing && onEditPage && (
+          <PageEditForm
+            index={index}
+            page={page}
+            onSave={async (req) => {
+              await onEditPage(req)
+              setEditing(false)
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        )}
+        {!editing && tab === 'page' && (
           <div className="kg-cols">
             <div>
               <p className="kg-lbl">Summary</p>
@@ -287,7 +305,7 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
           </div>
         )}
 
-        {tab === 'topic' && (
+        {!editing && tab === 'topic' && (
           <div className="kg-cols">
             <div>
               <p className="kg-lbl">Topic</p>
@@ -329,7 +347,7 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
           </div>
         )}
 
-        {tab === 'neighbourhood' && (
+        {!editing && tab === 'neighbourhood' && (
           <div>
             <p className="kg-lbl">Linked pages, strongest first</p>
             <ul className="kg-rows">
@@ -355,7 +373,20 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
       </div>
 
       <footer className="kg-dlg__foot">
-        {page.onenoteUrl ? (
+        {/* A link page opens its own address first; OneNote is the second choice (operator, 2026-11-13:
+            use OneNote as little as possible as the interface). */}
+        {page.url && (
+          <a className="btn btn--primary" href={page.url} target="_blank" rel="noopener noreferrer" title={page.url}>
+            Open link
+          </a>
+        )}
+        {page.url ? (
+          page.onenoteUrl && (
+            <a className="btn" href={page.onenoteUrl}>
+              Open in OneNote
+            </a>
+          )
+        ) : page.onenoteUrl ? (
           <a className="btn btn--primary" href={page.onenoteUrl}>
             Open in OneNote
           </a>
@@ -367,12 +398,19 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
         <button type="button" className="btn" onClick={() => onAsk?.(page)} disabled={!onAsk}>
           Ask about this
         </button>
-        <button type="button" className="btn" onClick={() => onEditLinks?.(page)} disabled={ro || !onEditLinks} title={ro ? 'Read only source' : undefined}>
-          Edit links
-        </button>
-        <button type="button" className="btn" onClick={() => onMoveInIndex?.(page)} disabled={ro || !onMoveInIndex} title={ro ? 'Read only source' : undefined}>
-          Move in index
-        </button>
+        {onEditPage && !ro && (
+          <button
+            type="button"
+            className="btn"
+            aria-pressed={editing}
+            onClick={() => {
+              setTab('page')
+              setEditing((e) => !e)
+            }}
+          >
+            Edit
+          </button>
+        )}
         <ExportButton request={{ scope: 'page', page: page.id, ...src }} label="Export as Markdown" />
         {onFocusPage && (
           <button

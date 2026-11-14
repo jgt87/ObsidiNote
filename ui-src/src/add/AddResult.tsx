@@ -1,3 +1,4 @@
+import { webUrl } from '../model/links'
 import { ConfirmReplaceDialog, type ReplaceDecision } from './ConfirmReplaceDialog'
 import { chipLabel, formatOneNotePath, formatSeconds, formatTopicPath, placementParts, resultHeading } from './format'
 import { LinksCard } from './LinksCard'
@@ -98,7 +99,15 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
       {r.text && r.status !== 'ask-instead' && (
         <section className="add-card">
           <p className="add-label">{r.kind === 'link' ? 'The link' : 'What you added'}</p>
-          <p className="add-text add-text--pre">{r.text}</p>
+          {r.kind === 'link' && webUrl(r.text) ? (
+            <p className="add-text add-text--pre">
+              <a className="add-a" href={webUrl(r.text)} target="_blank" rel="noopener noreferrer">
+                {r.text.trim()}
+              </a>
+            </p>
+          ) : (
+            <p className="add-text add-text--pre">{r.text}</p>
+          )}
           {r.kind === 'link' && r.update?.new && r.status === 'added' && <p className="add-text add-summary">{r.update.new.summary}</p>}
         </section>
       )}

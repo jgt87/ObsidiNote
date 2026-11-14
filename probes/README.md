@@ -23,5 +23,10 @@ Every probe writes only into its own notebook, **ObsidiNote-Probe**.
 5. Cleanup: `p1-cleanup.ps1` closes the notebook. Then delete the ObsidiNote-Probe folder in
    OneDrive.
 
+P9, moving a page to another section (what the start's upgrade does when a filing rule changes):
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\p9-move.ps1`. Pass = every line starts with
+OK and "Failures: 0". Seen on desktop OneNote 2026-11-13 (twice): the page keeps its content, Meta
+and the page-id in its link, but gets a new hierarchy id, so the app finds it again by `obsn.id`.
+
 `p1-find.ps1` shows what OneNote search returns. It is unreliable until Windows Search has
 indexed the pages.

@@ -84,6 +84,7 @@ export function syntheticGraph(opts: SyntheticOptions = {}): GraphModel {
       aliases: hub ? [] : pages.length % 7 === 3 ? [`${title.split(' ')[0]} (alias)`] : [],
       site: kind === 'link-web' ? `site${pages.length % 3}.example` : kind === 'link-internal' ? 'team.example' : '',
       archived: !hub && pages.length % 23 === 22,
+      url: kind === 'link-web' ? `https://site${pages.length % 3}.example/page-${pages.length}` : kind === 'link-internal' ? `https://team.example/sites/demo/page-${pages.length}` : '',
     }
     pages.push(page)
     return page
@@ -155,5 +156,16 @@ export function syntheticGraph(opts: SyntheticOptions = {}): GraphModel {
     topics,
     pages,
     edges: unique,
+    // As the server sends them for the active vault (lib/NotebookStructure.psm1 TypeBucket).
+    ...(readOnly ? {} : { types: DEMO_TYPES }),
   }
 }
+
+const DEMO_TYPES = [
+  { type: 'concept', bucket: 'Notes' }, { type: 'note', bucket: 'Notes' }, { type: 'howto', bucket: 'Notes' },
+  { type: 'link-internal', bucket: 'Internal links' }, { type: 'link-web', bucket: 'Web links' },
+  { type: 'source', bucket: 'Sources' }, { type: 'person', bucket: 'People' },
+  { type: 'project', bucket: 'Projects' }, { type: 'project-part', bucket: 'Projects' },
+  { type: 'meeting', bucket: 'Meetings' }, { type: 'decision', bucket: 'Decisions' },
+  { type: 'log', bucket: 'Journal' }, { type: 'file', bucket: 'Files' },
+]

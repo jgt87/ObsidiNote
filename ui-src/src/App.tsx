@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { reconnectCopilot } from './api'
 import type { AskChoices } from './components/AskOptions'
 import { EmptyView } from './components/EmptyView'
 import { HomeView } from './components/HomeView'
@@ -18,7 +19,17 @@ import type { FindRequest } from './search/switcherModel'
 
 export function App() {
   const [view, setView] = useState<View>(() => viewFromHash(window.location.hash))
-  const { status, serverDown } = useStatus()
+  const { status, serverDown, refresh: refreshStatus } = useStatus()
+  const retryCopilot = useCallback(async () => {
+    try {
+      const r = await reconnectCopilot()
+      return r.state === 'connected' ? '' : r.message
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Copilot could not be reached.'
+    } finally {
+      await refreshStatus()
+    }
+  }, [refreshStatus])
   const notebooks = useNotebooks()
   const notebook = useNotebook(notebooks.shownId)
   const addTarget = addTargetFor(notebooks.list, notebooks.activeId, notebooks.shownId)
@@ -59,7 +70,7 @@ export function App() {
 
   return (
     <div className="shell">
-      <Rail view={view} notebooks={notebooks} notebook={notebook} notes={attentionNotes(status, serverDown)} onNewVault={() => setNewVaultOpen(true)} onSetUp={() => setSetUpOpen(true)} />
+      <Rail view={view} notebooks={notebooks} notebook={notebook} notes={attentionNotes(status, serverDown)} onNewVault={() => setNewVaultOpen(true)} onSetUp={() => setSetUpOpen(true)} onRetryCopilot={retryCopilot} />
       <main className="main">
         {notice && (
           <p className="home-notice app-notice" role="status">

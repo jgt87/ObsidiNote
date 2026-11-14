@@ -15,6 +15,8 @@
 // - Windows PowerShell can send a one-item list as an object and an empty one as null:
 //   normalizeGraph() repairs that, and clamps or drops anything it cannot draw.
 
+import { webUrl } from '../model/links'
+
 export type Strength = 1 | 2 | 3
 
 export interface GraphTopic {
@@ -62,6 +64,8 @@ export interface GraphPage {
   site: string
   /** Archived (in `Archive / <bucket>`, restorable). */
   archived: boolean
+  /** A link page's original http(s) address ('' otherwise): opened before OneNote. */
+  url: string
 }
 
 export interface GraphEdge {
@@ -87,6 +91,8 @@ export interface GraphModel {
   topics: GraphTopic[]
   pages: GraphPage[]
   edges: GraphEdge[]
+  /** The page types and the section each belongs to (the active vault only; for Edit). */
+  types?: { type: string; bucket: string }[]
 }
 
 /** Id of the synthetic area for pages without a topic. */
@@ -157,6 +163,7 @@ export function normalizeGraph(raw: unknown): GraphModel {
       aliases: asList(p.aliases as string[]).map((x) => str(x).trim()).filter(Boolean),
       site: str(p.site),
       archived: p.archived === true,
+      url: webUrl(str(p.url)),
     })
   }
 
@@ -174,7 +181,10 @@ export function normalizeGraph(raw: unknown): GraphModel {
     if (e.reason) edge.reason = str(e.reason)
     edges.push(edge)
   }
-  return { source, topics, pages, edges }
+  const types = (asList(r.types as unknown[]) as Record<string, unknown>[])
+    .map((t) => ({ type: str(t?.type), bucket: str(t?.bucket) }))
+    .filter((t) => t.type && t.bucket)
+  return types.length ? { source, topics, pages, edges, types } : { source, topics, pages, edges }
 }
 
 /** Primary topic of a page (the area it is drawn in). */

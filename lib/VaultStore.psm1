@@ -324,6 +324,40 @@ function Invoke-VsIndexRemovePage {
     $null = Update-VsIndex -Ctx $Ctx -Topics @($p.topics)
 }
 
+function Invoke-VsMovePage {
+    <# Re-files one of ObsidiNote's pages into $Bucket when a filing rule changed (an upgrade step,
+       lib/Upgrade.psm1): moves it in OneNote through the guarded adapter (it keeps its content, Meta,
+       outlines and the page-id in its link, but gets a NEW hierarchy id, found again by its obsn.id;
+       probes/p9-move.ps1), sets $Type when given (Meta + properties outline), and updates the index
+       record (id, section, link, type), which regenerates the affected Index pages. Returns
+       @{ moved; pageId; from; to; link }. Throws when the page is not ObsidiNote's or cannot be found. #>
+    param([hashtable]$Ctx, [string]$Id, [string]$Bucket, [string]$Type = '')
+    Assert-VsWritable $Ctx
+    if (-not $Ctx.Model.pages.Contains($Id)) { throw "page $Id is not in the index" }
+    $p = $Ctx.Model.pages[$Id]
+    if ($p.owner -ne 'obsn') { throw "page $Id is not one of ObsidiNote's pages" }
+    $root = $Ctx.Vault.rootId
+    $tree = ConvertFrom-ObsnHierarchy -Xml ($Ctx.Adapter.GetHierarchy($root, 4)) -RootId $root
+    $from = @($tree.sections | Where-Object { @($_.pages | Where-Object { $_.id -eq $p.oneNoteId }).Count }) | Select-Object -First 1
+    if (-not $from) { throw "page $Id was not found in the vault" }
+    $target = Get-TargetSection -Bucket $Bucket -Counts (Get-SectionCounts $Ctx.Model)
+    if ($from.full -eq $target.name -or (Get-BucketOfSection $from.full) -eq $Bucket) { return @{ moved = $false; pageId = $p.oneNoteId; from = $from.full; to = $from.full; link = $p.link } }
+    $sid = Resolve-ObsnSection -Adapter $Ctx.Adapter -RootId $root -Full $target.name
+    $Ctx.Adapter.MovePage($p.oneNoteId, $from.id, $sid)
+    $after = ConvertFrom-ObsnHierarchy -Xml ($Ctx.Adapter.GetHierarchy($root, 4)) -RootId $root
+    $sec = @($after.sections | Where-Object { $_.full -eq $target.name }) | Select-Object -First 1
+    $newId = if ($sec) { [string](@($sec.pages | Where-Object { $_.meta['obsn.id'] -eq $Id } | ForEach-Object { $_.id }) | Select-Object -First 1) } else { '' }
+    if (-not $newId) { throw "page $Id was moved to $($target.name) but could not be found there again" }
+    if ($Type) { Invoke-VsUpdatePage -Ctx $Ctx -PageId $newId -Meta @{ type = $Type } -Outlines @() }
+    $old = [string]$p.oneNoteId
+    if ($old -and $Ctx.Model.byOneNoteId.ContainsKey($old)) { $Ctx.Model.byOneNoteId.Remove($old) }
+    $link = $Ctx.Adapter.GetHyperlinkToObject($newId)
+    $rec = @{ id = $Id; pageId = $newId; section = $target.name; link = $link }
+    if ($Type) { $rec.type = $Type }
+    Invoke-VsIndexAddPage -Ctx $Ctx -Page $rec
+    @{ moved = $true; pageId = $newId; from = $from.full; to = $target.name; link = $link }
+}
+
 function Invoke-VsFindPageByUrl {
     param([hashtable]$Ctx, [string]$Url)
     $n = ConvertTo-NormalizedUrl -Url $Url
@@ -342,7 +376,7 @@ function Invoke-VaultStoreCall {
         'GetIndex' { return (Get-IngestIndex $Ctx.Model) }
         'TypeList' { return (Get-ObsnTypes) }
         'BucketForType' { return (Get-BucketForType -Type $Arguments.Type) }
-        'LinkBucket' { return (Get-LinkBucket -Url $Arguments.Url -InternalHosts $Ctx.InternalHosts) }
+        'LinkBucket' { return (Get-LinkBucket -Url $Arguments.Url -InternalHosts $Ctx.InternalHosts -CompanyNames $Ctx.CompanyNames) }
         'NormalizeUrl' { return (ConvertTo-NormalizedUrl -Url $Arguments.Url) }
         'FindPageByUrl' { return (Invoke-VsFindPageByUrl -Ctx $Ctx -Url $Arguments.Url) }
         'NewId' { return (Invoke-VsNewId $Ctx) }
@@ -358,6 +392,8 @@ function Invoke-VaultStoreCall {
         'IndexAddPage' { return (Invoke-VsIndexAddPage -Ctx $Ctx @Arguments) }
         'IndexUpdatePage' { return (Invoke-VsIndexAddPage -Ctx $Ctx @Arguments) }
         'IndexRemovePage' { return (Invoke-VsIndexRemovePage -Ctx $Ctx @Arguments) }
+        'MovePage' { return (Invoke-VsMovePage -Ctx $Ctx @Arguments) }
+        'Model' { return $Ctx.Model }
     }
     throw "The store has no '$Name'."
 }
@@ -368,8 +404,9 @@ function New-VaultStore {
        $Model: the vault's in-memory index model (updated in place); $GetLease: returns the current
        lease record (renewed elsewhere). Returns a hashtable with one scriptblock per contract name. #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)][hashtable]$Vault, [Parameter(Mandatory)][hashtable]$Model, [Parameter(Mandatory)][scriptblock]$GetLease, [string[]]$InternalHosts = @())
-    $ctx = @{ Adapter = $Adapter; Vault = $Vault; Model = $Model; GetLease = $GetLease; InternalHosts = @($InternalHosts) }
+    param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)][hashtable]$Vault, [Parameter(Mandatory)][hashtable]$Model, [Parameter(Mandatory)][scriptblock]$GetLease, [string[]]$InternalHosts = @(), [string[]]$CompanyNames = @())
+    # CompanyNames: the company's tenant names (Get-CompanyNames), so its SaaS links file as internal.
+    $ctx = @{ Adapter = $Adapter; Vault = $Vault; Model = $Model; GetLease = $GetLease; InternalHosts = @($InternalHosts); CompanyNames = @($CompanyNames) }
     $call = Get-Command Invoke-VaultStoreCall
     $name = [string]$Vault.name
     @{
@@ -394,6 +431,10 @@ function New-VaultStore {
         IndexAddPage    = { param([hashtable]$Page) & $call $ctx 'IndexAddPage' @{ Page = $Page } }.GetNewClosure()
         IndexUpdatePage = { param([hashtable]$Page) & $call $ctx 'IndexUpdatePage' @{ Page = $Page } }.GetNewClosure()
         IndexRemovePage = { param([string]$Id) & $call $ctx 'IndexRemovePage' @{ Id = $Id } }.GetNewClosure()
+        # Upgrade steps (lib/Upgrade.psm1), not part of Ingest's contract.
+        MovePage        = { param([string]$Id, [string]$Bucket, [string]$Type) & $call $ctx 'MovePage' @{ Id = $Id; Bucket = $Bucket; Type = $Type } }.GetNewClosure()
+        Model           = { & $call $ctx 'Model' }.GetNewClosure()
+        LinkRules       = { @{ InternalHosts = $ctx.InternalHosts; CompanyNames = $ctx.CompanyNames } }.GetNewClosure()
     }
 }
 

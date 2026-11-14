@@ -67,6 +67,25 @@ describe('AskView', () => {
     }
   })
 
+  it('sends a cited link page to its own address and makes addresses in the answer clickable (2026-11-13)', () => {
+    const withUrl: AskResult = {
+      ...answered,
+      answer: { confidence: 'high', paragraphs: [{ sentences: [{ text: 'See https://kb.example.org/a?id=1. It has the grades.', cites: [2], unsupported: false }] }] },
+      sources: [answered.sources[0], { ...answered.sources[1], url: 'https://kb.example.org/a?id=1' }],
+    }
+    const html = renderToStaticMarkup(<AskView state={{ kind: 'result', result: withUrl }} {...actions} onShowPage={noop} />)
+    // the address in the text is a link, without the full stop after it
+    expect(html).toContain('<a class="ask-weblink" href="https://kb.example.org/a?id=1" target="_blank" rel="noopener noreferrer">https://kb.example.org/a?id=1</a>.')
+    // the citation opens the link itself, not the source list or OneNote
+    expect(html).toMatch(/<a class="ask-cite" href="https:\/\/kb\.example\.org\/a\?id=1" target="_blank"/)
+    expect(html).not.toContain('href="#ask-c1-1-src-2"')
+    // a page that is not a link opens on the map; OneNote stays a small second link
+    expect(html).toContain('class="ask-src__page"')
+    expect(html).toContain('aria-label="Open &quot;Example proxy page&quot; in OneNote"')
+    expect(html).toContain('>Sources<')
+    expect(html).not.toContain('open in OneNote)')
+  })
+
   it('renders the not-found state with the Open question offer', () => {
     const nf: AskResult = {
       ...answered,

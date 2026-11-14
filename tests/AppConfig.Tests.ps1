@@ -51,8 +51,8 @@ Describe 'The debug port' {
         $shipped = [IO.File]::ReadAllText((Join-Path $root 'config\obsidinote.json')) | ConvertFrom-Json
         $shipped.cdpPort | Should Be 9334
     }
-    It 'refuses the other helper''s 9333, the reserved 3000 and 3100, blocked and invalid ports' {
-        foreach ($p in 9333, 3000, 3100) { Get-CdpPortProblem $p | Should Match 'reserved for another program' }
+    It 'refuses the other helper''s 9333, 8765 and 8766, the reserved 3000 and 3100, blocked and invalid ports' {
+        foreach ($p in 9333, 8765, 8766, 3000, 3100) { Get-CdpPortProblem $p | Should Match 'reserved for another program' }
         foreach ($p in 6000, 4190, 10080, 1) { Get-CdpPortProblem $p | Should Match 'browsers block' }
         Get-CdpPortProblem 70000 | Should Match 'not a valid port'
         Get-CdpPortProblem 0 | Should Match 'not a valid port'
@@ -86,7 +86,7 @@ Describe 'The interface port (uiPort)' {
         Remove-Item $app -Recurse -Force
     }
     It 'refuses a reserved, blocked, invalid port or the debug port' {
-        foreach ($bad in '3000', '4190', '"x"', '9334') {
+        foreach ($bad in '3000', '8765', '8766', '4190', '"x"', '9334') {
             $app = New-TempApp "{`"cdpPort`":9334,`"uiPort`":$bad}" ''
             { Get-UiPort -AppRoot $app } | Should Throw
             Remove-Item $app -Recurse -Force

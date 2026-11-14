@@ -51,6 +51,7 @@ function ConvertTo-GraphModel {
             summary = [string]$p.summary; onenoteUrl = $(if ([string]$p.link -match '^(?i)onenote:') { [string]$p.link } else { '' })
             modified = [string]$p.updated; readOnly = $ro; archived = ($p.status -eq 'archived')
             aliases = @(@($p.aliases) | Where-Object { $_ } | ForEach-Object { [string]$_ }); site = [string]$p.host
+            url = $(if ([string]$p.url -match '^(?i)https?://') { [string]$p.url } else { '' })
         }
     })
     [ordered]@{

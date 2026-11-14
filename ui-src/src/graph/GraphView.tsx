@@ -2,7 +2,7 @@
 // The merge renders <GraphView load={() => fetchGraph({ vault })} ... /> for the Map nav entry.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { addLink } from './graphApi'
+import { addLink, editPage } from './graphApi'
 import { KnowledgeGraph, type KnowledgeGraphProps } from './KnowledgeGraph'
 import { mentionBetween, withMentions } from './mentions'
 import type { GraphModel } from './model'
@@ -20,7 +20,7 @@ export interface GraphViewProps extends Omit<KnowledgeGraphProps, 'model'> {
   onAdd?: () => void
 }
 
-export function GraphView({ load, sourceKey, onAdd, onLinkMention, ...rest }: GraphViewProps) {
+export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, ...rest }: GraphViewProps) {
   const [state, setState] = useState<State>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
   const loaded = state.status === 'ready' ? state.model : null
@@ -49,6 +49,18 @@ export function GraphView({ load, sourceKey, onAdd, onLinkMention, ...rest }: Gr
       })
     }
   }, [onLinkMention, model, writable, refresh])
+
+  // Edit in the page window: save, then read the map again in place (the dialog stays open).
+  const editPageFn = useMemo<PageActions['onEditPage']>(() => {
+    if (onEditPage) return onEditPage
+    if (!writable) return undefined
+    return async (req) => {
+      await editPage(req)
+      await refresh().catch(() => {
+        throw new Error('The page was saved, but the map could not be read again. Reload the map to see it.')
+      })
+    }
+  }, [onEditPage, writable, refresh])
 
   useEffect(() => {
     const ctl = new AbortController()
@@ -99,7 +111,7 @@ export function GraphView({ load, sourceKey, onAdd, onLinkMention, ...rest }: Gr
       </div>
     )
   }
-  return <KnowledgeGraph model={model} onLinkMention={linkMention} {...rest} />
+  return <KnowledgeGraph model={model} onLinkMention={linkMention} onEditPage={editPageFn} {...rest} />
 }
 
 /** Loading: the title and one line of text, nothing drawn on the map. design: no placeholder areas;

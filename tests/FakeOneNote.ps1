@@ -121,6 +121,20 @@ function New-FakeOneNote {
         $n.path = $n.path.Substring(0, $n.path.Length - ($n.name.Length + 4)) + $NewName + '.one'
         $n.name = $NewName
     }
+    # Like desktop OneNote (probes/p9-move.ps1, 2026-11-13): the page moves with its content and Meta
+    # but gets a NEW hierarchy id; its guid (the page-id in links) stays.
+    $f | Add-Member ScriptMethod MovePage { param([string]$PageId, [string]$FromSectionId, [string]$ToSectionId)
+        $null = $this.Writes.Add("MovePage $PageId")
+        $n = $this.Nodes[$PageId]
+        if (-not $n -or $n.kind -ne 'Page' -or $n.parent -ne $FromSectionId) { throw 'fake: MovePage: page not in that section' }
+        if ($this.Nodes[$ToSectionId].kind -ne 'Section') { throw 'fake: MovePage: target is not a section' }
+        $this.Nodes[$FromSectionId].children.Remove($PageId)
+        $this.Nodes.Remove($PageId)
+        $new = $this.NewId('PA')
+        $n.id = $new; $n.parent = $ToSectionId
+        $this.Nodes[$new] = $n
+        $null = $this.Nodes[$ToSectionId].children.Add($new)
+    }
     $f | Add-Member ScriptMethod FindByName { param([string]$Name) foreach ($v in $this.Nodes.Values) { if ($v.name -eq $Name) { return $v.id } } }
     $f
 }

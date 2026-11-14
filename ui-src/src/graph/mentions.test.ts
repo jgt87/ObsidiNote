@@ -5,7 +5,7 @@ import type { GraphEdge, GraphModel, GraphPage } from './model'
 function page(id: string, title: string, extra: Partial<GraphPage> = {}): GraphPage {
   return {
     id, title, topicIds: [], bucket: 'Notes', kind: 'note', links: 0, isHub: false, unlinked: true, summary: '',
-    onenoteUrl: '', modified: '', readOnly: false, aliases: [], site: '', archived: false, ...extra,
+    onenoteUrl: '', modified: '', readOnly: false, aliases: [], site: '', archived: false, url: '', ...extra,
   }
 }
 

@@ -81,10 +81,12 @@ export interface LabelBox {
   cls: string
 }
 
-/** Estimated label rectangle [left, top, right, bottom] (max width 220 px, as in the CSS). */
+/** Estimated label rectangle [left, top, right, bottom] with its pill (graph.css .kg-plabel: padding
+ *  and border; max width 220 px, 320 px for the focused page's label). */
 export function labelRect(l: LabelBox): [number, number, number, number] {
-  const w = Math.min(220, l.text.length * l.px * 0.56 + 6)
-  const h = l.px * 1.25
+  const on = l.cls.includes('kg-plabel--on')
+  const w = Math.min(on ? 320 : 220, l.text.length * l.px * 0.56 + (on ? 26 : 18))
+  const h = l.px * 1.25 + (on ? 9 : 7)
   return [l.x - w / 2, l.y - h, l.x + w / 2, l.y]
 }
 

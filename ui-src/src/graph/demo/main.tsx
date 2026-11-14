@@ -44,8 +44,12 @@ function Demo() {
       <GraphView
         load={load}
         onAsk={(p) => setLog(`Ask about this: ${p.title}`)}
-        onEditLinks={(p) => setLog(`Edit links: ${p.title}`)}
-        onMoveInIndex={(p) => setLog(`Move in index: ${p.title}`)}
+        onEditPage={(req) =>
+          // Never the real route in the demo. ?edit=fail shows the error in the form.
+          new Promise<void>((resolve, reject) =>
+            setTimeout(() => (q.get('edit') === 'fail' ? reject(new Error('Read only: another ObsidiNote is writing in this vault.')) : (setLog(`Edit: ${JSON.stringify(req)}`), resolve())), 400),
+          )
+        }
         onLinkMention={(a, b) =>
           // Never the real route here (the dev server proxies /api to a running app). ?link=fail shows the error.
           new Promise<void>((resolve, reject) =>

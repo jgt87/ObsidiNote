@@ -1,12 +1,15 @@
 import { Fragment } from 'react'
+import { splitLinks, webUrl } from '../model/links'
 import { confidenceLabel, pathChips, sourceAnchor, sourceOrigin } from './askModel'
-import type { AskResult } from './types'
+import type { AskResult, AskSource } from './types'
 import './Ask.css'
 
 export interface AskAnswerActions {
   onFollowUp: () => void
   onSavePage: () => void
   onShowOnMap: () => void
+  /** One source page of the active vault on the map (pages that are not links). */
+  onShowPage?: (pageId: string) => void
   /** Offered for a cited link summary older than 90 days (Update belongs to the Add flow). */
   onUpdateLink?: (pageId: string) => void
 }
@@ -62,16 +65,23 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
               <Fragment key={j}>
                 {j > 0 ? ' ' : null}
                 <span className={s.unsupported ? 'ask-unsupported' : undefined} title={s.unsupported ? 'No source was read for this sentence' : undefined}>
-                  {s.text}
+                  <LinkedText text={s.text} />
                 </span>
                 {s.unsupported && <span className="visually-hidden"> (no source)</span>}
-                {s.cites.map((n) => (
-                  <sup key={n}>
-                    <a className="ask-cite" href={`#${anchor(n)}`} aria-label={`Source ${n}: ${byNumber.get(n)?.title ?? ''}`}>
+                {s.cites.map((n) => {
+                  const src = byNumber.get(n)
+                  const url = webUrl(src?.url)
+                  // A cited link page opens its own address; any other source jumps to the list below.
+                  return url ? (
+                    <a key={n} className="ask-cite" href={url} target="_blank" rel="noopener noreferrer" title={url} aria-label={`Source ${n}: ${src?.title ?? ''}, opens the link`}>
                       {n}
                     </a>
-                  </sup>
-                ))}
+                  ) : (
+                    <a key={n} className="ask-cite" href={`#${anchor(n)}`} aria-label={`Source ${n}: ${src?.title ?? ''}`}>
+                      {n}
+                    </a>
+                  )
+                })}
               </Fragment>
             ))}
           </p>
@@ -83,7 +93,7 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
       </section>
 
       <section className="card" aria-label="Sources">
-        <p className="ask-label">Sources (open in OneNote)</p>
+        <p className="ask-label">Sources</p>
         <ol className="ask-sources">
           {result.sources.map((s) => {
             const st = stale.get(s.id)
@@ -92,13 +102,7 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
               <li key={s.n} id={anchor(s.n)} className="ask-src" tabIndex={-1}>
                 <span className="ask-muted ask-src__n">{s.n}</span>
                 <div className="ask-src__main">
-                  {s.link ? (
-                    <a href={s.link} title="Open in OneNote">
-                      {s.title}
-                    </a>
-                  ) : (
-                    <span>{s.title}</span>
-                  )}
+                  <SourceTitle source={s} onShowPage={actions.onShowPage} />
                   <div className="ask-muted">
                     {s.path}
                     {origin && ` · ${origin}`}
@@ -115,7 +119,17 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
                     </div>
                   )}
                 </div>
-                <span className="ask-muted ask-src__age">{s.age}</span>
+                <span className="ask-muted ask-src__age">
+                  {s.age}
+                  {s.link && (
+                    <>
+                      {s.age ? ' · ' : ''}
+                      <a className="ask-src__onenote" href={s.link} aria-label={`Open "${s.title}" in OneNote`}>
+                        OneNote
+                      </a>
+                    </>
+                  )}
+                </span>
               </li>
             )
           })}
@@ -125,6 +139,42 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
       <AskActions {...actions} />
     </div>
   )
+}
+
+/** Answer text with its web addresses as links (new tab; only http(s)). */
+function LinkedText({ text }: { text: string }) {
+  return (
+    <>
+      {splitLinks(text).map((p, i) =>
+        p.href ? (
+          <a key={i} className="ask-weblink" href={p.href} target="_blank" rel="noopener noreferrer">
+            {p.text}
+          </a>
+        ) : (
+          <Fragment key={i}>{p.text}</Fragment>
+        ),
+      )}
+    </>
+  )
+}
+
+/** A source's title: a link page opens its original address; a page of the active vault shows on
+ *  the map; only a read-only page without an address falls back to OneNote. */
+function SourceTitle({ source: s, onShowPage }: { source: AskSource; onShowPage?: (id: string) => void }) {
+  const url = webUrl(s.url)
+  if (url)
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" title={url}>
+        {s.title}
+      </a>
+    )
+  if (onShowPage && !s.readOnly)
+    return (
+      <button type="button" className="ask-src__page" onClick={() => onShowPage(s.id)} title="Show this page on the map">
+        {s.title}
+      </button>
+    )
+  return s.link ? <a href={s.link}>{s.title}</a> : <span>{s.title}</span>
 }
 
 function AskActions({ onFollowUp, onSavePage, onShowOnMap }: AskAnswerActions) {

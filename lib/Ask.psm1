@@ -494,14 +494,17 @@ function Read-AskAnswer {
 }
 
 function ConvertTo-AskSourceItem {
-    <# A source for the answer card: number, title, index path, OneNote link, age, read-only origin. #>
+    <# A source for the answer card: number, title, index path, OneNote link, the original address of
+       a link page (url, http(s) only: the interface opens that first, user 2026-11-13), age, origin. #>
     param($Record, [int]$Number, [datetime]$Now)
     $sum = ConvertTo-AskDate $Record.summarizedAt
     $isLink = ($Record.type -like 'link-*') -or [bool]$Record.url
     $stale = $isLink -and $null -ne $sum -and ($Now - $sum).TotalDays -gt $script:StaleDays
+    $url = [string]$Record.url
+    if ($url -notmatch '^(?i)https?://') { $url = '' }
     @{
         n = $Number; id = $Record.id; key = $Record.key; title = $Record.title; path = (Format-AskPath $Record.path)
-        link = $Record.link; updated = $(if ($d = ConvertTo-AskDate $Record.updated) { $d.ToString('s') } else { '' })
+        link = $Record.link; url = $url; updated = $(if ($d = ConvertTo-AskDate $Record.updated) { $d.ToString('s') } else { '' })
         age = (Format-AskAge $Record.updated $Now); type = $Record.type; archived = [bool]$Record.archived
         sourceId = $Record.sourceId; sourceName = $Record.sourceName; readOnly = [bool]$Record.readOnly
         stale = [bool]$stale; summarizedAge = $(if ($sum) { Format-AskAge $sum $Now } else { '' })

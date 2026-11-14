@@ -273,11 +273,19 @@ Paste just a link, and ObsidiNote files a **summary page** for it, so you can fi
 is about later without opening it again.
 
 **Which bucket.** The app decides by the URL's host, with fixed rules and no model:
-- **Internal** (`Internal links`): `*.sharepoint.com` (including `-my.sharepoint.com` for
-  OneDrive), `teams.microsoft.com`, `*.loop.cloud.microsoft` and `loop.microsoft.com`,
-  `*.office.com`, `m365.cloud.microsoft`, plus any intranet hosts listed in the setting
-  `internalHosts`.
-- **External** (`Web links`): everything else.
+- **Internal** (`Internal links`): company data, wherever it is hosted (user, 2026-11-13):
+  - Microsoft 365: `*.sharepoint.com` (including `-my.sharepoint.com` for OneDrive),
+    `teams.microsoft.com`, `*.loop.cloud.microsoft` and `loop.microsoft.com`, `*.office.com`,
+    `m365.cloud.microsoft`, plus any intranet hosts listed in the setting `internalHosts`;
+  - a SaaS host that is the company's own tenant (Workday `*.myworkday.com`, ServiceNow
+    `*.service-now.com`, Atlassian, Okta, Salesforce, SuccessFactors, Slack, Zendesk, Webex,
+    Zoom and a few more; `NotebookStructure.psm1` `TenantSaasRules`), except the vendor's public
+    pages (`www.`, `docs.`, `community.` ...);
+  - any host with the company's name in a subdomain of someone else's domain (a service run for
+    the company). The name comes from the vault's own OneDrive/SharePoint address at run time
+    (`contoso-my.sharepoint.com` -> `contoso`), never from a file.
+- **External** (`Web links`): obvious public pages: public job boards (`*.myworkdayjobs.com`),
+  public site hosting (`*.github.io` ...), the company's own public domain, and everything else.
 
 **How the summary is made.** Copilot does the reading:
 - **Internal:** Copilot opens it with the user's own Microsoft 365 permissions (Work IQ / work

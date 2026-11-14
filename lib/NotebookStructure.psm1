@@ -25,6 +25,19 @@ $script:MaxPagesPerSection = 500
 
 # Microsoft 365 hosts that make a link "internal". '*.x' matches x and any subdomain of x.
 $script:InternalHostRules = @('*.sharepoint.com', 'teams.microsoft.com', 'teams.cloud.microsoft', '*.loop.cloud.microsoft', 'loop.microsoft.com', '*.office.com', 'm365.cloud.microsoft')
+# Company data in a SaaS tenant is internal too (user, 2026-11-13: "Workday where a timesheet can be
+# hosted, or internal vacancies are published"). These hosts are a company's own tenant whenever
+# there is a subdomain (wd3.myworkday.com/<company>/..., <company>.service-now.com); the vendor's
+# public pages (www., docs., community. ...) are not.
+$script:TenantSaasRules = @(
+    '*.myworkday.com', '*.service-now.com', '*.servicenowservices.com', '*.atlassian.net', '*.okta.com', '*.oktapreview.com',
+    '*.okta-emea.com', '*.my.salesforce.com', '*.lightning.force.com', '*.successfactors.com', '*.successfactors.eu',
+    '*.sapsf.com', '*.sapsf.eu', '*.slack.com', '*.zendesk.com', '*.webex.com', '*.zoom.us', '*.workplace.com',
+    '*.ultipro.com', '*.coupahost.com', '*.concursolutions.com', '*.freshservice.com')
+$script:PublicLabels = @('www', 'docs', 'doc', 'help', 'support', 'developer', 'developers', 'community', 'status', 'api', 'blog', 'trust', 'learn', 'events', 'investor', 'investors', 'careers', 'jobs')
+# Public by nature, even with the company's name in the host: job boards and public site hosting.
+$script:PublicHostRules = @('*.myworkdayjobs.com', '*.github.io', '*.blogspot.com', '*.wordpress.com', '*.medium.com', '*.substack.com',
+    '*.tumblr.com', '*.wixsite.com', '*.netlify.app', '*.vercel.app', '*.pages.dev', '*.greenhouse.io', '*.lever.co', '*.smartrecruiters.com')
 # Query parameters dropped before comparing URLs (tracking only; never a sharing token).
 $script:TrackingParams = '^(utm_.*|fbclid|gclid|gclsrc|dclid|gbraid|wbraid|msclkid|yclid|twclid|li_fat_id|mc_cid|mc_eid|igshid|_hsenc|_hsmi|mkt_tok|vero_id|vero_conv|oly_anon_id|oly_enc_id|_ga|_gl|wt\.mc_id|ocid|ref_src|spm)$'
 
@@ -143,17 +156,70 @@ function Test-HostRule {
     return $HostName -eq $r
 }
 
+function Get-CompanyNames {
+    <# The company's tenant names, from Microsoft 365 addresses it owns (the vault's notebook location,
+       a OneDrive or SharePoint URL: 'contoso-my.sharepoint.com' -> 'contoso'). Lower case, at least 3
+       characters, unique. Nothing is stored: the names come from the open vault at run time. #>
+    param([string[]]$Locations = @())
+    $names = @(foreach ($l in @($Locations | Where-Object { $_ })) {
+        $u = ([string]$l) -replace '^(?i)onenote:', ''
+        $h = Get-UrlHost $u
+        if ($h -match '^([a-z0-9][a-z0-9-]*?)(-my|-admin|-files)?\.sharepoint\.com$') { $Matches[1] }
+    })
+    # Plain pipeline output: callers wrap the call in @() (a ', @()' return would nest there).
+    $names | Where-Object { $_.Length -ge 3 } | Select-Object -Unique
+}
+
+function Test-TenantHost {
+    <# A SaaS host that is a company tenant: a TenantSaasRules host with a subdomain that is not one of
+       the vendor's public pages. #>
+    param([string]$HostName)
+    foreach ($r in $script:TenantSaasRules) {
+        $base = $r.Substring(2)
+        if (-not $HostName.EndsWith('.' + $base)) { continue }
+        $sub = $HostName.Substring(0, $HostName.Length - $base.Length - 1)
+        if ($script:PublicLabels -notcontains $sub.Split('.')[0]) { return $true }
+    }
+    $false
+}
+
+function Test-CompanyHost {
+    <# The company's name in a subdomain of someone else's host (contoso.zoom.us, contosoitsm.example-saas.com,
+       hr-contoso.example.net): a service run for the company. The company's own domain (contoso.com,
+       www.contoso.com) is its public web site and does not count. #>
+    param([string]$HostName, [string[]]$CompanyNames = @())
+    $labels = $HostName.Split('.')
+    if ($labels.Count -lt 3) { return $false }
+    $domain = $labels[$labels.Count - 2]
+    foreach ($n in @($CompanyNames | Where-Object { $_ })) {
+        if ($domain -eq $n) { continue }
+        for ($i = 0; $i -lt $labels.Count - 2; $i++) {
+            $l = $labels[$i]
+            if ($l -eq $n -or $l.StartsWith($n) -or $l -match ('(^|-)' + [regex]::Escape($n) + '(-|$)')) { return $true }
+        }
+    }
+    $false
+}
+
 function Get-LinkBucket {
-    <# 'Internal links' for Microsoft 365 hosts (SharePoint incl. OneDrive -my, Teams, Loop, office.com,
-       m365.cloud.microsoft) and the hosts in $InternalHosts (exact host, '*.domain' or '.domain');
-       'Web links' for everything else. Fixed rules, no model. #>
+    <# 'Internal links' for company data, 'Web links' for public pages. Fixed rules, no model, in order:
+       1. Microsoft 365 hosts (SharePoint incl. OneDrive -my, Teams, Loop, office.com, m365.cloud.microsoft)
+          and the hosts in $InternalHosts (exact host, '*.domain' or '.domain'): internal.
+       2. Public by nature (job boards, public site hosting): web.
+       3. A SaaS host that is a company tenant (Workday, ServiceNow, Atlassian, Okta, ...): internal.
+       4. The company's name (from $CompanyNames, see Get-CompanyNames) in a subdomain of another
+          company's host: internal.
+       5. Everything else, including the company's own public domain: web. #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Url, [string[]]$InternalHosts = @())
+    param([Parameter(Mandatory)][string]$Url, [string[]]$InternalHosts = @(), [string[]]$CompanyNames = @())
     $h = Get-UrlHost $Url
     if (-not $h) { return 'Web links' }
     foreach ($r in @($script:InternalHostRules + @($InternalHosts | Where-Object { $_ }))) {
         if (Test-HostRule -HostName $h -Rule $r) { return 'Internal links' }
     }
+    foreach ($r in $script:PublicHostRules) { if (Test-HostRule -HostName $h -Rule $r) { return 'Web links' } }
+    if (Test-TenantHost $h) { return 'Internal links' }
+    if (Test-CompanyHost -HostName $h -CompanyNames @($CompanyNames | ForEach-Object { "$_".ToLowerInvariant() })) { return 'Internal links' }
     return 'Web links'
 }
 
@@ -310,4 +376,4 @@ function Resolve-ObsnSection {
     $Adapter.OpenHierarchy("$($parts[1]).one", $gid, 3)
 }
 
-Export-ModuleMember -Function Get-ObsnFixedSections, Get-ObsnIntakeSection, Get-LegacyIntakeSection,Get-ObsnBuckets, Get-ObsnTypes, Get-BucketForType, Get-TargetSection, Get-ArchiveSectionName, Get-BucketOfSection, Test-ObsnOwnedSection, Get-UrlHost, ConvertTo-NormalizedUrl, Get-LinkBucket, ConvertFrom-ObsnHierarchy, Get-StructurePlan, Get-NotebookBasePath, Install-ObsnStructure, Resolve-ObsnSection
+Export-ModuleMember -Function Get-ObsnFixedSections, Get-ObsnIntakeSection, Get-LegacyIntakeSection,Get-ObsnBuckets, Get-ObsnTypes, Get-BucketForType, Get-TargetSection, Get-ArchiveSectionName, Get-BucketOfSection, Test-ObsnOwnedSection, Get-UrlHost, ConvertTo-NormalizedUrl, Get-LinkBucket, Get-CompanyNames, ConvertFrom-ObsnHierarchy, Get-StructurePlan, Get-NotebookBasePath, Install-ObsnStructure, Resolve-ObsnSection

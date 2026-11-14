@@ -21,11 +21,20 @@
   font-size: var(--text-label); color: var(--ink);
 }
 
+/* Citation markers sit on the text line (not raised like a superscript; operator, 2026-11-13). */
 .ask-cite {
-  margin-left: var(--space-1); padding: 0 var(--space-2);
+  display: inline-block; margin-left: var(--space-1); padding: 0 var(--space-2);
   border: 1px solid var(--border); border-radius: var(--radius-sm);
-  font-size: var(--text-label); text-decoration: none;
+  font-size: var(--text-label); line-height: 1.4; vertical-align: baseline; text-decoration: none;
 }
+/* An address in the answer is a link and looks like one. */
+.ask-weblink { text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.ask-src__page {
+  all: unset; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; color: var(--ink);
+}
+@media (hover: hover) { .ask-src__page:hover { color: var(--accent); } }
+.ask-src__page:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.ask-src__onenote { color: var(--muted); }
 .ask-unsupported { text-decoration: underline dashed var(--border-strong); text-underline-offset: 3px; }
 
 .ask-sources { margin: 0; padding: 0; list-style: none; }

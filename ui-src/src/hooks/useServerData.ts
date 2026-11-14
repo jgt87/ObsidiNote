@@ -6,30 +6,34 @@ import { getStoredVaultId, persistVaultId } from '../model/preferences'
 const STATUS_EVERY_MS = 10_000
 const NOTEBOOK_EVERY_MS = 60_000
 
-/** /api/status every 10 s; serverDown when the local server stops answering. */
-export function useStatus(): { status: AppStatus | null; serverDown: boolean } {
+/** /api/status every 10 s; serverDown when the local server stops answering. refresh() reads it now. */
+export function useStatus(): { status: AppStatus | null; serverDown: boolean; refresh: () => Promise<void> } {
   const [status, setStatus] = useState<AppStatus | null>(null)
   const [serverDown, setServerDown] = useState(false)
-  useEffect(() => {
-    let alive = true
-    const load = () =>
+  const alive = useRef(true)
+  const refresh = useCallback(
+    () =>
       getStatus()
         .then((s) => {
-          if (!alive) return
+          if (!alive.current) return
           setStatus(s)
           setServerDown(false)
         })
         .catch(() => {
-          if (alive) setServerDown(true)
-        })
-    void load()
-    const id = window.setInterval(load, STATUS_EVERY_MS)
+          if (alive.current) setServerDown(true)
+        }),
+    [],
+  )
+  useEffect(() => {
+    alive.current = true
+    void refresh()
+    const id = window.setInterval(() => void refresh(), STATUS_EVERY_MS)
     return () => {
-      alive = false
+      alive.current = false
       window.clearInterval(id)
     }
-  }, [])
-  return { status, serverDown }
+  }, [refresh])
+  return { status, serverDown, refresh }
 }
 
 /** Runs $fn at start, every minute and when the window gets focus again. */

@@ -303,6 +303,9 @@ Describe 'Ask: stale link summaries' {
         $r.staleLinks[0].offer | Should Be 'update'
         $r.sources[0].stale | Should Be $true
         $r.sources[1].stale | Should Be $false
+        # a link page's own address goes to the interface, which opens it before OneNote (2026-11-13)
+        $r.sources[0].url | Should Be 'https://example.org/vpn'
+        $r.sources[1].url | Should Be ''
     }
 }
 

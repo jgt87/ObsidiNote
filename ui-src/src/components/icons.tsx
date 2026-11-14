@@ -58,6 +58,14 @@ export const WarnIcon = () => (
   </Icon>
 )
 
+/** Try again: a circular arrow. */
+export const RefreshIcon = () => (
+  <Icon>
+    <path d="M13 8a5 5 0 1 1-1.46-3.54" />
+    <path d="M13 2.5v3h-3" />
+  </Icon>
+)
+
 /** Points right; the parent rotates it (CSS transform) when open. */
 export const ChevronIcon = () => (
   <Icon>

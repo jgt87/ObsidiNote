@@ -60,6 +60,7 @@ In the ObsidiNote window:
 - **Links**: a pasted link becomes one summary page, in `Internal links` (SharePoint, OneDrive, Teams, Loop) or `Web links`. The same link again updates its page; **Update** reads the source again, shows old against new, keeps earlier summaries on the page and never touches your "Your notes" part.
 - **Ask**: a question walks the central index (branches, then pages, then their text) and the answer cites your own pages, each opening in OneNote, with the path it took. "Ask reads" adds other vaults and connected notebooks (read only) and archived pages. Ask a follow-up, save the answer as a page, or show its sources on the map. Asking never changes your notebook.
 - **Knowledge graph**: the shown vault or notebook as dots in topic areas, with links as lines weighted by strength; hover for a preview, click for the page with its links and "Ask about this" (Back/Forward with Alt+Left/Right), and `/` to search. Search takes filters: `type:meeting`, `topic:"Security / Networking"` (subtopics included), `site:example.org`, `after:2026-03`, `before:2026-04-01`, `is:archived|hub|unlinked`. **Filter** narrows the map by type and topic or to pages without links (archived pages are hidden unless you show them); **Focus on this page** (F) shows a page and its neighbours one or two steps out. **Mentions, not linked** shows pages that name each other without a link, and **Link it** links them. **List** is one table of all pages: sort by any column, group by topic, type, site or year.
+- **Edit a page**: in its page window, **Edit** changes the title, type, topics, aliases, summary, a link page's address and its links to other pages. It is saved straight into OneNote and the index; your own text on the page is never changed.
 - **Find**: `Ctrl+K` anywhere jumps to a page or topic of the active vault.
 - **Paste with structure**: text pasted from a web page, Word or a mail keeps its headings, lists, tables and links (`Ctrl+Shift+V` pastes plain text).
 - **What's new**: after an update the window shows that version's changes once.
@@ -99,6 +100,8 @@ Design mock-ups of the interface, with invented example content.
 ## Configuration
 Copy `.env.example` to `.env` (if present). Every key has a working default; optional keys
 switch features off instead of crashing.
+
+- `"internalHosts"` in `config\obsidinote.local.json` (a list such as `["intranet", "*.corp.example"]`): more hosts whose links count as internal. Microsoft 365, a company SaaS tenant (Workday, ServiceNow, Atlassian, Okta, ...) and hosts with your company's name in a subdomain already count without it.
 
 ## Updates
 ObsidiNote checks for an update every time it starts, before anything else loads:
@@ -144,7 +147,7 @@ config/              obsidinote.json (defaults), selectors.json (Copilot page);
                      *.local.json stay local and survive updates
 tests/*.Tests.ps1    Pester 3.4 (inbox) syntax: Should Be
 tools/               run-tests.ps1, build-release.ps1, update.ps1, sso-setup.ps1
-validation/          Run Validation.cmd: checks with a masked log to send back
+validation/          Run Validation.cmd (+ "with write tests"): checks with a masked log to send back
 docs/runbooks/       step-by-step checks (RB-00 .. RB-06)
 update.cmd           update now (or -To vX.Y.Z to go back)
 sso-setup.cmd        single sign-on with the Windows work account for Copilot
@@ -154,7 +157,7 @@ sso-setup.cmd        single sign-on with the Windows work account for Copilot
 `tools/run-tests.ps1` runs Pester over `tests/` and fails if any script file contains non-ASCII bytes.
 The interface: in `ui-src`, `npm install` once, then `npm run typecheck`, `npm test` and `npm run build` (writes `ui/`, which is committed).
 
-On the PC where ObsidiNote runs, `validation\Run Validation.cmd` checks this computer, OneNote, Copilot and the window, and writes a log without content to the Desktop (`ObsidiNote-validation-<date>.txt`) that you can send back. The steps are in `docs/runbooks/` (start with RB-00).
+On the PC where ObsidiNote runs, `validation\Run Validation.cmd` checks this computer, OneNote, Copilot and the window, and writes a log without content to the Desktop (`ObsidiNote-validation-<date>.txt`) that you can send back. `validation\Run Validation with write tests.cmd` also runs the write tests, which write only into the kit's own notebooks `ObsidiNote-Probe` and `ObsidiNote-Validation`. The steps are in `docs/runbooks/` (start with RB-00).
 
 ## Release
 See `AGENTS.md` → Releasing.

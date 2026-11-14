@@ -5,6 +5,29 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.8.0] - 2026-11-14
+
+### Added
+- **Edit** a page in the page window: its title, type (within its section), topics, aliases, summary, a link page's address, and its links to other pages (add, remove, strength, reason). Saving writes straight into the OneNote page and the index; the pages it links to get their "Linked from" updated. Your own text on the page is never changed. Replaces the inactive "Edit links" and "Move in index" buttons.
+- When the side bar says Copilot is not connected, a **refresh button** next to it tries to connect again (it opens ObsidiNote's Edge window when that was closed). If Copilot first wants you to sign in, the note says so; sign in there and press the button again.
+- `validation\Run Validation with write tests.cmd`: double-click to run the validation kit with its write tests.
+
+### Changed
+- ObsidiNote sends you to OneNote less: a cited link page (the [1] in an answer, or its source) opens the link itself; a source that is not a link shows on the map; the page window of a link page has **Open link** first. "OneNote" stays as a small second link.
+- Web addresses in an answer are clickable and underlined, and the [1] markers sit on the text line.
+- Links to company data count as internal, also outside Microsoft 365: your company's Workday, ServiceNow, Atlassian, Okta and similar tenants, and sites with your company's name in their address. Public pages (job boards, your company's public web site, everything else) stay web links. Link pages you added before are brought in line too: at the next start ObsidiNote moves each one to the right section (Internal links or Web links) with the matching type, keeps its text and its links, and updates the index; the start shows how many it moved.
+- The side menu stays in place while the page scrolls. The logo, the notebook switcher and the menu at the top and the notes, Export and the theme switch at the bottom are always visible; only the list of sections scrolls, inside its own area. In a very short window the whole side menu scrolls, so nothing is cut off. The side menu is split into clear parts with a thin line between them: the logo, the notebook, the menu, the sections, and at the bottom the notebook's counts with Export and, on its own, the theme switch.
+- Page names on the knowledge graph sit on small pills, so lines and dots no longer run through them; the page under the pointer gets a larger pill with a purple edge.
+- The link in an Add result is clickable.
+- ObsidiNote refuses ports 8765 and 8766 for its window, so it never shares a local port with the other Copilot helper on this computer (its window uses 8765, or 8766 when that is taken). The defaults (8767 for the window, 9334 for Edge) did not change.
+
+### Fixed
+- After an update, the window stayed white when the older ObsidiNote was still running: the new start opened the old one's window, which could not serve the new interface files. The start now says that an older version still runs and asks you to close its console window first. (Until you have this version: close every ObsidiNote console window, then start ObsidiNote again.)
+- The validation kit's write tests stopped at "Dev vault" with "Send-CopilotPrompt is not recognized"; Add, "Check for the answer" and Ask run again.
+- Buttons in one row now have one height: "Open in OneNote" and "Open link" were 2 px taller than the buttons next to them, and in the page window's Edit form "Remove" and "Add link" were lower than the fields beside them.
+- The `internalHosts` setting was read nowhere; it now counts.
+- After you closed a page window opened by clicking a dot, the dot's small card stayed on the map and a click did not close it. The card now goes away with the window, and a click on an empty spot (or outside the map) closes any card.
+
 ## [v0.7.0] - 2026-11-13
 
 ### Added

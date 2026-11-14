@@ -435,8 +435,8 @@ Describe 'Add writes no files' {
     }
     It 'logs only ids, counts, states and timings' {
         $lines = @(Select-String -Path (Join-Path $here '..\lib\Ingest.psm1') -Pattern 'Write-AppLog' | ForEach-Object { $_.Line })
-        # Add finished, Undo finished, Link it finished (ids and counts only).
-        $lines.Count | Should Be 4
+        # Add finished, Undo finished, Link it finished, Page edit finished (ids, field names and counts only).
+        $lines.Count | Should Be 5
         foreach ($l in $lines) { $l | Should Not Match '(?i)\$(text|title|message|prompt|reply|url|anchor|summary)\b|\.(text|title|message|url)\b' }
     }
 }

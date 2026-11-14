@@ -120,6 +120,16 @@ export function getStatus(): Promise<AppStatus> {
   return call<AppStatus>('/api/status')
 }
 
+export interface ReconnectResult {
+  state: 'connected' | 'sign-in' | 'failed'
+  message: string
+}
+
+/** One try to attach to Copilot in ObsidiNote's Edge window again (the side bar's refresh button). */
+export function reconnectCopilot(): Promise<ReconnectResult> {
+  return call<ReconnectResult>('/api/copilot/reconnect', { method: 'POST' })
+}
+
 export async function getNotebooks(): Promise<NotebookList> {
   const l = await call<NotebookList>('/api/notebooks')
   return { notebooks: asList(l.notebooks), message: l.message ?? '', activeVaultId: l.activeVaultId ?? '', mode: l.mode ?? 'none' }

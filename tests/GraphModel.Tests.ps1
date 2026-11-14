@@ -42,10 +42,14 @@ Describe 'ConvertTo-GraphModel' {
     }
     It 'passes aliases and a link page''s site on' {
         $m = New-TestModel
-        $null = Add-IndexPage -Model $m -Page @{ id = 'p4'; title = 'Example site'; type = 'link-web'; bucket = 'Web links'; section = 'Web links'; oneNoteId = '{D}'; aliases = @('ES'); host = 'example.org' }
-        $p = @((ConvertTo-GraphModel -Model $m -Source @{ kind = 'vault'; id = 'v1'; name = 'S'; readOnly = $false }).pages | Where-Object { $_.id -eq 'p4' })[0]
+        $null = Add-IndexPage -Model $m -Page @{ id = 'p4'; title = 'Example site'; type = 'link-web'; bucket = 'Web links'; section = 'Web links'; oneNoteId = '{D}'; aliases = @('ES'); host = 'example.org'; url = 'https://example.org/a' }
+        $null = Add-IndexPage -Model $m -Page @{ id = 'p5'; title = 'Odd'; type = 'link-web'; bucket = 'Web links'; section = 'Web links'; oneNoteId = '{E}'; url = 'javascript:alert(1)' }
+        $g2 = ConvertTo-GraphModel -Model $m -Source @{ kind = 'vault'; id = 'v1'; name = 'S'; readOnly = $false }
+        $p = @($g2.pages | Where-Object { $_.id -eq 'p4' })[0]
         ($p.aliases -join ',') | Should Be 'ES'
         $p.site | Should Be 'example.org'
+        $p.url | Should Be 'https://example.org/a'
+        @($g2.pages | Where-Object { $_.id -eq 'p5' })[0].url | Should Be ''
         $json = ConvertTo-Json -InputObject $g -Depth 12 -Compress
         $json | Should Match '"aliases":\[\]'
     }

@@ -41,10 +41,12 @@ a log to your Desktop that you can send back. It is in the folder
    - If not, send this: the two Desktop files. If the window closed before you could read it,
      send a screenshot of what you saw and the two files if they exist.
 
-3. Second pass, with the write tests: open **Windows PowerShell** and paste:
+3. Second pass, with the write tests: in the same folder, double-click
+   **Run Validation with write tests.cmd**. (The same from **Windows PowerShell**:
    ```powershell
    powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\ObsidiNote\validation\Run-Validation.ps1" -WriteTest
    ```
+   )
    - During P1c, OneNote jumps to a page in `ObsidiNote-Probe` and back. If OneNote does not let
      the kit move a page, the kit asks you to drag the page `P1c move me` from section
      `P1c home` to section `P1c moved` in OneNote, then press Enter. Type `s` and Enter to skip.

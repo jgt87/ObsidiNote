@@ -85,6 +85,35 @@ Describe 'Link bucket by host' {
         Get-LinkBucket 'http://intranet:8080/home' -InternalHosts @('intranet') | Should Be 'Internal links'
         Get-LinkBucket 'https://other.example/' -InternalHosts @('*.corp.example') | Should Be 'Web links'
     }
+    It 'files a company''s SaaS tenant as Internal links (user, 2026-11-13: timesheets, internal vacancies)' {
+        foreach ($u in 'https://wd3.myworkday.com/contoso/d/inst/1$2/rel-task/3.htmld', 'https://contosoitsmprod.service-now.com/msh?id=kb_article',
+            'https://contoso.atlassian.net/wiki/spaces/OPS', 'https://contoso.okta.com/app/UserHome', 'https://contoso.my.salesforce.com/001',
+            'https://contoso.zoom.us/j/123', 'https://app.slack.com/client/T01') {
+            Get-LinkBucket $u | Should Be 'Internal links'
+        }
+    }
+    It 'keeps the vendors'' public pages, job boards and public hosting as Web links' {
+        foreach ($u in 'https://www.myworkday.com/', 'https://docs.service-now.com/x', 'https://community.atlassian.net/t/1', 'https://www.okta.com/',
+            'https://contoso.wd3.myworkdayjobs.com/External', 'https://contoso.github.io/tools', 'https://myworkday.com/') {
+            Get-LinkBucket $u -CompanyNames @('contoso') | Should Be 'Web links'
+        }
+    }
+    It 'files a host with the company''s name in a subdomain as internal, not the company''s own public site' {
+        Get-LinkBucket 'https://contoso.example-hr.com/vacancies/internal' -CompanyNames @('contoso') | Should Be 'Internal links'
+        Get-LinkBucket 'https://hr-contoso.example.net/' -CompanyNames @('contoso') | Should Be 'Internal links'
+        Get-LinkBucket 'https://www.contoso.com/about' -CompanyNames @('contoso') | Should Be 'Web links'
+        Get-LinkBucket 'https://contoso.com/' -CompanyNames @('contoso') | Should Be 'Web links'
+        Get-LinkBucket 'https://news.example.org/companies/contoso' -CompanyNames @('contoso') | Should Be 'Web links'
+        Get-LinkBucket 'https://contoso.example-hr.com/' | Should Be 'Web links'
+    }
+    It 'takes the company''s tenant names from its own Microsoft 365 addresses only' {
+        $n = @(Get-CompanyNames -Locations @('https://contoso-my.sharepoint.com/personal/someone/Documents/ObsidiNote', 'onenote:https://contoso.sharepoint.com/sites/Team/x.one', 'C:\Notes\x.onetoc2', '', 'https://fabrikam.sharepoint.com/'))
+        $n.Count | Should Be 2
+        ($n -join ',') | Should Be 'contoso,fabrikam'
+        # as the server passes them on: two separate names, not one joined string
+        Get-LinkBucket 'https://fabrikam.example-hr.com/' -CompanyNames $n | Should Be 'Internal links'
+        @(Get-CompanyNames -Locations @('https://ab.sharepoint.com/', 'https://example.org/')).Count | Should Be 0
+    }
 }
 
 Describe 'URL normalization for dedup' {

@@ -5,6 +5,7 @@ import { ExportButton } from '../export/ExportButton'
 import { plural } from '../model/format'
 import { VIEW_ORDER, VIEWS, type View } from '../model/views'
 import { GraphIcon, HistoryIcon, PlusIcon, WarnIcon } from './icons'
+import { RetryButton } from './RetryButton'
 import { NotebookSwitcher } from './NotebookSwitcher'
 import { SectionTree } from './SectionTree'
 import { ThemeSwitch } from './ThemeSwitch'
@@ -19,9 +20,11 @@ interface Props {
   notes: AttentionNote[]
   onNewVault: () => void
   onSetUp: () => void
+  /** Tries to connect Copilot again; resolves to '' when it worked, else what the person should know. */
+  onRetryCopilot: () => Promise<string>
 }
 
-export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp }: Props) {
+export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp, onRetryCopilot }: Props) {
   const nb = notebook.data
   const canSetUp = Boolean(nb?.notebook?.canSetUp && nb.notebook.id === notebooks.shownId)
   return (
@@ -51,12 +54,14 @@ export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp }: 
         <h2 id="rail-sections" className="rail__label">
           Sections{nb?.notebook ? ` of ${nb.notebook.name}` : ''}
         </h2>
-        {nb?.available ? (
-          <SectionTree nodes={nb.sections} />
-        ) : (
-          // The reason is in the attention note below (from /api/status); no need to say it twice.
-          <p className="rail__muted">{notebook.loading && !nb ? 'Reading the notebook...' : 'No sections to show.'}</p>
-        )}
+        <div className="rail__scroll">
+          {nb?.available ? (
+            <SectionTree nodes={nb.sections} />
+          ) : (
+            // The reason is in the attention note below (from /api/status); no need to say it twice.
+            <p className="rail__muted">{notebook.loading && !nb ? 'Reading the notebook...' : 'No sections to show.'}</p>
+          )}
+        </div>
       </section>
 
       <footer className="rail__footer">
@@ -65,25 +70,30 @@ export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp }: 
             {notes.map((n) => (
               <li key={n.id} className="rail__note">
                 <WarnIcon />
-                <span>{n.text}</span>
+                {n.retry ? <RetryButton text={n.text} onRetry={onRetryCopilot} /> : <span>{n.text}</span>}
               </li>
             ))}
           </ul>
         )}
         {nb?.available && nb.notebook && (
-          <p className="rail__muted num">
-            {plural(nb.totals.pages, 'page')} · {plural(nb.totals.sections, 'section')}
-            <br />
-            {nb.notebook.name}
-            {nb.notebook.location ? ` (${nb.notebook.location})` : ''}
-            {nb.notebook.vault ? '' : ', read only'}
-          </p>
+          // The shown notebook: its counts and, with pages, Export (one group in the footer).
+          <div className="rail__vault">
+            <p className="rail__muted num">
+              {plural(nb.totals.pages, 'page')} · {plural(nb.totals.sections, 'section')}
+              <br />
+              {nb.notebook.name}
+              {nb.notebook.location ? ` (${nb.notebook.location})` : ''}
+              {nb.notebook.vault ? '' : ', read only'}
+            </p>
+            {nb.totals.pages > 0 && (
+              // The shown notebook or vault, as Markdown files with [[wikilinks]] in a zip (POST /api/export).
+              <ExportButton request={{ scope: 'all', notebook: notebooks.shownId ?? nb.notebook.id }} label="Export all as Markdown" className="btn switcher__new" />
+            )}
+          </div>
         )}
-        {nb?.available && nb.notebook && nb.totals.pages > 0 && (
-          // The shown notebook or vault, as Markdown files with [[wikilinks]] in a zip (POST /api/export).
-          <ExportButton request={{ scope: 'all', notebook: notebooks.shownId ?? nb.notebook.id }} label="Export all as Markdown" className="btn switcher__new" />
-        )}
-        <ThemeSwitch />
+        <div className="rail__theme">
+          <ThemeSwitch />
+        </div>
       </footer>
     </nav>
   )

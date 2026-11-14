@@ -94,9 +94,20 @@
 .kg-alabel[data-dim="true"] { opacity: 0.75; }
 /* Narrow: areas are small, so only the topic name; the counts stay in List and the hover card. */
 @media (max-width: 640px) { .kg-alabel span { display: none; } }
-.kg-plabel { font-size: var(--text-label); line-height: 1.2; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+/* Page labels sit on a small solid pill, so links and dots never run through the text (operator,
+   2026-11-13: "more readable, maybe with a pill/cell element around the text"). The focused page's
+   label is the strongest: ink text, a purple edge like its dot. view.ts labelRect counts the padding. */
+.kg-plabel {
+  font-size: var(--text-label); line-height: 1.25; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+  margin-top: -3px; padding: 1px var(--space-2); box-sizing: border-box;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-pill);
+  text-shadow: none;
+}
 .kg-plabel--hub { font-size: var(--text-meta); font-weight: 600; }
-.kg-plabel--on { font-size: var(--text-body); font-weight: 600; }
+.kg-plabel--on {
+  font-size: var(--text-body); font-weight: 600; color: var(--ink); max-width: 320px;
+  padding: 2px var(--space-3); border-color: var(--accent);
+}
 
 /* ---------- hover card: never catches the pointer ---------- */
 .kg-card, .kg-card * { pointer-events: none !important; }

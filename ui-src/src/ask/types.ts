@@ -52,7 +52,10 @@ export interface AskSource {
   key: string
   title: string
   path: string
+  /** onenote: link to the page (secondary: the interface sends people to OneNote as little as possible). */
   link: string
+  /** A link page's original http(s) address; opened first when set. */
+  url?: string
   updated: string
   age: string
   type: string

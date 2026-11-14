@@ -139,6 +139,21 @@ if (-not $NoOneNote) {
         $vs = Format-VaultStatus -Open $vaultOpen -Why $pick.why -VaultCount $vaults.Count
     } catch { $vs = Format-VaultStatus -Open $null -Problem $_.Exception.Message }
     Write-Status -ToError $vs.status 'Vault' $vs.detail -Hint $vs.hint
+    # Upgrade: existing pages follow rules that changed since they were filed (lib/Upgrade.psm1; writer
+    # only, idempotent; a line only when something was or should be done). Never stops the start.
+    if ($vaultOpen) {
+        try {
+            Import-Module (Join-Path $PSScriptRoot 'lib\NotebookStructure.psm1') -Force
+            Import-Module (Join-Path $PSScriptRoot 'lib\VaultStore.psm1') -Force
+            Import-Module (Join-Path $PSScriptRoot 'lib\Upgrade.psm1') -Force
+            $upLease = $vaultOpen.lease
+            $upHosts = @(@(Get-AppSetting -Key 'internalHosts' -Default @() -AppRoot $PSScriptRoot) | ForEach-Object { "$_" } | Where-Object { $_ })
+            $upNames = @(Get-CompanyNames -Locations @([string]$vaultOpen.vault.location, (Get-NotebookRecord -AppRoot $PSScriptRoot)))
+            $upStore = New-VaultStore -Adapter $mainAdapter -Vault $vaultOpen.vault -Model $vaultOpen.model -GetLease { $upLease }.GetNewClosure() -InternalHosts $upHosts -CompanyNames $upNames
+            $up = Format-UpgradeStatus (Invoke-VaultUpgrade -Store $upStore)
+            if ($up) { Write-Status -ToError $up.status 'Upgrade' $up.detail -Hint $up.hint }
+        } catch { Write-Status -ToError 'WARN' 'Upgrade' "not run: $($_.Exception.Message)" }
+    }
 }
 function Close-ObsidiVaultLease($State) {
     # Gives the writer lease back (only when it is still this session's); never throws.
@@ -209,7 +224,15 @@ try {
     $why = $_.Exception.Message
     Close-ObsidiVaultLease $null
     if (Test-UiServerRunning -Port $uiPort) {
-        # Another ObsidiNote already serves this port: show its window and leave that one running.
+        # Another ObsidiNote already serves this port. Another version (still running from before an
+        # update) would show a white window: say so and stop (Get-RunningUiProblem).
+        $problem = Get-RunningUiProblem -Running (Get-RunningUiVersion -Port $uiPort) -Mine (Get-AppVersionText $PSScriptRoot)
+        if ($problem) {
+            Write-Status -ToError 'FAIL' 'ObsidiNote' $problem -Hint 'Close the other ObsidiNote console window (the older one still runs there), then start ObsidiNote again.'
+            if ($copilot) { try { Disconnect-Copilot $copilot } catch { } }
+            exit 4
+        }
+        # The same version: show its window and leave that one running.
         $how = Open-ObsidiNoteWindow
         Write-Status -ToError 'OK' 'ObsidiNote' "already running at $url; $(Get-AppWindowDetail $how)"
         if ($copilot) { try { Disconnect-Copilot $copilot } catch { } }
@@ -252,5 +275,9 @@ try {
     Stop-UiServer $server
     Close-ObsidiVaultLease $state
     if ($copilot) { try { Disconnect-Copilot $copilot } catch { } }
+    # The window's refresh button can have replaced the start's bridge (POST /api/copilot/reconnect).
+    if ($state -and $state.Copilot -and -not [object]::ReferenceEquals($state.Copilot, $copilot)) {
+        try { Import-Module (Join-Path $PSScriptRoot 'lib\CopilotBridge.psm1'); Disconnect-Copilot $state.Copilot } catch { }
+    }
     Say 'ObsidiNote stopped.'
 }

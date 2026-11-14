@@ -1,15 +1,31 @@
 .rail {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  gap: 0;
   width: 248px;
   flex: none;
-  min-height: 100dvh;
+  /* Stays in place while the page scrolls (operator, 2026-11-13). The logo and the switcher/nav at
+     the top and the footer (notes, export, theme) at the bottom are always visible; only the section
+     list scrolls, inside its own box (operator, 2026-11-14). */
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  overflow: hidden;
   padding: var(--space-6) var(--space-4);
   box-sizing: border-box;
   background: var(--surface);
   border-right: 1px solid var(--border);
 }
+
+/* Distinct groups (operator, 2026-11-14): logo, notebook, menu, sections, then the footer; each
+   group after the first starts with a divider line and the same space above and below it. */
+/* nav.rail: one element more than the groups' own one-class rules (.switcher, .rail__nav set padding). */
+nav.rail > * + * {
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border);
+}
+nav.rail > .rail__footer { margin-top: auto; }
 
 .rail__brand {
   display: flex;
@@ -44,7 +60,10 @@
   font-weight: 600;
   color: var(--muted);
 }
-.rail__notebook { min-height: 0; }
+/* The one part of the side bar that scrolls: it takes the room left between top and footer. */
+.rail__notebook { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.rail__notebook > .rail__label { flex: none; }
+.rail__scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 
 .switcher { display: flex; flex-direction: column; gap: var(--space-2); padding: 0 var(--space-3); }
 .switcher .rail__label { margin: 0; padding: 0; }
@@ -59,7 +78,11 @@
 .rail__footer .export__msg { max-width: none; }
 .rail__muted { margin: 0; padding: 0 var(--space-3); font-size: var(--text-meta); color: var(--muted); }
 
-.rail__footer { margin-top: auto; display: flex; flex-direction: column; gap: var(--space-4); }
+.rail__footer { flex: none; margin-top: auto; display: flex; flex-direction: column; gap: var(--space-4); }
+.rail__vault { display: flex; flex-direction: column; gap: var(--space-3); }
+/* The theme switch is a setting, not part of the notebook: its own group under a divider. */
+.rail__theme { padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.rail__brand, .rail .switcher, .rail__nav { flex: none; }
 .rail__notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
 .rail__note {
   display: flex;
@@ -71,6 +94,13 @@
   font-size: var(--text-meta);
 }
 .rail__note .icon { margin-top: 1px; }
+.rail__note-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.rail__note-text [role="status"]:empty { display: none; }
+/* The refresh button on the Copilot note: square at the small control height, in the note's colour. */
+.rail__retry { flex: none; width: var(--control-h-sm); align-self: flex-start; margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-1)) 0 0; color: inherit; }
+.rail__retry[aria-busy="true"] svg { animation: rail-spin 0.9s linear infinite; }
+@keyframes rail-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .rail__retry[aria-busy="true"] svg { animation-duration: 2.4s; } }
 
 /* the notebook's sections */
 .tree { list-style: none; margin: 0; padding: 0; }
@@ -99,7 +129,15 @@
 .tree__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree__count { flex: none; color: var(--muted); font-size: var(--text-meta); }
 
+/* A window too short for the fixed top and footer plus a usable list: the whole side bar scrolls,
+   so nothing is cut off. */
+@media (max-height: 520px) {
+  .rail { overflow-y: auto; }
+  .rail__notebook, .rail__scroll { flex: none; overflow-y: visible; }
+}
+
 @media (max-width: 760px) {
-  .rail { width: 100%; min-height: 0; border-right: 0; border-bottom: 1px solid var(--border); }
-  .rail__footer { margin-top: 0; }
+  .rail { position: static; width: 100%; height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid var(--border); }
+  .rail__notebook, .rail__scroll { flex: none; overflow-y: visible; }
+  nav.rail > .rail__footer { margin-top: var(--space-5); }
 }

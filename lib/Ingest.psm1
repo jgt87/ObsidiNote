@@ -989,4 +989,156 @@ function Invoke-PageLinkWrite {
     $r
 }
 
-Export-ModuleMember -Function Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle, Add-PageLink, Test-PagesLinked
+# ---------------------------------------------------------------------------- edit a page (user, 2026-11-13)
+
+$script:EditFields = @('title', 'type', 'topics', 'aliases', 'summary', 'url', 'links')
+
+function Test-EditText([string]$Text, [int]$Max) { $Text.Length -le $Max -and $Text -notmatch '[\x00-\x08\x0b\x0c\x0e-\x1f]' }
+
+function Get-EditPlan {
+    <# Validates the asked changes of page $Rec against the index; nothing is written. Returns
+       @{ ok; message; changes (only fields that differ, normalised) }. Pure apart from store reads. #>
+    param($Store, $Rec, $Pages, [hashtable]$Ask)
+    $ch = @{}
+    $fail = { param($m) @{ ok = $false; message = $m; changes = @{} } }
+    if ($Ask.ContainsKey('title')) {
+        $t = ([string]$Ask.title).Trim()
+        if (-not $t -or -not (Test-EditText $t 200) -or $t -match '[\r\n]') { return (& $fail 'The title must be one line of 1 to 200 characters.') }
+        if ($t -cne (Get-LkString $Rec 'title')) { $ch.title = $t }
+    }
+    if ($Ask.ContainsKey('type')) {
+        $ty = ([string]$Ask.type).Trim()
+        if (@(Invoke-Store $Store 'TypeList') -notcontains $ty) { return (& $fail "'$ty' is not one of ObsidiNote's page types.") }
+        $cur = Get-LkString $Rec 'type'
+        if ($ty -ne $cur) {
+            $b1 = [string](Invoke-Store $Store 'BucketForType' @{ Type = $cur }); $b2 = [string](Invoke-Store $Store 'BucketForType' @{ Type = $ty })
+            if ($b1 -ne $b2) { return (& $fail "Type '$ty' belongs in ${b2}, not in ${b1}: moving a page to another section is not possible yet.") }
+            $ch.type = $ty
+        }
+    }
+    if ($Ask.ContainsKey('topics')) {
+        $tp = @(@($Ask.topics) | ForEach-Object { ((([string]$_) -split '/' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) -join '/') } | Where-Object { $_ } | Select-Object -Unique)
+        foreach ($p in $tp) { if (-not (Test-EditText $p 300) -or @($p.Split('/')).Count -gt 6) { return (& $fail "Topic path '$p' is too long.") } }
+        if (($tp -join '|') -ne (@(Get-LkProp $Rec 'topics' @()) -join '|')) { $ch.topics = $tp }
+    }
+    if ($Ask.ContainsKey('aliases')) {
+        $al = @(@($Ask.aliases) | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ } | Select-Object -Unique)
+        if ($al.Count -gt 20 -or @($al | Where-Object { -not (Test-EditText $_ 120) }).Count) { return (& $fail 'At most 20 aliases of up to 120 characters.') }
+        if (($al -join '|') -ne (@(Get-LkProp $Rec 'aliases' @()) -join '|')) { $ch.aliases = $al }
+    }
+    if ($Ask.ContainsKey('summary')) {
+        $s = ([string]$Ask.summary).Trim()
+        if (-not (Test-EditText $s 2000)) { return (& $fail 'The summary can be at most 2,000 characters.') }
+        if ($s -cne (Get-LkString $Rec 'summary')) { $ch.summary = $s }
+    }
+    if ($Ask.ContainsKey('url')) {
+        $u = ([string]$Ask.url).Trim()
+        $isLink = (Get-LkString $Rec 'type') -like 'link-*' -or (Get-LkString $Rec 'url')
+        if (-not $isLink) { return (& $fail 'Only a link page has an address.') }
+        if ($u -notmatch '^(?i)https?://[^\s/?#]+' -or $u.Length -gt 2000) { return (& $fail 'The address must be an http(s) link.') }
+        if ($u -ne (Get-LkString $Rec 'url')) {
+            $b1 = [string](Invoke-Store $Store 'LinkBucket' @{ Url = (Get-LkString $Rec 'url') }); $b2 = [string](Invoke-Store $Store 'LinkBucket' @{ Url = $u })
+            if ((Get-LkString $Rec 'url') -and $b1 -ne $b2) { return (& $fail "That address belongs in ${b2}, not in ${b1}: moving a page to another section is not possible yet.") }
+            $other = Invoke-Store $Store 'FindPageByUrl' @{ Url = $u }
+            if ($other -and (Get-LkString $other 'id') -ne (Get-LkString $Rec 'id')) { return (& $fail "That address already has its own page: $(Get-LkString $other 'title').") }
+            $ch.url = $u
+            $ch.host = Get-UrlHostName $u
+        }
+    }
+    if ($Ask.ContainsKey('links')) {
+        $self = Get-LkString $Rec 'id'
+        $seen = @{}
+        $links = New-Object System.Collections.Generic.List[object]
+        $err = ''
+        foreach ($l in @($Ask.links)) {
+            if (-not $l) { continue }
+            $t = [string](Get-LkProp $l 'target' '')
+            if (-not $t -or $seen.ContainsKey($t)) { continue }
+            if ($t -eq $self) { $err = 'A page cannot link to itself.'; break }
+            if (-not $Pages.ContainsKey($t)) { $err = "Page $t is not in this vault's index."; break }
+            $s = [int](Get-LkProp $l 'strength' 1); if ($s -lt 1) { $s = 1 } elseif ($s -gt 3) { $s = 3 }
+            $w = ([string](Get-LkProp $l 'why' '')).Trim()
+            if (-not (Test-EditText $w 300) -or $w -match '[\r\n]') { $err = 'A link''s reason must be one line of at most 300 characters.'; break }
+            $seen[$t] = $true
+            $links.Add(@{ target = $t; strength = $s; why = $w })
+        }
+        if ($err) { return (& $fail $err) }
+        $links = @($links.ToArray())
+        if ($links.Count -gt 200) { return (& $fail 'At most 200 links per page.') }
+        $key = { param($ls) (@($ls) | ForEach-Object { "$(Get-LkProp $_ 'target' ''):$(Get-LkProp $_ 'strength' 1):$(Get-LkProp $_ 'why' '')" }) -join '|' }
+        if ((& $key $links) -ne (& $key @(Get-LkProp $Rec 'links' @()))) { $ch.links = $links }
+    }
+    @{ ok = $true; message = ''; changes = $ch }
+}
+
+function Edit-Page {
+    <# The person edits one of ObsidiNote's pages in the window: title, type (within its section),
+       topics, aliases, summary, a link page's address, and its links to other pages. Only ObsidiNote's
+       own parts are written: the title, the page's obsn.* Meta and the properties outline (the store's
+       UpdatePage); the body and "Your notes" are never touched. The "Linked from" list of every page
+       whose link changed (or that shows this page's title) is rewritten; the index record is updated,
+       which regenerates only the affected Index pages. No Copilot.
+       $Changes: any of title, type, topics, aliases, summary, url, links (@(@{ target; strength; why })).
+       Returns @{ status = edited | unchanged | invalid | refused | not-found | failed; message; id;
+       changed (field names); backlinks; warnings; ms }. Never throws. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Store, [AllowEmptyString()][string]$Id = '', [hashtable]$Changes = @{})
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $r = [ordered]@{ status = 'failed'; message = ''; id = $Id; changed = @(); backlinks = 0; warnings = @(); ms = 0 }
+    try {
+        $ask = @{}; foreach ($k in $script:EditFields) { if ($Changes.ContainsKey($k)) { $ask[$k] = $Changes[$k] } }
+        if (-not $Id) { $r.status = 'invalid'; $r.message = 'Which page?' }
+        elseif (-not $ask.Count) { $r.status = 'invalid'; $r.message = 'Nothing to change.' }
+        else { $r = Invoke-PageEditWrite -Store $Store -Id $Id -Ask $ask -Result $r }
+    } catch {
+        $r.status = 'failed'
+        $r.message = "The page was not changed: $($_.Exception.Message)"
+    }
+    $r.ms = [int]$sw.ElapsedMilliseconds
+    Write-AppLog info ingest 'Page edit finished' @{ status = $r.status; id = $Id; fields = ($r.changed -join ','); backlinks = $r.backlinks; ms = $r.ms }
+    $r
+}
+
+function Invoke-PageEditWrite {
+    param($Store, [string]$Id, [hashtable]$Ask, $Result)
+    $r = $Result
+    try { Invoke-Store $Store 'AssertWritable' | Out-Null } catch { $r.status = 'refused'; $r.message = "Nothing was changed: $($_.Exception.Message)"; return $r }
+    $idx = Invoke-Store $Store 'GetIndex'
+    $pages = Get-IndexPageMap $idx
+    if (-not $pages.ContainsKey($Id)) { $r.status = 'not-found'; $r.message = "Page $Id is not in this vault's index."; return $r }
+    $rec = $pages[$Id]
+    $pageId = Get-LkString $rec 'pageId'
+    if (-not $pageId) { throw "page $Id has no OneNote page" }
+    # The page's own Meta is the truth for its links (the index mirrors it).
+    $pg = Invoke-Store $Store 'ReadPage' @{ PageId = $pageId }
+    $metaLinks = @(Get-LkProp (Get-LkProp $pg 'meta' @{}) 'links' @())
+    if ($metaLinks.Count) { $rec = @{} + $rec; $rec['links'] = $metaLinks }
+    $plan = Get-EditPlan -Store $Store -Rec $rec -Pages $pages -Ask $Ask
+    if (-not $plan.ok) { $r.status = 'invalid'; $r.message = $plan.message; return $r }
+    $ch = $plan.changes
+    $r.changed = @($ch.Keys | Where-Object { $_ -ne 'host' } | Sort-Object)
+    if (-not $r.changed.Count) { $r.status = 'unchanged'; $r.message = 'Nothing changed.'; return $r }
+
+    $meta = @{}; foreach ($k in 'type', 'topics', 'aliases', 'summary', 'url', 'host', 'links') { if ($ch.ContainsKey($k)) { $meta[$k] = $ch[$k] } }
+    Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = $meta; Outlines = @(); Title = $(if ($ch.ContainsKey('title')) { $ch.title } else { $null }) } | Out-Null
+    $ix = @{ id = $Id }; foreach ($k in @($meta.Keys)) { $ix[$k] = $meta[$k] }
+    if ($ch.ContainsKey('title')) { $ix.title = $ch.title }
+    try { Invoke-Store $Store 'IndexUpdatePage' @{ Page = $ix } | Out-Null }
+    catch { $r.warnings = @($r.warnings) + "The index was not updated; the next start reads the page again ($($_.Exception.Message))." }
+
+    # "Linked from" on the pages this one links to now or did before (when the links or the title changed).
+    $old = @(@(Get-LkProp $rec 'links' @()) | ForEach-Object { [string](Get-LkProp $_ 'target' (Get-LkProp $_ 't' '')) })
+    $new = if ($ch.ContainsKey('links')) { @($ch.links | ForEach-Object { $_['target'] }) } else { $old }
+    $targets = if ($ch.ContainsKey('title')) { @($old + $new) } elseif ($ch.ContainsKey('links')) { @(@($old | Where-Object { $new -notcontains $_ }) + @($new | Where-Object { $old -notcontains $_ })) } else { @() }
+    if (@($targets | Where-Object { $_ }).Count) {
+        $fresh = Invoke-Store $Store 'GetIndex'
+        $bl = Update-Backlinks -Store $Store -Index $fresh -Targets @($targets | Where-Object { $_ -and $pages.ContainsKey($_) })
+        $r.backlinks = $bl.count
+        $r.warnings = @($r.warnings) + @($bl.warnings)
+    }
+    $r.status = 'edited'
+    $r.message = "Saved: $(if ($ch.ContainsKey('title')) { $ch.title } else { Get-LkString $rec 'title' })"
+    $r
+}
+
+Export-ModuleMember -Function Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle, Add-PageLink, Test-PagesLinked, Edit-Page

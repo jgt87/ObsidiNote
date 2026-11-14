@@ -34,7 +34,8 @@ interface Props {
   matches: string[] | null
   active: Active | null
   onActive: (a: Active | null) => void
-  onOpen: (id: string) => void
+  /** Opens the page window; `via` says whether a click or the keyboard did it (focus on close). */
+  onOpen: (id: string, via?: 'pointer' | 'keyboard') => void
   stageRef: RefObject<HTMLDivElement | null>
   /** Accessible name of the map (default "Knowledge graph"). */
   label?: string
@@ -176,6 +177,19 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   useEffect(() => {
     if (active?.via === 'keyboard') keyboardMode.current = true
   }, [active])
+  // A click anywhere outside the map closes a card the keyboard left open (a pointer card closes
+  // when the pointer leaves its dot). Not while the page window is open: it sits on top.
+  useEffect(() => {
+    if (active?.via !== 'keyboard') return
+    const onDown = (e: PointerEvent) => {
+      const el = stageRef.current
+      const t = e.target as Node | null
+      if (!el || (t && el.contains(t)) || document.querySelector('dialog[open]')) return
+      onActive(null)
+    }
+    window.addEventListener('pointerdown', onDown)
+    return () => window.removeEventListener('pointerdown', onDown)
+  }, [active?.via, onActive, stageRef])
 
   const onPointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
     if (e.button !== 0) return
@@ -202,6 +216,8 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   const onPointerUp = (e: ReactPointerEvent<SVGSVGElement>) => {
     const d = drag.current
     drag.current = null
+    // Focus from this click (if any) has happened by now; a later keyboard focus must count.
+    pointerFocus.current = false
     if (!d || d.pointer !== e.pointerId) return
     if (d.moved) {
       setDragging(false)
@@ -209,7 +225,9 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
       commit()
       return
     }
-    if (d.id && visible(d.id)) onOpen(d.id)
+    if (d.id && visible(d.id)) onOpen(d.id, 'pointer')
+    // A click on an empty spot closes a preview card, also one the keyboard left open (2026-11-13).
+    else if (active) onActive(null)
   }
   const onPointerOver = (e: ReactPointerEvent<SVGSVGElement>) => {
     // A resting pointer "enters" new dots when the keyboard redraws the focus layer under it;

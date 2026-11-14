@@ -11,11 +11,17 @@ $script:AppLib = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $PSScriptRoot 'ValidationCore.psm1')
 Import-Module (Join-Path $script:AppLib 'OneNoteHost.psm1')
 Import-Module (Join-Path $PSScriptRoot 'StageCopilot.psm1')
+# The bridge itself too: StageCopilot's import of it is nested and not visible here, so the Add steps'
+# Get-Command Send-CopilotPrompt failed (V6 "Dev vault" FAIL on the target machine, 2026-11-14).
+Import-Module (Join-Path $script:AppLib 'CopilotBridge.psm1')
 
 $script:Needs = @{
     vault = @('OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index')
     add   = @('Linker', 'LinkCapture', 'Ingest', 'VaultStore')
     ask   = @('Ask', 'AskSources')
+    # Loaded where they are used, and only when this version has them (tests/ModuleImports.Tests.ps1
+    # reads every list here).
+    later = @('GraphModel', 'MarkdownExport', 'Upgrade')
 }
 # The functions that connect Add and Ask to OneNote (the store and source adapters,
 # lib/VaultStore.psm1 and lib/AskSources.psm1). They are called with the arguments they declare.
@@ -59,7 +65,7 @@ function Invoke-WithKnownParams {
 }
 
 function Add-SkipAll($Ctx, [string]$Why) {
-    foreach ($n in 'Vaults', 'Index completeness', 'Knowledge graph', 'Markdown export', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
+    foreach ($n in 'Vaults', 'Index completeness', 'Upgrade plan', 'Knowledge graph', 'Markdown export', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
 }
 
 function Add-VaultResults($Ctx, $Adapter) {
@@ -337,6 +343,67 @@ function Invoke-DevLinkIt($Ctx, $Adapter, $Dev) {
     }
 }
 
+function Invoke-DevUpgrade($Ctx, $Adapter, $Dev) {
+    <# The upgrade's page move (lib/Upgrade.psm1, lib/VaultStore.psm1 MovePage; probes/p9-move.ps1):
+       a synthetic link page with a company-tenant address, filed under Web links as an older version
+       did, is moved to Internal links by Invoke-VaultUpgrade; then it goes back out (Undo). Only in
+       ObsidiNote-Validation. Statuses and timings only. #>
+    $name = 'Upgrade move'
+    $miss = @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names (@($script:Needs.add) + 'Upgrade'))
+    if ($miss.Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' $name "not in this version yet ($($miss -join ', ') missing)"; return }
+    Import-AppModules $Ctx.AppRoot (@($script:Needs.add) + 'Upgrade')
+    $builder = Find-KitCommand $script:StoreBuilders
+    $lease = $Dev.lease
+    $getLease = { $lease }.GetNewClosure()
+    $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = $getLease; AppRoot = $Ctx.AppRoot } }
+    if (-not $s.ok -or -not $Dev.model) { Add-ValidationResult $Ctx 'V6' 'FAIL' $name "the store could not be made: $(if ($s.ok) { 'no index model' } else { $s.error })"; return }
+    $store = $s.value
+    $id = ''
+    try {
+        $mk = Measure-KitStep {
+            $i = [string](& $store.NewId)
+            $url = 'https://validation-kit.service-now.com/kb_view.do?sysparm_article=KB0000001'
+            $page = @{ id = $i; type = 'link-web'; bucket = 'Web links'; title = 'Validation upgrade page'; summary = 'Synthetic page of the validation kit.'; topics = @(); aliases = @(); links = @(); status = ''; url = $url; host = 'validation-kit.service-now.com'; outlines = @(@{ role = 'body'; lines = @('Synthetic page of the validation kit.') }) }
+            $cp = & $store.CreatePage -Page $page
+            $page.pageId = [string]$cp['pageId']; $page.link = [string]$cp['link']; $page.section = [string]$cp['section']
+            $null = & $store.IndexAddPage -Page $page
+            $i
+        }
+        if (-not $mk.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' $name "the test page could not be made: $($mk.error)"; return }
+        $id = $mk.value
+        $u = Measure-KitStep { Invoke-VaultUpgrade -Store $store }
+        $rec = $Dev.model.pages[$id]
+        $ok = $u.ok -and "$(Get-KitProp $u.value 'status' '')" -eq 'done' -and $rec.section -eq 'Internal links' -and $rec.type -eq 'link-internal'
+        $found = $false
+        if ($ok) { $t = ConvertFrom-ObsnHierarchy -Xml ($Adapter.GetHierarchy($Dev.vault.rootId, 4)) -RootId $Dev.vault.rootId; $found = @($t.sections | Where-Object { $_.full -eq 'Internal links' } | ForEach-Object { $_.pages } | Where-Object { $_.id -eq $rec.oneNoteId -and $_.meta['obsn.id'] -eq $id }).Count -eq 1 }
+        Add-ValidationResult $Ctx 'V6' $(if ($ok -and $found) { 'OK' } else { 'FAIL' }) $name "status $(Get-KitProp $u.value 'status' 'error'); moved $(Get-KitProp $u.value 'moved' 0) of $(Get-KitProp $u.value 'planned' 0); found again in Internal links: $found; $($u.ms) ms$(if (-not $u.ok) { "; $($u.error)" })"
+    } finally {
+        if ($id -and $Dev.model.pages.Contains($id)) {
+            $rec = $Dev.model.pages[$id]
+            $un = Measure-KitStep { Undo-AddRequest -Store $store -Undo @{ id = $id; pageId = $rec.oneNoteId; targets = @() } }
+            Add-ValidationResult $Ctx 'V6' $(if ($un.ok -and "$(Get-KitProp $un.value 'status' '')" -eq 'undone') { 'OK' } else { 'WARN' }) "$name (undo)" "status $(Get-KitProp $un.value 'status' 'error') (OneNote's Deleted Pages)"
+        }
+    }
+}
+
+function Add-UpgradePlanResults($Ctx, [object[]]$Vaults, $Adapter) {
+    <# Read only: per vault, how many pages the next start's upgrade would move (lib/Upgrade.psm1). #>
+    if (@(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names @('Upgrade', 'VaultStore', 'Ingest', 'Linker', 'LinkCapture')).Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Upgrade plan' 'not in this version yet'; return }
+    Import-AppModules $Ctx.AppRoot @('Linker', 'LinkCapture', 'Ingest', 'VaultStore', 'Upgrade')
+    foreach ($x in $Vaults) {
+        $nb = if ($x.PSObject.Properties['kitAlias']) { $x.kitAlias } else { 'a vault' }
+        $r = Measure-KitStep {
+            $m = Read-IndexModel -Adapter $Adapter -IndexSectionId $x.indexSectionId -VaultId "$($x.vaultId)" -RootId $x.rootId
+            $names = @(Get-CompanyNames -Locations @([string](Get-KitProp $x 'location' '')))
+            , @(Get-UpgradePlan -Model $m -CompanyNames $names)
+        }
+        if (-not $r.ok) { Add-ValidationResult $Ctx 'V6' 'WARN' "Upgrade plan of $nb" $r.error; continue }
+        $p = @($r.value)
+        $toIn = @($p | Where-Object { $_.to -eq 'Internal links' }).Count
+        Add-ValidationResult $Ctx 'V6' 'INFO' "Upgrade plan of $nb" "$($p.Count) link page(s) to move ($toIn to Internal links, $($p.Count - $toIn) to Web links); the next start of ObsidiNote moves them"
+    }
+}
+
 function Invoke-DevAsk($Ctx, $Adapter, $Dev, $Bridge) {
     $miss = @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names $script:Needs.ask)
     if ($miss.Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Ask' "not in this version yet ($($miss -join ', ') missing)"; return }
@@ -355,7 +422,7 @@ function Invoke-DevAsk($Ctx, $Adapter, $Dev, $Bridge) {
 
 function Invoke-DevVaultChecks($Ctx, $Adapter) {
     if (-not (Get-KitFlag $Ctx 'WriteTest')) {
-        foreach ($n in 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n 'write tests not run' 'Add -WriteTest; they write only into the notebook ObsidiNote-Validation.' }
+        foreach ($n in 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n 'write tests not run' 'Add -WriteTest; they write only into the notebook ObsidiNote-Validation.' }
         return
     }
     $dev = $null
@@ -367,6 +434,7 @@ function Invoke-DevVaultChecks($Ctx, $Adapter) {
         Invoke-DevAdd $Ctx $Adapter $dev $bridge
         Invoke-DevAnswerCheck $Ctx $Adapter $dev $bridge
         Invoke-DevLinkIt $Ctx $Adapter $dev
+        Invoke-DevUpgrade $Ctx $Adapter $dev
         Invoke-DevAsk $Ctx $Adapter $dev $bridge
     } catch { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Dev vault' $_.Exception.Message }
     finally { if ($dev -and $dev.lease) { try { $null = Clear-WriterLease -Adapter $Adapter -Lease $dev.lease } catch { } } }
@@ -383,6 +451,7 @@ function Invoke-StageVault {
     if (-not $a.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' 'OneNote adapter' $a.error; return }
     $vaults = @(Add-VaultResults $Ctx $a.value)
     Add-IndexResults $Ctx $a.value $vaults
+    Add-UpgradePlanResults $Ctx $vaults $a.value
     Add-GraphResults $Ctx $a.value $vaults
     if (-not @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names @('MarkdownExport')).Count) { Import-AppModules $Ctx.AppRoot @('MarkdownExport') }
     Add-ExportResults $Ctx $a.value $vaults

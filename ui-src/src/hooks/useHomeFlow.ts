@@ -106,6 +106,7 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
     onFollowUp: () => { setFollowUp({ conversationId: r.conversationId, question: r.question }); setPrefill({ text: '', mode: 'ask', key: ++n.current }) },
     onSavePage: () => { setFlow({ kind: 'adding', text: r.question }); answerPageSpec(r.conversationId).then((s) => addText(pageSpecToText(s)), (e: unknown) => fail(r.question, e, false)) },
     onShowOnMap: () => onShowOnMap(r.sources.filter((s) => !s.readOnly).map((s) => s.id)),
+    onShowPage: (id: string) => onShowOnMap([id]),
     onUpdateLink: (id: string) => withAddBusy(updateLink(id)),
     onSaveOpenQuestion: () => { setFlow({ kind: 'adding', text: r.question }); openQuestionSpec(r.question, r.conversationId).then((s) => addText(pageSpecToText(s)), (e: unknown) => fail(r.question, e, false)) },
     onAskAsNew: () => askNew(r.question),

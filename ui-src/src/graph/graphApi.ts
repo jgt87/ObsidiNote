@@ -3,6 +3,7 @@
 // (lib/Server.psm1 adds the route; step 2 builds the model). Every call carries
 // X-ObsidiNote: 1, which the server requires.
 
+import type { PageEditRequest } from './editModel'
 import { normalizeGraph, type GraphModel } from './model'
 
 export type GraphSourceRef = { vault: string } | { notebook: string } | Record<string, never>
@@ -37,6 +38,26 @@ export async function fetchGraph(ref: GraphSourceRef = {}, signal?: AbortSignal,
     throw new GraphLoadError(msg, res.status)
   }
   return normalizeGraph(body)
+}
+
+export const PAGE_EDIT_ROUTE = '/api/page/edit'
+
+/**
+ * Edit a page of the active vault: POST /api/page/edit with only the changed fields. Resolves with
+ * 'edited' or 'unchanged'; throws GraphLoadError with the server's message otherwise (400 what is
+ * wrong, 409 read only or another source, 404 not in the index).
+ */
+export async function editPage(req: PageEditRequest, fetcher: typeof fetch = fetch): Promise<'edited' | 'unchanged'> {
+  let res: Response
+  try {
+    res = await fetcher(PAGE_EDIT_ROUTE, { method: 'POST', headers: { 'X-ObsidiNote': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(req) })
+  } catch {
+    throw new GraphLoadError('ObsidiNote is not answering. Is it still running?', 0)
+  }
+  const body: unknown = await res.json().catch(() => null)
+  const b = (body && typeof body === 'object' ? body : {}) as { status?: unknown; error?: unknown }
+  if (res.status !== 200) throw new GraphLoadError(b.error ? String(b.error) : `The server answered ${res.status}.`, res.status)
+  return b.status === 'unchanged' ? 'unchanged' : 'edited'
 }
 
 export const LINK_ADD_ROUTE = '/api/link/add'

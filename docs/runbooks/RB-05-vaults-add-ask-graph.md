@@ -17,6 +17,8 @@ knowledge graph's data, Add and Ask.
 | Add (synthetic) and Undo | Adds a made-up sentence about tidal gardens to the test vault with Copilot, then undoes it (the page goes to OneNote's Deleted Pages) | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Check for the answer | Adds a second made-up sentence with a wait of 1 second, so Copilot is still answering and the item waits in the Intake (Copilot is left working, never stopped). Then checks for the answer every 10 seconds (at most 3 minutes) until the page is filed, and undoes it | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Update waits for the answer | Adds the public link `https://example.org/`, updates it with a wait of 1 second so the update waits in the Intake, checks for the answer every 10 seconds (at most 3 minutes) until the update is done, then undoes the link page | Only `ObsidiNote-Validation`, with `-WriteTest` |
+| Upgrade plan of Vault n | Counts the link pages the next start would move to another section (new internal-link rule); moves nothing | No |
+| Upgrade move | Makes a made-up link page with a company-tenant address under Web links (as an older version filed it), lets the upgrade move it to Internal links, checks it is found again there, then undoes it | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Link it | Makes two made-up pages in the test vault, links the first to the second as "Link it" does in the window, checks that a second "Link it" writes nothing, then undoes both pages. No Copilot needed | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Ask (synthetic) | Asks "What do my notes say about tidal gardens?" against the test vault | No (Ask never writes) |
 
@@ -64,6 +66,8 @@ knowledge graph's data, Add and Ask.
      - `[OK] Link it  status linked; backlinks 1; ... ms`, then `[OK] Link it again  status
        already-linked`, then `[OK] Link it (undo)  2 of 2 test pages back out`. Two pages titled
        "Validation link source" and "Validation link target" are then in the test vault's Deleted Pages.
+     - `[OK] Upgrade move  status done; moved 1 of 1; found again in Internal links: True; ... ms`, then
+       `[OK] Upgrade move (undo)  status undone`.
      - `[OK] Ask (synthetic)  status ...; writes 0`
      - In OneNote: a notebook `ObsidiNote-Validation` with the sections `00 Index`, `01 Intake`,
        `Notes` and the other fixed sections. A test vault made before this version had `01 Inbox`:
@@ -98,11 +102,23 @@ knowledge graph's data, Add and Ask.
    - If not, send this: the two newest Desktop files, which button you pressed and the message next
      to it (no file contents).
 
-8. Knowledge graph after an update with the Intake fix: start ObsidiNote once (this rewrites your
-   vault's Index pages), open **Knowledge graph**.
+8. Knowledge graph after an update with the Intake fix and the link upgrade: start ObsidiNote once
+   (this rewrites your vault's Index pages and moves link pages the new link rule files elsewhere;
+   step 3 showed how many as `Upgrade plan of Vault n`). The console shows
+   `[OK] Upgrade  N link page(s) moved ...` when it moved any. Open **Knowledge graph**.
+   - Your Workday, ServiceNow and similar company links are now under **Internal links** (type
+     link-internal), with your own text on them unchanged; public pages stay under **Web links**.
    - What you should see: each page you added appears once, in its topic. No dot under **Unfiled**
      is titled with a link or text you pasted (those were Add requests from the Intake). Unfiled
      only holds pages without a topic, such as pages you typed in OneNote yourself.
    - If not, send this: the two newest Desktop files and how many Unfiled dots you see.
 
-9. Clean up when asked to (RB-03, "Cleaning up").
+9. Edit a page in the window (writes into your vault): in **Knowledge graph**, open a page you added,
+   press **Edit**, change its title and remove or add one link, press **Save**.
+   - What you should see: the form closes and the window shows the new title and links at once. In
+     OneNote, the page has the new title and its properties block shows the change; the page you
+     linked to lists it under "Linked from"; your own text on the page is unchanged. For a link page,
+     **Open link** opens the original address in a browser tab.
+   - If not, send this: the two newest Desktop files and the message the form showed.
+
+10. Clean up when asked to (RB-03, "Cleaning up").

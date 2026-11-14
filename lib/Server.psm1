@@ -23,7 +23,8 @@ $script:Here = $PSScriptRoot
 # GraphModel, Ingest, Ask (and the step-2 modules they import). Status for the [WARN] line of a new vault.
 # MarkdownExport: POST /api/export, the download the person asks for (built in memory).
 # WhatsNew: GET /api/whats-new, the running version's CHANGELOG.md lines (read only).
-foreach ($m in 'Log', 'AppConfig', 'Startup', 'Intent', 'OneNoteHost', 'NotebookView', 'Update', 'Status', 'OneNote', 'PageMeta', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'AskSources', 'GraphModel', 'Ingest', 'Ask', 'MarkdownExport', 'WhatsNew') {
+# NotebookStructure: the company names for link buckets and the page types for editing.
+foreach ($m in 'Log', 'AppConfig', 'Startup', 'Intent', 'OneNoteHost', 'NotebookView', 'Update', 'Status', 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'AskSources', 'GraphModel', 'Ingest', 'Ask', 'MarkdownExport', 'WhatsNew') {
     Import-Module (Join-Path $PSScriptRoot "$m.psm1")
 }
 
@@ -105,17 +106,18 @@ function New-ServerState {
        -FakeStatus replaces /api/status; -FakeHierarchyXml replaces OneNote with a read-only stand-in
        made from that XML (New-XmlOneNoteAdapter, OneNote counts as running), so the tests run the
        real parsing. -TestAdapter / -TestCopilot: in-process tests of Invoke-ApiRoute only (objects
-       with scriptblocks; never with Start-UiServer). UpdatedTo: the version this start was updated
+       with scriptblocks; never with Start-UiServer); -TestConnect stands in for Connect-Copilot in
+       POST /api/copilot/reconnect (returns a bridge-like object or throws). UpdatedTo: the version this start was updated
        to ('' when it followed no update), for GET /api/whats-new. #>
     param([Parameter(Mandatory)][string]$AppRoot, [int]$Port, [int]$CdpPort = 9334, [bool]$CopilotSkipped = $false,
         $FakeStatus = $null, [string]$FakeHierarchyXml = '', $Copilot = $null, $Vault = $null, $Lease = $null, [string]$SessionId = '',
-        $Model = $null, $TestAdapter = $null, $TestCopilot = $null, [string]$UpdatedTo = '')
+        $Model = $null, $TestAdapter = $null, $TestCopilot = $null, [string]$UpdatedTo = '', $TestConnect = $null)
     $h = [hashtable]::Synchronized(@{})
     $h.AppRoot = $AppRoot; $h.Port = $Port; $h.CdpPort = $CdpPort; $h.CopilotSkipped = $CopilotSkipped
     $h.FakeStatus = $FakeStatus; $h.FakeHierarchyXml = $FakeHierarchyXml
     $h.Copilot = $Copilot; $h.Vault = $Vault; $h.Lease = $Lease; $h.Model = $Model
     $h.SessionId = $(if ($SessionId) { $SessionId } else { New-WriterSessionId })
-    $h.TestAdapter = $TestAdapter; $h.TestCopilot = $TestCopilot
+    $h.TestAdapter = $TestAdapter; $h.TestCopilot = $TestCopilot; $h.TestConnect = $TestConnect
     $h.UpdatedTo = $UpdatedTo
     $h.Lock = New-Object object
     $h.Id = [guid]::NewGuid().ToString('N')
@@ -365,8 +367,12 @@ function Use-ActiveVault($State) {
 }
 
 function New-ServerStore($State, $Use) {
+    <# The vault store for one request. Links: the "internalHosts" setting, and the company's tenant
+       names from the vault's own location and the notebook record (never stored; Get-CompanyNames). #>
     $st = $State
-    New-VaultStore -Adapter $Use.adapter -Vault $State.Vault -Model $Use.model -GetLease { $st.Lease }.GetNewClosure()
+    $hosts = @(@(Get-AppSetting -Key 'internalHosts' -Default @() -AppRoot $State.AppRoot) | ForEach-Object { "$_" } | Where-Object { $_ })
+    $names = @(Get-CompanyNames -Locations @([string]$State.Vault.location, (Get-NotebookRecord -AppRoot $State.AppRoot)))
+    New-VaultStore -Adapter $Use.adapter -Vault $State.Vault -Model $Use.model -GetLease { $st.Lease }.GetNewClosure() -InternalHosts $hosts -CompanyNames $names
 }
 
 # --- Copilot ----------------------------------------------------------------------------------------
@@ -424,6 +430,51 @@ function Get-AddChatReader($State) {
     $cmd = Get-Command Read-CopilotChat
     $b = $State.Copilot
     { param([string]$ChatUrl) & $cmd -Bridge $b -ChatUrl $ChatUrl }.GetNewClosure()
+}
+
+# How long one reconnect may look for Copilot's message box after a sign-in redirect. The request
+# loop is the server's only thread, so this is short; a sign-in that still has to happen is left to
+# the person (state 'sign-in'), who presses the button again afterwards.
+$script:ReconnectSignInSec = 15
+
+function Invoke-CopilotReconnectRoute($State) {
+    <# POST /api/copilot/reconnect: the refresh button next to "Copilot is not connected" in the
+       window's side bar (user, 2026-11-14). One attempt to attach to Copilot in ObsidiNote's Edge
+       window (Connect-Copilot starts that Edge when it is closed), without the start's 10-minute
+       sign-in wait. 200 {state, message}: connected | sign-in | failed. 409 when this start skipped
+       Copilot (-NoCopilot). The log gets the outcome only. #>
+    if ($State.CopilotSkipped) { return @{ status = 409; body = @{ state = 'skipped'; error = 'Copilot is off for this start. Start ObsidiNote again without -NoCopilot.' } } }
+    if ((Get-CopilotState $State) -eq 'connected') { return @{ status = 200; body = @{ state = 'connected'; message = '' } } }
+    if ($State.TestConnect) { $connect = $State.TestConnect }
+    else {
+        Import-Module (Join-Path $script:Here 'CopilotBridge.psm1') -Global
+        $cmd = Get-Command Connect-Copilot
+        $sec = $script:ReconnectSignInSec
+        $connect = { & $cmd -SignInTimeoutSec $sec -NoSignInWait }.GetNewClosure()
+    }
+    $b = $null
+    try { $b = & $connect }
+    catch {
+        Write-AppLog info server 'Copilot reconnect failed'
+        return @{ status = 200; body = @{ state = 'failed'; message = "Copilot could not be reached: $($_.Exception.Message)" } }
+    }
+    if (-not $b) { return @{ status = 200; body = @{ state = 'failed'; message = 'Copilot could not be reached. Start ObsidiNote again.' } } }
+    if ($b.PSObject.Properties['SignInPending'] -and $b.SignInPending) {
+        Close-CopilotBridge $b
+        Write-AppLog info server 'Copilot reconnect: sign-in needed'
+        return @{ status = 200; body = @{ state = 'sign-in'; message = "Sign in to Microsoft 365 Copilot in ObsidiNote's Edge window, then press the refresh button again." } }
+    }
+    $old = $State.Copilot
+    $State.Copilot = $b
+    if ($old) { Close-CopilotBridge $old }
+    Write-AppLog info server 'Copilot reconnected'
+    @{ status = 200; body = @{ state = 'connected'; message = '' } }
+}
+
+function Close-CopilotBridge($Bridge) {
+    <# Lets go of a bridge's tab connection; never throws (a lost one is already closed). #>
+    # Through Get-Command: CopilotBridge.psm1 is imported on use (-Global), not by this module.
+    try { $c = Get-Command Disconnect-Copilot -ErrorAction SilentlyContinue; if ($c) { & $c $Bridge } } catch { }
 }
 
 # --- Requests (pure parts) ----------------------------------------------------------------------------
@@ -620,6 +671,9 @@ function Get-GraphRoute($State, [string]$Query) {
             $m = ConvertTo-GraphModel -Model $model -Source @{ kind = 'vault'; id = $v.vaultId; name = $v.name; readOnly = $true }
         }
         $m['edgesComplete'] = $true
+        # The page types and their sections, for the page window's Edit (a type stays in its section).
+        $typeList = Get-ObsnTypes   # returns ', @(...)': assign as is, never wrap in @() (AGENTS.md)
+        $m['types'] = @(foreach ($t in $typeList) { [ordered]@{ type = [string]$t; bucket = (Get-BucketForType -Type ([string]$t)) } })
         return @{ status = 200; body = $m }
     }
     $nb = @($d.notebooks | Where-Object { $_.id -eq $nid }) | Select-Object -First 1
@@ -801,6 +855,44 @@ function Invoke-LinkAddRoute($State, [string]$Body) {
     @{ status = 200; body = $r }
 }
 
+function Invoke-PageEditRoute($State, [string]$Body) {
+    <# POST /api/page/edit {id, title?, type?, topics?, aliases?, summary?, url?, links?[, vault]}: the
+       person edits a page of the active vault in the window (lib/Ingest.psm1 Edit-Page; no Copilot).
+       Only the fields sent change. 400 bad input, 409 another source or read only, 404 not in the index,
+       200 edited or unchanged. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $id = "$(Get-BodyValue $b 'id' '')"
+    if (-not (Test-ObsnId $id)) { return @{ status = 400; body = @{ error = 'id must be an ObsidiNote page id.' } } }
+    $vault = "$(Get-BodyValue $b 'vault' '')"
+    if ("$(Get-BodyValue $b 'notebook' '')" -or ($vault -and (-not $State.Vault -or $vault -ne [string]$State.Vault.vaultId))) {
+        return @{ status = 409; body = @{ error = 'Only pages of the active vault can be changed; other sources are read only.' } }
+    }
+    $ch = @{}
+    foreach ($k in 'title', 'type', 'summary', 'url') {
+        if (-not $b.PSObject.Properties[$k]) { continue }
+        $v = $b.$k
+        if ($null -ne $v -and $v -isnot [string]) { return @{ status = 400; body = @{ error = "$k must be text." } } }
+        $ch[$k] = [string]$v
+    }
+    foreach ($k in 'topics', 'aliases') {
+        if (-not $b.PSObject.Properties[$k]) { continue }
+        $v = @($b.$k | Where-Object { $null -ne $_ })
+        if (@($v | Where-Object { $_ -isnot [string] }).Count) { return @{ status = 400; body = @{ error = "$k must be a list of text." } } }
+        $ch[$k] = @($v)
+    }
+    if ($b.PSObject.Properties['links']) {
+        $ls = @($b.links | Where-Object { $null -ne $_ })
+        if (@($ls | Where-Object { $_ -isnot [pscustomobject] -or -not (Test-ObsnId "$($_.target)") }).Count) { return @{ status = 400; body = @{ error = 'links must be a list of {target, strength, why} with ObsidiNote page ids.' } } }
+        $ch.links = @($ls | ForEach-Object { @{ target = "$($_.target)"; strength = $(if ($_.PSObject.Properties['strength']) { [int]$_.strength } else { 1 }); why = $(if ($_.PSObject.Properties['why']) { "$($_.why)" } else { '' }) } })
+    }
+    $u = Use-ActiveVault $State
+    if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
+    $r = Edit-Page -Store (New-ServerStore $State $u) -Id $id -Changes $ch
+    $code = switch ($r.status) { 'edited' { 200 } 'unchanged' { 200 } 'refused' { 409 } 'not-found' { 404 } 'invalid' { 400 } default { 500 } }
+    if ($code -ne 200) { return @{ status = $code; body = @{ error = $r.message; status = $r.status } } }
+    @{ status = 200; body = $r }
+}
+
 function Invoke-ApiRoute {
     <# The answer to one API call: @{ status; body }. The body is an object for ConvertTo-Json. #>
     param([string]$Method, [string]$Path, [string]$Body, $State, [string]$Query = '')
@@ -829,7 +921,9 @@ function Invoke-ApiRoute {
         'POST /api/add/fetch' { return (Invoke-AddFetchRoute $State $Body) }
         'POST /api/link/update' { return (Invoke-LinkUpdateRoute $State $Body) }
         'POST /api/link/add' { return (Invoke-LinkAddRoute $State $Body) }
+        'POST /api/page/edit' { return (Invoke-PageEditRoute $State $Body) }
         'POST /api/export' { return (Invoke-ExportRoute $State $Body) }
+        'POST /api/copilot/reconnect' { return (Invoke-CopilotReconnectRoute $State) }
     }
     @{ status = 404; body = @{ error = 'Not found.' } }
 }
@@ -979,6 +1073,27 @@ function Test-UiServerRunning {
     } catch { $false }
 }
 
-Export-ModuleMember -Function Get-AllowedOrigins, Test-AllowedOrigin, Test-AllowedHost, Get-RequestVerdict, Get-UiAllowList,
+function Get-RunningUiVersion {
+    <# The version an ObsidiNote server already running on $Port reports ('' when none answers). #>
+    param([int]$Port)
+    try {
+        $s = Invoke-RestMethod "http://127.0.0.1:$Port/api/status" -Headers @{ 'X-ObsidiNote' = '1' } -TimeoutSec 5
+        if ("$($s.app)" -eq 'ObsidiNote') { return "$($s.version)" }
+    } catch { }
+    ''
+}
+
+function Get-RunningUiProblem {
+    <# Why a start must not just open the window of the ObsidiNote already running ('' when it may).
+       Pure. An older server still running after an update serves the new ui\index.html, but its file
+       allow-list was built at its own start, so the new hashed scripts answer 404 and the window stays
+       white (v0.6.1 -> v0.7.0 on the target machine, 2026-11-14). #>
+    param([AllowEmptyString()][string]$Running, [AllowEmptyString()][string]$Mine)
+    if ($Running -eq $Mine) { return '' }
+    $what = if ($Running) { "ObsidiNote $Running" } else { 'another ObsidiNote' }
+    "$what still runs on this port; this is $Mine"
+}
+
+Export-ModuleMember -Function Get-AllowedOrigins, Test-AllowedOrigin, Test-AllowedHost, Get-RequestVerdict, Get-UiAllowList, Get-RunningUiVersion, Get-RunningUiProblem, Get-AppVersionText,
     Get-CopilotTabState, New-ServerState, Invoke-ApiRoute, Invoke-ServerLoop, Start-UiServer, Stop-UiServer, Test-UiServerRunning, Test-ClientGone,
     ConvertTo-NotebookListing, Get-SubmitRoute

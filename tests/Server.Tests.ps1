@@ -137,6 +137,69 @@ Describe 'Get-CopilotState with the start''s bridge' {
     }
 }
 
+Describe 'POST /api/copilot/reconnect (the refresh button, user 2026-11-14)' {
+    # Port 1 has no Edge: without a bridge Copilot counts as not running. -TestConnect stands in for
+    # Connect-Copilot; nothing here opens Edge.
+    $open = [pscustomobject]@{ Session = [pscustomobject]@{ Lost = $false; Ws = [pscustomobject]@{ State = 'Open' } }; SignInPending = $false }
+    It 'attaches a new bridge, and the status says connected after it' {
+        $calls = @{ n = 0 }
+        $o = $open   # GetNewClosure() captures this scope's variables only
+        $st = New-ServerState -AppRoot 'C:\nowhere' -Port 8767 -CdpPort 1 -TestConnect { $calls.n++; $o }.GetNewClosure()
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/copilot/reconnect' -Body '' -State $st
+        $r.status | Should Be 200
+        $r.body.state | Should Be 'connected'
+        $calls.n | Should Be 1
+        [object]::ReferenceEquals($st.Copilot, $open) | Should Be $true
+        $global:ObsnReconnectState = $st   # Pester 3.4's InModuleScope takes no parameters
+        try { InModuleScope Server { Get-CopilotState $global:ObsnReconnectState | Should Be 'connected' } }
+        finally { Remove-Variable -Name ObsnReconnectState -Scope Global }
+    }
+    It 'replaces a lost bridge' {
+        $lost = [pscustomobject]@{ Session = [pscustomobject]@{ Lost = $true; Ws = [pscustomobject]@{ State = 'Open' } } }
+        $o = $open
+        $st = New-ServerState -AppRoot 'C:\nowhere' -Port 8767 -CdpPort 1 -Copilot $lost -TestConnect { $o }.GetNewClosure()
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/copilot/reconnect' -Body '' -State $st).body.state | Should Be 'connected'
+        [object]::ReferenceEquals($st.Copilot, $open) | Should Be $true
+    }
+    It 'does nothing while the bridge is connected' {
+        $calls = @{ n = 0 }
+        $st = New-ServerState -AppRoot 'C:\nowhere' -Port 8767 -CdpPort 1 -Copilot $open -TestConnect { $calls.n++; $open }.GetNewClosure()
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/copilot/reconnect' -Body '' -State $st).body.state | Should Be 'connected'
+        $calls.n | Should Be 0
+    }
+    It 'asks for a sign-in and keeps no half-connected bridge' {
+        $pending = [pscustomobject]@{ Session = $null; SignInPending = $true }
+        $st = New-ServerState -AppRoot 'C:\nowhere' -Port 8767 -CdpPort 1 -TestConnect { $pending }.GetNewClosure()
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/copilot/reconnect' -Body '' -State $st
+        $r.status | Should Be 200
+        $r.body.state | Should Be 'sign-in'
+        $r.body.message | Should Match 'Sign in'
+        $st.Copilot | Should BeNullOrEmpty
+    }
+    It 'reports a failure with its reason' {
+        $st = New-ServerState -AppRoot 'C:\nowhere' -Port 8767 -CdpPort 1 -TestConnect { throw 'Edge holds the profile without the debug port' }
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/copilot/reconnect' -Body '' -State $st
+        $r.status | Should Be 200
+        $r.body.state | Should Be 'failed'
+        $r.body.message | Should Match 'debug port'
+        $st.Copilot | Should BeNullOrEmpty
+    }
+    It 'refuses when this start skipped Copilot' {
+        $st = New-ServerState -AppRoot 'C:\nowhere' -Port 8767 -CdpPort 1 -CopilotSkipped $true -TestConnect { throw 'must not be called' }
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/copilot/reconnect' -Body '' -State $st).status | Should Be 409
+    }
+}
+
+Describe 'Get-RunningUiProblem (white window after an update, 2026-11-14)' {
+    It 'lets a start open the window of the same version' {
+        Get-RunningUiProblem -Running 'v0.7.0' -Mine 'v0.7.0' | Should BeNullOrEmpty
+    }
+    It 'stops a start when another version still runs on the port' {
+        Get-RunningUiProblem -Running 'v0.6.1' -Mine 'v0.7.0' | Should Match 'ObsidiNote v0.6.1 still runs on this port; this is v0.7.0'
+        Get-RunningUiProblem -Running '' -Mine 'v0.7.0' | Should Match 'another ObsidiNote'
+    }
+}
+
 $script:Hier = [IO.File]::ReadAllText((Join-Path $here 'fixtures\hierarchy.xml'))
 $script:Team = '{22222222-2222-2222-2222-222222222222}{1}{B0}'
 $script:Reading = '{33333333-3333-3333-3333-333333333333}{1}{B0}'
@@ -495,6 +558,34 @@ Describe 'Invoke-ApiRoute: "Link it" (POST /api/link/add, in-memory OneNote)' {
         $r.status | Should Be 409
         $r.body.error | Should Match 'Read only'
         $w.f.Writes.Count | Should Be $before
+    }
+    Remove-Item $app -Recurse -Force
+}
+
+Describe 'Invoke-ApiRoute: edit a page (POST /api/page/edit, in-memory OneNote)' {
+    $w = New-SyntheticVault -SessionId 'server'
+    $app = New-TempAppRoot
+    $state = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'server' -Vault $w.open.vault -Lease $w.open.lease -Model $w.open.model
+    It 'refuses bad input and other sources without writing' {
+        $before = $w.f.Writes.Count
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/page/edit' -Body 'not json' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/page/edit' -Body '{"id":"../x","title":"T"}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/page/edit' -Body '{"id":"p2","title":5}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/page/edit' -Body '{"id":"p2","topics":[1]}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/page/edit' -Body '{"id":"p2","links":[{"target":"../x"}]}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/page/edit' -Body '{"id":"p99","title":"T"}' -State $state).status | Should Be 404
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/page/edit' -Body '{"id":"p2","title":"T","notebook":"{X}"}' -State $state).status | Should Be 409
+        $w.f.Writes.Count | Should Be $before
+    }
+    It 'saves a title and links, and the graph shows them; the graph lists the page types' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/page/edit' -Body '{"id":"p2","title":"Access review","links":[{"target":"p1","strength":2,"why":"checks access"}]}' -State $state
+        $r.status | Should Be 200
+        $r.body.status | Should Be 'edited'
+        { ConvertTo-Json -InputObject $r.body -Depth 6 } | Should Not Throw
+        $g = Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -State $state
+        @($g.body.pages | Where-Object { $_.id -eq 'p2' })[0].title | Should Be 'Access review'
+        @($g.body.edges | Where-Object { $_.from -eq 'p2' -and $_.to -eq 'p1' -and $_.strength -eq 2 }).Count | Should Be 1
+        @($g.body.types | Where-Object { $_.type -eq 'howto' })[0].bucket | Should Be 'Notes'
     }
     Remove-Item $app -Recurse -Force
 }

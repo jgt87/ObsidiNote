@@ -121,7 +121,9 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
     }
   }
 
-  const open = useCallback((id: string) => {
+  const openedBy = useRef<'pointer' | 'keyboard'>('keyboard')
+  const open = useCallback((id: string, via: 'pointer' | 'keyboard' = 'keyboard') => {
+    openedBy.current = via
     returnTo.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setDialog({ pageId: id, anchorId: id })
   }, [])
@@ -142,7 +144,17 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
     const last = dialog?.pageId
     setDialog(null)
     const back = returnTo.current
-    // Focus returns to the dot: the map gets focus with that page focused.
+    // Opened with a click: no keyboard focus on the dot afterwards, so no preview card stays behind
+    // (it would only close when the pointer passed over another dot; operator, 2026-11-13).
+    if (mode === 'graph' && openedBy.current === 'pointer') {
+      setActive(null)
+      requestAnimationFrame(() => {
+        if (document.activeElement === stageRef.current) stageRef.current?.blur()
+        setActive(null)
+      })
+      return
+    }
+    // Opened with the keyboard: focus returns to the dot, with that page focused.
     if (mode === 'graph' && last && (!back || back === stageRef.current || back === document.body)) {
       setActive({ id: last, via: 'keyboard' })
       requestAnimationFrame(() => stageRef.current?.focus())
