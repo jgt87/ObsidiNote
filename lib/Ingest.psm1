@@ -1035,6 +1035,11 @@ function Update-LinkItStrength {
     if ($n) {
         Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = @{ links = $links }; Outlines = @(); Title = $null } | Out-Null
         Invoke-Store $Store 'IndexUpdatePage' @{ Page = @{ id = $Id; links = $links } } | Out-Null
+    } elseif (Test-WeakLinkIt -Links @(Get-LkProp $rec 'links' @())) {
+        # The page is already right but its index record is not (an earlier index write failed):
+        # the plan is made from the index, so mirror the page into it, or this step returns every start.
+        Invoke-Store $Store 'IndexUpdatePage' @{ Page = @{ id = $Id; links = $links } } | Out-Null
+        $n = @(@(Get-LkProp $rec 'links' @()) | Where-Object { $_ -and (Test-WeakLinkIt -Links @($_)) }).Count
     }
     @{ changed = $n }
 }
@@ -1123,7 +1128,8 @@ function Get-EditPlan {
         # recorded (operator, 2026-11-14). A link page's place comes from its address instead.
         $o = ([string]$Ask.origin).Trim()
         if (-not (Test-OriginId $o)) { return (& $fail 'Unknown origin.') }
-        if ((Get-LkString $Rec 'url') -and $o) { return (& $fail 'A link page''s source is its address.') }
+        $urlAfter = if ($ch.ContainsKey('url')) { [string]$ch.url } else { Get-LkString $Rec 'url' }   # judged on the result of this edit
+        if ($urlAfter -and $o) { return (& $fail 'A link page''s source is its address.') }
         if ($o -ne (Get-LkString $Rec 'origin')) { $ch.origin = $o }
     }
     @{ ok = $true; message = ''; changes = $ch }

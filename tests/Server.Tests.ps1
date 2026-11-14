@@ -283,6 +283,14 @@ Describe 'Invoke-ApiRoute: notebooks and vaults (read only)' {
         (Invoke-ApiRoute -Method 'POST' -Path '/api/link/update' -Body '{"id":"p1"}' -State $state).status | Should Be 503
         (Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"  ","mode":"auto"}' -State $state).status | Should Be 400
     }
+    It 'checks origin on Add like Edit does: null is typed, an unknown id is refused' {
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"x","mode":"add","origin":null}' -State $state).status | Should Be 503
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"x","mode":"add","origin":"teams"}' -State $state).status | Should Be 503
+        $bad = Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"x","mode":"add","origin":"slack"}' -State $state
+        $bad.status | Should Be 400
+        $bad.body.error | Should Be 'Unknown origin.'
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"x","mode":"add","origin":5}' -State $state).status | Should Be 400
+    }
     It 'returns the graph of a vault, and 400/404 for bad or unknown ids' {
         $g = Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -Query 'vault=bbbbbbbb-0000-4000-8000-000000000002' -State $state
         $g.status | Should Be 200

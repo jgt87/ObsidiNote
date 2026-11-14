@@ -155,6 +155,8 @@ export interface AreaLabelPlace {
   rect: Rect
   /** The "N pages · subjects" line fits (dropped when even the name alone had to squeeze in). */
   withSub: boolean
+  /** The name as drawn: shortened with "…" when the full name is wider than its area. */
+  text: string
 }
 
 /** Estimated size of a topic name (graph.css .kg-alabel: 14px bold name, 11px line under it). */
@@ -167,17 +169,45 @@ export function areaLabelSize(name: string, sub: string, withSub: boolean): { w:
  * Each topic name centred on its own area (operator, 2026-11-14: names above or below an area sat
  * in the gaps where the topic lines run; centred, a name never meets a line, and the stage hides it
  * while the pointer is over its area so it never blocks the pages). With the "N pages · subjects"
- * line when that fits inside the area, else the name alone. Areas never overlap, so neither do the
- * names. Never dropped.
+ * line when that fits inside the area, else the name alone; a name wider than its area is shortened
+ * with "…" (code review 2026-11-14: a long SharePoint site name on a one-page area covered its
+ * neighbours). On an area too small for even a few letters, a name that would still cover another
+ * area or a bigger area's name is left out (larger areas keep theirs first); the area's pages and
+ * the List still carry it.
  */
 export function placeAreaLabels(areas: AreaLabelInput[]): AreaLabelPlace[] {
-  return areas.map((a) => {
+  const placed = areas.map((a) => {
     const full = areaLabelSize(a.name, a.sub, true)
     const withSub = full.h <= a.r && full.w <= a.r * 1.7
-    const { w, h } = withSub ? full : areaLabelSize(a.name, a.sub, false)
+    const text = shortenToWidth(a.name, a.r * 1.8)
+    const { w, h } = withSub ? full : areaLabelSize(text, a.sub, false)
     const top = a.y - h / 2
-    return { id: a.id, x: a.x, top, at: 'center' as const, rect: [a.x - w / 2, top, a.x + w / 2, top + h] as Rect, withSub }
+    return { id: a.id, x: a.x, top, at: 'center' as const, rect: [a.x - w / 2, top, a.x + w / 2, top + h] as Rect, withSub, text: withSub ? a.name : text }
   })
+  const byId = new Map(areas.map((a) => [a.id, a]))
+  const order = [...placed].sort((p, q) => byId.get(q.id)!.r - byId.get(p.id)!.r)
+  const kept = new Set<string>()
+  const keptRects: Rect[] = []
+  for (const p of order) {
+    const onOther = areas.some((o) => o.id !== p.id && rectHitsCircle(p.rect, o))
+    if (onOther || keptRects.some((k) => overlaps(p.rect, k))) continue
+    kept.add(p.id)
+    keptRects.push(p.rect)
+  }
+  return placed.filter((p) => kept.has(p.id))
+}
+
+/** A name cut to fit `maxW` screen px (areaLabelSize's estimate), with "…"; at least 3 letters. */
+export function shortenToWidth(name: string, maxW: number): string {
+  if (areaLabelSize(name, '', false).w <= maxW) return name
+  const chars = Math.max(4, Math.floor((maxW - 16) / (14 * 0.62)))
+  return chars >= name.length ? name : name.slice(0, chars - 1).trimEnd() + '…'
+}
+
+function rectHitsCircle(r: Rect, c: { x: number; y: number; r: number }): boolean {
+  const nx = Math.max(r[0], Math.min(c.x, r[2]))
+  const ny = Math.max(r[1], Math.min(c.y, r[3]))
+  return Math.hypot(c.x - nx, c.y - ny) < c.r
 }
 
 // ---------- hover card ----------

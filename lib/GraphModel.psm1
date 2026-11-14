@@ -6,13 +6,13 @@
 #   - page id = the model key (obsn id, or n:<OneNote id> for other pages); topicIds = its topic
 #     paths, the first is where the dot is drawn; no topics = the Unfiled area.
 #   - edges = the pages' own links (strength 1-3, why); links to pages that are not in the model are
-#     left out. links = distinct linked pages (a page that links back counts once). Weight, dot size
-#     and hubs are worked out from the edges in the interface (ui-src/src/graph/weights.ts), the one
-#     definition; this module sends no hub flag.
+#     left out. A page's link count, weight, dot size and hubs are worked out from the edges in the
+#     interface (ui-src/src/graph/weights.ts), the one definition; this module sends none of them.
 #   - aliases (other names) and site (a link page's host) feed search and mentions in the interface.
 #   - sourceId per page and the sources list feed the Sources view (operator, 2026-11-14): where a
 #     link page's address lives (Get-LinkSource in lib/NotebookStructure.psm1), web sites with fewer
-#     than $script:MinWebPages pages together as "Other web sites", every page without an address in
+#     than $script:MinWebPages pages together as "Other web sites" (internal sites likewise as "Other
+#     company sites"; internal = the vault's own link rules, $LinkRules), every page without an address in
 #     "ObsidiNote notes" (a vault) or "OneNote pages" (a connected notebook).
 # Pure: no COM, no disk. PS 5.1, ASCII only.
 Set-StrictMode -Version 2.0
@@ -25,14 +25,16 @@ $script:SourceKindOrder = @{ m365 = 0; service = 1; web = 2; other = 3; notes = 
 
 function Get-GraphSources {
     <# Per page id its source id, plus the sources list @(@{ id; name; kind; pageCount }). #>
-    param([object[]]$Pages, [bool]$Notebook)
+    param([object[]]$Pages, [bool]$Notebook, [hashtable]$LinkRules = @{})
+    $hosts = @(if ($LinkRules.ContainsKey('InternalHosts')) { $LinkRules.InternalHosts } else { @() })
+    $names = @(if ($LinkRules.ContainsKey('CompanyNames')) { $LinkRules.CompanyNames } else { @() })
     $notes = if ($Notebook) { @{ id = 'onenote'; name = 'OneNote pages'; kind = 'notes' } } else { @{ id = 'obsidinote'; name = 'ObsidiNote notes'; kind = 'notes' } }
     $of = @{}
     $byId = @{}
     $count = @{}
     foreach ($p in $Pages) {
         # The address wins (a link page); else where it came from (obsn.origin); else the notes area.
-        $s = if ([string]$p.url -match '^(?i)https?://') { Get-LinkSource -Url ([string]$p.url) } else { $null }
+        $s = if ([string]$p.url -match '^(?i)https?://') { Get-LinkSource -Url ([string]$p.url) -InternalHosts $hosts -CompanyNames $names } else { $null }
         if (-not $s -and $p.ContainsKey('origin') -and $p.origin) { $s = Get-OriginSource ([string]$p.origin) }
         if (-not $s) { $s = $notes }
         $of[$p.key] = $s
@@ -40,9 +42,12 @@ function Get-GraphSources {
         $count[$s.id] = 1 + [int]$count[$s.id]
     }
     $other = @{ id = 'web'; name = 'Other web sites'; kind = 'other' }
+    $otherInternal = @{ id = 'internal'; name = 'Other company sites'; kind = 'service' }
     foreach ($k in @($of.Keys)) {
         $s = $of[$k]
-        if ($s.kind -eq 'web' -and $count[$s.id] -lt $script:MinWebPages) { $of[$k] = $other }
+        if ($count[$s.id] -ge $script:MinWebPages) { continue }
+        if ($s.kind -eq 'web') { $of[$k] = $other }
+        elseif ($s.id -like 'internal/*') { $of[$k] = $otherInternal }
     }
     $final = @{}
     foreach ($s in $of.Values) {
@@ -55,13 +60,12 @@ function Get-GraphSources {
 }
 
 function ConvertTo-GraphModel {
-    <# GraphModel from an index model. $Source: @{ kind (vault|notebook); id; name; readOnly }. #>
+    <# GraphModel from an index model. $Source: @{ kind (vault|notebook); id; name; readOnly }.
+       $LinkRules: @{ InternalHosts; CompanyNames } as the vault store files links (Sources view). #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][hashtable]$Model, [Parameter(Mandatory)][hashtable]$Source)
-    $degree = @{}
+    param([Parameter(Mandatory)][hashtable]$Model, [Parameter(Mandatory)][hashtable]$Source, [hashtable]$LinkRules = @{})
     $edges = New-Object System.Collections.Generic.List[object]
     $seen = @{}
-    $pairs = @{}   # linked pairs, either direction: a page that links back counts once in links
     foreach ($p in $Model.pages.Values) {
         foreach ($l in @($p.links)) {
             if (-not $l) { continue }
@@ -72,10 +76,6 @@ function ConvertTo-GraphModel {
             $seen[$k] = $true
             $s = [int](Get-JsonProp $l 'strength' 1); if ($s -lt 1) { $s = 1 } elseif ($s -gt 3) { $s = 3 }
             $edges.Add([ordered]@{ from = $p.key; to = $to; strength = $s; kind = 'link'; reason = [string](Get-JsonProp $l 'why' '') })
-            $pair = if ($p.key -lt $to) { "$($p.key)|$to" } else { "$to|$($p.key)" }
-            if ($pairs.ContainsKey($pair)) { continue }
-            $pairs[$pair] = $true
-            foreach ($x in $p.key, $to) { if ($degree.ContainsKey($x)) { $degree[$x]++ } else { $degree[$x] = 1 } }
         }
     }
     $topics = @(foreach ($t in $Model.topics.Values) {
@@ -85,14 +85,12 @@ function ConvertTo-GraphModel {
         [ordered]@{ id = $t.path; name = $t.name; path = (Format-TopicPath $t.path); parent = $(if ($t.parent) { $t.parent } else { $null }); pageCount = $count; subjects = $subjects }
     })
     $ro = [bool]$Source.readOnly
-    $src = Get-GraphSources -Pages @($Model.pages.Values) -Notebook ($Source.kind -eq 'notebook')
+    $src = Get-GraphSources -Pages @($Model.pages.Values) -Notebook ($Source.kind -eq 'notebook') -LinkRules $LinkRules
     $pages = @(foreach ($p in $Model.pages.Values) {
-        $d = if ($degree.ContainsKey($p.key)) { [int]$degree[$p.key] } else { 0 }
         [ordered]@{
             id = $p.key; title = $(if ($p.title) { $p.title } else { 'Untitled page' })
             topicIds = @(@($p.topics) | Where-Object { $_ -and $Model.topics.Contains($_) })
             bucket = $(if ($p.bucket) { $p.bucket } else { $p.section }); kind = $(if ($p.type) { $p.type } else { '' })
-            links = $d; unlinked = ($d -eq 0)
             summary = [string]$p.summary; onenoteUrl = $(if ([string]$p.link -match '^(?i)onenote:') { [string]$p.link } else { '' })
             modified = [string]$p.updated; readOnly = $ro; archived = ($p.status -eq 'archived')
             aliases = @(@($p.aliases) | Where-Object { $_ } | ForEach-Object { [string]$_ }); site = [string]$p.host

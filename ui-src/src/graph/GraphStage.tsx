@@ -466,7 +466,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
           const a = areaById.get(l.id)!
           return (
             <div key={l.id} className="kg-alabel" data-dim={dim} data-at={l.at} data-hidden={hiddenAreas.has(l.id)} style={{ left: l.x, top: l.top }}>
-              <b>{a.name}</b>
+              <b>{l.text}</b>
               {l.withSub && <span>{a.sub}</span>}
             </div>
           )

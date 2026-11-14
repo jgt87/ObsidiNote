@@ -205,12 +205,21 @@ export function packAreas(radii: number[], targets: (number | null)[], aspect: n
   const placed: Circle[] = []
   const box = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
   const steps = 36
+  // The linked pairs among the placed circles, kept as circles are placed, so the crossing check
+  // per candidate spot only walks real lines, not every pair (code review 2026-11-14: all pairs per
+  // spot grow with the 4th power of the area count; 200 areas 857 ms -> 229 ms, layout.test.ts).
+  const placedLines: Line[] = []
   for (let i = 0; i < radii.length; i++) {
     const r = radii[i]
     if (i === 0) {
       placed.push({ x: 0, y: 0, r })
       grow(box, placed[0])
       continue
+    }
+    const mine: Line[] = []
+    for (let j = 0; j < placed.length; j++) {
+      const w = links[i]?.[j] ?? 0
+      if (w > 0) mine.push({ j, k: i, w })
     }
     const t = targets[i]
     const tx = t === null ? 0 : placed[t].x
@@ -248,7 +257,7 @@ export function packAreas(radii: number[], targets: (number | null)[], aspect: n
         if (outer[i]) score -= Math.hypot((x - (box.minX + box.maxX) / 2) / aspect, y - (box.minY + box.maxY) / 2) * OUTER_PUSH
         else if (t !== null) score += Math.sqrt(sx * sx + sy * sy) * 4
         else score += linkPull(i, x, y, placed, links, aspect) * 0.35
-        score += crossings(i, { x, y, r }, placed, links) * CROSS_PENALTY
+        if (mine.length || placedLines.length) score += crossings({ x, y, r }, placed, mine, placedLines) * CROSS_PENALTY
         if (score < bestScore - 1e-9) {
           bestScore = score
           best = { x, y, r }
@@ -258,9 +267,13 @@ export function packAreas(radii: number[], targets: (number | null)[], aspect: n
     const c = best ?? { x: 0, y: 0, r }
     placed.push(c)
     grow(box, c)
+    placedLines.push(...mine)
   }
   return placed
 }
+
+/** A topic line between placed circles j and k (k placed later), with its summed strength. */
+interface Line { j: number; k: number; w: number }
 
 /** Mean distance from (x, y) to the placed circles linked to i, weighted by link strength (x shrunk
  *  by the aspect); the distance to the centre when i has no links to placed circles. */
@@ -276,14 +289,12 @@ function linkPull(i: number, x: number, y: number, placed: Circle[], links: numb
   return w > 0 ? sum / w : Math.hypot(x / aspect, y)
 }
 
-/** Topic lines that would pass another circle if circle i sat at c, weighted by their strength (so
- *  the strongest lines, the ones shown at rest, get a clear way first): its lines to linked placed
- *  circles that pass a third one, and the lines between placed circles that pass c. */
-function crossings(i: number, c: Circle, placed: Circle[], links: number[][]): number {
+/** Topic lines that would pass another circle if the new circle sat at c, weighted by their strength
+ *  (so the strongest lines, the ones shown at rest, get a clear way first): its own lines (`mine`, to
+ *  linked placed circles) that pass a third one, and the placed lines that pass c. */
+function crossings(c: Circle, placed: Circle[], mine: Line[], placedLines: Line[]): number {
   let n = 0
-  for (let j = 0; j < placed.length; j++) {
-    const w = links[i]?.[j] ?? 0
-    if (w <= 0) continue
+  for (const { j, w } of mine) {
     for (let k = 0; k < placed.length; k++) {
       if (k === j) continue
       if (segmentDistance(c, placed[j], placed[k]).d < placed[k].r + CROSS_CLEARANCE) {
@@ -292,12 +303,8 @@ function crossings(i: number, c: Circle, placed: Circle[], links: number[][]): n
       }
     }
   }
-  for (let j = 0; j < placed.length; j++) {
-    for (let k = j + 1; k < placed.length; k++) {
-      const w = links[j]?.[k] ?? 0
-      if (w <= 0) continue
-      if (segmentDistance(placed[j], placed[k], c).d < c.r + CROSS_CLEARANCE) n += w
-    }
+  for (const { j, k, w } of placedLines) {
+    if (segmentDistance(placed[j], placed[k], c).d < c.r + CROSS_CLEARANCE) n += w
   }
   return n
 }

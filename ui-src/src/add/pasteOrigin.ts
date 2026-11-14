@@ -18,3 +18,17 @@ export function originOfPaste(html: string | null | undefined): string | null {
   if (WORD.test(html)) return 'word'
   return 'web'
 }
+
+/** The part of a paste remembered to tell later whether it is still in the box (first line, trimmed). */
+export function pasteMark(pasted: string): string {
+  return (pasted.trim().split('\n')[0] ?? '').trim().slice(0, 60)
+}
+
+/**
+ * Whether the "From:" choice still belongs to the box's text: only while the pasted text is still
+ * there (code review 2026-11-14: select-all and type over, or a prefill, kept "Teams" on unrelated
+ * text). An empty mark (typed, or the choice set by hand) always keeps it.
+ */
+export function originStillApplies(text: string, mark: string): boolean {
+  return !mark || text.includes(mark)
+}

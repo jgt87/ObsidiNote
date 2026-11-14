@@ -106,6 +106,41 @@ Describe 'Upgrade: "Link it" links written as loose (1) before 2026-11-14 become
     }
 }
 
+Describe 'Upgrade: the page is already right, its index record is not (code review 2026-11-14)' {
+    $w = New-SyntheticVault
+    # An earlier run raised the page's Meta, then its index write failed: Meta s=2, index s=1.
+    $why = 'Linked by you (mentioned in the text)'
+    $p2 = Find-FakePage $w.f 'Partner portal: access review notes'
+    $p2.meta['obsn.links'] = '[{"t":"p1","s":2,"w":"' + $why + '"}]'
+    & $w.store.IndexUpdatePage @{ id = 'p2'; links = @(@{ target = 'p1'; strength = 1; why = $why }) } | Out-Null
+    $r = Invoke-VaultUpgrade -Store $w.store
+    It 'mirrors the page into the index and says so' {
+        $r.status | Should Be 'done'
+        $r.raised | Should Be 1
+        (@($w.open.model.pages['p2'].links | ForEach-Object { "$($_.target):$($_.strength)" }) -join ',') | Should Be 'p1:2'
+    }
+    It 'does not plan it again at the next start' {
+        (Invoke-VaultUpgrade -Store $w.store).status | Should Be 'none'
+    }
+}
+
+Describe 'Upgrade: counts pages, not steps' {
+    $w = New-SyntheticVault
+    # One link page needs both steps: wrong section and a weak "Link it" link.
+    $why = 'Linked by you (mentioned in the text)'
+    $null = Add-OldLinkPage $w 'p7' 'Service desk article' 'https://contoso.service-now.com/kb?id=1' -Links ('[{"t":"p1","s":1,"w":"' + $why + '"}]')
+    $w.box.lease = @{ mode = 'readonly'; sessionId = 'other'; holder = 'other'; expires = (Get-Date).AddMinutes(1); statePageId = ''; indexSectionId = '' }
+    It 'plans two steps but reports one page' {
+        @(Get-UpgradePlan -Model $w.open.model).Count | Should Be 2
+        $r = Invoke-VaultUpgrade -Store $w.store
+        $r.planned | Should Be 1
+        (Format-UpgradeStatus $r).detail | Should Match '^1 page\(s\) do not follow'
+    }
+    It 'says "N of M pages" from page counts on a partial run' {
+        (Format-UpgradeStatus @{ status = 'partial'; planned = 3; moved = 1; raised = 2; failed = 1 }).detail | Should Match '^2 of 3 page\(s\) brought in line; 1 could not'
+    }
+}
+
 Describe 'Upgrade: a read-only session only reports' {
     $w = New-SyntheticVault
     $null = Add-OldLinkPage $w 'p7' 'Service desk article' 'https://contoso.service-now.com/kb?id=1'

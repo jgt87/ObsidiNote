@@ -30,15 +30,13 @@ Describe 'ConvertTo-GraphModel' {
         (@($g.pages | Where-Object { $_.id -eq 'p2' })[0].topicIds -join ',') | Should Be 'Security,Projects'
         @(@($g.pages | Where-Object { $_.id -eq 'p3' })[0].topicIds).Count | Should Be 0
     }
-    It 'keeps only links between pages of the model, strength clamped, counted per page' {
+    It 'keeps only links between pages of the model, strength clamped' {
+        # p1 and p2 link each other: both edges stay (the page window lists both).
         ($g.edges | ForEach-Object { "$($_.from)>$($_.to):$($_.strength)" }) -join ',' | Should Be 'p1>p2:3,p2>p1:3'
-        @($g.pages | Where-Object { $_.id -eq 'p3' })[0].unlinked | Should Be $true
     }
-    It 'counts a page that links back once (links = distinct linked pages) and sends no hub flag' {
-        # p1 and p2 link each other: both edges stay (the page window lists both), one neighbour each.
-        @($g.pages | Where-Object { $_.id -eq 'p1' })[0].links | Should Be 1
-        @($g.pages | Where-Object { $_.id -eq 'p2' })[0].links | Should Be 1
-        @($g.pages | Where-Object { $_.id -eq 'p1' })[0].Contains('isHub') | Should Be $false
+    It 'sends no link count, unlinked or hub flag: the interface derives them from the edges (weights.ts)' {
+        $p1 = @($g.pages | Where-Object { $_.id -eq 'p1' })[0]
+        foreach ($k in 'links', 'unlinked', 'isHub') { $p1.Contains($k) | Should Be $false }
     }
     It 'passes only onenote: links on, and marks archived pages' {
         @($g.pages | Where-Object { $_.id -eq 'p1' })[0].onenoteUrl | Should Be 'onenote:#p1'
@@ -86,6 +84,18 @@ Describe 'Get-LinkSource: where a link page''s address lives (Sources view)' {
             $s.name | Should Be $c[2]
         }
     }
+    It 'calls internal what the link rules file as internal (code review 2026-11-14)' {
+        # internalHosts setting, the company's name on another host, a tenant host without a service name
+        (Get-LinkSource -Url 'https://intranet.contoso.local/a' -InternalHosts @('intranet.contoso.local')).id | Should Be 'internal/intranet.contoso.local'
+        $c = Get-LinkSource -Url 'https://contoso.example-hr.com/vacancies' -CompanyNames @('contoso')
+        "$($c.id):$($c.kind)" | Should Be 'internal/contoso.example-hr.com:service'
+        (Get-LinkSource -Url 'https://contoso.example-hr.com/vacancies').kind | Should Be 'web'
+        foreach ($u in 'https://intranet.contoso.local/a', 'https://contoso.example-hr.com/vacancies') {
+            $bucket = Get-LinkBucket -Url $u -InternalHosts @('intranet.contoso.local') -CompanyNames @('contoso')
+            $kind = (Get-LinkSource -Url $u -InternalHosts @('intranet.contoso.local') -CompanyNames @('contoso')).kind
+            "$bucket=$kind" | Should Be 'Internal links=service'
+        }
+    }
     It 'gives nothing for an address that is not http(s)' {
         Get-LinkSource -Url 'onenote:#x' | Should Be $null
         Get-LinkSource -Url '' | Should Be $null
@@ -110,6 +120,14 @@ Describe 'ConvertTo-GraphModel: sources' {
     }
     It 'lists each source once with its page count, Microsoft 365 first, notes last' {
         (@($g.sources | ForEach-Object { "$($_.id):$($_.pageCount)" }) -join ',') | Should Be 'sharepoint/hr:1,web/example.org:3,web:1,obsidinote:3'
+    }
+    It 'groups internal sites by the vault''s link rules, small ones as Other company sites' {
+        $null = Add-IndexPage -Model $m -Page @{ id = 'c1'; title = 'Vacancies'; type = 'link-internal'; bucket = 'Internal links'; section = 'Internal links'; oneNoteId = '{C1}'; url = 'https://contoso.example-hr.com/vacancies' }
+        $g2 = ConvertTo-GraphModel -Model $m -Source @{ kind = 'vault'; id = 'v1'; name = 'S'; readOnly = $false } -LinkRules @{ CompanyNames = @('contoso') }
+        $c1 = @($g2.pages | Where-Object { $_.id -eq 'c1' })[0].sourceId
+        $c1 | Should Be 'internal'
+        $s = @($g2.sources | Where-Object { $_.id -eq 'internal' })[0]
+        "$($s.name):$($s.kind)" | Should Be 'Other company sites:service'
     }
 }
 

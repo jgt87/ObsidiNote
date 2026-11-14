@@ -366,13 +366,22 @@ function Use-ActiveVault($State) {
     @{ ok = $true; data = $d; adapter = $d.adapter; model = (Get-ServerModel $State $d.adapter) }
 }
 
+function Get-ServerLinkRules($State) {
+    <# The link rules: the "internalHosts" setting, and the company's tenant names from the active
+       vault's location and the notebook record (never stored; Get-CompanyNames). The vault store files
+       with them and the graph's Sources view groups with them, so both agree on internal vs web. #>
+    $loc = if ($State.Vault) { [string]$State.Vault.location } else { '' }
+    @{
+        InternalHosts = @(@(Get-AppSetting -Key 'internalHosts' -Default @() -AppRoot $State.AppRoot) | ForEach-Object { "$_" } | Where-Object { $_ })
+        CompanyNames  = @(Get-CompanyNames -Locations @($loc, (Get-NotebookRecord -AppRoot $State.AppRoot)))
+    }
+}
+
 function New-ServerStore($State, $Use) {
-    <# The vault store for one request. Links: the "internalHosts" setting, and the company's tenant
-       names from the vault's own location and the notebook record (never stored; Get-CompanyNames). #>
+    <# The vault store for one request, with the link rules of Get-ServerLinkRules. #>
     $st = $State
-    $hosts = @(@(Get-AppSetting -Key 'internalHosts' -Default @() -AppRoot $State.AppRoot) | ForEach-Object { "$_" } | Where-Object { $_ })
-    $names = @(Get-CompanyNames -Locations @([string]$State.Vault.location, (Get-NotebookRecord -AppRoot $State.AppRoot)))
-    New-VaultStore -Adapter $Use.adapter -Vault $State.Vault -Model $Use.model -GetLease { $st.Lease }.GetNewClosure() -InternalHosts $hosts -CompanyNames $names
+    $rules = Get-ServerLinkRules $State
+    New-VaultStore -Adapter $Use.adapter -Vault $State.Vault -Model $Use.model -GetLease { $st.Lease }.GetNewClosure() -InternalHosts $rules.InternalHosts -CompanyNames $rules.CompanyNames
 }
 
 # --- Copilot ----------------------------------------------------------------------------------------
@@ -665,10 +674,10 @@ function Get-GraphRoute($State, [string]$Query) {
         if ($State.Vault -and $v.vaultId -eq $State.Vault.vaultId) {
             $u = Use-ActiveVault $State
             if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
-            $m = ConvertTo-GraphModel -Model $u.model -Source @{ kind = 'vault'; id = $v.vaultId; name = $v.name; readOnly = ((Get-LeaseMode $State) -ne 'writer') }
+            $m = ConvertTo-GraphModel -Model $u.model -Source @{ kind = 'vault'; id = $v.vaultId; name = $v.name; readOnly = ((Get-LeaseMode $State) -ne 'writer') } -LinkRules (Get-ServerLinkRules $State)
         } else {
             $model = Read-IndexModel -Adapter $d.adapter -IndexSectionId $v.indexSectionId -VaultId $v.vaultId -RootId $v.rootId
-            $m = ConvertTo-GraphModel -Model $model -Source @{ kind = 'vault'; id = $v.vaultId; name = $v.name; readOnly = $true }
+            $m = ConvertTo-GraphModel -Model $model -Source @{ kind = 'vault'; id = $v.vaultId; name = $v.name; readOnly = $true } -LinkRules (Get-ServerLinkRules $State)
         }
         $m['edgesComplete'] = $true
         # The page types and their sections, for the page window's Edit (a type stays in its section).
@@ -679,7 +688,7 @@ function Get-GraphRoute($State, [string]$Query) {
     $nb = @($d.notebooks | Where-Object { $_.id -eq $nid }) | Select-Object -First 1
     if (-not $nb) { return @{ status = 404; body = @{ error = 'That notebook is not open in OneNote.' } } }
     $c = Get-ForeignGraphModel $State $d.adapter $nb $d.vaults
-    $m = ConvertTo-GraphModel -Model $c.model -Source @{ kind = 'notebook'; id = $nb.id; name = $nb.name; readOnly = $true }
+    $m = ConvertTo-GraphModel -Model $c.model -Source @{ kind = 'notebook'; id = $nb.id; name = $nb.name; readOnly = $true } -LinkRules (Get-ServerLinkRules $State)
     $m['edgesComplete'] = [bool]$c.done
     @{ status = 200; body = $m }
 }
@@ -764,13 +773,17 @@ function Invoke-SubmitRoute($State, [string]$Body) {
     $action = "$(Get-BodyValue $b 'action' '')"
     $route = Get-SubmitRoute -Text $text -Mode $mode -Action $action
     if ($route.ContainsKey('error')) { return @{ status = 400; body = @{ error = $route.error } } }
+    # Same rule as /api/page/edit: null = typed (''), text must be a known id (Test-OriginId).
+    $origin = Get-BodyValue $b 'origin' ''
+    if ($null -eq $origin) { $origin = '' }
+    if ($origin -isnot [string]) { return @{ status = 400; body = @{ error = 'origin must be text.' } } }
+    $origin = $origin.Trim()
+    if (-not (Test-OriginId $origin)) { return @{ status = 400; body = @{ error = 'Unknown origin.' } } }
     $needsCopilot = -not ($route.intent -eq 'ask' -and $action -in 'save-page', 'save-open-question')
     if ($needsCopilot -and -not (Test-CopilotReady $State)) { return (Get-CopilotMissing $route.intent) }
     $u = Use-ActiveVault $State
     if (-not $u.ok) { return @{ status = $u.status; body = @{ intent = $route.intent; error = $u.error } } }
     if ($route.intent -eq 'add') {
-        $origin = Get-BodyValue $b 'origin' ''
-        if ($origin -isnot [string]) { return @{ status = 400; body = @{ error = 'origin must be text.' } } }
         $r = Invoke-AddRequest -Request @{ text = $text; mode = $route.ingestMode; origin = $origin } -Store (New-ServerStore $State $u) -Ask (Get-AddCopilot $State)
         $r['intent'] = 'add'
         return @{ status = 200; body = $r }

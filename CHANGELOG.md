@@ -5,6 +5,16 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.8.3] - 2026-11-14
+
+### Fixed
+- Knowledge graph, Sources: company sites that ObsidiNote files under Internal links (your `internalHosts`, the company's name on another host, company tenants) now show as company sites, no longer as public web sites; small ones together as "Other company sites". Derived at load, so existing pages follow without an upgrade step.
+- Knowledge graph: a topic name wider than its area is shortened with "…" so it no longer covers the neighbouring areas; on a very small area the name is left out when even a short one would.
+- Knowledge graph: placing the areas is faster on large maps (about 4 times on 200 areas).
+- Add: "From" now resets when the pasted text is replaced (select all and type over) or when "Save answer" fills the box, so a saved answer is no longer filed as "Teams" or "Outlook".
+- Add: an unknown "From" value is refused with a message, as in Edit; an empty one counts as typed.
+- Start: the "Link it" upgrade also repairs the index when only the index still had the old strength, so it no longer comes back at every start; the status line counts pages, not steps.
+
 ## [v0.8.2] - 2026-11-14
 
 ### Added

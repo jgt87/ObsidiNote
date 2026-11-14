@@ -68,6 +68,22 @@ describe('placeAreaLabels: topic names sit on their own topic', () => {
     }
   })
 
+  it('shortens a name wider than its area so it stays off its neighbours (code review 2026-11-14)', () => {
+    const long = 'SharePoint: Finance-Reporting-Archive'
+    const areas = [area('s', 200, 200, 40, long), area('n1', 290, 200, 40), area('n2', 110, 200, 40)]
+    const places = placeAreaLabels(areas)
+    const p = places.find((x) => x.id === 's')!
+    expect(p.text.endsWith('…')).toBe(true)
+    expect(p.text.length).toBeLessThan(long.length)
+    for (const q of places) for (const o of areas) if (o.id !== q.id) expect(hits(q.rect, o)).toBe(false)
+  })
+
+  it('leaves out a name only when even a short one would cover another area', () => {
+    const places = placeAreaLabels([area('big', 100, 100, 80, 'Security'), area('tiny', 186, 100, 4, 'Networking')])
+    expect(places.map((x) => x.id)).toEqual(['big'])
+    expect(places[0].text).toBe('Security')
+  })
+
   it('estimates a wider label for a longer name and drops the second line when asked', () => {
     expect(areaLabelSize('A much longer topic name', '', false).w).toBeGreaterThan(areaLabelSize('Short', '', false).w)
     expect(areaLabelSize('X', 'sub', false).h).toBeLessThan(areaLabelSize('X', 'sub', true).h)

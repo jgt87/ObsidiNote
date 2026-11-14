@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { ORIGINS, originLabel, TYPED_LABEL, validOrigin } from '../model/origins'
-import { originOfPaste } from './pasteOrigin'
+import { originOfPaste, originStillApplies, pasteMark } from './pasteOrigin'
 
 // Invented snippets in the shape each app puts on the clipboard; no real mail or chat.
 describe('originOfPaste', () => {
@@ -23,6 +23,20 @@ describe('originOfPaste', () => {
     expect(originOfPaste('just words, no tags')).toBeNull()
     expect(originOfPaste('')).toBeNull()
     expect(originOfPaste(null)).toBeNull()
+  })
+})
+
+describe('the From choice follows the pasted text (code review 2026-11-14)', () => {
+  it('remembers the first line of a paste', () => {
+    expect(pasteMark('\n  Re: budget meeting \nsecond line')).toBe('Re: budget meeting')
+  })
+  it('applies while the pasted text is in the box, not after it is replaced', () => {
+    const mark = pasteMark('Hi team, the release moves to Friday.')
+    expect(originStillApplies('Note: Hi team, the release moves to Friday. More.', mark)).toBe(true)
+    expect(originStillApplies('My own typed text', mark)).toBe(false)
+  })
+  it('always applies without a mark (chosen by hand)', () => {
+    expect(originStillApplies('anything', '')).toBe(true)
   })
 })
 

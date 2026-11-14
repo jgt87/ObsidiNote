@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { markdownForPaste, type PasteNode } from '../add/pasteMarkdown'
-import { originOfPaste } from '../add/pasteOrigin'
+import { originOfPaste, originStillApplies, pasteMark } from '../add/pasteOrigin'
 import { ORIGINS, TYPED_LABEL } from '../model/origins'
 import type { Intent, Mode } from '../api'
 import { useIntent } from '../hooks/useIntent'
@@ -61,11 +61,22 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
   // Where the text came from: set from a paste (add/pasteOrigin.ts), changeable, '' = typed. A link
   // alone needs none (its address says where it lives), and an Ask files nothing.
   const [origin, setOrigin] = useState('')
+  // The pasted text the origin was read from; once it has been in the box and is gone again, so is
+  // the origin. "seen" waits for the paste to land (the text changes after the paste event).
+  const markRef = useRef({ mark: '', seen: false })
+  const setMark = (mark: string) => {
+    markRef.current = { mark, seen: false }
+  }
   const loneLink = /^https?:\/\/\S+$/i.test(text.trim())
   const showFrom = !empty && !loneLink && mode !== 'ask' && result?.intent !== 'ask'
   useEffect(() => {
-    if (empty) setOrigin('')
-  }, [empty])
+    const m = markRef.current
+    if (m.mark && originStillApplies(text, m.mark)) m.seen = true
+    if (empty || (m.seen && !originStillApplies(text, m.mark))) {
+      setOrigin('')
+      setMark('')
+    }
+  }, [empty, text])
 
   // Ctrl+1 = Add, Ctrl+2 = Ask, anywhere on the page while this view is open.
   useEffect(() => {
@@ -84,6 +95,8 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
     if (!prefill) return
     setText(prefill.text)
     setMode(prefill.mode)
+    setOrigin('') // a prefill (Save answer) is ObsidiNote's own text, not the earlier paste
+    setMark('')
     area.current?.focus()
   }, [prefill])
 
@@ -102,13 +115,18 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
   function onPaste(e: ReactClipboardEvent<HTMLTextAreaElement>) {
     const html = e.clipboardData.getData('text/html')
     const from = originOfPaste(html)
-    if (from) setOrigin(from)
+    const plain = e.clipboardData.getData('text/plain')
+    if (from) {
+      setOrigin(from)
+      setMark(pasteMark(plain))
+    }
     if (Date.now() - plainPasteAt.current < 1000) {
       plainPasteAt.current = 0
       return
     }
     const md = markdownForPaste(html, parseHtml)
     if (md == null) return
+    if (from) setMark(pasteMark(md))
     e.preventDefault()
     insertAtCursor(e.currentTarget, md, setText)
   }
@@ -157,7 +175,10 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
       {showFrom && (
         <div className="composer__from">
           <label htmlFor="composer-from">From</label>
-          <select id="composer-from" className="field composer__from-select" value={origin} onChange={(e) => setOrigin(e.target.value)}>
+          <select id="composer-from" className="field composer__from-select" value={origin} onChange={(e) => {
+              setOrigin(e.target.value)
+              setMark('') // chosen by hand: it stays until the box is emptied
+            }}>
             <option value="">{TYPED_LABEL}</option>
             {ORIGINS.map((o) => (
               <option key={o.id} value={o.id}>

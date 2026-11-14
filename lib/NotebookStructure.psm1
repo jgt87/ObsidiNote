@@ -268,10 +268,12 @@ function Get-LinkSource {
        host (and a SharePoint site's path), no model:
        OneDrive (*-my.sharepoint.com) | SharePoint per site (/sites/<x>, /teams/<x>; the root site is
        "SharePoint") | Teams | Loop | Microsoft 365 (office.com, m365.cloud.microsoft) | a company
-       service (Workday, ServiceNow, ... when the host is a company tenant) | the web site (host without
-       "www."). $null for an address that is not http(s). Pure. #>
+       service (Workday, ServiceNow, ... when the host is a company tenant) | another internal site (kind
+       service, the host: every address Get-LinkBucket files as Internal links with the same
+       $InternalHosts and $CompanyNames, so the Sources view never calls a page public that is filed as
+       internal) | the web site (host without "www."). $null for an address that is not http(s). Pure. #>
     [CmdletBinding()]
-    param([AllowEmptyString()][string]$Url = '')
+    param([AllowEmptyString()][string]$Url = '', [string[]]$InternalHosts = @(), [string[]]$CompanyNames = @())
     $p = Get-UrlParts $Url
     if (-not $p) { return $null }
     $h = ($p.hostPort -replace ':[0-9]+$', '').TrimEnd('.')
@@ -295,6 +297,9 @@ function Get-LinkSource {
         }
     }
     $site = $h -replace '^www\.', ''
+    if ((Get-LinkBucket -Url $Url -InternalHosts $InternalHosts -CompanyNames $CompanyNames) -eq 'Internal links') {
+        return @{ id = "internal/$site"; name = $site; kind = 'service' }
+    }
     @{ id = "web/$site"; name = $site; kind = 'web' }
 }
 

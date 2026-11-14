@@ -41,7 +41,9 @@ function Get-UpgradePlan {
 
 function Invoke-VaultUpgrade {
     <# Runs the plan through the vault store (lib/VaultStore.psm1 New-VaultStore). Returns
-       @{ status = done | none | partial | skipped; planned; moved; failed; reason }. Never throws. #>
+       @{ status = done | none | partial | skipped; planned; moved; raised; failed; reason }. Never throws.
+       planned and failed count PAGES (a page can need more than one step); moved and raised count
+       the steps that changed something. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Store)
     $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -50,14 +52,15 @@ function Invoke-VaultUpgrade {
         $model = & $Store.Model
         $rules = & $Store.LinkRules
         $plan = @(Get-UpgradePlan -Model $model -InternalHosts @($rules.InternalHosts) -CompanyNames @($rules.CompanyNames))
-        $r.planned = $plan.Count
+        $r.planned = @($plan | ForEach-Object { $_.id } | Select-Object -Unique).Count
         if (-not $plan.Count) { return $r }
         try { & $Store.AssertWritable | Out-Null } catch { $r.status = 'skipped'; $r.reason = $_.Exception.Message; return $r }
         $targets = New-Object System.Collections.Generic.List[string]
+        $failedIds = @{}
         foreach ($s in $plan) {
             if ($s.step -eq 'link-strength') {
                 try { if ((Update-LinkItStrength -Store $Store -Id $s.id).changed) { $r.raised++ } }
-                catch { $r.failed++; Write-AppLog info upgrade 'Link strength failed' @{ step = $s.step; id = $s.id; error = $_.Exception.GetType().Name } }
+                catch { $failedIds[$s.id] = $true; Write-AppLog info upgrade 'Link strength failed' @{ step = $s.step; id = $s.id; error = $_.Exception.GetType().Name } }
                 continue
             }
             try {
@@ -67,7 +70,7 @@ function Invoke-VaultUpgrade {
                     foreach ($l in @($model.pages[$s.id].links)) { if ($l -and $l.target -and -not $targets.Contains([string]$l.target)) { $targets.Add([string]$l.target) } }
                 }
             } catch {
-                $r.failed++
+                $failedIds[$s.id] = $true
                 Write-AppLog info upgrade 'Re-file failed' @{ step = $s.step; id = $s.id; error = $_.Exception.GetType().Name }
             }
         }
@@ -79,6 +82,7 @@ function Invoke-VaultUpgrade {
                 try { & $Store.SetLinkedFrom $t (Get-IncomingSources -Index $idx -TargetId $t) | Out-Null } catch { }
             }
         }
+        $r.failed = $failedIds.Count
         $r.status = if ($r.failed) { 'partial' } else { 'done' }
     } catch {
         $r.status = 'partial'; $r.failed++; $r.reason = $_.Exception.Message
@@ -99,7 +103,7 @@ function Format-UpgradeStatus {
     switch ($Result.status) {
         'done' { @{ status = 'OK'; detail = ($done -join '; '); hint = '' } }
         'skipped' { @{ status = 'WARN'; detail = "$($Result.planned) page(s) do not follow the current rules (link section, strength of your own links); not changed, this ObsidiNote is read only"; hint = 'The writer brings them in line at its next start.' } }
-        default { @{ status = 'WARN'; detail = "$($Result.moved + $Result.raised) of $($Result.planned) page(s) brought in line; $($Result.failed) could not be changed"; hint = 'They stay as they are and are tried again at the next start. The log has the ids.' } }
+        default { @{ status = 'WARN'; detail = "$([Math]::Max(0, $Result.planned - $Result.failed)) of $($Result.planned) page(s) brought in line; $($Result.failed) could not be changed"; hint = 'They stay as they are and are tried again at the next start. The log has the ids.' } }
     }
 }
 

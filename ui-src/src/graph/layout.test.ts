@@ -338,3 +338,24 @@ describe('links between topics (bundleEdges)', () => {
     expect(bundleEdges(onlyMentions)).toEqual([])
   })
 })
+
+describe('packAreas speed (code review 2026-11-14)', () => {
+  it('places 200 linked areas (a large Sources map) well within a second', () => {
+    // Deterministic sparse links: each area to 2 earlier ones, symmetric.
+    const n = 200
+    const radii = Array.from({ length: n }, (_, i) => 20 + ((i * 37) % 60))
+    const links = Array.from({ length: n }, () => new Array<number>(n).fill(0))
+    for (let i = 1; i < n; i++) {
+      for (const j of [(i * 7) % i, (i * 13) % i]) {
+        links[i][j] = links[j][i] = 1 + (i % 3)
+      }
+    }
+    const t0 = performance.now()
+    const placed = packAreas(radii, radii.map(() => null), 1.6, AREA_GAP, [], links)
+    const ms = performance.now() - t0
+    expect(placed).toHaveLength(n)
+    // 2026-11-14, dev PC: 229 ms with the linked-pairs list, 857 ms with all pairs per spot (grows
+    // with the 4th power of the area count). A loose bound, so a slow CI runner does not flake.
+    expect(ms).toBeLessThan(2500)
+  })
+})
