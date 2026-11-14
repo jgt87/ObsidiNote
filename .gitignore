@@ -18,7 +18,6 @@ evidence-private/
 /*-profile/
 
 # Machine-local tooling: absolute paths, local indexes, agent state
-.repowise/
 .mcp.json
 .claude/settings.local.json
 # Managed copies of the private CommonShared rules: refreshed by its sync, local only

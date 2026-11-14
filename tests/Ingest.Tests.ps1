@@ -382,6 +382,28 @@ Describe 'Receive-AddAnswer: check for the answer' {
     }
 }
 
+Describe 'Where the text came from (origin, the "From:" choice)' {
+    It 'writes a known origin on the new page, and drops an unknown one' {
+        $v = New-FakeVault
+        $c = New-FakeCopilot @((Get-GoodReply))
+        $null = Invoke-AddRequest -Request @{ text = $script:Text; mode = 'add'; origin = 'outlook' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+        $v.st.created['{NEW-p101}']['origin'] | Should Be 'outlook'
+        $v2 = New-FakeVault
+        $c2 = New-FakeCopilot @((Get-GoodReply))
+        $null = Invoke-AddRequest -Request @{ text = $script:Text; mode = 'add'; origin = 'myspace' } -Store $v2.store -Ask $c2.ask -Options @{ Now = $script:Now }
+        $v2.st.created['{NEW-p101}']['origin'] | Should Be ''
+    }
+    It 'keeps it on a waiting Intake item and files the page with it after "Check for the answer"' {
+        $v = New-FakeVault
+        $w = Invoke-AddRequest -Request @{ text = $script:Text; mode = 'add'; origin = 'teams' } -Store $v.store -Ask (Get-PendingAsk) -Options @{ Now = $script:Now }
+        $v.st.inbox['{IN0}'].origin | Should Be 'teams'
+        $chat = Add-Ref (Get-GoodReply) $w.ref
+        $r = Receive-AddAnswer -Store $v.store -Ask (New-FakeCopilot @()).ask -ReadChat (New-ChatReader $chat).read -InboxId $w.inboxId -Options @{ Now = $script:Now }
+        $r.status | Should Be 'added'
+        $v.st.created['{NEW-p101}']['origin'] | Should Be 'teams'
+    }
+}
+
 Describe 'Undo-AddRequest' {
     It 'sends the page to Deleted Pages, takes it out of the index and reverts the backlinks' {
         $v = New-FakeVault

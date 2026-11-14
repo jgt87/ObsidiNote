@@ -1,7 +1,8 @@
 // Synthetic graph for the demo page and the tests. Invented example data only (no real
 // content). Seeded, so the same options always give the same model.
 
-import type { GraphEdge, GraphModel, GraphPage, GraphTopic, Strength } from './model'
+import type { GraphEdge, GraphModel, GraphPage, GraphSourceArea, GraphTopic, Strength } from './model'
+import { applyLinkWeights } from './weights'
 
 export interface SyntheticOptions {
   pages?: number
@@ -38,6 +39,20 @@ const BUCKETS: [string, string][] = [
   ['Notes', 'concept'], ['Notes', 'note'], ['Web links', 'link-web'], ['Internal links', 'link-internal'],
   ['Sources', 'source'], ['Meetings', 'meeting'], ['Decisions', 'decision'], ['Projects', 'project'],
 ]
+/** Sources of the demo's internal links, and the names of every demo source. */
+const DEMO_INTERNAL = ['sharepoint/hr', 'sharepoint/it', 'onedrive', 'teams', 'sharepoint/hr', 'loop']
+const DEMO_SOURCES: Record<string, Omit<GraphSourceArea, 'pageCount'>> = {
+  'sharepoint/hr': { id: 'sharepoint/hr', name: 'SharePoint: HR', kind: 'm365' },
+  'sharepoint/it': { id: 'sharepoint/it', name: 'SharePoint: IT', kind: 'm365' },
+  onedrive: { id: 'onedrive', name: 'OneDrive', kind: 'm365' },
+  teams: { id: 'teams', name: 'Teams', kind: 'm365' },
+  loop: { id: 'loop', name: 'Loop', kind: 'm365' },
+  'web/site0.example': { id: 'web/site0.example', name: 'site0.example', kind: 'web' },
+  'web/site1.example': { id: 'web/site1.example', name: 'site1.example', kind: 'web' },
+  'web/site2.example': { id: 'web/site2.example', name: 'site2.example', kind: 'web' },
+  obsidinote: { id: 'obsidinote', name: 'ObsidiNote notes', kind: 'notes' },
+  onenote: { id: 'onenote', name: 'OneNote pages', kind: 'notes' },
+}
 const REASONS = ['core concept this implements', 'the check it relies on', 'replaces it', 'same project', 'background reading', 'decided in this meeting', 'owner of this', 'example of the method']
 
 export function syntheticGraph(opts: SyntheticOptions = {}): GraphModel {
@@ -75,7 +90,7 @@ export function syntheticGraph(opts: SyntheticOptions = {}): GraphModel {
     const [bucket, kind] = hub ? ['00 Index', 'hub'] : pick(BUCKETS)
     const id = `p${pages.length + 1}`
     const page: GraphPage = {
-      id, title, topicIds, bucket, kind, links: 0, isHub: hub, unlinked: false,
+      id, title, topicIds, bucket, kind, links: 0, linkedFrom: 0, weight: 0, isHub: false, unlinked: false,
       summary: `Example summary for “${title}”: invented text for the demo.`,
       onenoteUrl: `onenote:#example-page-${pages.length + 1}`,
       modified: new Date(day - Math.floor(rnd() * 90) * 86_400_000).toISOString(),
@@ -85,6 +100,14 @@ export function syntheticGraph(opts: SyntheticOptions = {}): GraphModel {
       site: kind === 'link-web' ? `site${pages.length % 3}.example` : kind === 'link-internal' ? 'team.example' : '',
       archived: !hub && pages.length % 23 === 22,
       url: kind === 'link-web' ? `https://site${pages.length % 3}.example/page-${pages.length}` : kind === 'link-internal' ? `https://team.example/sites/demo/page-${pages.length}` : '',
+      // As the server would place it (lib/GraphModel.psm1): internal links spread over Microsoft 365
+      // apps, web links by site, files on OneDrive, the rest without an address.
+      sourceId:
+        kind === 'link-web' ? `web/site${pages.length % 3}.example`
+        : kind === 'link-internal' ? DEMO_INTERNAL[pages.length % DEMO_INTERNAL.length]
+        : kind === 'file' ? 'onedrive'
+        : readOnly ? 'onenote' : 'obsidinote',
+      origin: '',
     }
     pages.push(page)
     return page
@@ -127,7 +150,7 @@ export function syntheticGraph(opts: SyntheticOptions = {}): GraphModel {
   const mentions = Math.round(total * 0.06)
   for (let c = 0; c < mentions && total > 1; c++) link(Math.floor(rnd() * total), Math.floor(rnd() * total), 1, 'mention')
 
-  // Drop duplicate pairs, then count links per page.
+  // Drop duplicate pairs, then weigh the pages as normalizeGraph does (weights.ts).
   const seen = new Set<string>()
   const unique = edges.filter((e) => {
     const k = `${e.kind}:${e.from < e.to ? e.from + '|' + e.to : e.to + '|' + e.from}`
@@ -135,17 +158,8 @@ export function syntheticGraph(opts: SyntheticOptions = {}): GraphModel {
     seen.add(k)
     return true
   })
-  const byId = new Map(pages.map((p) => [p.id, p]))
-  for (const e of unique) {
-    if (e.kind === 'mention') continue
-    byId.get(e.from)!.links++
-    byId.get(e.to)!.links++
-  }
-  for (const p of pages) {
-    p.unlinked = p.links === 0
-    if (!p.isHub && p.links >= 12) p.isHub = true
-    for (const t of p.topicIds) topics.find((x) => x.id === t)!.pageCount++
-  }
+  applyLinkWeights(pages, unique)
+  for (const p of pages) for (const t of p.topicIds) topics.find((x) => x.id === t)!.pageCount++
   // A parent's count includes its subtopics' pages, as in the index.
   for (const t of [...topics].reverse()) if (t.parent) topics.find((x) => x.id === t.parent)!.pageCount += t.pageCount
 
@@ -158,6 +172,9 @@ export function syntheticGraph(opts: SyntheticOptions = {}): GraphModel {
     edges: unique,
     // As the server sends them for the active vault (lib/NotebookStructure.psm1 TypeBucket).
     ...(readOnly ? {} : { types: DEMO_TYPES }),
+    sources: Object.values(DEMO_SOURCES)
+      .map((s) => ({ ...s, pageCount: pages.filter((p) => p.sourceId === s.id).length }))
+      .filter((s) => s.pageCount > 0),
   }
 }
 

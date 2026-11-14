@@ -97,3 +97,42 @@ Describe 'Edit-Page: title, details and links of a page' {
         $w.f.Writes.Count | Should Be $before
     }
 }
+
+Describe 'Edit-Page: where a page came from (origin), also for pages added before it was recorded' {
+    $w = New-SyntheticVault
+    $p2 = Find-FakePage $w.f 'Partner portal: access review notes'
+    It 'sets it on a page that never had one, in the page and in the index' {
+        $r = Edit-Page -Store $w.store -Id 'p2' -Changes @{ origin = 'outlook' }
+        $r.status | Should Be 'edited'
+        ($r.changed -join ',') | Should Be 'origin'
+        $p2.meta['obsn.origin'] | Should Be 'outlook'
+        $w.open.model.pages['p2'].origin | Should Be 'outlook'
+    }
+    It 'clears it back to typed, and refuses an unknown one or one on a link page' {
+        (Edit-Page -Store $w.store -Id 'p2' -Changes @{ origin = '' }).status | Should Be 'edited'
+        $p2.meta['obsn.origin'] | Should Be ''
+        (Edit-Page -Store $w.store -Id 'p2' -Changes @{ origin = 'myspace' }).message | Should Be 'Unknown origin.'
+        $null = Add-LinkPage $w
+        (Edit-Page -Store $w.store -Id 'p4' -Changes @{ origin = 'teams' }).message | Should Match 'address'
+    }
+    It 'shows the page in that source on the map (GraphModel)' {
+        $null = Edit-Page -Store $w.store -Id 'p2' -Changes @{ origin = 'word' }
+        Import-Module (Join-Path $root 'lib\GraphModel.psm1') -Force
+        $g = ConvertTo-GraphModel -Model $w.open.model -Source @{ kind = 'vault'; id = 'v'; name = 'S'; readOnly = $false }
+        $p = @($g.pages | Where-Object { $_.id -eq 'p2' })[0]
+        $p.sourceId | Should Be 'word'
+        $p.origin | Should Be 'word'
+        @($g.sources | Where-Object { $_.id -eq 'word' })[0].name | Should Be 'Word'
+    }
+}
+
+Describe 'The origin list matches the interface''s (tests/fixtures/origins.json)' {
+    It 'has the same ids, labels, source names and kinds in the same order' {
+        $want = Get-Content -Raw (Join-Path $here 'fixtures\origins.json') | ConvertFrom-Json
+        $have = Get-OriginList   # returns , @(...): assign as is
+        $have.Count | Should Be @($want).Count
+        for ($i = 0; $i -lt $have.Count; $i++) {
+            "$($have[$i].id)|$($have[$i].label)|$($have[$i].source)|$($have[$i].kind)" | Should Be "$($want[$i].id)|$($want[$i].label)|$($want[$i].source)|$($want[$i].kind)"
+        }
+    }
+}

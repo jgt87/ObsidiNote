@@ -10,6 +10,9 @@
 #     public pages -> Web links). A page in the wrong one is moved (it gets a new OneNote id, found
 #     again by its obsn.id; probes/p9-move.ps1), gets the matching type (link-internal | link-web),
 #     its index record follows, and the "Linked from" lists of the pages it links to get its new link.
+#   link-strength (2026-11-14): a "Link it" link (the person's own) is "related" (2); before v0.8.2
+#     it was written as "loose" (1). The page's obsn.links Meta and index record are raised
+#     (Update-LinkItStrength in lib/Ingest.psm1); no outline is written. Copilot's links are left as rated.
 # Done once: Intake requests leave the index by the scan rule itself (lib/Index.psm1); nothing to move.
 # The log holds counts and ids only. PS 5.1, ASCII only.
 Set-StrictMode -Version 2.0
@@ -25,6 +28,7 @@ function Get-UpgradePlan {
     param([Parameter(Mandatory)][hashtable]$Model, [string[]]$InternalHosts = @(), [string[]]$CompanyNames = @())
     foreach ($p in @($Model.pages.Values)) {
         if ($p.owner -ne 'obsn' -or $p.status -eq 'archived') { continue }
+        if (Test-WeakLinkIt -Links @($p.links)) { @{ step = 'link-strength'; id = [string]$p.id; from = ''; to = ''; type = '' } }
         $u = [string]$p.url
         if ($u -notmatch '^(?i)https?://') { continue }
         $have = Get-BucketOfSection ([string]$p.section)
@@ -41,7 +45,7 @@ function Invoke-VaultUpgrade {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Store)
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    $r = [ordered]@{ status = 'none'; planned = 0; moved = 0; failed = 0; reason = '' }
+    $r = [ordered]@{ status = 'none'; planned = 0; moved = 0; raised = 0; failed = 0; reason = '' }
     try {
         $model = & $Store.Model
         $rules = & $Store.LinkRules
@@ -51,6 +55,11 @@ function Invoke-VaultUpgrade {
         try { & $Store.AssertWritable | Out-Null } catch { $r.status = 'skipped'; $r.reason = $_.Exception.Message; return $r }
         $targets = New-Object System.Collections.Generic.List[string]
         foreach ($s in $plan) {
+            if ($s.step -eq 'link-strength') {
+                try { if ((Update-LinkItStrength -Store $Store -Id $s.id).changed) { $r.raised++ } }
+                catch { $r.failed++; Write-AppLog info upgrade 'Link strength failed' @{ step = $s.step; id = $s.id; error = $_.Exception.GetType().Name } }
+                continue
+            }
             try {
                 $m = & $Store.MovePage $s.id $s.to $s.type
                 if ($m.moved) {
@@ -74,7 +83,7 @@ function Invoke-VaultUpgrade {
     } catch {
         $r.status = 'partial'; $r.failed++; $r.reason = $_.Exception.Message
     } finally {
-        Write-AppLog info upgrade 'Upgrade finished' @{ status = $r.status; planned = $r.planned; moved = $r.moved; failed = $r.failed; ms = $sw.ElapsedMilliseconds }
+        Write-AppLog info upgrade 'Upgrade finished' @{ status = $r.status; planned = $r.planned; moved = $r.moved; raised = $r.raised; failed = $r.failed; ms = $sw.ElapsedMilliseconds }
     }
     $r
 }
@@ -83,10 +92,14 @@ function Format-UpgradeStatus {
     <# The start's status line for an upgrade result, or $null when there was nothing to do. #>
     param($Result)
     if (-not $Result -or $Result.status -eq 'none') { return $null }
+    $done = @()
+    if ($Result.moved) { $done += "$($Result.moved) link page(s) moved to the section the current link rule asks for" }
+    if ($Result.raised) { $done += "your own links on $($Result.raised) page(s) set to related" }
+    if ($Result.status -eq 'done' -and -not $done.Count) { return $null }
     switch ($Result.status) {
-        'done' { @{ status = 'OK'; detail = "$($Result.moved) link page(s) moved to the section the current link rule asks for"; hint = '' } }
-        'skipped' { @{ status = 'WARN'; detail = "$($Result.planned) link page(s) are in the wrong section; not moved, this ObsidiNote is read only"; hint = 'The writer moves them at its next start.' } }
-        default { @{ status = 'WARN'; detail = "$($Result.moved) of $($Result.planned) link page(s) moved; $($Result.failed) could not be moved"; hint = 'They stay where they are and are tried again at the next start. The log has the ids.' } }
+        'done' { @{ status = 'OK'; detail = ($done -join '; '); hint = '' } }
+        'skipped' { @{ status = 'WARN'; detail = "$($Result.planned) page(s) do not follow the current rules (link section, strength of your own links); not changed, this ObsidiNote is read only"; hint = 'The writer brings them in line at its next start.' } }
+        default { @{ status = 'WARN'; detail = "$($Result.moved + $Result.raised) of $($Result.planned) page(s) brought in line; $($Result.failed) could not be changed"; hint = 'They stay as they are and are tried again at the next start. The log has the ids.' } }
     }
 }
 

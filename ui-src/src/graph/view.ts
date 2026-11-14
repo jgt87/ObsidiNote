@@ -27,6 +27,15 @@ export function labelMode(visiblePages: number, k: number, fitK: number, hubsOnl
   return visiblePages <= ALL_LABELS_UP_TO || k >= fitK * ALL_LABELS_ZOOM ? 'all' : 'hubs'
 }
 
+/** Zoom (against the fitted view) from which every topic line shows instead of the heaviest
+ *  (operator, 2026-11-14: zooming in should reveal all topic lines). */
+export const ALL_LINES_ZOOM = 1.5
+
+/** Which topic lines show: all when zoomed in to ALL_LINES_ZOOM or more, else the resting set. */
+export function lineMode(k: number, fitK: number): 'all' | 'resting' {
+  return k >= fitK * ALL_LINES_ZOOM - 1e-9 ? 'all' : 'resting'
+}
+
 /** Stage pixels kept free at the bottom for the toolbar and legend, so the fitted picture never
  *  runs under them (2026-11-14: a topic and its name sat behind the legend). */
 export const FIT_BOTTOM = 52
@@ -141,64 +150,34 @@ export interface AreaLabelPlace {
   /** Top centre of the label, screen pixels. */
   x: number
   top: number
-  /** Where it ended up: above the area, inside its top, or below it. */
-  at: 'above' | 'inside' | 'below'
+  /** Always centred on its own area (operator, 2026-11-14); kept as a field for the CSS hook. */
+  at: 'center'
   rect: Rect
   /** The "N pages · subjects" line fits (dropped when even the name alone had to squeeze in). */
   withSub: boolean
 }
 
-/** Estimated size of a topic name (graph.css .kg-alabel: 12px name, 11px line under it). */
+/** Estimated size of a topic name (graph.css .kg-alabel: 14px bold name, 11px line under it). */
 export function areaLabelSize(name: string, sub: string, withSub: boolean): { w: number; h: number } {
-  const w = Math.max(name.length * 12 * 0.6, withSub ? Math.min(260, sub.length * 11 * 0.56) : 0) + 16
-  return { w, h: withSub ? 34 : 20 }
-}
-
-function rectHitsCircle(r: Rect, c: { x: number; y: number; r: number }): boolean {
-  const nx = Math.max(r[0], Math.min(c.x, r[2]))
-  const ny = Math.max(r[1], Math.min(c.y, r[3]))
-  const dx = c.x - nx
-  const dy = c.y - ny
-  return dx * dx + dy * dy < c.r * c.r
+  const w = Math.max(name.length * 14 * 0.62, withSub ? Math.min(260, sub.length * 11 * 0.56) : 0) + 16
+  return { w, h: withSub ? 36 : 22 }
 }
 
 /**
- * Places each topic name where it touches no other topic area and no other name (operator,
- * 2026-11-14: names lay on top of neighbouring topics): above its area, else inside its top,
- * else below it; then the same without the "N pages" line; else above anyway (never dropped).
+ * Each topic name centred on its own area (operator, 2026-11-14: names above or below an area sat
+ * in the gaps where the topic lines run; centred, a name never meets a line, and the stage hides it
+ * while the pointer is over its area so it never blocks the pages). With the "N pages · subjects"
+ * line when that fits inside the area, else the name alone. Areas never overlap, so neither do the
+ * names. Never dropped.
  */
 export function placeAreaLabels(areas: AreaLabelInput[]): AreaLabelPlace[] {
-  const placed: AreaLabelPlace[] = []
-  const gap = 4
-  for (const a of areas) {
-    const others = areas.filter((o) => o.id !== a.id)
-    let chosen: AreaLabelPlace | null = null
-    for (const withSub of [true, false]) {
-      const { w, h } = areaLabelSize(a.name, a.sub, withSub)
-      const spots: [AreaLabelPlace['at'], number][] = [
-        ['above', a.y - a.r - gap - h],
-        ['inside', a.y - a.r + Math.max(6, a.r * 0.12)],
-        ['below', a.y + a.r + gap],
-      ]
-      for (const [at, top] of spots) {
-        const rect: Rect = [a.x - w / 2, top, a.x + w / 2, top + h]
-        // Inside must fit within the area's width at that height.
-        if (at === 'inside' && (h > a.r || w > a.r * 1.7)) continue
-        if (others.some((o) => rectHitsCircle(rect, o))) continue
-        if (placed.some((p) => overlaps(rect, p.rect))) continue
-        chosen = { id: a.id, x: a.x, top, at, rect, withSub }
-        break
-      }
-      if (chosen) break
-    }
-    if (!chosen) {
-      const { w, h } = areaLabelSize(a.name, a.sub, true)
-      const top = a.y - a.r - gap - h
-      chosen = { id: a.id, x: a.x, top, at: 'above', rect: [a.x - w / 2, top, a.x + w / 2, top + h], withSub: true }
-    }
-    placed.push(chosen)
-  }
-  return placed
+  return areas.map((a) => {
+    const full = areaLabelSize(a.name, a.sub, true)
+    const withSub = full.h <= a.r && full.w <= a.r * 1.7
+    const { w, h } = withSub ? full : areaLabelSize(a.name, a.sub, false)
+    const top = a.y - h / 2
+    return { id: a.id, x: a.x, top, at: 'center' as const, rect: [a.x - w / 2, top, a.x + w / 2, top + h] as Rect, withSub }
+  })
 }
 
 // ---------- hover card ----------

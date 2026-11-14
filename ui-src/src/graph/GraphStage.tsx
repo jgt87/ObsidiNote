@@ -11,9 +11,9 @@ import { flushSync } from 'react-dom'
 import { plural } from './format'
 import { indexPath, type GraphIndex } from './graphIndex'
 import { HoverCard } from './HoverCard'
-import { bundleEdges, edgePath, type BundleLayout, type DotLayout, type GraphLayout } from './layout'
+import { bundleEdges, edgePath, onePerPair, restingBundles, type BundleLayout, type DotLayout, type GraphLayout } from './layout'
 import { primaryTopic, type GraphEdge } from './model'
-import { FIT_BOTTOM, fitViewport, labelMode, MIN_ZOOM_FACTOR, nextInDirection, pan, placeAreaLabels, placeLabels, toScreen, zoomAt, type Direction, type LabelBox, type Viewport } from './view'
+import { FIT_BOTTOM, fitViewport, labelMode, lineMode, MIN_ZOOM_FACTOR, nextInDirection, pan, placeAreaLabels, placeLabels, toScreen, zoomAt, type Direction, type LabelBox, type Viewport } from './view'
 
 export interface Filters {
   links: boolean
@@ -44,26 +44,34 @@ interface Props {
   shown?: Set<string> | null
   /** "Focus on this page" (F on the focused dot). */
   onFocusPage?: (id: string) => void
+  /** What an area stands for, for the legend: a topic, or a source (the Sources view). */
+  areaWord?: 'topic' | 'source'
 }
 
 type BaseProps = { layout: GraphLayout; links: boolean; mentions: boolean; shown: Set<string> | null; bundles: BundleLayout[] }
 
-/** Line width of a bundle: grows with the number of links it stands for, capped. */
-export function bundleWidth(count: number): number {
-  return Math.min(5, 1 + Math.log2(count) * 1.1)
+/** Line width of a bundle: grows with the summed strength of the links it stands for (one loose
+ *  link = 1 px, four related links = 3.2 px), capped at 5 px. */
+export function bundleWidth(weight: number): number {
+  return Math.min(5, 1 + Math.log2(Math.max(1, weight / 2)) * 1.1)
+}
+
+function BundleLine({ b, extra = '' }: { b: BundleLayout; extra?: string }) {
+  return <path d={b.d} className={`kg-edge kg-bundle${extra}`} style={{ strokeWidth: `${bundleWidth(b.weight)}px` }} />
 }
 
 const BaseLayer = memo(function BaseLayer({ layout, links, mentions, shown, bundles }: BaseProps) {
   const on = (id: string) => !shown || shown.has(id)
   return (
     <>
+      {/* Links between topics, UNDER the solid areas so a line never shows across a third topic
+          (bundleEdges; only the heaviest at rest, restingBundles). Their page-to-page lines are
+          drawn only for the focused page (focus layer). */}
+      <g>{links && bundles.map((b) => <BundleLine key={`${b.a}|${b.b}`} b={b} />)}</g>
       <g className="kg-areas">
         {layout.areas.map((a) => (a.pageIds.some(on) ? <circle key={a.id} className="kg-area" cx={a.x} cy={a.y} r={a.r} /> : null))}
       </g>
       <g>
-        {/* Links between topics: one line per pair of areas (bundleEdges); their page-to-page
-            lines are drawn only for the focused page (focus layer). */}
-        {links && bundles.map((b) => <path key={`${b.a}|${b.b}`} d={b.d} className="kg-edge kg-bundle" style={{ strokeWidth: `${bundleWidth(b.count)}px` }} />)}
         {layout.edges.map((e, i) => {
           const m = e.edge.kind === 'mention'
           if (m ? !mentions : !links) return null
@@ -87,10 +95,12 @@ function dotClass(d: DotLayout, extra = ''): string {
 
 const KEY_DIR: Record<string, Direction> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }
 
-export function GraphStage({ index, layout, filters, matches, active, onActive, onOpen, stageRef, label, shown = null, onFocusPage }: Props) {
+export function GraphStage({ index, layout, filters, matches, active, onActive, onOpen, stageRef, label, shown = null, onFocusPage, areaWord = 'topic' }: Props) {
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
   const [view, setView] = useState<Viewport | null>(null)
   const [dragging, setDragging] = useState(false)
+  /** The topic area under the pointer (its name is hidden while it is). */
+  const [hoverArea, setHoverArea] = useState<string | null>(null)
   const drag = useRef<{ x: number; y: number; id: string | null; moved: boolean; pointer: number } | null>(null)
   const pointerFocus = useRef(false)
   const toolbarRef = useRef<HTMLButtonElement>(null)
@@ -209,6 +219,15 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   }
   const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
     keyboardMode.current = false
+    if (!drag.current?.moved) {
+      // The area under the pointer: its name gives way so it never covers the pages.
+      const box = e.currentTarget.getBoundingClientRect()
+      const cur = live.current ?? viewRef.current
+      const wx = (e.clientX - box.left) / cur.k + cur.x
+      const wy = (e.clientY - box.top) / cur.k + cur.y
+      const over = layout.areas.find((a) => Math.hypot(wx - a.x, wy - a.y) <= a.r)?.id ?? null
+      if (over !== hoverArea) setHoverArea(over)
+    }
     const d = drag.current
     if (!d || d.pointer !== e.pointerId) return
     const dx = e.clientX - d.x
@@ -320,7 +339,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
     const list: GraphEdge[] = []
     if (filters.links) list.push(...(index.out.get(activeDot.id) ?? []), ...(index.in.get(activeDot.id) ?? []))
     if (filters.mentions) list.push(...(index.mentions.get(activeDot.id) ?? []))
-    return list.flatMap((e) => {
+    return onePerPair(list).flatMap((e) => {
       if (!isShown(e.from) || !isShown(e.to)) return []
       const a = layout.dotById.get(e.from)
       const b = layout.dotById.get(e.to)
@@ -348,6 +367,9 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
       }),
   )
   const areaById = new Map(layout.areas.map((a) => [a.id, a]))
+  // A topic's name gives way while the pointer is over its area, or one of its pages is focused,
+  // so it never covers the pages (operator, 2026-11-14).
+  const hiddenAreas = new Set([hoverArea, activeDot?.area].filter((x): x is string => !!x))
   const candidates: LabelBox[] = []
   const addLabel = (d: DotLayout, cls: string) => {
     const [x, y] = toScreen(v, d.x, d.y)
@@ -368,9 +390,17 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   }
   const labels = placeLabels(
     candidates,
-    areaLabels.map((l) => l.rect),
+    areaLabels.filter((l) => !hiddenAreas.has(l.id)).map((l) => l.rect),
   )
   const bundles = useMemo(() => bundleEdges(layout, shown), [layout, shown])
+  // At rest the heaviest topic lines; zoomed in far enough, all of them (lineMode).
+  const allLines = lineMode(v.k, fit.k) === 'all'
+  const resting = useMemo(() => (allLines ? bundles : restingBundles(bundles)), [bundles, allLines])
+  // Pointing at a page shows every topic line of its area (under the areas, not faded).
+  const focusBundles = useMemo(
+    () => (activeDot && filters.links ? bundles.filter((b) => b.a === activeDot.area || b.b === activeDot.area) : []),
+    [bundles, activeDot, filters.links],
+  )
 
   const page = activeDot ? index.pageById.get(activeDot.id) : undefined
   const announce = page
@@ -403,10 +433,16 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
         onPointerCancel={onPointerUp}
         onPointerOver={onPointerOver}
         onPointerOut={onPointerOut}
+        onPointerLeave={() => setHoverArea(null)}
       >
         <g transform={`matrix(${v.k} 0 0 ${v.k} ${-v.x * v.k} ${-v.y * v.k})`}>
+          <g className="kg-focus-bundles">
+            {focusBundles.map((b) => (
+              <BundleLine key={`${b.a}|${b.b}`} b={b} extra=" kg-bundle--on" />
+            ))}
+          </g>
           <g className="kg-base" data-dim={dim}>
-            <BaseLayer layout={layout} links={filters.links} mentions={filters.mentions} shown={shown} bundles={bundles} />
+            <BaseLayer layout={layout} links={filters.links} mentions={filters.mentions} shown={shown} bundles={resting} />
           </g>
           <g className="kg-focus">
             {focusEdges.map(({ e, d }, i) => (
@@ -429,7 +465,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
         {areaLabels.map((l) => {
           const a = areaById.get(l.id)!
           return (
-            <div key={l.id} className="kg-alabel" data-dim={dim} data-at={l.at} style={{ left: l.x, top: l.top }}>
+            <div key={l.id} className="kg-alabel" data-dim={dim} data-at={l.at} data-hidden={hiddenAreas.has(l.id)} style={{ left: l.x, top: l.top }}>
               <b>{a.name}</b>
               {l.withSub && <span>{a.sub}</span>}
             </div>
@@ -488,7 +524,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
             <circle className="kg-dot kg-dot--hub" cx="6" cy="6" r="5" />
             <circle className="kg-dot" cx="17" cy="6" r="2.5" />
           </svg>
-          big dot = hub (many links)
+          bigger dot = more pages link here
         </span>
         <span className="kg-legend__item">
           <svg viewBox="0 0 22 12" aria-hidden="true">
@@ -503,13 +539,13 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
             <path className="kg-edge kg-bundle" d="M8 6H14" style={{ strokeWidth: '2.5px' }} />
             <circle className="kg-area" cx="18" cy="6" r="4" />
           </svg>
-          line between topics = their links
+          line between {areaWord}s = their links
         </span>
         <span className="kg-legend__item">
           <svg viewBox="0 0 22 12" aria-hidden="true">
             <circle className="kg-area" cx="11" cy="6" r="6" />
           </svg>
-          grey area = topic
+          grey area = {areaWord}
         </span>
         <span className="kg-legend__item">
           <svg viewBox="0 0 22 12" aria-hidden="true">

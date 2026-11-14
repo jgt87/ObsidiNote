@@ -1,0 +1,8 @@
+[
+  { "id": "outlook", "label": "Outlook mail", "source": "Outlook", "kind": "m365" },
+  { "id": "teams", "label": "Teams chat", "source": "Teams", "kind": "m365" },
+  { "id": "word", "label": "Word document", "source": "Word", "kind": "m365" },
+  { "id": "onedrive", "label": "OneDrive file", "source": "OneDrive", "kind": "m365" },
+  { "id": "sharepoint", "label": "SharePoint page", "source": "SharePoint", "kind": "m365" },
+  { "id": "web", "label": "Web page", "source": "Other web sites", "kind": "other" }
+]

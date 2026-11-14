@@ -57,7 +57,7 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
   // the result's own text, never the box.
   const cleared = () => setClearKey((k) => k + 1)
 
-  const send = useCallback((text: string, mode: Mode, intent: Intent | null) => {
+  const send = useCallback((text: string, mode: Mode, intent: Intent | null, origin = '') => {
     if (followUp && mode !== 'add') {
       const conv = followUp.conversationId
       setFollowUp(null)
@@ -67,7 +67,7 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
     }
     const asking = willAsk(mode, intent)
     setFlow(asking ? { kind: 'ask', view: { kind: 'progress', question: text, step: 1 } } : { kind: 'adding', text })
-    submit({ text, mode, sources: choices.sources, includeArchived: choices.includeArchived }).then(
+    submit({ text, mode, sources: choices.sources, includeArchived: choices.includeArchived, ...(origin ? { origin } : {}) }).then(
       (r) => { if (r.intent === 'ask') showAsk(r); else showAdd(r); cleared() },
       (e: unknown) => fail(text, e, asking),
     )

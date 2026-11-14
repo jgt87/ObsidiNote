@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { buildIndex } from '../graph/graphIndex'
-import { normalizeGraph } from '../graph/model'
+import { normalizeGraph, type GraphModel } from '../graph/model'
 import { syntheticGraph } from '../graph/synthetic'
 import { parseQuery } from './query'
 import { moveActive, requestFor, rowFor, SWITCHER_LIMIT, switcherList } from './switcherModel'
 
 // Invented example data.
+// Hubs are derived from the edges (weights.ts); p1 is made a hub by hand to test the rows alone.
 const index = buildIndex(
-  normalizeGraph({
+  hub(normalizeGraph({
     source: { kind: 'vault', id: 'v1', name: 'Test vault' },
     topics: [
       { id: 't1', name: 'Security', path: 'Security', parent: null, pageCount: 2 },
@@ -19,8 +20,13 @@ const index = buildIndex(
       { id: 'p3', title: 'Loose note', topicIds: [], bucket: 'Notes', kind: 'note' },
     ],
     edges: [],
-  }),
+  })),
 )
+
+function hub(m: GraphModel): GraphModel {
+  m.pages[0].isHub = true
+  return m
+}
 
 describe('switcher rows', () => {
   it('describes topics and pages', () => {

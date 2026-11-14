@@ -30,8 +30,8 @@ Describe 'Link it: p2 mentions p1, the person links them' {
         $r.backlinks | Should Be 1
         @($r.warnings).Count | Should Be 0
     }
-    It 'writes the link into the from page''s own Meta with strength 1 and the why' {
-        $p2.meta['obsn.links'] | Should Be '[{"t":"p1","s":1,"w":"Linked by you (mentioned in the text)"}]'
+    It 'writes the link into the from page''s own Meta with strength 2 (related: the person''s own decision) and the why' {
+        $p2.meta['obsn.links'] | Should Be '[{"t":"p1","s":2,"w":"Linked by you (mentioned in the text)"}]'
     }
     It 'updates the from page''s index record, so the index edge exists' {
         $rec = $w.open.model.pages['p2']
@@ -86,6 +86,6 @@ Describe 'Link it keeps the links a page has' {
     $r = Add-PageLink -Store $w.store -From 'p3' -To 'p2'
     It 'adds the new link next to the existing one' {
         $r.status | Should Be 'linked'
-        (Find-FakePage $w.f 'VPN retirement plan').meta['obsn.links'] | Should Be '[{"t":"p1","s":2,"w":"replaced by"},{"t":"p2","s":1,"w":"Linked by you (mentioned in the text)"}]'
+        (Find-FakePage $w.f 'VPN retirement plan').meta['obsn.links'] | Should Be '[{"t":"p1","s":2,"w":"replaced by"},{"t":"p2","s":2,"w":"Linked by you (mentioned in the text)"}]'
     }
 }

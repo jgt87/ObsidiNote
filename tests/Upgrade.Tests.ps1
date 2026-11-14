@@ -74,6 +74,38 @@ Describe 'Upgrade: link pages move to the section the current rule asks for' {
     }
 }
 
+Describe 'Upgrade: "Link it" links written as loose (1) before 2026-11-14 become related (2)' {
+    $w = New-SyntheticVault
+    # Old shape: p2 got a "Link it" link with strength 1 next to a link Copilot rated loose.
+    $why = 'Linked by you (mentioned in the text)'
+    $p2 = Find-FakePage $w.f 'Partner portal: access review notes'
+    $old = '[{"t":"p1","s":1,"w":"' + $why + '"},{"t":"p3","s":1,"w":"loose match"}]'
+    $p2.meta['obsn.links'] = $old
+    & $w.store.IndexUpdatePage @{ id = 'p2'; links = @(@{ target = 'p1'; strength = 1; why = $why }, @{ target = 'p3'; strength = 1; why = 'loose match' }) } | Out-Null
+    $user = @($p2.outlines | Where-Object { $_.xml -notmatch 'obsn\.role' } | ForEach-Object { $_.xml }) -join '|'
+
+    It 'plans only the page with a weak "Link it" link' {
+        (@(Get-UpgradePlan -Model $w.open.model) | ForEach-Object { "$($_.step):$($_.id)" }) -join ',' | Should Be 'link-strength:p2'
+    }
+    $r = Invoke-VaultUpgrade -Store $w.store
+    It 'raises it in the page''s own Meta and its index record, and says so' {
+        $r.status | Should Be 'done'
+        $r.raised | Should Be 1
+        (Format-UpgradeStatus $r).detail | Should Be 'your own links on 1 page(s) set to related'
+        $p2.meta['obsn.links'] | Should Be ('[{"t":"p1","s":2,"w":"' + $why + '"},{"t":"p3","s":1,"w":"loose match"}]')
+        (@($w.open.model.pages['p2'].links | ForEach-Object { "$($_.target):$($_.strength)" }) -join ',') | Should Be 'p1:2,p3:1'
+    }
+    It 'leaves Copilot''s rating and the person''s own text alone' {
+        (@($p2.outlines | Where-Object { $_.xml -notmatch 'obsn\.role' } | ForEach-Object { $_.xml }) -join '|') | Should Be $user
+    }
+    It 'finds nothing to do at the next start (idempotent)' {
+        $before = $w.f.Writes.Count
+        $again = Invoke-VaultUpgrade -Store $w.store
+        $again.status | Should Be 'none'
+        $w.f.Writes.Count | Should Be $before
+    }
+}
+
 Describe 'Upgrade: a read-only session only reports' {
     $w = New-SyntheticVault
     $null = Add-OldLinkPage $w 'p7' 'Service desk article' 'https://contoso.service-now.com/kb?id=1'

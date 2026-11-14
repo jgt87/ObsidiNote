@@ -769,7 +769,9 @@ function Invoke-SubmitRoute($State, [string]$Body) {
     $u = Use-ActiveVault $State
     if (-not $u.ok) { return @{ status = $u.status; body = @{ intent = $route.intent; error = $u.error } } }
     if ($route.intent -eq 'add') {
-        $r = Invoke-AddRequest -Request @{ text = $text; mode = $route.ingestMode } -Store (New-ServerStore $State $u) -Ask (Get-AddCopilot $State)
+        $origin = Get-BodyValue $b 'origin' ''
+        if ($origin -isnot [string]) { return @{ status = 400; body = @{ error = 'origin must be text.' } } }
+        $r = Invoke-AddRequest -Request @{ text = $text; mode = $route.ingestMode; origin = $origin } -Store (New-ServerStore $State $u) -Ask (Get-AddCopilot $State)
         $r['intent'] = 'add'
         return @{ status = 200; body = $r }
     }
@@ -856,7 +858,7 @@ function Invoke-LinkAddRoute($State, [string]$Body) {
 }
 
 function Invoke-PageEditRoute($State, [string]$Body) {
-    <# POST /api/page/edit {id, title?, type?, topics?, aliases?, summary?, url?, links?[, vault]}: the
+    <# POST /api/page/edit {id, title?, type?, topics?, aliases?, summary?, url?, links?, origin?[, vault]}: the
        person edits a page of the active vault in the window (lib/Ingest.psm1 Edit-Page; no Copilot).
        Only the fields sent change. 400 bad input, 409 another source or read only, 404 not in the index,
        200 edited or unchanged. #>
@@ -868,7 +870,7 @@ function Invoke-PageEditRoute($State, [string]$Body) {
         return @{ status = 409; body = @{ error = 'Only pages of the active vault can be changed; other sources are read only.' } }
     }
     $ch = @{}
-    foreach ($k in 'title', 'type', 'summary', 'url') {
+    foreach ($k in 'title', 'type', 'summary', 'url', 'origin') {
         if (-not $b.PSObject.Properties[$k]) { continue }
         $v = $b.$k
         if ($null -ne $v -and $v -isnot [string]) { return @{ status = 400; body = @{ error = "$k must be text." } } }

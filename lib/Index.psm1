@@ -51,7 +51,7 @@ function Add-IndexTopic {
 
 function New-PageRecord {
     param([hashtable]$From = @{})
-    $r = @{ key = ''; id = ''; title = ''; type = ''; bucket = ''; section = ''; oneNoteId = ''; link = ''; summary = ''; topics = @(); aliases = @(); status = ''; url = ''; host = ''; kind = ''; summarizedAt = ''; archivedFrom = ''; links = @(); updated = ''; owner = 'obsn'; level = 1; parent = '' }
+    $r = @{ key = ''; id = ''; title = ''; type = ''; bucket = ''; section = ''; oneNoteId = ''; link = ''; summary = ''; topics = @(); aliases = @(); status = ''; url = ''; host = ''; kind = ''; summarizedAt = ''; archivedFrom = ''; links = @(); updated = ''; owner = 'obsn'; level = 1; parent = ''; origin = '' }
     foreach ($k in @($From.Keys)) { $r[$k] = $From[$k] }
     $r.topics = @(@($r.topics) | Where-Object { $_ } | ForEach-Object { ConvertTo-TopicPath ([string]$_) } | Where-Object { $_ })
     $r.aliases = @(@($r.aliases) | Where-Object { $_ })
@@ -95,7 +95,7 @@ function Test-PageUnfiled { param([hashtable]$Page) (-not @($Page.topics).Count)
 
 # ---------------------------------------------------------------- compact entries (index Meta)
 
-$script:EntryMap = [ordered]@{ id = 'i'; title = 't'; oneNoteId = 'o'; link = 'k'; bucket = 'b'; section = 'c'; type = 'y'; topics = 'p'; summary = 's'; status = 'st'; url = 'u'; host = 'h'; kind = 'kd'; summarizedAt = 'sa'; archivedFrom = 'af'; aliases = 'a'; links = 'l'; updated = 'm'; owner = 'w' }
+$script:EntryMap = [ordered]@{ id = 'i'; title = 't'; oneNoteId = 'o'; link = 'k'; bucket = 'b'; section = 'c'; type = 'y'; topics = 'p'; summary = 's'; status = 'st'; url = 'u'; host = 'h'; kind = 'kd'; summarizedAt = 'sa'; archivedFrom = 'af'; aliases = 'a'; links = 'l'; updated = 'm'; owner = 'w'; origin = 'or' }
 
 function ConvertTo-IndexEntry {
     param([Parameter(Mandatory)][hashtable]$Page)

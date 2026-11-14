@@ -5,7 +5,9 @@
 
 .kg {
   --kg-stage-bg: var(--surface);
-  --kg-area: color-mix(in srgb, var(--ink) 6.5%, transparent);
+  /* design: solid (the same grey as 6.5% ink over the stage), so the topic lines drawn under the
+     areas never show across a third topic. */
+  --kg-area: color-mix(in srgb, var(--ink) 6.5%, var(--kg-stage-bg));
   --kg-line: var(--ink);
   --kg-dot-fill: var(--surface);
   --kg-dot-line: var(--ink);
@@ -66,8 +68,10 @@
 .kg-s3 { stroke-width: 1.8px; stroke-opacity: 0.48; }
 .kg-edge--mention { stroke-width: 0.8px; stroke-opacity: 0.28; stroke-dasharray: 3 3; }
 /* One line per pair of topics for the links between their pages; its width (set inline from the
-   number of links, GraphStage bundleWidth) carries the meaning, so it stays soft. */
+   summed strength of the links, GraphStage bundleWidth) carries the meaning, so it stays soft. */
 .kg-bundle { stroke-opacity: 0.22; }
+/* The focused page's topic lines: all of them, not faded (grey; purple stays on its own links). */
+.kg-bundle--on { stroke-opacity: 0.5; }
 .kg-dot { fill: var(--kg-dot-fill); stroke: var(--kg-dot-line); stroke-width: 1.1px; vector-effect: non-scaling-stroke; cursor: pointer; }
 .kg-dot--hub { stroke-width: 1.5px; }
 .kg-dot--unlinked { stroke: var(--kg-unlinked-line); stroke-dasharray: 2 2; }
@@ -90,15 +94,18 @@
   position: absolute; transform: translate(-50%, -100%); white-space: nowrap; pointer-events: none;
   text-shadow: 0 0 2px var(--kg-label-halo), 0 0 2px var(--kg-label-halo), 0 0 3px var(--kg-label-halo);
 }
-/* Topic names: placed by view.ts placeAreaLabels, anchored at their top centre (above, inside the
-   top of, or below their area, wherever they touch no other topic). */
+/* Topic names: centred on their own area by view.ts placeAreaLabels (anchored at their top centre),
+   so they never meet a topic line, which runs outside the areas. No plate: the text halo keeps the
+   name readable over the dots while the dots stay visible around the letters (a plate hid the only
+   dots of a small area); it fades out while the pointer is over the area or one of its pages is
+   focused (data-hidden), so it never blocks the pages. */
 .kg-alabel { display: flex; flex-direction: column; align-items: center; line-height: 1.25;
-  transform: translate(-50%, 0); transition: opacity var(--dur) var(--ease-out); }
-/* Inside its area the name lies over dots and lines: a soft backing in the stage colour keeps it readable. */
-.kg-alabel[data-at="inside"] { padding: 1px var(--space-3); border-radius: var(--radius); background: color-mix(in srgb, var(--kg-stage-bg) 82%, transparent); }
-.kg-alabel b { font-size: var(--text-meta); font-weight: 600; }
+  transform: translate(-50%, 0); transition: opacity var(--dur) var(--ease-out); padding: 1px var(--space-3); }
+/* Bigger and bolder than a page name (pill, 11-13px), so a topic never reads as a page. */
+.kg-alabel b { font-size: var(--text-control); font-weight: 700; }
 .kg-alabel span { font-size: var(--text-label); color: var(--muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
 .kg-alabel[data-dim="true"] { opacity: 0.75; }
+.kg-alabel[data-hidden="true"] { opacity: 0; } /* after data-dim: a focused page dims the map too */
 /* Narrow: areas are small, so only the topic name; the counts stay in List and the hover card. */
 @media (max-width: 640px) { .kg-alabel span { display: none; } }
 /* Page labels sit on a small solid pill, so links and dots never run through the text (operator,

@@ -86,6 +86,8 @@ export interface SubmitRequest {
   mode: Mode
   sources?: string[]
   includeArchived?: boolean
+  /** Where an Add's text came from (model/origins.ts); left out = typed. */
+  origin?: string
 }
 
 const HEADERS: Record<string, string> = { 'X-ObsidiNote': '1' }

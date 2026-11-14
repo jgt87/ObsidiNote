@@ -6,7 +6,9 @@
 # "/StreamHub" in URL patterns, which the bridge must match. The names are built from pieces, so
 # this file does not match itself.
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$script:Names = @(('obsid' + 'ian'), ('ccb' + 'ridge'), ('stream' + 'hub'))
+# The code-index tool used while building (operator, 2026-11-14: never named in docs or code; its
+# local folder is ignored through .git/info/exclude, not the tracked .gitignore).
+$script:Names = @(('obsid' + 'ian'), ('ccb' + 'ridge'), ('stream' + 'hub'), ('repo' + 'wise'))
 $script:Allowed = '/' + 'stream' + 'hub'   # Microsoft's endpoint path, matched case-insensitively
 
 function Get-ReferenceNameHits {
@@ -17,7 +19,7 @@ function Get-ReferenceNameHits {
     $skip = '(^|\\)(\.(?!github\\)[^\\]+|release|temp|tasks|node_modules)\\'
     foreach ($full in [IO.Directory]::EnumerateFiles($r, '*', [IO.SearchOption]::AllDirectories)) {
         $rel = $full.Substring($r.Length + 1)
-        if ($rel -match $skip -or $rel -notmatch '\.(ps1|psm1|cmd|md|json|txt|yml|yaml|ts|tsx|js|mjs|css|html|svg|py)$') { continue }
+        if ($rel -match $skip -or ($rel -notmatch '\.(ps1|psm1|cmd|md|json|txt|yml|yaml|ts|tsx|js|mjs|css|html|svg|py)$' -and $rel -notmatch '^\.git(ignore|attributes)$')) { continue }
         $n = 0
         foreach ($line in [IO.File]::ReadAllLines($full)) {
             $n++

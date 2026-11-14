@@ -223,6 +223,81 @@ function Get-LinkBucket {
     return 'Web links'
 }
 
+# The knowledge graph's Sources view (operator, 2026-11-14): one area per Microsoft 365 app (SharePoint
+# per site), per company service and per public web site. Names of the tenant services, by host rule.
+$script:ServiceNames = [ordered]@{
+    '*.myworkday.com' = 'Workday'; '*.service-now.com' = 'ServiceNow'; '*.servicenowservices.com' = 'ServiceNow'
+    '*.atlassian.net' = 'Atlassian'; '*.okta.com' = 'Okta'; '*.oktapreview.com' = 'Okta'; '*.okta-emea.com' = 'Okta'
+    '*.my.salesforce.com' = 'Salesforce'; '*.lightning.force.com' = 'Salesforce'; '*.successfactors.com' = 'SuccessFactors'
+    '*.successfactors.eu' = 'SuccessFactors'; '*.sapsf.com' = 'SuccessFactors'; '*.sapsf.eu' = 'SuccessFactors'
+    '*.slack.com' = 'Slack'; '*.zendesk.com' = 'Zendesk'; '*.webex.com' = 'Webex'; '*.zoom.us' = 'Zoom'
+    '*.workplace.com' = 'Workplace'; '*.ultipro.com' = 'UKG'; '*.coupahost.com' = 'Coupa'
+    '*.concursolutions.com' = 'Concur'; '*.freshservice.com' = 'Freshservice'
+}
+
+# Where a page WITHOUT an address came from (operator, 2026-11-14): detected from the paste in the
+# interface (ui-src/src/add/pasteOrigin.ts), shown as "From:" before Add, changeable in Edit; saved as
+# obsn.origin. '' = typed in ObsidiNote (or not known). The ids are Sources-view areas too. The
+# interface's copy (ui-src/src/model/origins.ts) is pinned to this table by tests/fixtures/origins.json.
+$script:Origins = @(
+    [ordered]@{ id = 'outlook'; label = 'Outlook mail'; source = 'Outlook'; kind = 'm365' }
+    [ordered]@{ id = 'teams'; label = 'Teams chat'; source = 'Teams'; kind = 'm365' }
+    [ordered]@{ id = 'word'; label = 'Word document'; source = 'Word'; kind = 'm365' }
+    [ordered]@{ id = 'onedrive'; label = 'OneDrive file'; source = 'OneDrive'; kind = 'm365' }
+    [ordered]@{ id = 'sharepoint'; label = 'SharePoint page'; source = 'SharePoint'; kind = 'm365' }
+    [ordered]@{ id = 'web'; label = 'Web page'; source = 'Other web sites'; kind = 'other' }
+)
+
+function Get-OriginList { , @($script:Origins) }
+
+function Get-OriginSource {
+    <# The Sources-view area of an origin id: @{ id; name; kind }, or $null for '' or an unknown id. #>
+    param([AllowEmptyString()][string]$Origin = '')
+    foreach ($o in $script:Origins) { if ($o.id -eq $Origin) { return @{ id = $o.id; name = $o.source; kind = $o.kind } } }
+    $null
+}
+
+function Test-OriginId {
+    <# True for '' (typed / not known) and every id of the origin list. #>
+    param([AllowEmptyString()][string]$Origin = '')
+    (-not $Origin) -or [bool](Get-OriginSource $Origin)
+}
+
+function Get-LinkSource {
+    <# Where a link page's address lives, for the Sources view: @{ id; name; kind }. Fixed rules on the
+       host (and a SharePoint site's path), no model:
+       OneDrive (*-my.sharepoint.com) | SharePoint per site (/sites/<x>, /teams/<x>; the root site is
+       "SharePoint") | Teams | Loop | Microsoft 365 (office.com, m365.cloud.microsoft) | a company
+       service (Workday, ServiceNow, ... when the host is a company tenant) | the web site (host without
+       "www."). $null for an address that is not http(s). Pure. #>
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$Url = '')
+    $p = Get-UrlParts $Url
+    if (-not $p) { return $null }
+    $h = ($p.hostPort -replace ':[0-9]+$', '').TrimEnd('.')
+    if (-not $h) { return $null }
+    if ($h -match '-my\.sharepoint\.com$') { return @{ id = 'onedrive'; name = 'OneDrive'; kind = 'm365' } }
+    if (Test-HostRule -HostName $h -Rule '*.sharepoint.com') {
+        $m = [regex]::Match($p.path, '^/(?i:sites|teams)/([^/]+)')
+        if ($m.Success) {
+            $site = $m.Groups[1].Value
+            try { $site = [Uri]::UnescapeDataString($site) } catch { }
+            return @{ id = "sharepoint/$($site.ToLowerInvariant())"; name = "SharePoint: $site"; kind = 'm365' }
+        }
+        return @{ id = 'sharepoint'; name = 'SharePoint'; kind = 'm365' }
+    }
+    foreach ($r in 'teams.microsoft.com', 'teams.cloud.microsoft') { if (Test-HostRule -HostName $h -Rule $r) { return @{ id = 'teams'; name = 'Teams'; kind = 'm365' } } }
+    foreach ($r in '*.loop.cloud.microsoft', 'loop.microsoft.com') { if (Test-HostRule -HostName $h -Rule $r) { return @{ id = 'loop'; name = 'Loop'; kind = 'm365' } } }
+    foreach ($r in '*.office.com', 'm365.cloud.microsoft') { if (Test-HostRule -HostName $h -Rule $r) { return @{ id = 'm365'; name = 'Microsoft 365'; kind = 'm365' } } }
+    if (Test-TenantHost $h) {
+        foreach ($r in $script:ServiceNames.Keys) {
+            if (Test-HostRule -HostName $h -Rule $r) { $n = $script:ServiceNames[$r]; return @{ id = "service/$($n.ToLowerInvariant())"; name = $n; kind = 'service' } }
+        }
+    }
+    $site = $h -replace '^www\.', ''
+    @{ id = "web/$site"; name = $site; kind = 'web' }
+}
+
 function ConvertFrom-ObsnHierarchy {
     <# Parses GetHierarchy XML (from the notebook, or from the notebooks root with -Name) into
        @{ notebook = @{ id; name; path }; groups = @(@{ id; name; full });
@@ -376,4 +451,4 @@ function Resolve-ObsnSection {
     $Adapter.OpenHierarchy("$($parts[1]).one", $gid, 3)
 }
 
-Export-ModuleMember -Function Get-ObsnFixedSections, Get-ObsnIntakeSection, Get-LegacyIntakeSection,Get-ObsnBuckets, Get-ObsnTypes, Get-BucketForType, Get-TargetSection, Get-ArchiveSectionName, Get-BucketOfSection, Test-ObsnOwnedSection, Get-UrlHost, ConvertTo-NormalizedUrl, Get-LinkBucket, Get-CompanyNames, ConvertFrom-ObsnHierarchy, Get-StructurePlan, Get-NotebookBasePath, Install-ObsnStructure, Resolve-ObsnSection
+Export-ModuleMember -Function Get-ObsnFixedSections, Get-ObsnIntakeSection, Get-LegacyIntakeSection,Get-ObsnBuckets, Get-ObsnTypes, Get-BucketForType, Get-TargetSection, Get-ArchiveSectionName, Get-BucketOfSection, Test-ObsnOwnedSection, Get-UrlHost, ConvertTo-NormalizedUrl, Get-LinkBucket, Get-LinkSource, Get-OriginList, Get-OriginSource, Test-OriginId, Get-CompanyNames, ConvertFrom-ObsnHierarchy, Get-StructurePlan, Get-NotebookBasePath, Install-ObsnStructure, Resolve-ObsnSection

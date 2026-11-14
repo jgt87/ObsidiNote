@@ -21,6 +21,7 @@ Set-StrictMode -Version 2.0
 Import-Module (Join-Path $PSScriptRoot 'Linker.psm1')
 Import-Module (Join-Path $PSScriptRoot 'LinkCapture.psm1')
 Import-Module (Join-Path $PSScriptRoot 'MarkdownLines.psm1')
+Import-Module (Join-Path $PSScriptRoot 'NotebookStructure.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Log.psm1')
 
 $script:StoreContract = @(
@@ -296,10 +297,13 @@ function Set-InboxFailed {
 function Set-InboxWaiting {
     <# Copilot was still answering at the end of the wait: the Intake item becomes 'waiting' with the
        request reference, the kind of step and the chat's address; nothing else is written. #>
-    param($Store, $Inbox, [string]$Ref, [string]$RequestKind, $Answer, $Result, [datetime]$Now)
+    param($Store, $Inbox, [string]$Ref, [string]$RequestKind, $Answer, $Result, [datetime]$Now, [string]$Origin = '')
     $r = $Result
     $since = $Now.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-    try { Invoke-Store $Store 'SetInboxWaiting' @{ PageId = $Inbox['pageId']; Ref = $Ref; RequestKind = $RequestKind; ChatUrl = [string]$Answer['chatUrl']; Since = $since } | Out-Null }
+    $args2 = @{ PageId = $Inbox['pageId']; Ref = $Ref; RequestKind = $RequestKind; ChatUrl = [string]$Answer['chatUrl']; Since = $since }
+    # The text's origin rides along, so "Check for the answer" files the page with it.
+    if ($Origin) { $args2.Origin = $Origin }
+    try { Invoke-Store $Store 'SetInboxWaiting' $args2 | Out-Null }
     catch {
         $r.message = "Copilot did not answer in time, and the Intake item could not be marked as waiting: $($_.Exception.Message)"
         Set-InboxFailed $Store $Inbox $r.message $r
@@ -363,7 +367,12 @@ function Invoke-AddRequest {
     }
     try {
         if ($url) { $r = Invoke-LinkAdd -Url $url -Store $Store -Ask $Ask -Options $Options -Result $r -Resume $Resume }
-        else { $r = Invoke-TextAdd -Text $text -Mode $mode -Store $Store -Ask $Ask -Options $Options -Result $r -Resume $Resume }
+        else {
+            # Where the text came from (the "From:" choice; '' = typed): only a known id is kept.
+            $origin = Get-LkString $Request 'origin'
+            if (-not (Test-OriginId $origin)) { $origin = '' }
+            $r = Invoke-TextAdd -Text $text -Mode $mode -Store $Store -Ask $Ask -Options $Options -Result $r -Resume $Resume -Origin $origin
+        }
     } catch {
         $r.status = 'failed'
         $r.message = "Adding stopped: $($_.Exception.Message)"
@@ -372,7 +381,7 @@ function Invoke-AddRequest {
 }
 
 function Invoke-TextAdd {
-    param([string]$Text, [string]$Mode, $Store, [scriptblock]$Ask, [hashtable]$Options, $Result, $Resume = $null)
+    param([string]$Text, [string]$Mode, $Store, [scriptblock]$Ask, [hashtable]$Options, $Result, $Resume = $null, [string]$Origin = '')
     $r = $Result
     $r.text = $Text
     $now = Get-IngestNow $Options
@@ -390,7 +399,7 @@ function Invoke-TextAdd {
     $prompt = New-LinkPrompt -Text $Text -Shortlist $sl -Types $types -Today $now -Ref $ref
     $ans = Get-StepAnswer -Ask $Ask -Prompt $prompt -Resume $Resume
     $r.timings.copilotMs += $ans.ms
-    if ($ans['pending']) { return (Set-InboxWaiting $Store $inbox $ref 'classify' $ans $r $now) }
+    if ($ans['pending']) { return (Set-InboxWaiting $Store $inbox $ref 'classify' $ans $r $now $Origin) }
     if (-not $ans.ok) { $r.message = $ans.error; Set-InboxFailed $Store $inbox $ans.error $r; return $r }
     $json = Get-ReplyJson $ans.text
     if (-not $json.ok) { $r.message = $json.error; Set-InboxFailed $Store $inbox $json.error $r; return $r }
@@ -420,7 +429,7 @@ function Invoke-TextAdd {
         id = $id; type = $val.type; bucket = $bucket; title = $val.title; summary = $val.summary
         topics = @($val.topics | ForEach-Object { $_['path'] }); aliases = @($val.aliases)
         links = @($val.links | ForEach-Object { @{ target = $_['target']; strength = $_['strength']; why = $_['why'] } })
-        status = ''
+        status = ''; origin = $Origin
         outlines = @(@{ role = 'body'; lines = $body })
     }
     try { $cp = Invoke-Store $Store 'CreatePage' @{ Page = $page } }
@@ -650,7 +659,7 @@ function Receive-AddAnswer {
     if ((Get-LkString $item 'requestKind') -in 'linkUpdate', 'linkSeen') {
         $add = Receive-UpdateAnswer -Store $Store -Ask $Ask -Item $item -InboxId $InboxId -Ref $r.ref -Reply $found.reply -Options $Options -Result $r
     } else {
-        $add = Invoke-AddRequest -Request @{ text = $r.text; mode = 'add' } -Store $Store -Ask $Ask -Options $Options -Resume @{ inboxPageId = $InboxId; ref = $r.ref; reply = $found.reply }
+        $add = Invoke-AddRequest -Request @{ text = $r.text; mode = 'add'; origin = [string](Get-LkProp $item 'origin' '') } -Store $Store -Ask $Ask -Options $Options -Resume @{ inboxPageId = $InboxId; ref = $r.ref; reply = $found.reply }
     }
     if ($add.status -eq 'failed') { $add.status = 'invalid' }
     if ($add.status -in 'invalid', 'mismatch') { $add.message = "$($add.message) Nothing was written; the item still waits in your Intake." }
@@ -913,6 +922,9 @@ function Invoke-LinkUpdate {
 }
 
 $script:LinkItWhy = 'Linked by you (mentioned in the text)'
+# A link the person made is "related" (2), not "loose" (1): their own decision, drawn as such on the
+# map (operator, 2026-11-14). Links written with 1 before are raised by lib/Upgrade.psm1 link-strength.
+$script:LinkItStrength = 2
 
 function Test-PagesLinked {
     <# True when $A links to $B or $B to $A: the page records' links or an index edge. #>
@@ -933,7 +945,7 @@ function Test-PagesLinked {
 
 function Add-PageLink {
     <# "Link it": the person links page $From to page $To (both of the active vault; a mention the
-       graph found, no Copilot). Writes the link (strength 1, why "Linked by you ...") into the from
+       graph found, no Copilot). Writes the link (strength 2, why "Linked by you ...") into the from
        page's own obsn.links Meta (the page's Meta wins over the index record), rewrites the to page's
        "Linked from" outline, and updates the from page's index record, which regenerates only the
        affected Index pages. No other outline is written; never "Your notes".
@@ -970,13 +982,9 @@ function Invoke-PageLinkWrite {
     $pageId = Get-LkString $rec 'pageId'
     if (-not $pageId) { throw "page $From has no OneNote page" }
 
-    # The page's own Meta is the truth for its links (the index mirrors it).
-    $pg = Invoke-Store $Store 'ReadPage' @{ PageId = $pageId }
-    $metaLinks = @(Get-LkProp (Get-LkProp $pg 'meta' @{}) 'links' @())
-    $src = if ($metaLinks.Count) { $metaLinks } else { @(Get-LkProp $rec 'links' @()) }
-    $links = @(@($src) | Where-Object { $_ } | ForEach-Object { @{ target = [string](Get-LkProp $_ 'target' (Get-LkProp $_ 't' '')); strength = [int](Get-LkProp $_ 'strength' (Get-LkProp $_ 's' 1)); why = [string](Get-LkProp $_ 'why' (Get-LkProp $_ 'w' '')) } } | Where-Object { $_['target'] })
+    $links = Get-OwnLinks -Store $Store -Rec $rec -PageId $pageId   # returns , @(...): assign as is
     if (@($links | Where-Object { $_['target'] -eq $To }).Count) { $r.status = 'already-linked'; $r.message = 'These pages are linked already.'; return $r }
-    $merged = @($links) + @(@{ target = $To; strength = 1; why = $script:LinkItWhy })
+    $merged = @($links) + @(@{ target = $To; strength = $script:LinkItStrength; why = $script:LinkItWhy })
 
     Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = @{ links = $merged }; Outlines = @(); Title = $null } | Out-Null
     $bl = Update-Backlinks -Store $Store -Index $idx -Targets @($To) -ExcludeId '' -Add @{ id = $From; title = (Get-LkString $rec 'title'); link = (Get-LkString $rec 'link') }
@@ -989,9 +997,51 @@ function Invoke-PageLinkWrite {
     $r
 }
 
+function Get-OwnLinks {
+    <# A page's own links as @(@{ target; strength; why }): its obsn.links Meta (the truth; the index
+       mirrors it), else the index record's. #>
+    param($Store, $Rec, [string]$PageId)
+    $pg = Invoke-Store $Store 'ReadPage' @{ PageId = $PageId }
+    $metaLinks = @(Get-LkProp (Get-LkProp $pg 'meta' @{}) 'links' @())
+    $src = if ($metaLinks.Count) { $metaLinks } else { @(Get-LkProp $Rec 'links' @()) }
+    , @(@($src) | Where-Object { $_ } | ForEach-Object { @{ target = [string](Get-LkProp $_ 'target' (Get-LkProp $_ 't' '')); strength = [int](Get-LkProp $_ 'strength' (Get-LkProp $_ 's' 1)); why = [string](Get-LkProp $_ 'why' (Get-LkProp $_ 'w' '')) } } | Where-Object { $_['target'] })
+}
+
+function Test-WeakLinkIt {
+    <# True when a link list holds a "Link it" link below today's strength (written before 2026-11-14). Pure. #>
+    param([object[]]$Links)
+    foreach ($l in @($Links)) {
+        if (-not $l) { continue }
+        $why = [string](Get-LkProp $l 'why' (Get-LkProp $l 'w' ''))
+        $s = [int](Get-LkProp $l 'strength' (Get-LkProp $l 's' 1))
+        if ($why -eq $script:LinkItWhy -and $s -lt $script:LinkItStrength) { return $true }
+    }
+    $false
+}
+
+function Update-LinkItStrength {
+    <# Upgrade step link-strength: raises page $Id's "Link it" links to today's strength in its own
+       obsn.links Meta and its index record (no outline is written). Returns @{ changed = <links> }.
+       Throws on a store error (the caller counts it). #>
+    param([Parameter(Mandatory)]$Store, [Parameter(Mandatory)][string]$Id)
+    $rec = (Get-IndexPageMap (Invoke-Store $Store 'GetIndex'))[$Id]
+    $pageId = if ($rec) { Get-LkString $rec 'pageId' } else { '' }
+    if (-not $pageId) { return @{ changed = 0 } }
+    $links = Get-OwnLinks -Store $Store -Rec $rec -PageId $pageId   # returns , @(...): assign as is
+    $n = 0
+    foreach ($l in $links) {
+        if ($l['why'] -eq $script:LinkItWhy -and $l['strength'] -lt $script:LinkItStrength) { $l['strength'] = $script:LinkItStrength; $n++ }
+    }
+    if ($n) {
+        Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = @{ links = $links }; Outlines = @(); Title = $null } | Out-Null
+        Invoke-Store $Store 'IndexUpdatePage' @{ Page = @{ id = $Id; links = $links } } | Out-Null
+    }
+    @{ changed = $n }
+}
+
 # ---------------------------------------------------------------------------- edit a page (user, 2026-11-13)
 
-$script:EditFields = @('title', 'type', 'topics', 'aliases', 'summary', 'url', 'links')
+$script:EditFields = @('title', 'type', 'topics', 'aliases', 'summary', 'url', 'links', 'origin')
 
 function Test-EditText([string]$Text, [int]$Max) { $Text.Length -le $Max -and $Text -notmatch '[\x00-\x08\x0b\x0c\x0e-\x1f]' }
 
@@ -1068,6 +1118,14 @@ function Get-EditPlan {
         $key = { param($ls) (@($ls) | ForEach-Object { "$(Get-LkProp $_ 'target' ''):$(Get-LkProp $_ 'strength' 1):$(Get-LkProp $_ 'why' '')" }) -join '|' }
         if ((& $key $links) -ne (& $key @(Get-LkProp $Rec 'links' @()))) { $ch.links = $links }
     }
+    if ($Ask.ContainsKey('origin')) {
+        # Where the page came from ('' = typed in ObsidiNote); also for pages added before it was
+        # recorded (operator, 2026-11-14). A link page's place comes from its address instead.
+        $o = ([string]$Ask.origin).Trim()
+        if (-not (Test-OriginId $o)) { return (& $fail 'Unknown origin.') }
+        if ((Get-LkString $Rec 'url') -and $o) { return (& $fail 'A link page''s source is its address.') }
+        if ($o -ne (Get-LkString $Rec 'origin')) { $ch.origin = $o }
+    }
     @{ ok = $true; message = ''; changes = $ch }
 }
 
@@ -1078,7 +1136,8 @@ function Edit-Page {
        UpdatePage); the body and "Your notes" are never touched. The "Linked from" list of every page
        whose link changed (or that shows this page's title) is rewritten; the index record is updated,
        which regenerates only the affected Index pages. No Copilot.
-       $Changes: any of title, type, topics, aliases, summary, url, links (@(@{ target; strength; why })).
+       $Changes: any of title, type, topics, aliases, summary, url, links (@(@{ target; strength; why })),
+       origin (where a page without an address came from; '' = typed).
        Returns @{ status = edited | unchanged | invalid | refused | not-found | failed; message; id;
        changed (field names); backlinks; warnings; ms }. Never throws. #>
     [CmdletBinding()]
@@ -1119,7 +1178,7 @@ function Invoke-PageEditWrite {
     $r.changed = @($ch.Keys | Where-Object { $_ -ne 'host' } | Sort-Object)
     if (-not $r.changed.Count) { $r.status = 'unchanged'; $r.message = 'Nothing changed.'; return $r }
 
-    $meta = @{}; foreach ($k in 'type', 'topics', 'aliases', 'summary', 'url', 'host', 'links') { if ($ch.ContainsKey($k)) { $meta[$k] = $ch[$k] } }
+    $meta = @{}; foreach ($k in 'type', 'topics', 'aliases', 'summary', 'url', 'host', 'links', 'origin') { if ($ch.ContainsKey($k)) { $meta[$k] = $ch[$k] } }
     Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = $meta; Outlines = @(); Title = $(if ($ch.ContainsKey('title')) { $ch.title } else { $null }) } | Out-Null
     $ix = @{ id = $Id }; foreach ($k in @($meta.Keys)) { $ix[$k] = $meta[$k] }
     if ($ch.ContainsKey('title')) { $ix.title = $ch.title }
@@ -1141,4 +1200,4 @@ function Invoke-PageEditWrite {
     $r
 }
 
-Export-ModuleMember -Function Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle, Add-PageLink, Test-PagesLinked, Edit-Page
+Export-ModuleMember -Function Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle, Add-PageLink, Test-PagesLinked, Edit-Page, Test-WeakLinkIt, Update-LinkItStrength

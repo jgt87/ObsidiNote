@@ -34,6 +34,14 @@ const model = normalizeGraph({
   ],
   edges: [],
 })
+// Link counts and hubs are derived from the edges (weights.ts); set by hand here to test the
+// table's sorting and grouping on their own.
+const LINKS: Record<string, number> = { p1: 2, p2: 1, p3: 5, p4: 0, p5: 2, p6: 2 }
+for (const p of model.pages) {
+  p.links = LINKS[p.id]
+  p.unlinked = p.links === 0
+  p.isHub = p.id === 'p2'
+}
 const index = buildIndex(model)
 const areas: AreaRef[] = [
   { id: 't3', name: 'Reading', topic: { id: 't3', path: 'Reading' } },

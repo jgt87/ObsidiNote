@@ -6,6 +6,7 @@ import { useId, useMemo, useState, type FormEvent } from 'react'
 import { editProblem, editRequest, formFor, linkChoices, typeChoices, type EditForm, type PageEditRequest } from './editModel'
 import type { GraphIndex } from './graphIndex'
 import type { GraphPage, Strength } from './model'
+import { ORIGINS, TYPED_LABEL } from '../model/origins'
 import './PageEditForm.css'
 
 interface Props {
@@ -76,12 +77,27 @@ export function PageEditForm({ index, page, onSave, onCancel }: Props) {
           </>
         )}
 
-        {isLink && (
+        {isLink ? (
           <>
             <label htmlFor={`${id}-url`}>Address</label>
             <div>
               <input id={`${id}-url`} className="field" type="url" value={form.url} onChange={(e) => set({ url: e.target.value })} disabled={busy} />
               <p className="kg-edit__hint">After a new address, use Update on the page to read it again.</p>
+            </div>
+          </>
+        ) : (
+          <>
+            <label htmlFor={`${id}-origin`}>From</label>
+            <div>
+              <select id={`${id}-origin`} className="field" value={form.origin} onChange={(e) => set({ origin: e.target.value })} disabled={busy}>
+                <option value="">{TYPED_LABEL}</option>
+                {ORIGINS.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <p className="kg-edit__hint">Where this came from: its place in the Sources view of the map.</p>
             </div>
           </>
         )}

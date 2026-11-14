@@ -32,8 +32,13 @@ Describe 'ConvertTo-GraphModel' {
     }
     It 'keeps only links between pages of the model, strength clamped, counted per page' {
         ($g.edges | ForEach-Object { "$($_.from)>$($_.to):$($_.strength)" }) -join ',' | Should Be 'p1>p2:3,p2>p1:3'
-        @($g.pages | Where-Object { $_.id -eq 'p1' })[0].links | Should Be 2
         @($g.pages | Where-Object { $_.id -eq 'p3' })[0].unlinked | Should Be $true
+    }
+    It 'counts a page that links back once (links = distinct linked pages) and sends no hub flag' {
+        # p1 and p2 link each other: both edges stay (the page window lists both), one neighbour each.
+        @($g.pages | Where-Object { $_.id -eq 'p1' })[0].links | Should Be 1
+        @($g.pages | Where-Object { $_.id -eq 'p2' })[0].links | Should Be 1
+        @($g.pages | Where-Object { $_.id -eq 'p1' })[0].Contains('isHub') | Should Be $false
     }
     It 'passes only onenote: links on, and marks archived pages' {
         @($g.pages | Where-Object { $_.id -eq 'p1' })[0].onenoteUrl | Should Be 'onenote:#p1'
@@ -57,6 +62,54 @@ Describe 'ConvertTo-GraphModel' {
         $json = ConvertTo-Json -InputObject $g -Depth 12 -Compress
         $json | Should Match '"topicIds":\[\]'
         $json | Should Match '"topicIds":\["Security/Networking"\]'
+    }
+}
+
+Describe 'Get-LinkSource: where a link page''s address lives (Sources view)' {
+    $cases = @(
+        @('https://contoso-my.sharepoint.com/personal/x/Documents/a.docx', 'onedrive', 'OneDrive'),
+        @('https://contoso.sharepoint.com/sites/HR%20Team/SitePages/Leave.aspx', 'sharepoint/hr team', 'SharePoint: HR Team'),
+        @('https://contoso.sharepoint.com/teams/IT/Shared%20Documents/x.pdf', 'sharepoint/it', 'SharePoint: IT'),
+        @('https://contoso.sharepoint.com/SitePages/Home.aspx', 'sharepoint', 'SharePoint'),
+        @('https://teams.microsoft.com/l/message/1', 'teams', 'Teams'),
+        @('https://contoso.loop.cloud.microsoft/p/x', 'loop', 'Loop'),
+        @('https://outlook.office.com/mail/', 'm365', 'Microsoft 365'),
+        @('https://contoso.service-now.com/kb?id=1', 'service/servicenow', 'ServiceNow'),
+        @('https://wd3.myworkday.com/contoso/d/home.htmld', 'service/workday', 'Workday'),
+        @('https://docs.service-now.com/bundle/x', 'web/docs.service-now.com', 'docs.service-now.com'),
+        @('https://www.example.org/handbook', 'web/example.org', 'example.org')
+    )
+    foreach ($c in $cases) {
+        It "puts $($c[0]) in $($c[2])" {
+            $s = Get-LinkSource -Url $c[0]
+            $s.id | Should Be $c[1]
+            $s.name | Should Be $c[2]
+        }
+    }
+    It 'gives nothing for an address that is not http(s)' {
+        Get-LinkSource -Url 'onenote:#x' | Should Be $null
+        Get-LinkSource -Url '' | Should Be $null
+    }
+}
+
+Describe 'ConvertTo-GraphModel: sources' {
+    $m = New-TestModel
+    foreach ($i in 1..3) { $null = Add-IndexPage -Model $m -Page @{ id = "w$i"; title = "Example $i"; type = 'link-web'; bucket = 'Web links'; section = 'Web links'; oneNoteId = "{W$i}"; url = "https://www.example.org/p$i" } }
+    $null = Add-IndexPage -Model $m -Page @{ id = 'x1'; title = 'Lone site'; type = 'link-web'; bucket = 'Web links'; section = 'Web links'; oneNoteId = '{X1}'; url = 'https://lone.example.net/a' }
+    $null = Add-IndexPage -Model $m -Page @{ id = 's1'; title = 'Leave policy'; type = 'link-internal'; bucket = 'Internal links'; section = 'Internal links'; oneNoteId = '{S1}'; url = 'https://contoso.sharepoint.com/sites/HR/Leave.aspx' }
+    $g = ConvertTo-GraphModel -Model $m -Source @{ kind = 'vault'; id = 'v1'; name = 'S'; readOnly = $false }
+    $src = { param($id) @($g.pages | Where-Object { $_.id -eq $id })[0].sourceId }
+    It 'gives every page a source: link pages by address, the rest ObsidiNote notes' {
+        & $src 's1' | Should Be 'sharepoint/hr'
+        & $src 'w2' | Should Be 'web/example.org'
+        & $src 'p1' | Should Be 'obsidinote'
+    }
+    It 'puts a web site with fewer than 3 pages under Other web sites' {
+        & $src 'x1' | Should Be 'web'
+        @($g.sources | Where-Object { $_.id -eq 'web' })[0].name | Should Be 'Other web sites'
+    }
+    It 'lists each source once with its page count, Microsoft 365 first, notes last' {
+        (@($g.sources | ForEach-Object { "$($_.id):$($_.pageCount)" }) -join ',') | Should Be 'sharepoint/hr:1,web/example.org:3,web:1,obsidinote:3'
     }
 }
 

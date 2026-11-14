@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildIndex } from './graphIndex'
-import { bundleEdges, controlPoint, crossesAreas, edgePath, layoutGraph, packAreas, topicOrder } from './layout'
+import { AREA_GAP, BUNDLE_SPREAD, bundleEdges, controlPoint, crossesAreas, edgePath, layoutGraph, onePerPair, packAreas, packOrder, RESTING_BUNDLES, restingBundles, spreadEnds, topicOrder } from './layout'
 import { normalizeGraph, UNFILED_ID, type GraphModel } from './model'
 import { syntheticGraph } from './synthetic'
 
@@ -127,13 +127,51 @@ describe('packAreas', () => {
   })
 })
 
+describe('placing linked topics next to each other', () => {
+  it('packOrder: the strongest links first, a subtopic only after its parent, Unfiled last', () => {
+    // 0 root, 1 root, 2 root (child 3), 4 outer; 0-2 strongly linked, 1 loosely to 0.
+    const W = [
+      [0, 1, 9, 0, 0],
+      [1, 0, 0, 0, 0],
+      [9, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0],
+    ]
+    expect(packOrder([null, null, null, 2, null], W, [false, false, false, false, true])).toEqual([0, 2, 3, 1, 4])
+  })
+
+  it('puts two topics with many links between them side by side, so their line is straight', () => {
+    // Four topics in tree order A, B, C, D; only A and D are linked (strongly).
+    const pages: Record<string, unknown>[] = []
+    const edges: Record<string, unknown>[] = []
+    for (const t of ['A', 'B', 'C', 'D']) for (let k = 0; k < 8; k++) pages.push({ id: `${t}${k}`, title: `${t} ${k}`, topicIds: [t] })
+    for (let k = 0; k < 6; k++) edges.push({ from: `A${k}`, to: `D${k}`, strength: 3 })
+    const m = normalizeGraph({ source: {}, topics: ['A', 'B', 'C', 'D'].map((id) => ({ id, name: id, path: id })), pages, edges })
+    const l = layoutGraph(m)
+    const A = l.areas.find((a) => a.id === 'A')!
+    const D = l.areas.find((a) => a.id === 'D')!
+    expect(Math.hypot(A.x - D.x, A.y - D.y)).toBeCloseTo(A.r + D.r + AREA_GAP, 0)
+    expect(bundleEdges(l).every((b) => b.d.split('C').length === 2)).toBe(true)
+  })
+
+  it('keeps the lines shown at rest straight in the demo vaults (ratchet: measured 3 bent of 48)', () => {
+    let bent = 0
+    for (const opts of [{ pages: 25, topics: 5 }, { pages: 100, topics: 6 }, { pages: 400, topics: 14 }, { pages: 200, topics: 10, seed: 3 }, { pages: 60, topics: 8, seed: 7 }, { pages: 800, topics: 20, seed: 5 }]) {
+      bent += restingBundles(bundleEdges(layoutGraph(syntheticGraph(opts)))).filter((b) => b.d.split('C').length > 2).length
+    }
+    expect(bent).toBeLessThanOrEqual(3)
+  })
+})
+
 describe('the areas fill the stage shape', () => {
   it('gives bounds close to the stage aspect, so the picture does not float in the middle', () => {
     for (const pages of [30, 100, 1000]) {
       for (const aspect of [1.45, 1.8]) {
         const l = layoutGraph(syntheticGraph({ pages, topics: pages > 300 ? 12 : 6 }), { aspect })
         const ratio = l.bounds.w / l.bounds.h
-        expect(ratio / aspect).toBeGreaterThan(0.85)
+        // 0.8, was 0.85 (2026-11-14): areas are now placed so that topic lines do not pass other
+        // topics (CROSS_PENALTY), which may cost a little width on a very wide stage (1.8: 0.83).
+        expect(ratio / aspect).toBeGreaterThan(0.8)
         // 1.25, was 1.15 (2026-11-14): the Unfiled area is now only as big as its pages need, so it
         // no longer evens out a picture that a subtopic beside its parent made wide (100 pages:
         // 1.18). Fitting to the stage absorbs the difference as a little space above and below.
@@ -150,6 +188,66 @@ describe('edges', () => {
     expect(cy).toBeCloseTo(18)
     expect(edgePath(0, 0, 100, 0)).toBe('M0 0Q50 18 100 0')
   })
+
+  it('draws two pages that link each other as one line, with the stronger strength', () => {
+    const drawn = onePerPair([
+      { from: 'a', to: 'b', strength: 1, kind: 'link' },
+      { from: 'b', to: 'a', strength: 3, kind: 'link' },
+      { from: 'a', to: 'b', strength: 1, kind: 'mention' },
+      { from: 'a', to: 'c', strength: 2, kind: 'link' },
+    ])
+    expect(drawn.map((e) => `${e.kind}:${e.from}>${e.to}:${e.strength}`)).toEqual(['link:a>b:3', 'mention:a>b:1', 'link:a>c:2'])
+  })
+
+  it('a model with a mutual link lays out one line for it', () => {
+    const m = normalizeGraph({
+      source: { kind: 'vault' },
+      topics: [{ id: 't', name: 'T', path: 'T' }],
+      pages: [{ id: 'a', title: 'A', topicIds: ['t'] }, { id: 'b', title: 'B', topicIds: ['t'] }],
+      edges: [{ from: 'a', to: 'b', strength: 2 }, { from: 'b', to: 'a', strength: 1 }],
+    })
+    expect(layoutGraph(m).edges.length).toBe(1)
+    expect(m.pages.map((p) => p.links)).toEqual([1, 1])
+  })
+})
+
+/** The cubic pieces of an SVG path "M x y C ... C ...": [start, c1, c2, end] per piece. */
+function curvePoints(d: string): { x: number; y: number }[][] {
+  const nums = d.replace(/^M/, '').split(/[C ]/).filter(Boolean).map(Number)
+  const pieces: { x: number; y: number }[][] = []
+  let x = nums[0]
+  let y = nums[1]
+  for (let i = 2; i + 5 < nums.length; i += 6) {
+    pieces.push([{ x, y }, { x: nums[i], y: nums[i + 1] }, { x: nums[i + 2], y: nums[i + 3] }, { x: nums[i + 4], y: nums[i + 5] }])
+    x = nums[i + 4]
+    y = nums[i + 5]
+  }
+  return pieces
+}
+
+/** Points along a path of cubic pieces (40 per piece). */
+function sampleCurve(d: string): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = []
+  for (const [p0, p1, p2, p3] of curvePoints(d)) {
+    for (let k = 0; k <= 40; k++) {
+      const t = k / 40
+      const u = 1 - t
+      out.push({
+        x: u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x,
+        y: u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y,
+      })
+    }
+  }
+  return out
+}
+
+describe('spreadEnds', () => {
+  it('moves close angles apart around their middle and leaves lone ones alone', () => {
+    const out = spreadEnds([1, 1.01, 3], 0.2)
+    expect(out[0]).toBeCloseTo(0.905)
+    expect(out[1]).toBeCloseTo(1.105)
+    expect(out[2]).toBe(3)
+  })
 })
 
 describe('links between topics (bundleEdges)', () => {
@@ -161,6 +259,8 @@ describe('links between topics (bundleEdges)', () => {
     const bundles = bundleEdges(layout)
     expect(cross.length).toBeGreaterThan(0)
     expect(bundles.reduce((s, b) => s + b.count, 0)).toBe(cross.length)
+    // The width follows the summed strength (core 3, related 2, loose 1).
+    expect(bundles.reduce((s, b) => s + b.weight, 0)).toBe(cross.reduce((s, e) => s + e.edge.strength, 0))
     const keys = bundles.map((b) => `${b.a}|${b.b}`)
     expect(new Set(keys).size).toBe(keys.length)
     for (const b of bundles) expect(b.a < b.b).toBe(true)
@@ -173,6 +273,59 @@ describe('links between topics (bundleEdges)', () => {
       const A = area.get(b.a)!
       expect(Math.abs(Math.hypot(x1 - A.x, y1 - A.y) - A.r)).toBeLessThan(0.2)
     }
+  })
+
+  it('starts each line on the side facing the other area, at a right angle, ends spread along the rim', () => {
+    const area = new Map(layout.areas.map((a) => [a.id, a]))
+    const bundles = bundleEdges(layout)
+    for (const b of bundles) {
+      const A = area.get(b.a)!
+      const B = area.get(b.b)!
+      // Facing the other area, unless the line has to bend around one in between.
+      if (curvePoints(b.d).length === 1) {
+        const facing = Math.atan2(B.y - A.y, B.x - A.x)
+        expect(Math.abs(Math.atan2(Math.sin(b.angleA - facing), Math.cos(b.angleA - facing)))).toBeLessThan(Math.PI / 4)
+      }
+      // cubic path whose first control point lies along the rim normal
+      const n = /^M(-?[\d.]+) (-?[\d.]+)C(-?[\d.]+) (-?[\d.]+)/.exec(b.d)!.map(Number)
+      const dir = Math.atan2(n[4] - n[2], n[3] - n[1])
+      expect(Math.abs(Math.atan2(Math.sin(dir - b.angleA), Math.cos(dir - b.angleA)))).toBeLessThan(0.05)
+    }
+    // no two ends on one rim closer than BUNDLE_SPREAD (arc length), allowing rounding
+    for (const A of layout.areas) {
+      const at = bundles.flatMap((b) => (b.a === A.id ? [b.angleA] : b.b === A.id ? [b.angleB] : []))
+      for (let i = 0; i < at.length; i++)
+        for (let j = i + 1; j < at.length; j++) {
+          const d = Math.abs(Math.atan2(Math.sin(at[i] - at[j]), Math.cos(at[i] - at[j])))
+          expect(d * A.r).toBeGreaterThan(Math.min(BUNDLE_SPREAD, (Math.PI * 2 * A.r) / at.length) - 0.5)
+        }
+    }
+  })
+
+  it('never passes under a third topic: lines bend around the areas in their way', () => {
+    for (const opts of [{ pages: 100, topics: 6 }, { pages: 400, topics: 14 }, { pages: 200, topics: 10, seed: 3 }, { pages: 60, topics: 8, seed: 7 }]) {
+      const l = layoutGraph(syntheticGraph(opts))
+      let bent = 0
+      for (const b of bundleEdges(l)) {
+        if (curvePoints(b.d).length > 1) bent++
+        for (const p of sampleCurve(b.d)) {
+          for (const a of l.areas) {
+            if (a.id === b.a || a.id === b.b) continue
+            expect(Math.hypot(p.x - a.x, p.y - a.y)).toBeGreaterThan(a.r)
+          }
+        }
+      }
+      if (opts.pages === 400) expect(bent).toBeGreaterThan(0) // the case is really exercised
+    }
+  })
+
+  it('shows only the heaviest lines at rest', () => {
+    const all = bundleEdges(layoutGraph(syntheticGraph({ pages: 400, topics: 14 })))
+    expect(all.length).toBeGreaterThan(RESTING_BUNDLES)
+    const rest = restingBundles(all)
+    expect(rest.length).toBe(RESTING_BUNDLES)
+    const lightestShown = Math.min(...rest.map((b) => b.weight))
+    expect(all.filter((b) => !rest.includes(b)).every((b) => b.weight <= lightestShown)).toBe(true)
   })
 
   it('counts only links between pages that are shown, and never mentions', () => {

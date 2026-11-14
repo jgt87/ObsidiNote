@@ -121,4 +121,16 @@ knowledge graph's data, Add and Ask.
      **Open link** opens the original address in a browser tab.
    - If not, send this: the two newest Desktop files and the message the form showed.
 
-10. Clean up when asked to (RB-03, "Cleaning up").
+10. Where pasted text came from (no writes until you press Add): in the window's box, paste in turn
+    a few lines from an **Outlook mail** (desktop Outlook and Outlook on the web), a **Teams** chat
+    message, a **Word** document and a **web page**. After each paste, look at **From** under the box,
+    then empty the box (nothing is added).
+    - What you should see: Outlook mail, Teams chat, Word document and Web page in that order. Typed
+      text (no paste) shows "Typed in ObsidiNote"; a link alone shows no **From** at all.
+    - If a guess is wrong, send this: which app you pasted from and what **From** showed (no text).
+    - Then, in **Knowledge graph**, press **Sources**: one area per SharePoint site, OneDrive, Teams,
+      company services and web sites, and "ObsidiNote notes". Open a page you added before this
+      version, press **Edit**, set **From** to Outlook mail, **Save**: in **Sources** it moves to
+      the Outlook area.
+
+11. Clean up when asked to (RB-03, "Cleaning up").

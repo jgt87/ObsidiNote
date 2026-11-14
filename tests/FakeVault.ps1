@@ -68,15 +68,15 @@ function New-FakeVault {
             & $guard 'SetInboxStatus'
             $st.inbox[$PageId].status = $Status; $st.inbox[$PageId].reason = $Reason; $st.inbox[$PageId].filedAs = $Id
         }.GetNewClosure()
-        SetInboxWaiting = { param([string]$PageId, [string]$Ref, [string]$RequestKind, [string]$ChatUrl, [string]$Since)
+        SetInboxWaiting = { param([string]$PageId, [string]$Ref, [string]$RequestKind, [string]$ChatUrl, [string]$Since, [string]$Origin = '')
             & $guard 'SetInboxWaiting'
-            $i = $st.inbox[$PageId]; $i.status = 'waiting'; $i.ref = $Ref; $i.requestKind = $RequestKind; $i.chatUrl = $ChatUrl; $i.waitingSince = $Since
+            $i = $st.inbox[$PageId]; $i.status = 'waiting'; $i.ref = $Ref; $i.requestKind = $RequestKind; $i.chatUrl = $ChatUrl; $i.waitingSince = $Since; $i.origin = $Origin
         }.GetNewClosure()
         ReadInboxItem = { param([string]$PageId)
             $st.calls.Add('ReadInboxItem')
             if (-not $st.inbox.ContainsKey($PageId)) { throw 'not an Intake item' }
             $i = $st.inbox[$PageId]
-            @{ pageId = $PageId; title = $i.title; status = $i.status; kind = $i.kind; text = $i.text; ref = $i.ref; requestKind = $i.requestKind; waitingSince = $i.waitingSince; chatUrl = $i.chatUrl }
+            @{ pageId = $PageId; title = $i.title; status = $i.status; kind = $i.kind; text = $i.text; ref = $i.ref; requestKind = $i.requestKind; waitingSince = $i.waitingSince; chatUrl = $i.chatUrl; origin = $(if ($i.ContainsKey('origin')) { $i.origin } else { '' }) }
         }.GetNewClosure()
         CreatePage = { param([hashtable]$Page)
             & $guard 'CreatePage'

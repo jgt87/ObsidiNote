@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { markdownForPaste, type PasteNode } from '../add/pasteMarkdown'
+import { originOfPaste } from '../add/pasteOrigin'
+import { ORIGINS, TYPED_LABEL } from '../model/origins'
 import type { Intent, Mode } from '../api'
 import { useIntent } from '../hooks/useIntent'
 import { intentLine, primaryLabel } from '../model/intentWording'
@@ -18,8 +20,9 @@ export interface Prefill {
 
 interface Props {
   addTarget: AddTarget | null
-  /** Sends the text; the box keeps it until the server has processed it (then `clearKey` changes). */
-  onSend: (text: string, mode: Mode, intent: Intent | null) => void
+  /** Sends the text; the box keeps it until the server has processed it (then `clearKey` changes).
+   *  origin: where the text came from ('' = typed), the "From:" choice (model/origins.ts). */
+  onSend: (text: string, mode: Mode, intent: Intent | null, origin: string) => void
   busy: boolean
   prefill?: Prefill | null
   /** A line above the buttons, e.g. "Follow-up to ..." with its own cancel. */
@@ -55,6 +58,14 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
   const { result, error } = useIntent(text, mode)
   const line = intentLine(result, addTarget)
   const empty = !text.trim()
+  // Where the text came from: set from a paste (add/pasteOrigin.ts), changeable, '' = typed. A link
+  // alone needs none (its address says where it lives), and an Ask files nothing.
+  const [origin, setOrigin] = useState('')
+  const loneLink = /^https?:\/\/\S+$/i.test(text.trim())
+  const showFrom = !empty && !loneLink && mode !== 'ask' && result?.intent !== 'ask'
+  useEffect(() => {
+    if (empty) setOrigin('')
+  }, [empty])
 
   // Ctrl+1 = Add, Ctrl+2 = Ask, anywhere on the page while this view is open.
   useEffect(() => {
@@ -82,18 +93,21 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
 
   function send() {
     if (empty || busy) return
-    onSend(text, mode, result?.intent ?? null)
+    onSend(text, mode, result?.intent ?? null, showFrom ? origin : '')
   }
 
   // Paste from a web page, Word or a mail: its structure (headings, lists, tables, bold, links)
   // comes in as Markdown, which the server turns into OneNote formatting. Ctrl+Shift+V pastes plain.
   const plainPasteAt = useRef(0)
   function onPaste(e: ReactClipboardEvent<HTMLTextAreaElement>) {
+    const html = e.clipboardData.getData('text/html')
+    const from = originOfPaste(html)
+    if (from) setOrigin(from)
     if (Date.now() - plainPasteAt.current < 1000) {
       plainPasteAt.current = 0
       return
     }
-    const md = markdownForPaste(e.clipboardData.getData('text/html'), parseHtml)
+    const md = markdownForPaste(html, parseHtml)
     if (md == null) return
     e.preventDefault()
     insertAtCursor(e.currentTarget, md, setText)
@@ -140,6 +154,19 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
         autoFocus
         spellCheck
       />
+      {showFrom && (
+        <div className="composer__from">
+          <label htmlFor="composer-from">From</label>
+          <select id="composer-from" className="field composer__from-select" value={origin} onChange={(e) => setOrigin(e.target.value)}>
+            <option value="">{TYPED_LABEL}</option>
+            {ORIGINS.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {note}
       <div className="composer__bottom">
         <p className="composer__intent" role="status">

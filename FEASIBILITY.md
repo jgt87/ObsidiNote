@@ -548,16 +548,34 @@ with a one-key flip. A wrong guess costs little:
 - An unanswered question can be saved as an "Open question" page.
 
 Map details (the user's spec, 2026-11-12): a **Knowledge graph** of dots, with no large cards.
-- **Dots** are pages; dot size = number of links. Pages with no links yet are hollow dashed dots.
+- **Topics | Sources** (user, 2026-11-14): the areas are topics, or where the pages come from. A
+  link page's source is read from its address by fixed rules (each SharePoint site, OneDrive,
+  Teams, Loop, Microsoft 365, each company service, each web site; a site with fewer than 3 pages
+  joins "Other web sites"); a page without an address is in "ObsidiNote notes" ("OneNote pages" in
+  a connected notebook). A page without an address carries `obsn.origin` (user, 2026-11-14):
+  detected from the pasted HTML (Outlook, Teams, Word, a web page), shown as "From:" before Add and
+  changeable in Edit; older pages have none (never recorded, so nothing to upgrade) and can be set
+  in Edit. The origin's area wins over "ObsidiNote notes"; a link page's address wins over both.
+- **Dots** are pages; dot size = link weight on one smooth scale: the strengths of the links to the
+  page, plus half of its own links' (operator, 2026-11-14: being linked to is what makes a page
+  matter; Copilot gives a new page up to 8 links of its own at once). Two pages that link each other
+  count once as neighbours and get one line. Pages with no links yet are hollow dashed dots.
 - **Blobs** are topics: a soft grey area around each topic's dots, labelled with the topic
   name.
 - **Lines** are links; line weight and opacity = link strength (1 to 3, the `strength` field
-  in the link JSON). A filter can add "mentions, not linked" as faint lines.
+  in the link JSON). A filter can add "mentions, not linked" as faint lines. Links between
+  topics are one line per pair of topics; linked topics are placed next to each other so the
+  line is short, and a line that still meets a third topic bends around it (never across or
+  under a third topic); at most 8 at rest, all of them when zoomed in (1.5x the fitted zoom), all of a topic's when one of its pages is focused (operator,
+  2026-11-14, after a code map that routes its lines this way).
 - **Look and feel of the clustering** (the user's reference images, 2026-11-12, adapted to the
   light monochrome look):
   - Many small dots; clusters emerge from link density and show as soft grey areas (no glow),
     labelled "Topic · N pages".
-  - Hubs (index or MOC pages, high centrality) are bigger.
+  - Hubs are the most linked-to pages of the vault (the top 5% by link weight, linked to by at
+    least 3 pages; 2026-11-14, was "5 links or more"): a thicker outline and their label, no jump
+    in size. Lines between topics are as wide as the summed strength of their links.
+    "Link it" writes strength 2 (related): the person's own decision.
   - **Every dot is content** (a note, file or link). No decorative dots, specks or dust
     (user, 2026-11-12).
   - Each topic area has a visible label: the topic name, then "N pages · main subjects".

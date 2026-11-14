@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ALL_LABELS_UP_TO, areaLabelSize, cardPosition, labelMode, placeAreaLabels, placeLabels, type AreaLabelInput } from './view'
+import { ALL_LABELS_UP_TO, ALL_LINES_ZOOM, areaLabelSize, cardPosition, labelMode, lineMode, placeAreaLabels, placeLabels, type AreaLabelInput } from './view'
 
 describe('labelMode: which pages get a name', () => {
   it('names every page on a small map, hubs only on a big one', () => {
@@ -24,7 +24,16 @@ describe('placeLabels with rectangles already taken', () => {
   })
 })
 
-describe('placeAreaLabels: topic names touch no other topic', () => {
+describe('lineMode: zooming in shows every topic line', () => {
+  it('shows the resting lines at the fitted zoom and all of them from ALL_LINES_ZOOM on', () => {
+    expect(lineMode(1, 1)).toBe('resting')
+    expect(lineMode(ALL_LINES_ZOOM * 0.99, 1)).toBe('resting')
+    expect(lineMode(ALL_LINES_ZOOM, 1)).toBe('all')
+    expect(lineMode(3 * ALL_LINES_ZOOM, 3)).toBe('all')
+  })
+})
+
+describe('placeAreaLabels: topic names sit on their own topic', () => {
   const area = (id: string, x: number, y: number, r: number, name = id): AreaLabelInput => ({ id, x, y, r, name, sub: '12 pages · a, b' })
   const hits = (rect: [number, number, number, number], c: AreaLabelInput) => {
     const nx = Math.max(rect[0], Math.min(c.x, rect[2]))
@@ -32,18 +41,17 @@ describe('placeAreaLabels: topic names touch no other topic', () => {
     return Math.hypot(c.x - nx, c.y - ny) < c.r
   }
 
-  it('puts the name above its area when there is room', () => {
+  it('centres the name on its own area, inside it, never in the gaps where topic lines run', () => {
     const [p] = placeAreaLabels([area('a', 200, 200, 80)])
-    expect(p.at).toBe('above')
-    expect(p.rect[3]).toBeLessThanOrEqual(200 - 80)
+    expect(p.at).toBe('center')
+    expect((p.rect[0] + p.rect[2]) / 2).toBeCloseTo(200)
+    expect((p.rect[1] + p.rect[3]) / 2).toBeCloseTo(200)
+    for (const [x, y] of [[p.rect[0], p.rect[1]], [p.rect[2], p.rect[3]]]) expect(Math.hypot(x - 200, y - 200)).toBeLessThan(80)
   })
 
-  it('moves a name that would lie on the area above it inside or below its own area', () => {
-    // b sits right under a: "above b" would cover a.
-    const places = placeAreaLabels([area('a', 200, 100, 70), area('b', 200, 260, 80)])
-    const b = places.find((p) => p.id === 'b')!
-    expect(b.at).not.toBe('above')
-    expect(hits(b.rect, area('a', 200, 100, 70))).toBe(false)
+  it('drops the "N pages" line on a small area, keeps the name', () => {
+    const [p] = placeAreaLabels([area('a', 200, 200, 28, 'Networking')])
+    expect(p.withSub).toBe(false)
   })
 
   it('never lets two names overlap and keeps every name off other areas on a crowded map', () => {

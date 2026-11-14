@@ -23,6 +23,8 @@ export interface EditForm {
   summary: string
   /** A link page's address ('' for other pages). */
   url: string
+  /** Where a page without an address came from (model/origins.ts; '' = typed). */
+  origin: string
   links: EditLink[]
 }
 
@@ -36,6 +38,7 @@ export interface PageEditRequest {
   summary?: string
   url?: string
   links?: EditLink[]
+  origin?: string
 }
 
 const toLine = (topicId: string) => topicId.split('/').map((s) => s.trim()).filter(Boolean).join(' / ')
@@ -51,6 +54,7 @@ export function formFor(index: GraphIndex, page: GraphPage): EditForm {
     aliases: page.aliases.join(', '),
     summary: page.summary,
     url: page.url,
+    origin: page.origin,
     links: (index.out.get(page.id) ?? []).map((e) => ({ target: e.to, strength: e.strength, why: e.reason ?? '' })),
   }
 }
@@ -111,6 +115,7 @@ export function editRequest(page: GraphPage, vault: string, before: EditForm, fo
   if (!same(aliases, parseAliases(before.aliases))) req.aliases = aliases
   if (form.summary.trim() !== before.summary.trim()) req.summary = form.summary.trim()
   if (page.url && form.url.trim() !== before.url.trim()) req.url = form.url.trim()
+  if (!page.url && form.origin !== before.origin) req.origin = form.origin
   const links = normLinks(form.links)
   if (!same(links, normLinks(before.links))) req.links = links
   return Object.keys(req).length > 2 ? req : null

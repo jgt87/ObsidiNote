@@ -61,7 +61,7 @@ function ConvertTo-IngestPage {
         id = $Page.id; title = $Page.title; type = $Page.type; section = $Page.section; bucket = $Page.bucket; pageId = $Page.oneNoteId
         link = $Page.link; summary = $Page.summary; aliases = @($Page.aliases); topics = @($Page.topics); status = $Page.status
         links = @(@($Page.links) | ForEach-Object { @{ target = [string]$_.target; strength = [int]$_.strength; why = [string]$_.why } })
-        url = $Page.url
+        url = $Page.url; origin = $(if ($Page.ContainsKey('origin')) { [string]$Page.origin } else { '' })
     }
 }
 
@@ -205,10 +205,11 @@ function Invoke-VsSetInboxStatus {
 function Invoke-VsSetInboxWaiting {
     <# Copilot is still answering: status waiting, the request reference and kind, when the wait began,
        and the Copilot chat's address (an id-like URL without query; no prompt text). #>
-    param([hashtable]$Ctx, [string]$PageId, [string]$Ref, [string]$RequestKind, [string]$ChatUrl, [string]$Since)
+    param([hashtable]$Ctx, [string]$PageId, [string]$Ref, [string]$RequestKind, [string]$ChatUrl, [string]$Since, [string]$Origin = '')
     Assert-VsWritable $Ctx
     $line = "status: waiting - Copilot is still answering (reference $Ref)"
-    $meta = [ordered]@{ 'obsn.status' = 'waiting'; 'obsn.statusReason' = ''; 'obsn.requestRef' = $Ref; 'obsn.requestKind' = $RequestKind; 'obsn.waitingSince' = $Since; 'obsn.chatUrl' = $ChatUrl }
+    # origin: where the text came from, kept so "Check for the answer" files the page with it.
+    $meta = [ordered]@{ 'obsn.status' = 'waiting'; 'obsn.statusReason' = ''; 'obsn.requestRef' = $Ref; 'obsn.requestKind' = $RequestKind; 'obsn.waitingSince' = $Since; 'obsn.chatUrl' = $ChatUrl; 'obsn.origin' = $Origin }
     Write-ObsnPage -Adapter $Ctx.Adapter -PageId $PageId -Meta $meta -Outlines @(@{ role = 'props'; lines = @($line) })
 }
 
@@ -229,7 +230,7 @@ function Invoke-VsReadInboxItem {
     @{
         pageId = $PageId; title = $t.title; status = (& $m 'obsn.status'); kind = (& $m 'obsn.inboxKind')
         text = $(if ($body) { [string]$body.text } else { '' }); ref = (& $m 'obsn.requestRef'); requestKind = (& $m 'obsn.requestKind')
-        waitingSince = (& $m 'obsn.waitingSince'); chatUrl = (& $m 'obsn.chatUrl')
+        waitingSince = (& $m 'obsn.waitingSince'); chatUrl = (& $m 'obsn.chatUrl'); origin = (& $m 'obsn.origin')
     }
 }
 
@@ -301,7 +302,7 @@ function Invoke-VsIndexAddPage {
     $old = if ($Ctx.Model.pages.Contains($id)) { $Ctx.Model.pages[$id] } else { $null }
     $rec = @{}
     if ($old) { foreach ($k in @($old.Keys)) { $rec[$k] = $old[$k] } }
-    foreach ($k in 'id', 'title', 'type', 'summary', 'topics', 'aliases', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'link', 'section') { if ($Page.ContainsKey($k)) { $rec[$k] = $Page[$k] } }
+    foreach ($k in 'id', 'title', 'type', 'summary', 'topics', 'aliases', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'link', 'section', 'origin') { if ($Page.ContainsKey($k)) { $rec[$k] = $Page[$k] } }
     if ($Page.ContainsKey('pageId') -and $Page['pageId']) { $rec.oneNoteId = [string]$Page['pageId'] }
     $rec.key = $id
     if ($rec.ContainsKey('section') -and $rec.section) { $b = Get-BucketOfSection ([string]$rec.section); $rec.bucket = $(if ($b) { $b } else { [string]$Page['bucket'] }) } elseif ($Page.ContainsKey('bucket')) { $rec.bucket = $Page['bucket'] }
@@ -421,7 +422,7 @@ function New-VaultStore {
         NewId           = { & $call $ctx 'NewId' }.GetNewClosure()
         CreateInboxItem = { param([string]$Title, [string]$Text, [string]$Kind, [string]$Ref, [string]$RequestKind) & $call $ctx 'CreateInboxItem' @{ Title = $Title; Text = $Text; Kind = $Kind; Ref = $Ref; RequestKind = $RequestKind } }.GetNewClosure()
         SetInboxStatus  = { param([string]$PageId, [string]$Status, [string]$Reason, [string]$Id) & $call $ctx 'SetInboxStatus' @{ PageId = $PageId; Status = $Status; Reason = $Reason; Id = $Id } }.GetNewClosure()
-        SetInboxWaiting = { param([string]$PageId, [string]$Ref, [string]$RequestKind, [string]$ChatUrl, [string]$Since) & $call $ctx 'SetInboxWaiting' @{ PageId = $PageId; Ref = $Ref; RequestKind = $RequestKind; ChatUrl = $ChatUrl; Since = $Since } }.GetNewClosure()
+        SetInboxWaiting = { param([string]$PageId, [string]$Ref, [string]$RequestKind, [string]$ChatUrl, [string]$Since, [string]$Origin = '') & $call $ctx 'SetInboxWaiting' @{ PageId = $PageId; Ref = $Ref; RequestKind = $RequestKind; ChatUrl = $ChatUrl; Since = $Since; Origin = $Origin } }.GetNewClosure()
         ReadInboxItem   = { param([string]$PageId) & $call $ctx 'ReadInboxItem' @{ PageId = $PageId } }.GetNewClosure()
         CreatePage      = { param([hashtable]$Page) & $call $ctx 'CreatePage' @{ Page = $Page } }.GetNewClosure()
         ReadPage        = { param([string]$PageId) & $call $ctx 'ReadPage' @{ PageId = $PageId } }.GetNewClosure()

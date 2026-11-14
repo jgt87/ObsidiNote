@@ -17,7 +17,9 @@ Import-Module (Join-Path $PSScriptRoot 'OneNote.psm1')
 # linkSummary .. checkStatus: a link page's summary record (JSON), the hash of the summary outline as
 # written (hand edits show as a mismatch), the last 3 earlier summaries (JSON), when the same link was
 # pasted again, and why the last check could not update it (lib/Ingest.psm1, Update-LinkSummary).
-$script:MetaKeys = @('id', 'type', 'topics', 'aliases', 'summary', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'linkSummary', 'summaryHash', 'history', 'seenAt', 'checkStatus')
+# origin: where a page without an address came from (Outlook mail, Teams, Word, ...: lib/NotebookStructure.psm1
+# Get-OriginList; set at Add from the paste or by the person, changeable in Edit; 2026-11-14).
+$script:MetaKeys = @('id', 'type', 'topics', 'aliases', 'summary', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'linkSummary', 'summaryHash', 'history', 'seenAt', 'checkStatus', 'origin')
 $script:ListKeys = @('topics', 'aliases')
 # Values that can grow past one Meta tag: always written with their obsn.X.n part count.
 $script:SplitKeys = @('linkSummary', 'history')

@@ -6,7 +6,7 @@ import type { GraphModel, GraphPage } from './model'
 // Invented example data only.
 function page(id: string, title: string, extra: Partial<GraphPage> = {}): GraphPage {
   return {
-    id, title, topicIds: [], bucket: 'Notes', kind: 'concept', links: 0, isHub: false, unlinked: true, summary: '',
+    id, title, topicIds: [], bucket: 'Notes', kind: 'concept', links: 0, linkedFrom: 0, weight: 0, isHub: false, sourceId: 'obsidinote', origin: '', unlinked: true, summary: '',
     onenoteUrl: '', modified: '', readOnly: false, aliases: [], site: '', archived: false, url: '', ...extra,
   }
 }
@@ -32,7 +32,15 @@ const p1 = model.pages[0]
 describe('the edit form', () => {
   it('starts from the page as it is', () => {
     const f = formFor(index, p1)
-    expect(f).toEqual({ title: 'Zero trust', type: 'concept', topics: 'Security / Networking', aliases: 'ZT', summary: 'Never trust.', url: '', links: [{ target: 'p2', strength: 2, why: 'uses' }] })
+    expect(f).toEqual({ title: 'Zero trust', type: 'concept', topics: 'Security / Networking', aliases: 'ZT', summary: 'Never trust.', url: '', origin: '', links: [{ target: 'p2', strength: 2, why: 'uses' }] })
+  })
+  it('sends where a page came from only when it changed, and never for a link page', () => {
+    const before = formFor(index, p1)
+    expect(editRequest(p1, 'v1', before, { ...before, origin: 'outlook' })).toEqual({ id: 'p1', vault: 'v1', origin: 'outlook' })
+    expect(editRequest(p1, 'v1', before, before)).toBeNull()
+    const link = model.pages[2]
+    const lb = formFor(index, link)
+    expect(editRequest(link, 'v1', lb, { ...lb, origin: 'teams' })).toBeNull()
   })
   it('offers only the types of the page\'s own section', () => {
     expect(typeChoices(model, p1)).toEqual(['concept', 'note', 'howto'])

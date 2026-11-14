@@ -5,6 +5,26 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.8.2] - 2026-11-14
+
+### Added
+- **Topics | Sources** on the knowledge graph: switch the map from topic areas to where your pages come from. Each SharePoint site, OneDrive, Teams, Loop, each company service (ServiceNow, Workday, ...) and each web site gets its own area; web sites with one or two pages share "Other web sites", and pages you typed or pasted are in "ObsidiNote notes". Links between sources show as lines, like between topics. The page window, filters and List keep the topics.
+- **From** under the box: when you paste text, ObsidiNote recognises where it came from (Outlook mail, Teams chat, Word document, a web page) and files the page with it, so it lands in that source on the map. Change it before you add if the guess is wrong; typed text stays "Typed in ObsidiNote". A page you added earlier has no recorded origin and stays in "ObsidiNote notes" until you set **From** in its Edit form.
+
+### Changed
+- Dot sizes on the knowledge graph now show how much a page matters:
+  - A page grows with the links *to* it, and strong links count more than loose ones. Its own links count half, so a new page with many proposed links no longer looks important on its first day.
+  - Sizes change smoothly: one link more is a little bigger, not a jump.
+  - Hubs are the most linked-to pages of your vault (about the top 5%, linked to by at least 3 pages) instead of every page with 5 links, so a small vault has hubs too and a big one is not crowded with them.
+- Lines between topics are wider when their links are stronger, not only when there are more of them.
+- Lines between topics are calmer and easier to follow:
+  - Topics with links between them are placed next to each other, the strongest first, so their lines are short and straight. Where that is not possible, a line bends around the topic in its way instead of running over or under it.
+  - With nothing selected, only the 8 strongest show. Zoom in to see all of them, or point at a page to see every line of its topic.
+  - Each line leaves its area on the side facing the other topic, and lines that leave at the same spot are spread apart.
+- A topic's name now sits in the middle of its area, in bold, and fades out while your pointer is over that area, so it never hides the pages.
+- Two pages that link each other show as one line and count as one link.
+- **Link it** now saves the link as "related" instead of "loose", since you made it yourself. Links you made before are set to "related" at the next start (the start says so on its upgrade line).
+
 ## [v0.8.1] - 2026-11-14
 
 ### Changed

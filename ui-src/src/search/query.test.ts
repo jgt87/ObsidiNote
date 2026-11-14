@@ -23,6 +23,12 @@ const model = normalizeGraph({
   ],
   edges: [],
 })
+// Hubs and "unlinked" are derived from the edges (weights.ts); set by hand here to test the
+// search on its own (p1 a hub, p3 the only unlinked page).
+for (const p of model.pages) {
+  p.isHub = p.id === 'p1'
+  p.unlinked = p.id === 'p3'
+}
 const index = buildIndex(model)
 const ids = (q: string) => rankPages(index, parseQuery(q)).map((r) => r.id)
 

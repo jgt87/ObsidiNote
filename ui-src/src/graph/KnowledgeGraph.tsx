@@ -10,6 +10,7 @@ import { GraphList } from './GraphList'
 import { GraphStage, type Active, type Filters } from './GraphStage'
 import { layoutGraph } from './layout'
 import type { GraphModel } from './model'
+import { bySource, type GroupBy } from './sourceView'
 import { LockIcon, PageDialog, type PageActions } from './PageDialog'
 import { searchPages } from './view'
 import { SearchFilters } from '../search/SearchFilters'
@@ -56,6 +57,15 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   const stageRef = useRef<HTMLDivElement>(null)
   const aspect = useStageAspect(stageRef, mode)
   const layout = useMemo(() => layoutGraph(model, { aspect }, index), [model, index, aspect])
+  // Areas by topic, or by where the pages come from (sourceView.ts); only the map's areas change:
+  // the page window, filters, search and List keep the topics.
+  const [groupBy, setGroupBy] = useState<GroupBy>('topics')
+  const sourceLayout = useMemo(() => {
+    if (groupBy !== 'sources') return null
+    const m = bySource(model)
+    return layoutGraph(m, { aspect }, buildIndex(m))
+  }, [groupBy, model, aspect])
+  const mapLayout = sourceLayout ?? layout
   const focus = useMemo(() => (focusIds ?? []).filter((id) => index.pageById.has(id)), [focusIds, index])
   const [filters, setFilters] = useState<Filters>({ links: true, mentions: false, hubsOnly: false })
   const [query, setQuery] = useState('')
@@ -177,7 +187,8 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           {title && <h1 className="kg-title">{title}</h1>}
           <span className="kg-meta">
             {src.name ? `${src.name} · ` : ''}
-            {plural(model.pages.length, 'page')} in {plural(layout.areas.filter((a) => a.topic).length, 'topic')} · {plural(index.linkCount, 'link')}
+            {plural(model.pages.length, 'page')} in{' '}
+            {mode === 'graph' && groupBy === 'sources' ? plural(mapLayout.areas.length, 'source') : plural(layout.areas.filter((a) => a.topic).length, 'topic')} · {plural(index.linkCount, 'link')}
             {hiddenArchived > 0 ? ` · ${hiddenArchived} archived hidden` : ''}
           </span>
           {src.readOnly && (
@@ -189,6 +200,14 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
         <div className="kg-tools">
           {mode === 'graph' && (
             <>
+              <div className="kg-seg" role="group" aria-label="Group the map by">
+                <button type="button" className="btn btn--sm" aria-pressed={groupBy === 'topics'} onClick={() => setGroupBy('topics')}>
+                  Topics
+                </button>
+                <button type="button" className="btn btn--sm" aria-pressed={groupBy === 'sources'} onClick={() => setGroupBy('sources')}>
+                  Sources
+                </button>
+              </div>
               {chip('links', 'Links')}
               {chip('mentions', 'Mentions, not linked')}
               {chip('hubsOnly', 'Labels: hubs only')}
@@ -229,7 +248,8 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
       {mode === 'graph' ? (
         <GraphStage
           index={index}
-          layout={layout}
+          layout={mapLayout}
+          areaWord={sourceLayout ? 'source' : 'topic'}
           filters={filters}
           shown={allShown ? null : shown}
           matches={matches}

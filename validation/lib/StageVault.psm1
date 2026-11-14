@@ -398,9 +398,11 @@ function Add-UpgradePlanResults($Ctx, [object[]]$Vaults, $Adapter) {
             , @(Get-UpgradePlan -Model $m -CompanyNames $names)
         }
         if (-not $r.ok) { Add-ValidationResult $Ctx 'V6' 'WARN' "Upgrade plan of $nb" $r.error; continue }
-        $p = @($r.value)
+        $all = @($r.value)
+        $p = @($all | Where-Object { $_.step -eq 'link-bucket' })
+        $weak = @($all | Where-Object { $_.step -eq 'link-strength' }).Count
         $toIn = @($p | Where-Object { $_.to -eq 'Internal links' }).Count
-        Add-ValidationResult $Ctx 'V6' 'INFO' "Upgrade plan of $nb" "$($p.Count) link page(s) to move ($toIn to Internal links, $($p.Count - $toIn) to Web links); the next start of ObsidiNote moves them"
+        Add-ValidationResult $Ctx 'V6' 'INFO' "Upgrade plan of $nb" "$($p.Count) link page(s) to move ($toIn to Internal links, $($p.Count - $toIn) to Web links); $weak page(s) with your own links to set to related; the next start of ObsidiNote does it"
     }
 }
 

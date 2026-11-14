@@ -16,6 +16,8 @@
 //   normalizeGraph() repairs that, and clamps or drops anything it cannot draw.
 
 import { webUrl } from '../model/links'
+import { validOrigin } from '../model/origins'
+import { applyLinkWeights } from './weights'
 
 export type Strength = 1 | 2 | 3
 
@@ -44,12 +46,20 @@ export interface GraphPage {
   bucket: string
   /** Copilot's type, e.g. "concept", "link-web", "meeting"; free text for connected notebooks. */
   kind: string
-  /** Number of links (in + out); drives dot size. */
+  /** Distinct linked pages, either direction (weights.ts, derived from the edges). */
   links: number
-  /** Hub (index/MOC page or high centrality): drawn bigger, labelled when nothing is focused. */
+  /** Pages that link to this one (weights.ts). */
+  linkedFrom: number
+  /** Link weight: strengths of the links to it plus half of its own (weights.ts); drives dot size. */
+  weight: number
+  /** Hub: among the most linked-to pages of the vault (weights.ts); thicker outline, labelled first. */
   isHub: boolean
   /** No links yet: drawn as a hollow dashed dot. */
   unlinked: boolean
+  /** Where the page comes from (an id of GraphModel.sources): its area in the Sources view. */
+  sourceId: string
+  /** Where a page without an address came from (model/origins.ts; '' = typed or not known). */
+  origin: string
   /** One-line summary from the index. */
   summary: string
   /** onenote: link that opens the page in OneNote desktop. */
@@ -93,6 +103,17 @@ export interface GraphModel {
   edges: GraphEdge[]
   /** The page types and the section each belongs to (the active vault only; for Edit). */
   types?: { type: string; bucket: string }[]
+  /** Where the pages come from, for the Sources view (lib/GraphModel.psm1): every page's sourceId is here. */
+  sources?: GraphSourceArea[]
+}
+
+/** One source area of the Sources view: a Microsoft 365 app (SharePoint per site), a company
+ *  service, a web site, "Other web sites", or the pages without an address. */
+export interface GraphSourceArea {
+  id: string
+  name: string
+  kind: 'm365' | 'service' | 'web' | 'other' | 'notes'
+  pageCount: number
 }
 
 /** Id of the synthetic area for pages without a topic. */
@@ -153,9 +174,12 @@ export function normalizeGraph(raw: unknown): GraphModel {
       topicIds: asList(p.topicIds as string[]).map((x) => str(x)).filter((x) => topicIds.has(x)),
       bucket: str(p.bucket),
       kind: str(p.kind),
-      links: num(p.links),
-      isHub: p.isHub === true,
-      unlinked: p.unlinked === true,
+      // Set from the edges below (applyLinkWeights): one definition of size and hubs.
+      links: 0,
+      linkedFrom: 0,
+      weight: 0,
+      isHub: false,
+      unlinked: true,
       summary: str(p.summary),
       onenoteUrl: str(p.onenoteUrl),
       modified: str(p.modified),
@@ -164,6 +188,8 @@ export function normalizeGraph(raw: unknown): GraphModel {
       site: str(p.site),
       archived: p.archived === true,
       url: webUrl(str(p.url)),
+      sourceId: str(p.sourceId),
+      origin: validOrigin(p.origin),
     })
   }
 
@@ -181,10 +207,35 @@ export function normalizeGraph(raw: unknown): GraphModel {
     if (e.reason) edge.reason = str(e.reason)
     edges.push(edge)
   }
+  applyLinkWeights(pages, edges)
   const types = (asList(r.types as unknown[]) as Record<string, unknown>[])
     .map((t) => ({ type: str(t?.type), bucket: str(t?.bucket) }))
     .filter((t) => t.type && t.bucket)
-  return types.length ? { source, topics, pages, edges, types } : { source, topics, pages, edges }
+  const sources = normalizeSources(r.sources, pages, source)
+  return types.length ? { source, topics, pages, edges, types, sources } : { source, topics, pages, edges, sources }
+}
+
+const SOURCE_KINDS = new Set<GraphSourceArea['kind']>(['m365', 'service', 'web', 'other', 'notes'])
+
+/** The sources list, repaired: one entry per id, counts from the pages, and every page's sourceId in
+ *  it (a page without one, or with an unknown one, goes to the notes area). */
+function normalizeSources(raw: unknown, pages: GraphPage[], source: GraphSource): GraphSourceArea[] {
+  const notes: GraphSourceArea = source.kind === 'notebook' ? { id: 'onenote', name: 'OneNote pages', kind: 'notes', pageCount: 0 } : { id: 'obsidinote', name: 'ObsidiNote notes', kind: 'notes', pageCount: 0 }
+  const byId = new Map<string, GraphSourceArea>()
+  for (const s of asList(raw as unknown[]) as Record<string, unknown>[]) {
+    const id = str(s?.id)
+    if (!id || byId.has(id)) continue
+    const kind = SOURCE_KINDS.has(s.kind as GraphSourceArea['kind']) ? (s.kind as GraphSourceArea['kind']) : 'other'
+    byId.set(id, { id, name: str(s.name, id), kind, pageCount: 0 })
+  }
+  for (const p of pages) {
+    if (!p.sourceId || !byId.has(p.sourceId)) {
+      if (!byId.has(notes.id)) byId.set(notes.id, { ...notes })
+      p.sourceId = notes.id
+    }
+    byId.get(p.sourceId)!.pageCount++
+  }
+  return [...byId.values()].filter((s) => s.pageCount > 0)
 }
 
 /** Primary topic of a page (the area it is drawn in). */
