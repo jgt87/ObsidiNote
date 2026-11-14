@@ -56,6 +56,14 @@ Describe 'Find-SyncedFile' {
         (Find-SyncedFile -Name 'Budget review.docx' -Size 100 -ModifiedUtc $t.time -Roots @($t.root)).status | Should Be 'many'
         Remove-Item -LiteralPath $dup
     }
+    It 'finds the file when the synced folder is given by its 8.3 short name (as CI''s TEMP is)' {
+        $fso = New-Object -ComObject Scripting.FileSystemObject
+        $short = $fso.GetFolder($t.dir).ShortPath
+        $root = @{ path = $short; url = $t.root.url }
+        $r = Find-SyncedFile -Name 'Budget review.docx' -Size 100 -ModifiedUtc $t.time -Roots @($root)
+        $r.status | Should Be 'found'
+        $r.url | Should Match '/Projects/Q3%20plans/Budget%20review\.docx$'
+    }
     It 'says when nothing is synced' {
         (Find-SyncedFile -Name 'a.docx' -Size 1 -ModifiedUtc $t.time -Roots @()).status | Should Be 'no-sync'
     }

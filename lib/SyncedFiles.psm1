@@ -64,23 +64,30 @@ function Find-SyncedFile {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     if ($null -eq $Roots) { $Roots = Get-SyncRoots }
     if (-not @($Roots).Count) { return @{ status = 'no-sync'; url = ''; ms = [int]$sw.ElapsedMilliseconds } }
-    $hits = New-Object System.Collections.Generic.List[string]
+    # Each hit keeps the synced folder it was found in and its path relative to it, built while
+    # walking; never cut out of FullName afterwards: Windows can hand back the long form of a short
+    # 8.3 root (CI's C:\Users\RUNNER~1), so a prefix comparison fails (2026-11-14, lessons).
+    $hits = New-Object System.Collections.Generic.List[object]
     $want = $ModifiedUtc.ToUniversalTime()
     $folders = 0
     foreach ($root in @($Roots)) {
-        $queue = New-Object System.Collections.Generic.Queue[string]
-        $queue.Enqueue([string]$root.path)
+        $queue = New-Object System.Collections.Generic.Queue[object]
+        $queue.Enqueue(@{ dir = [string]$root.path; rel = '' })
         while ($queue.Count -and $sw.ElapsedMilliseconds -lt $TimeoutMs -and $folders -lt $MaxFolders) {
-            $dir = $queue.Dequeue()
+            $item = $queue.Dequeue()
             $folders++
-            $di = New-Object System.IO.DirectoryInfo $dir
+            $di = New-Object System.IO.DirectoryInfo $item.dir
             try {
                 foreach ($f in $di.EnumerateFiles($Name)) {
-                    if ($f.Length -eq $Size -and [Math]::Abs(($f.LastWriteTimeUtc - $want).TotalSeconds) -le 2) { $hits.Add($f.FullName) }
+                    if ($f.Length -eq $Size -and [Math]::Abs(($f.LastWriteTimeUtc - $want).TotalSeconds) -le 2) {
+                        $hits.Add(@{ root = $root; rel = $(if ($item.rel) { "$($item.rel)\$($f.Name)" } else { $f.Name }) })
+                    }
                 }
                 # Online-only OneDrive folders are reparse points too, so they are followed; a
                 # junction loop is cut by $TimeoutMs and $MaxFolders.
-                foreach ($sub in $di.EnumerateDirectories()) { $queue.Enqueue($sub.FullName) }
+                foreach ($sub in $di.EnumerateDirectories()) {
+                    $queue.Enqueue(@{ dir = $sub.FullName; rel = $(if ($item.rel) { "$($item.rel)\$($sub.Name)" } else { $sub.Name }) })
+                }
             } catch { continue }
         }
         if ($hits.Count) { break }
@@ -88,12 +95,9 @@ function Find-SyncedFile {
     $ms = [int]$sw.ElapsedMilliseconds
     if ($hits.Count -gt 1) { return @{ status = 'many'; url = ''; ms = $ms } }
     if (-not $hits.Count) { return @{ status = 'none'; url = ''; ms = $ms } }
-    $path = $hits[0]
-    foreach ($root in @($Roots)) {
-        $u = ConvertTo-SyncedUrl -Root $root -Path $path
-        if ($u) { return @{ status = 'found'; url = $u; ms = $ms } }
-    }
-    @{ status = 'none'; url = ''; ms = $ms }
+    $h = $hits[0]
+    $u = ConvertTo-SyncedUrl -Root $h.root -Path ($h.root.path.TrimEnd('\') + '\' + $h.rel)
+    @{ status = $(if ($u) { 'found' } else { 'none' }); url = $u; ms = $ms }
 }
 
 Export-ModuleMember -Function Get-SyncRoots, Resolve-SyncRootUrl, ConvertTo-SyncedUrl, Find-SyncedFile
