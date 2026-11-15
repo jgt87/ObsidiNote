@@ -51,7 +51,7 @@ export function HomeView({ home, addTarget, notebook, choices, onChoices, source
       <Composer addTarget={addTarget} onSend={home.send} busy={home.busy} prefill={home.prefill} note={note} clearKey={home.clearKey} block={block} connect={block?.retry ? connect : null}>
         <AskOptions choices={choices} options={sourceOptions} onChange={onChoices} />
       </Composer>
-      <FlowArea home={home} connect={connect} />
+      <FlowArea home={home} connect={connect} onOpenPage={onOpenActive} />
       {/* design (round 2, 2026-11-15): after a send the result stands alone; what still waits for
           Copilot and what changed lately show while nothing was sent (and in History). */}
       {flow.kind === 'idle' && <WaitingList refreshKey={activityKey} onOpen={onOpenActive} />}
@@ -83,7 +83,7 @@ function ConnectCopilot({ onRetry }: { onRetry: () => Promise<string> }) {
   )
 }
 
-function FlowArea({ home, connect }: { home: Home; connect: React.JSX.Element | null }) {
+function FlowArea({ home, connect, onOpenPage }: { home: Home; connect: React.JSX.Element | null; onOpenPage: (pageId: string) => void }) {
   const { flow } = home
   if (flow.kind === 'idle') return null
   if (flow.kind === 'notice') {
@@ -123,5 +123,5 @@ function FlowArea({ home, connect }: { home: Home; connect: React.JSX.Element | 
     return <AskView state={view} onRetry={home.retryAsk} connect={connect} onSaveOpenQuestion={() => undefined} onFollowUp={() => undefined} onSavePage={() => undefined} onShowOnMap={() => undefined} />
   }
   const a = home.askActions(view.result)
-  return <AskView state={view} {...a} />
+  return <AskView state={view} {...a} onOpenPage={onOpenPage} />
 }

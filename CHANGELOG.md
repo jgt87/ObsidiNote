@@ -5,7 +5,15 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.10.1] - 2026-11-15
+
+### Changed
+- A citation number in an Ask answer opens the page itself: a page of your vault in its page window, a link page at its own address, a page of another notebook in OneNote. It used to jump to the list of sources.
+- The typing area of the Add or ask box is bigger (four lines to start, up to about twelve as you type) and has its own field inside the box, so it stands out from the controls.
+- The Add or ask box has all its controls in one row under the text: Auto / Add / Ask, the shortcuts, a paperclip for **Add a file**, and Send. What the text will do stays on its own line above them.
+
 ### Fixed
+- The Ask answer uses the full width of its box, like the sources under it, instead of a narrow column on a wide screen.
 - The interface's speed tests no longer fail on a slow build machine: they compare how the work grows from 500 to 5,000 pages instead of holding a time limit (the v0.10.0 release build failed on three of them; the release itself was not affected).
 
 ## [v0.10.0] - 2026-11-15

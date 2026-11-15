@@ -1,6 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { answerShares, combinedLine, list, normalizeAskResult, notFoundText, pathChips, sentencesPerSource, sharePercent, sourceAnchor } from './askModel'
+import { answerShares, citeTarget, combinedLine, list, normalizeAskResult, notFoundText, pathChips, sentencesPerSource, sharePercent, sourceAnchor } from './askModel'
 import type { AskResult } from './types'
+
+describe('citeTarget: where a citation [n] leads', () => {
+  const page = { url: '', link: 'onenote:https://team.example/Wiki.one#Page', readOnly: false }
+  it('a link page opens its own address, whatever else it has', () => {
+    expect(citeTarget({ ...page, url: 'https://example.com/a' }, true)).toEqual({ kind: 'url', href: 'https://example.com/a' })
+  })
+  it('a page of the active vault opens its page window when the window can, else OneNote', () => {
+    expect(citeTarget(page, true)).toEqual({ kind: 'page' })
+    expect(citeTarget(page, false)).toEqual({ kind: 'onenote', href: page.link })
+  })
+  it('a page of another vault or notebook opens in OneNote; nothing to open gives the list', () => {
+    expect(citeTarget({ ...page, readOnly: true }, true)).toEqual({ kind: 'onenote', href: page.link })
+    expect(citeTarget({ url: 'javascript:alert(1)', link: 'https://x.example', readOnly: true }, true)).toEqual({ kind: 'list' })
+    expect(citeTarget(undefined, true)).toEqual({ kind: 'list' })
+  })
+})
 
 // Invented example data only.
 function result(over: Partial<AskResult> = {}): AskResult {

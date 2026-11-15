@@ -17,7 +17,9 @@
 //   8 during a long zoom-in with the wheel the map is drawn again before it is stretched 1.35 times
 // Views and states visited: home (idle, with waiting items, after an Add, with an Add that waits),
 // History, knowledge graph (map, List), page window, its Edit form.
-// NOT covered, so the rules above are not proven there: the Ask answer and its error, a failed Add,
+//  17 every text field has its own edge or fill of at least 3:1 against what is behind it (home, graph, Edit; light and dark)
+//  16 a citation [n] opens the cited page's window (a link page: its address); the box's controls sit in one row
+// NOT covered, so the rules above are not proven there: the Ask answer's other states and its error, a failed Add,
 // the Settings, New vault and Set up dialogs, the quick switcher, the Filter panel, a link Update
 // (old/new), the replace confirmation, a read-only vault, dark theme.
 // Drives the app in headless Edge over CDP with the API answered here from invented data, and the
@@ -76,6 +78,26 @@ const send = (method, params = {}, sessionId) =>
 const PRIMARIES = `JSON.stringify([...document.querySelectorAll('.btn--primary')].filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && (!e.closest('dialog') || e.closest('dialog[open]')) && (!document.querySelector('dialog[open]') || e.closest('dialog[open]')) }).map((e) => e.textContent.trim()))`
 // Controls under 44 px on a touch screen. Text links inside a sentence are exempt (WCAG 2.5.8 inline).
 const SMALL = `JSON.stringify([...document.querySelectorAll('button, a.btn, select, input:not([type=checkbox]):not([type=radio]):not([type=file]), [role=tab]')].filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !e.closest('svg') && !e.matches('.link-btn, .kg-linkbtn, .kg-rowbtn, .recent__open, .ask-src__page') && r.height < 43.5 }).map((e) => (e.textContent.trim() || e.getAttribute('aria-label') || e.tagName).slice(0, 24) + '=' + Math.round(e.getBoundingClientRect().height)))`
+const FIELD_EDGES = `JSON.stringify((() => {
+  // At rest: a focused field shows its focus look (the home box has autofocus and passed on it).
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur()
+  const clear = (c) => !c || c === 'transparent' || /,\\s*0\\)$|\\/\\s*0\\)$/.test(c)
+  const cv = document.createElement('canvas'); cv.width = cv.height = 1; const cx = cv.getContext('2d', { willReadFrequently: true })
+  const paint = (layers) => { cx.globalCompositeOperation = 'copy'; cx.fillStyle = '#fff'; cx.fillRect(0, 0, 1, 1); cx.globalCompositeOperation = 'source-over'; for (const c of layers) { cx.fillStyle = '#000'; cx.fillStyle = c; cx.fillRect(0, 0, 1, 1) } const d = cx.getImageData(0, 0, 1, 1).data; return [d[0], d[1], d[2]] }
+  const lum = (rgb) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }; return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]) }
+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05) }
+  const behind = (e) => { const out = []; for (let p = e.parentElement; p; p = p.parentElement) { const c = getComputedStyle(p).backgroundColor; if (!clear(c)) out.unshift(c) } return out }
+  const bad = []
+  for (const e of document.querySelectorAll('input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]):not([type=file]), select, textarea')) {
+    const r = e.getBoundingClientRect(); if (r.width < 4 || r.height < 4 || getComputedStyle(e).visibility === 'hidden') continue
+    const s = getComputedStyle(e); const under = behind(e); const base = paint(under)
+    const edge = parseFloat(s.borderBottomWidth) >= 1 && !clear(s.borderBottomColor) ? ratio(paint([...under, s.borderBottomColor]), base) : 0
+    const fill = clear(s.backgroundColor) ? 0 : ratio(paint([...under, s.backgroundColor]), base)
+    if (Math.max(edge, fill) < 3) bad.push((e.id || e.className || e.tagName) + ' edge ' + edge.toFixed(2) + ':1, fill ' + fill.toFixed(2) + ':1')
+  }
+  return bad })())`
+// Text fields whose edge or fill is under 3:1 against what is behind them (rules/ui.md, 1.4.11):
+// a field without its own edge does not read as a place to type (operator, 2026-11-15).
 const UNDER_NAMES = `JSON.stringify((() => { const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
   const dots = [...document.querySelectorAll('.kg-base circle.kg-dot')].map((d) => d.getBoundingClientRect())
   return [...document.querySelectorAll('.kg-alabel b')].map((l) => ({ name: l.textContent, n: dots.filter((d) => hit(l.getBoundingClientRect(), d)).length })).filter((x) => x.n > 0) })())`
@@ -316,6 +338,51 @@ async function main() {
     expect(wanted > 0 && tags === wanted, `Settings, Tags: ${tags} tag row(s) shown, the vault's pages carry ${wanted} different tag(s)`)
   }
 
+  // 17 every text field has its own edge (or fill) of at least 3:1 against what is behind it, light and dark
+  for (const dark of [false, true]) {
+    await S('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] })
+    const where = dark ? ' (dark)' : ''
+    waiting = false; await go('/#/', '.recent__row')
+    let bad = await list(FIELD_EDGES)
+    expect(bad.length === 0, `home${where}: text fields without a visible edge: ${bad.join('; ')}`)
+    await go('/#/graph', '.kg-dot')
+    bad = await list(FIELD_EDGES)
+    expect(bad.length === 0, `knowledge graph${where}: text fields without a visible edge: ${bad.join('; ')}`)
+    await openDot()
+    await js(`[...document.querySelectorAll('dialog[open] button')].find((b) => b.textContent.trim() === 'Edit')?.click()`); await wait(500)
+    bad = await list(FIELD_EDGES)
+    expect(bad.length === 0, `page window, Edit${where}: text fields without a visible edge: ${bad.join('; ')}`)
+  }
+  await S('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] })
+
+  // 16 a citation [n] in an Ask answer opens that page's window; a link page's citation is its address.
+  //    And the box: every control (mode switch, paperclip, Send) in one row under the text.
+  {
+    const target = graph.pages.find((p) => !p.url && p.id) ?? graph.pages[0]
+    const linkPage = graph.pages.find((p) => p.id !== target.id) ?? graph.pages[1]
+    const source = (n, p, url = '') => ({ n, id: p.id, key: p.id, title: p.title, path: 'Security', link: 'onenote:#example', url, updated: '', age: 'today', type: 'note', archived: false, sourceId: 'v1', sourceName: 'Work wiki', readOnly: false, stale: false, summarizedAge: '' })
+    submitAnswer = {
+      intent: 'ask', ok: true, status: 'answered', conversationId: 'c1', turn: 1, question: 'What did we decide?', writes: 0, note: '', message: '', path: null,
+      answer: { confidence: 'high', paragraphs: [{ sentences: [{ text: 'The first sentence.', cites: [1], unsupported: false }, { text: 'The second one.', cites: [2], unsupported: false }] }] },
+      sources: [source(1, target), source(2, linkPage, 'https://example.com/guide')], unused: [], staleLinks: [], invalidCitations: [], notFound: null,
+    }
+    waiting = false; await go('/#/', '.recent__row')
+    const row = await list(`JSON.stringify((() => { const r = document.querySelector('.composer__bottom'); const tops = [...r.querySelectorAll('.seg, .composer__file-btn, .composer__send')].map((e) => Math.round(e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2)); return { n: tops.length, spread: Math.max(...tops) - Math.min(...tops), clip: r.querySelector('.composer__file-btn')?.getAttribute('aria-label') } })())`)
+    expect(row.n === 3 && row.spread <= 2 && row.clip === 'Add a file', `the box's controls: ${JSON.stringify(row)} (mode switch, paperclip "Add a file" and Send on one line)`)
+    await js(`document.querySelector('#composer-text').focus()`)
+    await S('Input.insertText', { text: 'What did we decide?' })
+    await wait(600)
+    await js(`document.querySelector('.composer__send').click()`)
+    for (let k = 0; k < 50 && !(await js(`!!document.querySelector('[aria-label="Answer"]')`)); k++) await wait(100)
+    const cites = await list(`JSON.stringify([...document.querySelectorAll('.ask-cite')].map((c) => ({ tag: c.tagName, href: c.getAttribute('href') })))`)
+    expect(cites.length === 2 && cites[0].tag === 'BUTTON' && cites[1].href === 'https://example.com/guide', `Ask citations: ${JSON.stringify(cites)} (a button for the vault page, the address for the link page)`)
+    await js(`document.querySelector('button.ask-cite').click()`)
+    let title = ''
+    for (let k = 0; k < 60 && !title; k++) { title = await js(`document.querySelector('dialog[open] #kg-dlg-title')?.textContent ?? ''`); if (!title) await wait(100) }
+    expect(title.includes(target.title), `Ask citation [1]: the page window shows "${title}" ("${target.title}" expected)`)
+    submitAnswer = added
+  }
+
   // 1 one primary button per view
   const onePrimary = async (view) => { const p = await list(PRIMARIES); expect(p.length <= 1, `${view}: ${p.length} primary buttons (${p.join(', ')})`) }
   await go('/graph-demo.html?pages=100', '.kg-dot'); await openDot(); await onePrimary('page window')
@@ -374,7 +441,7 @@ async function main() {
   await click('List'); await wait(400); await touch('List')
   await go('/graph-demo.html?pages=100', '.kg-dot'); await openDot(); await touch('page window')
 
-  if (checks < 36) problems.push(`only ${checks} checks ran: the script did not reach every view`)
+  if (checks < 45) problems.push(`only ${checks} checks ran: the script did not reach every view`)
   if (problems.length) { console.error('Design rules broken:\n' + problems.join('\n')); process.exitCode = 1 }
   else console.log(`OK: ${checks} rendered design checks (one primary per view, no page scroll on the graph, Add box on the first screen, 44px touch targets, no dot under a topic name, section rows open their pages).`)
 }

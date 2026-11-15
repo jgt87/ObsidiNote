@@ -1,4 +1,20 @@
+import { webUrl } from '../model/links'
 import type { AskParagraph, AskPath, AskResult, AskSource, AskStep } from './types'
+
+/**
+ * Where a citation [n] leads (operator, 2026-11-15: open the page or the direct link, whichever is
+ * most relevant): a link page's own http(s) address; else a page of the active vault in its page
+ * window (when the window can open one); else the page in OneNote; else the source in the list.
+ */
+export type CiteTarget = { kind: 'url' | 'onenote'; href: string } | { kind: 'page' } | { kind: 'list' }
+export function citeTarget(source: Pick<AskSource, 'url' | 'link' | 'readOnly'> | undefined, canOpenPage: boolean): CiteTarget {
+  if (!source) return { kind: 'list' }
+  const url = webUrl(source.url)
+  if (url) return { kind: 'url', href: url }
+  if (!source.readOnly && canOpenPage) return { kind: 'page' }
+  if (/^onenote:/i.test(source.link ?? '')) return { kind: 'onenote', href: source.link }
+  return { kind: 'list' }
+}
 
 /** Windows PowerShell can hand a one-item or empty list over as an object or null. */
 export function list<T>(value: T[] | T | null | undefined): T[] {

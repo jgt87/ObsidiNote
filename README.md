@@ -64,7 +64,7 @@ Next starts continue in that vault. To use a vault made on another PC, open its 
 ### Add something, or ask
 ![Home: one box with Auto, Add and Ask; the box says it will ask, and why](docs/screenshots/home.png)
 
-One box does both. In **Auto** it says before you send whether it will add or ask, and why; switch to **Add** or **Ask** yourself any time (`Ctrl+1`, `Ctrl+2`). `Enter` sends, `Shift+Enter` adds a line.
+One box does both. In **Auto** it says before you send whether it will add or ask, and why; switch to **Add** or **Ask** yourself any time (`Ctrl+1`, `Ctrl+2`). `Enter` sends, `Shift+Enter` adds a line. The paperclip next to the mode switch adds a file.
 
 ### Add
 ![Add result: where the page was filed, its type and topics, and the links to related pages with their strength and reason](docs/screenshots/add.png)
@@ -78,7 +78,7 @@ One box does both. In **Auto** it says before you send whether it will add or as
 ### Ask
 ![Ask: the answer with numbered citations, its actions, and the pages it came from with their share of the answer](docs/screenshots/ask.png)
 
-- The question walks your index (topics, then pages, then their text) and every sentence of the answer cites your own pages. Each source opens in OneNote.
+- The question walks your index (topics, then pages, then their text) and every sentence of the answer cites your own pages. A citation number opens that page's window (a link page opens its own address); each source also opens in OneNote.
 - **Ask a follow-up**, **Save answer as a page**, or **Show on map** to see the sources in the graph.
 - Ask can also read other vaults and notebooks you have open, read only. Asking never changes your notebook.
 

@@ -9,7 +9,9 @@
 .ask-label { margin: 0 0 var(--space-3); font-size: var(--text-meta); font-weight: 600; color: var(--muted); }
 .ask-muted { color: var(--muted); font-size: var(--text-meta); }
 /* The answer is what the person came for: the largest running text on the screen, at a readable measure. */
-.ask-paragraph { margin: 0 0 var(--space-3); font-size: var(--text-title); line-height: 1.5; max-width: 72ch; }
+/* design (operator, 2026-11-15: "Answer doesn't use the full width"): the answer fills its card, like
+   the sources under it; no 72ch reading measure here, a deliberate exception to the shared prose rule. */
+.ask-paragraph { margin: 0 0 var(--space-3); font-size: var(--text-title); line-height: 1.5; }
 .ask-answer__meta { margin: var(--space-3) 0 0; }
 
 .ask-path__steps { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-5); align-items: center; margin: var(--space-4) 0 0; padding: 0; list-style: none; }

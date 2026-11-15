@@ -129,13 +129,14 @@ function answer(path) {
       recent: [
         ['Identity-aware proxies', 'concept', 'Notes'], ['Steering group, 12 February', 'meeting', 'Meetings'], ['Partner portal', 'project', 'Projects'],
         ['Beyond the perimeter', 'link-web', 'Web links'], ['Decision log template', 'concept', 'Notes'], ['Split tunnelling', 'decision', 'Decisions'],
-      ].map(([t, type, sec], i) => ({ title: t, section: sec, modified: ago(50 * (i + 1) + i * i * 40), link: 'onenote:x', pageId: graph.pages.find((x) => x.title === t)?.id ?? '', type })) }
+      ].map(([t, type, sec], i) => ({ title: t, section: sec, modified: ago(50 * (i + 1) + i * i * 40), link: 'onenote:x', pageId: graph.pages.find((x) => x.title === t)?.id ?? graph.pages[i].id, type })) }
     case '/api/settings': return { settings: { internalHosts: [], graphView: 'topics', labelsHubsOnly: false, relatedCount: 3, linkStaleDays: 90, askIncludeArchived: false, graphShowArchived: false, askMaxPages: 20 }, canChange: true, message: '' }
     case '/api/whats-new': return { version: 'v0.9.1', updated: false, notes: [] }
     case '/api/activity': return { canChange: true, vaultId: 'v1', items: [] }
     case '/api/graph': return graph
     case '/api/intent': return { intent: 'ask', reason: 'it reads as a question (starts with "What", ends with "?")', rule: 1 }
-    case '/api/submit': return submitAnswer
+    // The answer's sources carry the ids of the map's pages, as the server's do (a citation opens one).
+    case '/api/submit': return submitAnswer?.intent === 'ask' ? { ...submitAnswer, sources: submitAnswer.sources.map((s) => ({ ...s, id: graph.pages.find((p) => p.title === s.title)?.id ?? s.id })) } : submitAnswer
     case '/api/page/body': {
       const portal = graph.pages.find((p) => p.title === 'Partner portal')
       return { id: 'x', markdown: BODY.replace('PARTNER', portal ? portal.id : 'none'), truncated: false, length: BODY.length }

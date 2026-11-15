@@ -86,11 +86,10 @@ export const ChevronIcon = () => (
   </Icon>
 )
 
-/** A file: a page with a folded corner (Add a file). */
-export const FileIcon = () => (
+/** A paperclip (Add a file, beside Send; operator, 2026-11-15). */
+export const PaperclipIcon = () => (
   <Icon>
-    <path d="M4 2.5h5l3 3v8H4z" />
-    <path d="M9 2.5v3h3" />
+    <path d="M13.2 7.4 8 12.6a3.2 3.2 0 0 1-4.5-4.5l5.4-5.4a2.1 2.1 0 0 1 3 3L6.5 11a1.05 1.05 0 0 1-1.5-1.5l4.8-4.8" />
   </Icon>
 )
 

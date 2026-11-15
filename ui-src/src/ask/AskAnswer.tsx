@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react'
 import { splitLinks, webUrl } from '../model/links'
-import { answerShares, combinedLine, confidenceLabel, pathChips, sentencesPerSource, sharePercent, sourceAnchor, sourceOrigin } from './askModel'
+import { answerShares, citeTarget, combinedLine, confidenceLabel, pathChips, sentencesPerSource, sharePercent, sourceAnchor, sourceOrigin } from './askModel'
 import type { AskResult, AskSource } from './types'
 import './Ask.css'
 
@@ -10,6 +10,8 @@ export interface AskAnswerActions {
   onShowOnMap: () => void
   /** One source page of the active vault on the map (pages that are not links). */
   onShowPage?: (pageId: string) => void
+  /** Opens a source page of the active vault in its page window (a citation [n] pressed). */
+  onOpenPage?: (pageId: string) => void
   /** Offered for a cited link summary older than 90 days (Update belongs to the Add flow). */
   onUpdateLink?: (pageId: string) => void
 }
@@ -83,14 +85,25 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
                 {s.unsupported && <span className="visually-hidden"> (no source)</span>}
                 {s.cites.map((n) => {
                   const src = byNumber.get(n)
-                  const url = webUrl(src?.url)
-                  // A cited link page opens its own address; any other source jumps to the list below.
-                  return url ? (
-                    <a key={n} className="ask-cite" href={url} target="_blank" rel="noopener noreferrer" title={url} aria-label={`Source ${n}: ${src?.title ?? ''}, opens the link`}>
-                      {n}
-                    </a>
-                  ) : (
-                    <a key={n} className="ask-cite" href={`#${anchor(n)}`} aria-label={`Source ${n}: ${src?.title ?? ''}`}>
+                  const go = citeTarget(src, Boolean(actions.onOpenPage))
+                  const name = `Source ${n}: ${src?.title ?? ''}`
+                  // design (operator, 2026-11-15: "a reference like [1] being clicked should open that topic
+                  // card or direct link, whichever is most relevant"): a link page opens its own address,
+                  // a page of the active vault its page window, a page of another notebook OneNote.
+                  if (go.kind === 'url' || go.kind === 'onenote')
+                    return (
+                      <a key={n} className="ask-cite" href={go.href} target={go.kind === 'url' ? '_blank' : undefined} rel={go.kind === 'url' ? 'noopener noreferrer' : undefined} title={go.kind === 'url' ? go.href : 'Open in OneNote'} aria-label={`${name}, ${go.kind === 'url' ? 'opens the link' : 'opens in OneNote'}`}>
+                        {n}
+                      </a>
+                    )
+                  if (go.kind === 'page' && src)
+                    return (
+                      <button key={n} type="button" className="ask-cite" title={`Open ${src.title}`} aria-label={`${name}, opens the page`} onClick={() => actions.onOpenPage?.(src.id)}>
+                        {n}
+                      </button>
+                    )
+                  return (
+                    <a key={n} className="ask-cite" href={`#${anchor(n)}`} aria-label={name}>
                       {n}
                     </a>
                   )

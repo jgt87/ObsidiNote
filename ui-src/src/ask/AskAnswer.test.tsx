@@ -52,6 +52,17 @@ const answered: AskResult = {
   notFound: null,
 }
 
+describe('AskView: a citation opens the page', () => {
+  it('opens a page of the vault in its page window, a link page its own address', () => {
+    const opened: string[] = []
+    const withUrl: AskResult = { ...answered, sources: answered.sources.map((s) => (s.n === 2 ? { ...s, url: 'https://example.com/guide' } : s)) }
+    const html = renderToStaticMarkup(<AskView state={{ kind: 'result', result: withUrl }} {...actions} onOpenPage={(id) => opened.push(id)} />)
+    expect(html).toMatch(/<button type="button" class="ask-cite"[^>]*aria-label="Source 1: Example proxy page, opens the page"/)
+    expect(html).toContain('href="https://example.com/guide"')
+    expect(html).not.toContain('href="#ask-c1-1-src-1"')
+  })
+})
+
 describe('AskView', () => {
   it('renders the path, the answer with citation chips, the sources and the actions', () => {
     const html = renderToStaticMarkup(<AskView state={{ kind: 'result', result: answered }} {...actions} />)
@@ -61,7 +72,8 @@ describe('AskView', () => {
     expect(html.indexOf('Ask a follow-up')).toBeLessThan(html.indexOf('aria-label="Sources"'))
     expect(html.indexOf('aria-label="Sources"')).toBeLessThan(html.indexOf('How it was found'))
     expect(html).toContain('Copilot picked 1 of 6 top-level branches')
-    expect(html).toContain('href="#ask-c1-1-src-1"')
+    // Without a page window to open, a cited page of the vault opens in OneNote (citeTarget).
+    expect(html).toContain('aria-label="Source 1: Example proxy page, opens in OneNote"')
     expect(html).toContain('id="ask-c1-1-src-1"')
     expect(html).toContain('href="onenote:#example"')
     expect(html).toContain('Summary is 120 days old. Update it?')

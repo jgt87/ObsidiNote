@@ -9,23 +9,16 @@
 }
 .composer:focus-within { border-color: var(--border-strong); }
 
-/* Mode switch at the left with the shortcut help right next to it, one row of controls for the box
-   (operator, 2026-11-14: it floated in the middle with the help far right); "Add a file" at the end. */
-.composer__top {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-}
+/* Every control in one row under the text (operator, 2026-11-15): the mode switch, the shortcut
+   help and the paperclip at the left, Send at the right. */
 .composer__help { position: relative; }
-.composer__file-btn { margin-left: auto; display: inline-flex; align-items: center; gap: var(--space-2); }
-.composer__help-btn { color: var(--muted); }
-@media (hover: hover) { .composer__help-btn:hover { color: var(--ink); } }
+.composer__help-btn, .composer__file-btn { color: var(--muted); }
+@media (hover: hover) { .composer__help-btn:hover, .composer__file-btn:hover:not(:disabled) { color: var(--ink); } }
 
 /* Shortcut card: shown on hover or keyboard focus of the (i) button, never catching the pointer. */
 .composer__keys {
   position: absolute;
-  top: calc(100% + var(--space-2));
+  bottom: calc(100% + var(--space-2)); /* opens upward: the row is the box's last line */
   left: 0;
   display: grid;
   grid-template-columns: auto auto;
@@ -70,26 +63,34 @@ kbd {
 
 /* The segmented control (.seg) lives in src/styles/tokens.css: the map uses it too. */
 
+/* design (operator, 2026-11-15: "make the typing area bigger, and make the text input field a more
+   distinct own area"): the text has its own well inside the card, a sunken fill with an edge, so it
+   reads as the place to type and the controls under it as controls. It starts at four lines and
+   grows with its text (Composer sets the height) up to about twelve, then scrolls (was 2 to 6 lines,
+   operator 2026-11-14; always six, user 2026-11-13: "make it higher"). */
 .composer__text {
   width: 100%;
   box-sizing: border-box;
-  /* Starts at 2 lines and grows with its text (Composer sets the height) up to about six lines,
-     then scrolls (operator, 2026-11-14; was always six lines, user 2026-11-13: "make it higher"). */
-  min-height: 3em;
-  max-height: 9em;
+  min-height: calc(6em + 2 * var(--space-4) + 2px);
+  max-height: calc(18em + 2 * var(--space-4) + 2px);
   overflow-y: auto;
-  padding: 0;
-  border: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border-strong); /* 3:1 at rest, like every field (rules/ui.md); --border was 1.5:1 */
+  border-radius: var(--radius);
   resize: none;
-  background: transparent;
+  background: var(--sunken);
   color: var(--ink);
   font: inherit;
   font-size: var(--text-title);
   line-height: 1.5;
+  transition: background-color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out;
 }
+/* Typing: the well turns to the card's own fill (no ring, see below). */
+.composer__text:focus { background: var(--surface); }
 /* design: no focus ring around the box or the text (user, 2026-11-13: "do not show the outline on the
-   textbox whenever it is selected"). Focus shows as the card's darker border (:focus-within above)
-   and the caret; the box is the page's one input and gets focus on load. */
+   textbox whenever it is selected"). Focus shows as the well's fill and stronger edge (above), the
+   card's darker border (:focus-within) and the caret; the box is the page's one input and gets
+   focus on load. */
 .composer__text:focus-visible { outline: none; }
 .composer__text::placeholder { color: var(--muted); }
 
@@ -97,18 +98,17 @@ kbd {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-2);
   padding-top: var(--space-4);
   border-top: 1px solid var(--border);
 }
-.composer__intent { display: flex; align-items: flex-start; gap: var(--space-3); flex: 1 1 320px; min-width: 0; margin: 0; font-size: var(--text-body); }
+.composer__intent { display: flex; align-items: flex-start; gap: var(--space-3); min-width: 0; margin: 0; font-size: var(--text-body); }
 .composer__intent .icon { flex: none; margin-top: 2px; color: var(--muted); }
 /* Copilot off or ObsidiNote gone: the line carries the warning (icon + words, ink). */
 .composer__intent[data-block] .icon { color: var(--ink); }
 .composer__intent[data-block] .btn { margin-left: var(--space-2); vertical-align: baseline; }
 .composer__block { flex: none; }
-.composer__send { min-width: 88px; }
+.composer__send { min-width: 88px; margin-left: auto; }
 /* A file over the box: the card says it takes it (an accent edge and one line), nothing moves. */
 .composer[data-dragging] { border-color: var(--accent); background: var(--accent-soft); }
 .composer__drop { margin: 0; font-size: var(--text-body); font-weight: 600; color: var(--accent); }

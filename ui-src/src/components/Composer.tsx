@@ -11,7 +11,7 @@ import { intentLine, primaryLabel } from '../model/intentWording'
 import { isSendKey, modeForKey } from '../model/keys'
 import type { SendBlock } from '../model/attention'
 import type { AddTarget } from '../model/notebooks'
-import { AddIcon, AskIcon, FileIcon, InfoIcon, WarnIcon } from './icons'
+import { AddIcon, AskIcon, InfoIcon, PaperclipIcon, WarnIcon } from './icons'
 import { ModeSwitch } from './ModeSwitch'
 import './Composer.css'
 
@@ -148,13 +148,13 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
     }
   }, [clearKey])
 
-  // The box starts small (2 lines) and grows with its text up to about six lines, then scrolls
-  // (operator, 2026-11-14), so the result and the lists under it stay in view.
+  // The box starts at four lines and grows with its text up to about twelve, then scrolls (operator,
+  // 2026-11-15: "make the typing area bigger"; CSS min/max-height). Its edge counts in its height.
   useEffect(() => {
     const el = area.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`
   }, [text])
 
   // A file dropped on the box, or picked with "Add a file": its text is read here, in memory
@@ -281,39 +281,6 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
         }
       }}
     >
-      {/* Left-aligned, the help next to it: one row of controls for the box (operator, 2026-11-14). */}
-      <div className="composer__top">
-        <ModeSwitch mode={mode} onChange={(m) => { setMode(m); area.current?.focus() }} />
-        <div className="composer__help">
-          <button type="button" className="btn btn--icon btn--ghost composer__help-btn" aria-label="Keyboard shortcuts" aria-describedby="composer-keys">
-            <InfoIcon />
-          </button>
-          <div id="composer-keys" role="tooltip" className="composer__keys">
-            <span><kbd>Ctrl</kbd> <kbd>1</kbd></span><span>Add</span>
-            <span><kbd>Ctrl</kbd> <kbd>2</kbd></span><span>Ask</span>
-            <span><kbd>Enter</kbd></span><span>Send</span>
-            <span><kbd>Shift</kbd> <kbd>Enter</kbd></span><span>New line</span>
-            <span><kbd>Ctrl</kbd> <kbd>K</kbd></span><span>Find a page or topic</span>
-          </div>
-        </div>
-        {/* The drop's keyboard and touch path: the same reading, from a file picker. */}
-        <button type="button" className="btn btn--sm btn--ghost composer__file-btn" onClick={() => picker.current?.click()} disabled={busy}>
-          <FileIcon />
-          Add a file
-        </button>
-        <input
-          ref={picker}
-          type="file"
-          className="visually-hidden"
-          tabIndex={-1}
-          aria-hidden="true"
-          accept=".docx,.docm,.pptx,.xlsx,.xlsm,.pdf,.msg,.eml,.txt,.md,.csv,.tsv,.json,.log,.html,.htm"
-          onChange={(e) => {
-            void takeFile(e.target.files?.[0])
-            e.target.value = ''
-          }}
-        />
-      </div>
       {dragging && (
         <p className="composer__drop" aria-hidden="true">
           Drop the file to put its text in the box
@@ -326,7 +293,7 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
         id="composer-text"
         ref={area}
         className="composer__text"
-        rows={2}
+        rows={4}
         value={text}
         placeholder="Paste a link or text, drop a file, or ask a question"
         onChange={(e) => setText(e.target.value)}
@@ -374,8 +341,7 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
           </span>
         </p>
       )}
-      <div className="composer__bottom">
-        <p className="composer__intent" role="status">
+      <p className="composer__intent" role="status">
           <LineIcon />
           <span>
             {error ? (
@@ -396,6 +362,39 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
             )}
           </span>
         </p>
+      {/* design (operator, 2026-11-15: "move the auto/add/ask buttons into the bottom part as well, so all
+          buttons are in the same row ... and then the paperclip button next to those buttons"): every
+          control of the box in one row under the text, what the text will do on its own line above. */}
+      <div className="composer__bottom">
+        <ModeSwitch mode={mode} onChange={(m) => { setMode(m); area.current?.focus() }} />
+        <div className="composer__help">
+          <button type="button" className="btn btn--icon btn--ghost composer__help-btn" aria-label="Keyboard shortcuts" aria-describedby="composer-keys">
+            <InfoIcon />
+          </button>
+          <div id="composer-keys" role="tooltip" className="composer__keys">
+            <span><kbd>Ctrl</kbd> <kbd>1</kbd></span><span>Add</span>
+            <span><kbd>Ctrl</kbd> <kbd>2</kbd></span><span>Ask</span>
+            <span><kbd>Enter</kbd></span><span>Send</span>
+            <span><kbd>Shift</kbd> <kbd>Enter</kbd></span><span>New line</span>
+            <span><kbd>Ctrl</kbd> <kbd>K</kbd></span><span>Find a page or topic</span>
+          </div>
+        </div>
+        {/* The drop's keyboard and touch path: the same reading, from a file picker. */}
+        <button type="button" className="btn btn--icon btn--ghost composer__file-btn" onClick={() => picker.current?.click()} disabled={busy} aria-label="Add a file" title="Add a file: Word, PowerPoint, Excel, PDF, Outlook mail, text or a web page">
+          <PaperclipIcon />
+        </button>
+        <input
+          ref={picker}
+          type="file"
+          className="visually-hidden"
+          tabIndex={-1}
+          aria-hidden="true"
+          accept=".docx,.docm,.pptx,.xlsx,.xlsm,.pdf,.msg,.eml,.txt,.md,.csv,.tsv,.json,.log,.html,.htm"
+          onChange={(e) => {
+            void takeFile(e.target.files?.[0])
+            e.target.value = ''
+          }}
+        />
         <button type="button" className="btn btn--primary composer__send" onClick={send} disabled={empty || busy || Boolean(block?.disableSend)} aria-busy={busy}>
           {busy ? 'Working…' : primaryLabel(result)}
         </button>
