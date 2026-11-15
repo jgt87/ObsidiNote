@@ -5,6 +5,8 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.9.0] - 2026-11-15
+
 ### Added
 - Validation kit, stage V5: probe P10 checks whether Copilot can list your recent Teams meetings and turn one with a transcript, recap or notes into structured meeting notes (attendees, decisions, actions with owner and due date). Read only; the log holds counts only. It decides whether ObsidiNote gets an "Add a meeting" step (runbook RB-04). Double-click **Run Meeting Probe.cmd** in the `validation` folder to run only this probe (`-Probe P10`).
 - **Tags**, set by hand, to group pages that nothing else relates. Add or remove them in the page window, or tick several rows in the List and tag them together; existing tags are offered while you type. The map's Topics/Sources switch has a third choice, **Tags**: one area per tag, holding only the tagged pages, with a chip per tag to choose which tags are shown. In the Topics and Sources views, pick a tag above the map and its pages light up wherever they are, joined into one group by thin dashed lines; `tag:name` works in the search and in Ctrl+K, and the Filter panel has a Tag group. Rename a tag, merge two, or take one off every page under Settings. Copilot never sets or changes tags. Up to 12 per page; they are kept on the page in OneNote and in the index and go into the Markdown export. Existing pages need no change (a page without tags has none, so there is no upgrade step).
