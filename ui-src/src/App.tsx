@@ -192,6 +192,7 @@ export function App() {
             setGraphReload((n) => n + 1)
           }}
           onTagsChanged={() => setGraphReload((n) => n + 1)}
+          version={status?.version ?? ''}
         />
       )}
       {newVaultOpen && (

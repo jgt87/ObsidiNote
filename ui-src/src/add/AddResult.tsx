@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { Notice } from '../components/Notice'
 import { webUrl } from '../model/links'
+import { addResultView, type AddResultView } from './addResultView'
 import { ConfirmReplaceDialog, type ReplaceDecision } from './ConfirmReplaceDialog'
 import { chipLabel, formatOneNotePath, formatSeconds, formatTopicPath, placementParts, resultHeading } from './format'
 import { LinksCard } from './LinksCard'
 import { LinkUpdateView } from './LinkUpdateView'
-import type { AddResult as AddResultData } from './types'
+import type { AddResult as AddResultData, PageRef, PlacedPage } from './types'
 import { WaitingCard } from './WaitingCard'
 import { isWaitingStatus } from './waiting'
 import './AddResult.css'
@@ -36,31 +37,141 @@ function CheckIcon() {
   )
 }
 
+function RelatedPages({ pages }: { pages: PageRef[] }) {
+  return (
+    <>
+      {pages.map((p, i) => (
+        <span key={p.id}>
+          {i > 0 && ', '}
+          {p.link ? <a className="add-a" href={p.link}>{p.title}</a> : p.title}
+        </span>
+      ))}
+    </>
+  )
+}
+
+/** The row under the heading. Undo sends the page to OneNote's Deleted Pages: it asks first, as in
+ *  History (AGENTS.md: delete always asks). */
+function AddActionRow({ view, busy, a }: { view: AddResultView; busy: boolean; a: AddResultActions }) {
+  const [askUndo, setAskUndo] = useState(false)
+  if (askUndo) {
+    return (
+      <div className="add-actions">
+        <span className="add-text">Undo this page? It goes to OneNote's Deleted Pages.</span>
+        <button type="button" className="btn" onClick={() => setAskUndo(false)} disabled={busy}>
+          Keep
+        </button>
+        <button type="button" className="btn btn--danger" onClick={a.onUndo} disabled={busy}>
+          Undo
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="add-actions">
+      <button type="button" className="btn" onClick={a.onDone} disabled={busy}>
+        Done
+      </button>
+      {view.editPlacement && a.onEditLinks && (
+        <button type="button" className="btn" onClick={a.onEditLinks} disabled={busy}>
+          Edit links
+        </button>
+      )}
+      {view.editPlacement && a.onMoveInIndex && (
+        <button type="button" className="btn" onClick={a.onMoveInIndex} disabled={busy}>
+          Move in index
+        </button>
+      )}
+      {view.updateLink && a.onUpdateLink && (
+        <button type="button" className="btn" onClick={a.onUpdateLink} disabled={busy}>
+          Update
+        </button>
+      )}
+      {view.undo && a.onUndo && (
+        <button type="button" className="btn" onClick={() => setAskUndo(true)} disabled={busy}>
+          Undo
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Where the page was filed: its topic path, its OneNote place and its chips. */
+function PlacedGroup({ page, chips }: { page: PlacedPage; chips: AddResultData['chips'] }) {
+  return (
+    <div aria-labelledby="add-placed-heading" role="group">
+      <h2 id="add-placed-heading" className="add-label">
+        {page.unfiled ? 'Filed under Unfiled, until it gets a topic' : 'Filed under'}
+      </h2>
+      <div className="add-path">
+        {placementParts(page).map((part, i, all) =>
+          i === all.length - 1 ? (
+            <b key={i}>{part}</b>
+          ) : (
+            <span key={i}>
+              {part}
+              <span className="add-path__sep"> / </span>
+            </span>
+          ),
+        )}
+      </div>
+      <div className="add-muted add-path__where">
+        OneNote:{' '}
+        {page.link ? (
+          <a className="add-a" href={page.link} title="Open in OneNote">
+            {formatOneNotePath(page)}
+          </a>
+        ) : (
+          formatOneNotePath(page)
+        )}
+        {page.alsoUnder.length > 0 && <> · also under {page.alsoUnder.map(formatTopicPath).join(', ')}</>}
+      </div>
+      {chips.length > 0 && (
+        <ul className="add-chips" aria-label="Type, aliases and topics">
+          {chips.map((c, i) => (
+            <li key={`${c.kind}:${c.label}:${i}`} className={c.kind === 'new-topic' ? 'add-chip add-chip--new' : 'add-chip'}>
+              {chipLabel(c)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/** What the person added: the text, or the link (opened in the browser) with its new summary. */
+function AddedText({ r, linkSummary }: { r: AddResultData; linkSummary: boolean }) {
+  const url = r.kind === 'link' ? webUrl(r.text) : ''
+  return (
+    <div>
+      <p className="add-label">{r.kind === 'link' ? 'The link' : 'What you added'}</p>
+      {url ? (
+        <p className="add-text add-text--pre">
+          <a className="add-a" href={url} target="_blank" rel="noopener noreferrer">
+            {r.text.trim()}
+          </a>
+        </p>
+      ) : (
+        <p className="add-text add-text--pre">{r.text}</p>
+      )}
+      {linkSummary && <p className="add-text add-summary">{r.update?.new?.summary}</p>}
+    </div>
+  )
+}
+
 /** The Add result screen (mock-up AddResult): where the item was placed in the central index,
  *  its chips, its links with strength, anchor and why, related pages, and the actions. Also shows
- *  the link update (old vs new), its confirmation, failures and "ask instead". */
+ *  the link update (old vs new), its confirmation, failures and "ask instead". Which part shows
+ *  when is decided in addResultView.ts. */
 export function AddResult({ result, busy = false, ...a }: { result: AddResultData; busy?: boolean } & AddResultActions) {
   const r = result
-  const title = r.page?.title ?? ''
-  const heading = resultHeading(r.status, title)
-  const isUpdate = r.status === 'updated' || r.status === 'unchanged' || r.status === 'kept' || r.status === 'could-not-update' || r.status === 'needs-confirmation'
-  const written = r.status === 'added' || r.status === 'updated' || r.status === 'unchanged' || r.status === 'kept'
-  const waiting = isWaitingStatus(r.status)
-  // Undo sends the page to OneNote's Deleted Pages: it asks first, as in History (AGENTS.md: delete always asks).
-  const [askUndo, setAskUndo] = useState(false)
-  const relatedPages = r.related.map((p, i) => (
-    <span key={p.id}>
-      {i > 0 && ', '}
-      {p.link ? <a className="add-a" href={p.link}>{p.title}</a> : p.title}
-    </span>
-  ))
-  const related = r.related.length > 0 && r.status !== 'failed' ? <p className="add-text add-related">Related pages you already had: {relatedPages}</p> : null
+  const v = addResultView(r)
 
   return (
     <div className="add-result">
       <div className="add-result__top">
-        <h1 className="add-result__title">{heading}</h1>
-        {written && (
+        <h1 className="add-result__title">{resultHeading(r.status, r.page?.title ?? '')}</h1>
+        {v.written && (
           <div role="status" className="add-muted add-result__status">
             <CheckIcon />
             Written to OneNote · {formatSeconds(r.timings.totalMs)}
@@ -71,61 +182,23 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
       {/* design (review 2026-11-14): the actions sit right under the heading, so "glance, accept,
           leave" needs no scroll. None is primary: the box's Send above is the view's one primary
           button (code review 2026-11-15: Send and Done were both). */}
-      {r.status !== 'ask-instead' && !waiting && (
-        <div className="add-actions">
-          {askUndo ? (
-            <>
-              <span className="add-text">Undo this page? It goes to OneNote's Deleted Pages.</span>
-              <button type="button" className="btn" onClick={() => setAskUndo(false)} disabled={busy}>
-                Keep
-              </button>
-              <button type="button" className="btn btn--danger" onClick={a.onUndo} disabled={busy}>
-                Undo
-              </button>
-            </>
-          ) : (
-            <>
-              <button type="button" className="btn" onClick={a.onDone} disabled={busy}>
-                Done
-              </button>
-              {r.status === 'added' && a.onEditLinks && (
-                <button type="button" className="btn" onClick={a.onEditLinks} disabled={busy}>
-                  Edit links
-                </button>
-              )}
-              {r.status === 'added' && a.onMoveInIndex && (
-                <button type="button" className="btn" onClick={a.onMoveInIndex} disabled={busy}>
-                  Move in index
-                </button>
-              )}
-              {r.kind === 'link' && r.page && r.status !== 'needs-confirmation' && a.onUpdateLink && (
-                <button type="button" className="btn" onClick={a.onUpdateLink} disabled={busy}>
-                  Update
-                </button>
-              )}
-              {r.status === 'added' && r.undo && a.onUndo && (
-                <button type="button" className="btn" onClick={() => setAskUndo(true)} disabled={busy}>
-                  Undo
-                </button>
-              )}
-            </>
-          )}
-        </div>
-      )}
+      {v.actions && <AddActionRow view={v} busy={busy} a={a} />}
 
-      {r.status === 'failed' && (
+      {v.failed && (
         <Notice error title="Not added">
           <p>{r.message}</p>
           {r.inbox?.status === 'failed' && <p className="add-muted">The item is kept in your Intake with this reason, so nothing is lost.</p>}
-          {r.related.length > 0 && <p>Already there: {relatedPages}</p>}
+          {r.related.length > 0 && (
+            <p>
+              Already there: <RelatedPages pages={r.related} />
+            </p>
+          )}
         </Notice>
       )}
 
-      {isWaitingStatus(r.status) && (
-        <WaitingCard status={r.status} message={r.message} busy={busy} onCheck={r.inboxId ? a.onCheckAnswer : undefined} onDone={a.onDone} />
-      )}
+      {isWaitingStatus(r.status) && <WaitingCard status={r.status} message={r.message} busy={busy} onCheck={r.inboxId ? a.onCheckAnswer : undefined} onDone={a.onDone} />}
 
-      {r.status === 'ask-instead' && (
+      {v.askInstead && (
         <section className="add-card add-actions">
           <p className="add-text add-actions__text">{r.message}</p>
           {a.onAddAnyway && (
@@ -141,77 +214,27 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
         </section>
       )}
 
-      {(r.text && r.status !== 'ask-instead') || (r.page && r.status !== 'failed') ? (
+      {(v.text || v.placed) && (
         <section className="add-card add-card--parts">
-      {r.page && r.status !== 'failed' && (
-        <div aria-labelledby="add-placed-heading" role="group">
-          <h2 id="add-placed-heading" className="add-label">
-            {r.page.unfiled ? 'Filed under Unfiled, until it gets a topic' : 'Filed under'}
-          </h2>
-          <div className="add-path">
-            {placementParts(r.page).map((part, i, all) =>
-              i === all.length - 1 ? (
-                <b key={i}>{part}</b>
-              ) : (
-                <span key={i}>
-                  {part}
-                  <span className="add-path__sep"> / </span>
-                </span>
-              ),
-            )}
-          </div>
-          <div className="add-muted add-path__where">
-            OneNote:{' '}
-            {r.page.link ? (
-              <a className="add-a" href={r.page.link} title="Open in OneNote">
-                {formatOneNotePath(r.page)}
-              </a>
-            ) : (
-              formatOneNotePath(r.page)
-            )}
-            {r.page.alsoUnder.length > 0 && <> · also under {r.page.alsoUnder.map(formatTopicPath).join(', ')}</>}
-          </div>
-          {r.chips.length > 0 && (
-            <ul className="add-chips" aria-label="Type, aliases and topics">
-              {r.chips.map((c, i) => (
-                <li key={`${c.kind}:${c.label}:${i}`} className={c.kind === 'new-topic' ? 'add-chip add-chip--new' : 'add-chip'}>
-                  {chipLabel(c)}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-      {r.text && r.status !== 'ask-instead' && (
-        <div>
-          <p className="add-label">{r.kind === 'link' ? 'The link' : 'What you added'}</p>
-          {r.kind === 'link' && webUrl(r.text) ? (
-            <p className="add-text add-text--pre">
-              <a className="add-a" href={webUrl(r.text)} target="_blank" rel="noopener noreferrer">
-                {r.text.trim()}
-              </a>
-            </p>
-          ) : (
-            <p className="add-text add-text--pre">{r.text}</p>
-          )}
-          {r.kind === 'link' && r.update?.new && r.status === 'added' && <p className="add-text add-summary">{r.update.new.summary}</p>}
-        </div>
-      )}
+          {v.placed && r.page && <PlacedGroup page={r.page} chips={r.chips} />}
+          {v.text && <AddedText r={r} linkSummary={v.linkSummary} />}
         </section>
-      ) : null}
+      )}
 
-      {isUpdate && r.update && <LinkUpdateView update={r.update} status={r.status} />}
-      {r.status === 'could-not-update' && (
+      {v.update && r.update && <LinkUpdateView update={r.update} status={r.status} />}
+      {v.couldNotUpdate && (
         <section className="add-card" role="status">
           <p className="add-text">{r.message}</p>
         </section>
       )}
 
-      {(r.status === 'added' || (r.status === 'updated' && r.links.length > 0)) && (
-        <LinksCard links={r.links} backlinks={r.backlinks} title={r.status === 'updated' ? 'New links' : 'Links'} />
-      )}
+      {v.links && <LinksCard links={r.links} backlinks={r.backlinks} title={v.linksTitle} />}
 
-      {related}
+      {v.related && (
+        <p className="add-text add-related">
+          Related pages you already had: <RelatedPages pages={r.related} />
+        </p>
+      )}
 
       {r.warnings.length > 0 && (
         <ul className="add-warnings" aria-label="Notes">
@@ -223,7 +246,7 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
         </ul>
       )}
 
-      {r.status === 'needs-confirmation' && r.confirm && a.onDecide && (
+      {v.confirm && r.confirm && a.onDecide && (
         <ConfirmReplaceDialog request={r.confirm} open busy={busy} onDecide={a.onDecide} onCancel={a.onCancelDecision ?? a.onDone} />
       )}
     </div>

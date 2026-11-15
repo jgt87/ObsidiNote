@@ -59,12 +59,26 @@ export function formFor(index: GraphIndex, page: GraphPage): EditForm {
   }
 }
 
-/** The types the page may take: those of its own section (a type in another section would move it). */
+/**
+ * The types the page may take. A type of another section moves the page there when saved (the
+ * server's Edit-Page, operator 2026-11-15); a link page's type follows its address, so it keeps its
+ * own; an archived page stays in the Archive until Restore, so it keeps its section's types.
+ */
 export function typeChoices(model: GraphModel, page: GraphPage): string[] {
   const types = model.types ?? []
-  const bucket = types.find((t) => t.type === page.kind)?.bucket
-  if (!bucket) return page.kind ? [page.kind] : []
-  return types.filter((t) => t.bucket === bucket).map((t) => t.type)
+  const own = types.find((t) => t.type === page.kind)
+  if (!own) return page.kind ? [page.kind] : []
+  if (page.kind.startsWith('link-')) return [page.kind]
+  if (page.archived) return types.filter((t) => t.bucket === own.bucket).map((t) => t.type)
+  return types.filter((t) => !t.type.startsWith('link-')).map((t) => t.type)
+}
+
+/** The line under the type when the chosen one lives in another section: where saving moves it. */
+export function moveNote(model: GraphModel, page: GraphPage, type: string): string {
+  const types = model.types ?? []
+  const from = types.find((t) => t.type === page.kind)?.bucket
+  const to = types.find((t) => t.type === type)?.bucket
+  return from && to && from !== to ? `Saving moves the page to ${to}. Its links and your notes stay.` : ''
 }
 
 /** Pages a new link can point to: the source's other pages that are not linked yet, by title. */

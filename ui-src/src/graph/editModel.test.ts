@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { editProblem, editRequest, formFor, linkChoices, parseAliases, parseTopics, typeChoices } from './editModel'
+import { editProblem, editRequest, formFor, linkChoices, moveNote, parseAliases, parseTopics, typeChoices } from './editModel'
 import { buildIndex } from './graphIndex'
 import type { GraphModel, GraphPage } from './model'
 
@@ -42,8 +42,11 @@ describe('the edit form', () => {
     const lb = formFor(index, link)
     expect(editRequest(link, 'v1', lb, { ...lb, origin: 'teams' })).toBeNull()
   })
-  it('offers only the types of the page\'s own section', () => {
-    expect(typeChoices(model, p1)).toEqual(['concept', 'note', 'howto'])
+  it('offers every type that is not a link; a link page and an archived page keep their section', () => {
+    expect(typeChoices(model, p1)).toEqual(['concept', 'note', 'howto', 'meeting'])
+    expect(typeChoices(model, model.pages[3])).toEqual(['concept', 'note', 'howto'])
+    expect(moveNote(model, p1, 'meeting')).toBe('Saving moves the page to Meetings. Its links and your notes stay.')
+    expect(moveNote(model, p1, 'note')).toBe('')
     expect(typeChoices(model, model.pages[2])).toEqual(['link-web'])
     expect(typeChoices({ ...model, types: undefined }, p1)).toEqual(['concept'])
   })

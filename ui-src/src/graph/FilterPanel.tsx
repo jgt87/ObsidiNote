@@ -1,11 +1,12 @@
 // "Filter" next to the graph's chips: a small popover with type and topic checkboxes (with
-// counts), "Only pages without links" and "Show archived"; and the one-line summary of what is
+// counts), "Only pages without links", "Link summaries older than N days" and "Show archived"; and the one-line summary of what is
 // active, with the focus steps toggle, "Show all" and "Clear". The rules are in filters.ts.
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { emptyFilter, filterOptions, isFilterActive, type FocusDepth, type GraphFilter } from './filters'
 import { plural } from './format'
 import type { GraphIndex } from './graphIndex'
+import { isLinkPage, isStale, staleCutoff } from './linkUpdateRun'
 import { UNFILED_ID } from './model'
 import './FilterPanel.css'
 
@@ -27,6 +28,8 @@ interface ButtonProps extends PanelProps {
    *  switches left the toolbar, which keeps grouping, search, Filter and Graph/List). */
   show?: MapShow
   onShow?: (key: keyof MapShow, value: boolean) => void
+  /** The vault's linkStaleDays: "Link summaries older than N days" (FEASIBILITY.md, Links). */
+  staleDays?: number
 }
 
 function toggle(set: Set<string>, key: string): Set<string> {
@@ -38,10 +41,10 @@ function toggle(set: Set<string>, key: string): Set<string> {
 
 /** Number of choices made in the panel (the button shows it). */
 function choiceCount(f: GraphFilter): number {
-  return f.types.size + f.topics.size + f.tags.size + (f.unlinkedOnly ? 1 : 0) + (f.showArchived ? 1 : 0)
+  return f.types.size + f.topics.size + f.tags.size + (f.unlinkedOnly ? 1 : 0) + (f.showArchived ? 1 : 0) + (f.staleBefore !== null ? 1 : 0)
 }
 
-export function FilterButton({ index, filter, onChange, show, onShow }: ButtonProps) {
+export function FilterButton({ index, filter, onChange, show, onShow, staleDays = 90 }: ButtonProps) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
@@ -49,6 +52,11 @@ export function FilterButton({ index, filter, onChange, show, onShow }: ButtonPr
   const panelId = useId()
   const options = useMemo(() => filterOptions(index, filter.showArchived), [index, filter.showArchived])
   const archived = useMemo(() => index.model.pages.filter((p) => p.archived).length, [index])
+  const hasLinks = useMemo(() => index.model.pages.some(isLinkPage), [index])
+  const stale = useMemo(() => {
+    const cut = staleCutoff(staleDays, Date.now())
+    return index.model.pages.filter((p) => (filter.showArchived || !p.archived) && isStale(p, cut)).length
+  }, [index, staleDays, filter.showArchived])
   const n = choiceCount(filter)
 
   const close = (refocus: boolean) => {
@@ -147,6 +155,10 @@ export function FilterButton({ index, filter, onChange, show, onShow }: ButtonPr
         )}
         <div className="kg-fp__set">
           {box('unlinked', 'Only pages without links', null, filter.unlinkedOnly, () => onChange({ ...filter, unlinkedOnly: !filter.unlinkedOnly }))}
+          {hasLinks &&
+            box('stale', `Link summaries older than ${staleDays} days`, stale, filter.staleBefore !== null, () =>
+              onChange({ ...filter, staleBefore: filter.staleBefore === null ? staleCutoff(staleDays, Date.now()) : null }),
+            )}
           {box('archived', 'Show archived', archived, filter.showArchived, () => onChange({ ...filter, showArchived: !filter.showArchived }))}
         </div>
         <div className="kg-fp__foot">
@@ -175,6 +187,7 @@ export function FilterSummary({ index, filter, onChange, shown }: SummaryProps) 
   if (filter.topics.size) parts.push(`topic: ${[...filter.topics].map(topicName).join(', ')}`)
   if (filter.tags.size) parts.push(`tag: ${[...filter.tags].join(', ')}`)
   if (filter.unlinkedOnly) parts.push('without links')
+  if (filter.staleBefore !== null) parts.push('old link summaries (select them in the List to update)')
   if (filter.showArchived) parts.push('archived shown')
   const focusPage = filter.focus ? index.pageById.get(filter.focus.id) : undefined
   const setDepth = (depth: FocusDepth) => filter.focus && onChange({ ...filter, focus: { ...filter.focus, depth } })

@@ -6,6 +6,8 @@
 .st form { display: flex; flex-direction: column; max-height: 72vh; }
 .st__head, .nv__actions { flex: none; }
 .st__head { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-6) var(--space-6) var(--space-3); }
+.st__title-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.st__version { flex: none; font-size: var(--text-label); color: var(--muted); font-variant-numeric: tabular-nums; }
 .st__body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--space-6); padding: var(--space-2) var(--space-6) var(--space-4); overflow-y: auto; scrollbar-gutter: stable; }
 .st__group { display: flex; flex-direction: column; gap: var(--space-3); margin: 0; padding: 0; border: 0; min-width: 0; }
 .st__legend { padding: 0; margin-bottom: var(--space-2); font-size: var(--text-body); font-weight: 600; }

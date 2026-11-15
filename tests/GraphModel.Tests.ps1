@@ -149,7 +149,10 @@ Describe 'ConvertTo-GraphModel: section, bucket and kind per page (tests/fixture
     $f = New-FakeOneNote
     $vault = $f.AddNotebook('Fixture vault')
     foreach ($p in @($want | Where-Object { $_.source -eq 'vault' })) {
-        $null = $f.AddPage((Add-FixtureSection $f $vault $p.section), "Page $($p.id)", $(if (@($p.tags).Count) { @{ 'obsn.id' = $p.id; 'obsn.type' = $p.kind; 'obsn.tags' = (ConvertTo-Json -InputObject @($p.tags) -Compress) } } else { @{ 'obsn.id' = $p.id; 'obsn.type' = $p.kind } }), 1, '')
+        $meta = @{ 'obsn.id' = $p.id; 'obsn.type' = $p.kind }
+        if (@($p.tags).Count) { $meta['obsn.tags'] = (ConvertTo-Json -InputObject @($p.tags) -Compress) }
+        if ($p.PSObject.Properties['summarizedAt']) { $meta['obsn.summarizedAt'] = $p.summarizedAt }
+        $null = $f.AddPage((Add-FixtureSection $f $vault $p.section), "Page $($p.id)", $meta, 1, '')
     }
     $other = $f.AddNotebook('Fixture notebook')
     foreach ($p in @($want | Where-Object { $_.source -eq 'notebook' })) { $null = $f.AddPage((Add-FixtureSection $f $other $p.section), "Page $($p.id)", @{}, 1, '') }
@@ -168,6 +171,8 @@ Describe 'ConvertTo-GraphModel: section, bucket and kind per page (tests/fixture
             "$($got.section)|$($got.bucket)|$($got.kind)" | Should Be "$($p.section)|$($p.bucket)|$($p.kind)"
             # tags: as JSON, so a list of one and an empty list are checked as lists.
             (ConvertTo-Json -InputObject $got.tags -Compress) | Should Be (ConvertTo-Json -InputObject @($p.tags) -Compress)
+            $sa = if ($p.PSObject.Properties['summarizedAt']) { $p.summarizedAt } else { '' }
+            $got.summarizedAt | Should Be $sa
         }
     }
     It 'sends the tags of the shown source with their page counts, sorted by name, as a list' {

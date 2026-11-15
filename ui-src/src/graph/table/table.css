@@ -128,6 +128,9 @@
 .kg-tbl__tick { flex: none; margin: 0 var(--space-2) 0 0; align-self: center; }
 .kg-tbl__table tbody tr[data-selected] td { background-image: linear-gradient(var(--pressed), var(--pressed)); } /* design: one flat tint laid over the cell's own fill, as the hover is */
 .kg-tbl__sel { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+/* "Update summaries" running for the ticked link pages (LinkUpdateRun.tsx). */
+.kg-tbl__run { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--neutral-soft); }
+.kg-tbl__run-line { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .kg-tbl__sel-count { font-size: var(--text-body); font-weight: 600; font-variant-numeric: tabular-nums; }
 .kg-tbl__title .kg-linkbtn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kg-tbl__title .kg-tag { flex: none; }

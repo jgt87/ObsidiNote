@@ -1,17 +1,17 @@
-import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { dragIsTakeable, droppedLink } from '../add/fileNotes'
 import { markdownForPaste, type PasteNode } from '../add/pasteMarkdown'
-import { originOfPaste, originStillApplies, pasteMark } from '../add/pasteOrigin'
-import { MAX_FILE_BYTES, readFileText } from '../add/fileText'
-import { locateFile, type LocateResult } from '../api'
+import { followMark, newMark, originOfPaste, pasteMark } from '../add/pasteOrigin'
 import { loneLink } from '../model/links'
-import { ORIGINS, TYPED_LABEL } from '../model/origins'
 import type { Intent, Mode } from '../api'
+import { useFileIntake } from '../hooks/useFileIntake'
 import { useIntent } from '../hooks/useIntent'
 import { intentLine, primaryLabel } from '../model/intentWording'
 import { isSendKey, modeForKey } from '../model/keys'
 import type { SendBlock } from '../model/attention'
 import type { AddTarget } from '../model/notebooks'
-import { AddIcon, AskIcon, InfoIcon, PaperclipIcon, WarnIcon } from './icons'
+import { FromChoice, IntentLine, KeysHelp } from './ComposerParts'
+import { PaperclipIcon, WarnIcon } from './icons'
 import { ModeSwitch } from './ModeSwitch'
 import './Composer.css'
 
@@ -41,6 +41,8 @@ interface Props {
   connect?: ReactNode
 }
 
+const FILE_TYPES = '.docx,.docm,.pptx,.xlsx,.xlsm,.pdf,.msg,.eml,.txt,.md,.csv,.tsv,.json,.log,.html,.htm'
+
 /** The pasted HTML as an inert document (DOMParser runs no scripts and loads no images). */
 function parseHtml(html: string): PasteNode | null {
   return new DOMParser().parseFromString(html, 'text/html').body
@@ -56,53 +58,9 @@ function insertAtCursor(box: HTMLTextAreaElement, text: string, setText: (t: str
   requestAnimationFrame(() => box.setSelectionRange(start + text.length, start + text.length))
 }
 
-/** The one input: Auto/Add/Ask, the live intent line, and the primary button that follows it.
- *  The text lives in memory only (never in storage): it is the person's content.
- *  addTarget: set while a read-only notebook is shown (an Add still goes to the active vault). */
-export function Composer({ addTarget, onSend, busy, prefill, note, children, clearKey = 0, block = null, connect = null }: Props) {
-  const [text, setText] = useState('')
-  const [mode, setMode] = useState<Mode>('auto')
-  const area = useRef<HTMLTextAreaElement>(null)
-  // Counts what the box has moved on from (a send, an emptied box, a newer file): a file read or
-  // lookup that answers later belongs to an older count and is dropped (code review 2026-11-15).
-  const fileRun = useRef(0)
-  // One link and nothing else, also as "[title](address)", is that address: read and sent as a link.
-  const onlyLink = loneLink(text)
-  const sendText = onlyLink ?? text
-  const { result, error } = useIntent(sendText, mode)
-  const line = intentLine(result, addTarget)
-  const empty = !text.trim()
-  // Where the text came from: set from a paste (add/pasteOrigin.ts), changeable, '' = typed. A link
-  // alone needs none (its address says where it lives), and an Ask files nothing.
-  const [origin, setOrigin] = useState('')
-  // The pasted text the origin was read from; once it has been in the box and is gone again, so is
-  // the origin, and it comes back with the text (Ctrl+Z). "seen" waits for the paste to land (the
-  // text changes after the paste event); "from" is the origin that belongs to the mark.
-  const markRef = useRef({ mark: '', seen: false, from: '', lost: false })
-  const setMark = (mark: string, from = '') => {
-    markRef.current = { mark, seen: false, from, lost: false }
-  }
-  const showFrom = !empty && !onlyLink && mode !== 'ask' && result?.intent !== 'ask'
-  useEffect(() => {
-    const m = markRef.current
-    const still = originStillApplies(text, m.mark)
-    if (empty) {
-      setOrigin('')
-      setMark('')
-    } else if (m.mark && still) {
-      m.seen = true
-      if (m.lost) {
-        m.lost = false
-        setOrigin(m.from)
-      }
-    } else if (m.seen && !still && !m.lost) {
-      m.lost = true
-      setOrigin('')
-    }
-  }, [empty, text])
-
-  // A file let go beside the box must not make the browser open it in place of the app (the app
-  // window has no Back, and everything in memory would be gone): outside the box a drop does nothing.
+/** A file let go beside the box must not make the browser open it in place of the app (the app
+ *  window has no Back, and everything in memory would be gone): outside the box a drop does nothing. */
+function useNoDropOutside() {
   useEffect(() => {
     const stop = (e: DragEvent) => {
       if (!e.dataTransfer || ![...e.dataTransfer.types].includes('Files')) return
@@ -116,19 +74,78 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
       window.removeEventListener('drop', stop)
     }
   }, [])
+}
 
-  // Ctrl+1 = Add, Ctrl+2 = Ask, anywhere on the page while this view is open.
+/** Ctrl+1 = Add, Ctrl+2 = Ask, anywhere on the page while this view is open. */
+function useModeKeys(setMode: (m: Mode) => void, focus: () => void) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const m = modeForKey(e)
       if (!m) return
       e.preventDefault()
       setMode(m)
-      area.current?.focus()
+      focus()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+    // Bound once: setMode is a state setter and focus reads a ref, both the same on every render.
   }, [])
+}
+
+/** The box starts at four lines and grows with its text up to about twelve, then scrolls (operator,
+ *  2026-11-15: "make the typing area bigger"; CSS min/max-height). Its edge counts in its height. */
+function useAutoGrow(area: RefObject<HTMLTextAreaElement | null>, text: string) {
+  useEffect(() => {
+    const el = area.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`
+  }, [area, text])
+}
+
+/** The one input: Auto/Add/Ask, the live intent line, and the primary button that follows it.
+ *  The text lives in memory only (never in storage): it is the person's content.
+ *  addTarget: set while a read-only notebook is shown (an Add still goes to the active vault). */
+export function Composer({ addTarget, onSend, busy, prefill, note, children, clearKey = 0, block = null, connect = null }: Props) {
+  const [text, setText] = useState('')
+  const [mode, setMode] = useState<Mode>('auto')
+  const area = useRef<HTMLTextAreaElement>(null)
+  const focus = () => area.current?.focus()
+  // One link and nothing else, also as "[title](address)", is that address: read and sent as a link.
+  const onlyLink = loneLink(text)
+  const sendText = onlyLink ?? text
+  const { result, error } = useIntent(sendText, mode)
+  const line = intentLine(result, addTarget)
+  const empty = !text.trim()
+  // Where the text came from: set from a paste (add/pasteOrigin.ts), changeable, '' = typed. A link
+  // alone needs none (its address says where it lives), and an Ask files nothing.
+  const [origin, setOrigin] = useState('')
+  // The paste the origin was read from: when it leaves the box, so does the origin (followMark).
+  const markRef = useRef(newMark())
+  const setMark = (mark: string, from = '') => {
+    markRef.current = newMark(mark, from)
+  }
+  const showFrom = !empty && !onlyLink && mode !== 'ask' && result?.intent !== 'ask'
+  useEffect(() => {
+    const next = followMark(markRef.current, text)
+    markRef.current = next.mark
+    if (next.origin !== undefined) setOrigin(next.origin)
+  }, [empty, text])
+
+  // A file is something to keep, never a question: its text comes in as an Add, "From: File".
+  const files = useFileIntake(busy, (fileText) => {
+    setText(fileText)
+    setMode('add')
+    setOrigin('file')
+    setMark(pasteMark(fileText), 'file')
+    focus()
+  })
+  const [dragging, setDragging] = useState(false)
+  const picker = useRef<HTMLInputElement>(null)
+
+  useNoDropOutside()
+  useModeKeys(setMode, focus)
+  useAutoGrow(area, text)
 
   useEffect(() => {
     if (!prefill) return
@@ -136,84 +153,27 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
     setMode(prefill.mode)
     setOrigin('') // a prefill (Save answer) is ObsidiNote's own text, not the earlier paste
     setMark('')
-    area.current?.focus()
+    focus()
   }, [prefill])
 
   useEffect(() => {
     if (clearKey) {
-      fileRun.current++
+      files.reset()
       setText('')
-      setFileNote(null)
-      setFileUrl(null)
     }
   }, [clearKey])
 
-  // The box starts at four lines and grows with its text up to about twelve, then scrolls (operator,
-  // 2026-11-15: "make the typing area bigger"; CSS min/max-height). Its edge counts in its height.
-  useEffect(() => {
-    const el = area.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`
-  }, [text])
-
-  // A file dropped on the box, or picked with "Add a file": its text is read here, in memory
-  // (add/fileText.ts), and put in the box like a paste; nothing is stored or uploaded as a file.
-  const [fileNote, setFileNote] = useState<{ text: string; error: boolean } | null>(null)
-  const [dragging, setDragging] = useState(false)
-  const picker = useRef<HTMLInputElement>(null)
-  async function takeFile(file: File | undefined) {
-    if (!file || busy) return
-    const run = ++fileRun.current
-    if (file.size > MAX_FILE_BYTES) {
-      setFileNote({ text: 'This file is larger than 10 MB. Paste the part you want to keep instead.', error: true })
-      return
-    }
-    setFileNote({ text: `Reading ${file.name}…`, error: false })
-    const r = await readFileText(file.name, file.type, new Uint8Array(await file.arrayBuffer()))
-    if (run !== fileRun.current) return
-    if (!r.ok) {
-      setFileNote({ text: r.message, error: true })
-      return
-    }
-    setText(r.text)
-    setMode('add') // a file is something to keep, never a question
-    setOrigin('file')
-    setMark(pasteMark(r.text), 'file')
-    setFileUrl(null)
-    const cut = r.message ? ` ${r.message}` : ''
-    setFileNote({ text: `${file.name} is in the box.${cut} Looking for it in OneDrive…`, error: false })
-    area.current?.focus()
-    // Where the file lives online, when it is in a folder OneDrive syncs here (operator, 2026-11-14):
-    // the Add then makes that file's link page and keeps its address.
-    let found: LocateResult | null = null
-    try {
-      found = await locateFile(file.name, file.size, file.lastModified)
-    } catch {
-      found = null
-    }
-    // The box was sent or emptied, or another file came, while the lookup ran: this answer is late.
-    if (run !== fileRun.current) return
-    if (found?.status === 'found' && found.url) {
-      setFileUrl({ url: found.url, text: r.text })
-      setFileNote({ text: `${file.name} is in your OneDrive or SharePoint: the page keeps its link.${cut} Check the text, then press Add.`, error: false })
-    } else {
-      const why = found?.status === 'many' ? ' (more than one file matched, so no link is kept)' : ''
-      setFileNote({ text: `${file.name} is in the box${why}.${cut} Check it, then press Add.`, error: false })
-    }
-  }
   // The address of the dropped file, for as long as the box still holds that file's text: the
   // "From" choice is "File" while it does (the mark above), so trimming a paragraph or fixing a
   // typo keeps the link (code review 2026-11-15: any edit dropped it without a word).
-  const [fileUrl, setFileUrl] = useState<{ url: string; text: string } | null>(null)
-  const liveFileUrl = fileUrl && origin === 'file' && !empty ? fileUrl.url : ''
+  const liveFileUrl = files.link && origin === 'file' && !empty ? files.link.url : ''
 
   // Ask's options (what Ask reads) only when the text will be asked (operator, 2026-11-14).
   const asking = mode === 'ask' || (mode === 'auto' && result?.intent === 'ask')
 
   function send() {
     if (empty || busy || block?.disableSend) return
-    fileRun.current++
+    files.cancel()
     onSend(sendText, mode, result?.intent ?? null, showFrom ? origin : '', liveFileUrl)
   }
 
@@ -247,39 +207,42 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
     }
   }
 
-  const LineIcon = result?.intent === 'ask' ? AskIcon : result?.intent === 'add' ? AddIcon : InfoIcon
+  function onDragOver(e: ReactDragEvent<HTMLElement>) {
+    if (!dragIsTakeable([...e.dataTransfer.types])) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    setDragging(true)
+  }
+
+  function onDrop(e: ReactDragEvent<HTMLElement>) {
+    setDragging(false)
+    if (e.dataTransfer.files.length) {
+      e.preventDefault()
+      void files.take(e.dataTransfer.files[0])
+      return
+    }
+    // A link dragged from a browser tab (a OneDrive or SharePoint file, a web page): the same as
+    // pasting it, so it becomes that address's link page.
+    const link = droppedLink(e.dataTransfer.getData('text/uri-list') || '')
+    if (link) {
+      e.preventDefault()
+      setText(link)
+      files.clearNote()
+      focus()
+    }
+  }
+
+  const fileNote = files.note
   return (
     <section
       className="composer"
       aria-label="Add or ask"
       data-dragging={dragging || undefined}
-      onDragOver={(e) => {
-        const types = [...e.dataTransfer.types]
-        if (!types.includes('Files') && !types.includes('text/uri-list')) return
-        e.preventDefault()
-        e.dataTransfer.dropEffect = 'copy'
-        setDragging(true)
-      }}
+      onDragOver={onDragOver}
       onDragLeave={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false)
       }}
-      onDrop={(e) => {
-        setDragging(false)
-        if (e.dataTransfer.files.length) {
-          e.preventDefault()
-          void takeFile(e.dataTransfer.files[0])
-          return
-        }
-        // A link dragged from a browser tab (a OneDrive or SharePoint file, a web page): the same as
-        // pasting it, so it becomes that address's link page.
-        const link = (e.dataTransfer.getData('text/uri-list') || '').split(/\r?\n/).find((l) => /^https?:\/\//i.test(l.trim()))
-        if (link) {
-          e.preventDefault()
-          setText(link.trim())
-          setFileNote(null)
-          area.current?.focus()
-        }
-      }}
+      onDrop={onDrop}
     >
       {dragging && (
         <p className="composer__drop" aria-hidden="true">
@@ -302,7 +265,7 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
         autoFocus
         spellCheck
       />
-      {fileUrl && !liveFileUrl && !empty && (
+      {files.link && !liveFileUrl && !empty && (
         <p className="composer__file-note" role="status">
           The file's link is no longer kept: the text in the box is not the file's any more. Choose "File" under From to keep it.
         </p>
@@ -314,20 +277,13 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
         </p>
       )}
       {showFrom && (
-        <div className="composer__from">
-          <label htmlFor="composer-from">From</label>
-          <select id="composer-from" className="field composer__from-select" value={origin} onChange={(e) => {
-              setOrigin(e.target.value)
-              setMark('') // chosen by hand: it stays until the box is emptied
-            }}>
-            <option value="">{TYPED_LABEL}</option>
-            {ORIGINS.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <FromChoice
+          origin={origin}
+          onChange={(o) => {
+            setOrigin(o)
+            setMark('') // chosen by hand: it stays until the box is emptied
+          }}
+        />
       )}
       {note}
       {/* Copilot off or ObsidiNote gone: said on its own line. The reading of the text and its
@@ -341,44 +297,13 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
           </span>
         </p>
       )}
-      <p className="composer__intent" role="status">
-          <LineIcon />
-          <span>
-            {error ? (
-              <>Cannot tell yet: {error}</>
-            ) : (
-              <>
-                {line.lead && <b>{line.lead}: </b>}
-                {line.text}
-              </>
-            )}
-            {line.flip && !error && (
-              <>
-                {' '}
-                <button type="button" className="link-btn" onClick={() => setMode(line.flip!.mode)}>
-                  {line.flip.label}
-                </button>
-              </>
-            )}
-          </span>
-        </p>
+      <IntentLine intent={result?.intent} line={line} error={error} onFlip={setMode} />
       {/* design (operator, 2026-11-15: "move the auto/add/ask buttons into the bottom part as well, so all
           buttons are in the same row ... and then the paperclip button next to those buttons"): every
           control of the box in one row under the text, what the text will do on its own line above. */}
       <div className="composer__bottom">
-        <ModeSwitch mode={mode} onChange={(m) => { setMode(m); area.current?.focus() }} />
-        <div className="composer__help">
-          <button type="button" className="btn btn--icon btn--ghost composer__help-btn" aria-label="Keyboard shortcuts" aria-describedby="composer-keys">
-            <InfoIcon />
-          </button>
-          <div id="composer-keys" role="tooltip" className="composer__keys">
-            <span><kbd>Ctrl</kbd> <kbd>1</kbd></span><span>Add</span>
-            <span><kbd>Ctrl</kbd> <kbd>2</kbd></span><span>Ask</span>
-            <span><kbd>Enter</kbd></span><span>Send</span>
-            <span><kbd>Shift</kbd> <kbd>Enter</kbd></span><span>New line</span>
-            <span><kbd>Ctrl</kbd> <kbd>K</kbd></span><span>Find a page or topic</span>
-          </div>
-        </div>
+        <ModeSwitch mode={mode} onChange={(m) => { setMode(m); focus() }} />
+        <KeysHelp />
         {/* The drop's keyboard and touch path: the same reading, from a file picker. */}
         <button type="button" className="btn btn--icon btn--ghost composer__file-btn" onClick={() => picker.current?.click()} disabled={busy} aria-label="Add a file" title="Add a file: Word, PowerPoint, Excel, PDF, Outlook mail, text or a web page">
           <PaperclipIcon />
@@ -389,9 +314,9 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
           className="visually-hidden"
           tabIndex={-1}
           aria-hidden="true"
-          accept=".docx,.docm,.pptx,.xlsx,.xlsm,.pdf,.msg,.eml,.txt,.md,.csv,.tsv,.json,.log,.html,.htm"
+          accept={FILE_TYPES}
           onChange={(e) => {
-            void takeFile(e.target.files?.[0])
+            void files.take(e.target.files?.[0])
             e.target.value = ''
           }}
         />

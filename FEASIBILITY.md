@@ -585,11 +585,14 @@ Map details (the user's spec, 2026-11-12): a **Knowledge graph** of dots, with n
     "Link it" writes strength 2 (related): the person's own decision.
   - **Every dot is content** (a note, file or link). No decorative dots, specks or dust
     (user, 2026-11-12).
-  - Each topic area has a visible label: the topic name, then "N pages · main subjects".
+  - Each topic area has a visible label: the topic name with its page count beside it (the main
+    subjects are in the List; a second line lay on the dots, 2026-11-14).
   - Links are curved.
 - **Focus and context on hover.** The hovered dot turns solid. It and its directly linked pages
-  stay sharp and get labels, with the links to them drawn stronger. Everything else fades to
-  about 20%. With nothing focused, only hub labels show.
+  stay sharp and get labels, with the links to them drawn stronger: its own links solid, links
+  to it that it does not return dashed. Everything else, topic areas and names included, fades
+  under one veil to about a quarter, and the linked pages' names come before the faded topic
+  names (operator, 2026-11-15). With nothing focused, only hub labels show.
 - **Hover a dot** to see a preview card: index path, title, a one-line summary, link and
   backlink counts, when it was added, and "Click to open". Keyboard focus shows the same
   preview.

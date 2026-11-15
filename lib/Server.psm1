@@ -1117,6 +1117,38 @@ function Invoke-PagesTagRoute($State, [string]$Body) {
     @{ status = 200; body = [ordered]@{ changed = [int]$r.changed; pages = [object[]]@($r.pages); warnings = [object[]]@($r.warnings) } }
 }
 
+function Invoke-PagesRetireRoute($State, [string]$Body, [string]$Action) {
+    <# POST /api/pages/archive | /api/pages/delete {ids, confirm[, vault]} and /api/pages/restore
+       {ids[, vault]} (lib/Ingest.psm1 Get-RetirePlan / Invoke-PageRetire; no Copilot). Archive and
+       delete always ask first (FEASIBILITY.md, Archive and delete): without confirm = true they answer
+       409 {needsConfirm, plan: {pages: [{id, title, section, to, inbound}], refused: [{id, title,
+       reason}]}} and write nothing; the window shows that plan in its dialog. Restore is the undo of
+       an archive and needs no confirm. 200 {status done|partial|failed, message, action, done,
+       refused, failed, warnings}; 400 no ids, more than 200, nothing that can be done; 409 another
+       vault's items or no writer lease. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $l = Read-TextList $b 'ids'
+    if (-not $l.ok) { return @{ status = 400; body = @{ error = $l.error } } }
+    $ids = @($l.list | Select-Object -Unique)
+    if (-not $ids.Count) { return @{ status = 400; body = @{ error = 'Choose at least one page.' } } }
+    if ($ids.Count -gt 200) { return @{ status = 400; body = @{ error = 'At most 200 pages at a time.' } } }
+    if (@($ids | Where-Object { -not (Test-ObsnId $_) }).Count) { return @{ status = 400; body = @{ error = 'ids must be ObsidiNote page ids.' } } }
+    if (Test-OtherVault $State $b) { return (Get-OtherVaultAnswer) }
+    $u = Use-ActiveVault $State
+    if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
+    $store = New-ServerStore $State $u
+    $c = Get-BodyValue $b 'confirm' $false
+    if ($Action -ne 'restore' -and -not ($c -is [bool] -and $c)) {
+        $plan = Get-RetirePlan -Store $store -Action $Action -Ids ([string[]]$ids)
+        $verb = if ($Action -eq 'archive') { 'Archive' } else { 'Delete' }
+        return @{ status = 409; body = [ordered]@{ needsConfirm = $true; error = "$verb asks first: confirm to go ahead."; plan = [ordered]@{ pages = [object[]]@($plan.pages); refused = [object[]]@($plan.refused) } } }
+    }
+    $r = Invoke-PageRetire -Store $store -Action $Action -Ids ([string[]]$ids)
+    $code = switch ($r.status) { 'refused' { 409 } 'invalid' { 400 } default { 200 } }
+    if ($code -ne 200) { return @{ status = $code; body = @{ error = $r.message; status = $r.status } } }
+    @{ status = 200; body = [ordered]@{ status = $r.status; message = $r.message; action = $Action; done = [object[]]@($r.done); refused = [object[]]@($r.refused); failed = [object[]]@($r.failed); warnings = [object[]]@($r.warnings) } }
+}
+
 function Invoke-TagRenameRoute($State, [string]$Body) {
     <# POST /api/tags/rename {from, to[, vault]}: every page of the active vault that has the tag
        `from` gets `to` in its place (no duplicate); to = '' removes it (lib/Ingest.psm1 Rename-Tag).
@@ -1255,6 +1287,9 @@ function Invoke-ApiRoute {
         'POST /api/settings' { return (Set-SettingsRoute $State $Body) }
         'POST /api/pages/tag' { return (Invoke-PagesTagRoute $State $Body) }
         'POST /api/tags/rename' { return (Invoke-TagRenameRoute $State $Body) }
+        'POST /api/pages/archive' { return (Invoke-PagesRetireRoute $State $Body 'archive') }
+        'POST /api/pages/restore' { return (Invoke-PagesRetireRoute $State $Body 'restore') }
+        'POST /api/pages/delete' { return (Invoke-PagesRetireRoute $State $Body 'delete') }
         # A new start on this PC asks this one to end (lib/Startup.psm1 Invoke-ReplaceRunning). The
         # answer is sent first; `stop` then ends the request loop (Invoke-ServerRequest), and
         # obsidinote.ps1's finally gives the writer lease back and disconnects, as on Ctrl+C.

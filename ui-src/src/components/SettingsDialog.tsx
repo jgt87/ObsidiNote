@@ -10,7 +10,7 @@ import './SettingsDialog.css'
  *  the vault keeps in OneNote (lib/VaultSettings.psm1), so every PC that opens it uses the same.
  *  Save sends only what changed. A read-only window shows the values without Save. The theme stays
  *  per PC at the bottom of the side bar; ports and sign-in stay in config\obsidinote.local.json. */
-export function SettingsDialog({ onClose, onSaved, onTagsChanged }: { onClose: () => void; onSaved?: (s: VaultSettings) => void; /** A tag was renamed or removed: the graph must read its pages again. */ onTagsChanged?: () => void }) {
+export function SettingsDialog({ onClose, onSaved, onTagsChanged, version = '' }: { onClose: () => void; onSaved?: (s: VaultSettings) => void; /** A tag was renamed or removed: the graph must read its pages again. */ onTagsChanged?: () => void; /** The running app's version (GET /api/status), shown top right; '' shows none. */ version?: string }) {
   const ref = useRef<HTMLDialogElement>(null)
   const first = useRef<HTMLTextAreaElement>(null)
   const close = useRef(onClose)
@@ -125,9 +125,17 @@ export function SettingsDialog({ onClose, onSaved, onTagsChanged }: { onClose: (
     <dialog ref={ref} className="nv st" aria-labelledby="st-title" aria-describedby="st-desc" onCancel={(e) => { e.preventDefault(); if (!busy) close.current() }}>
       <form onSubmit={onSubmit}>
         <div className="st__head">
-          <h2 id="st-title" className="nv__title">
-            Settings
-          </h2>
+          {/* design (operator, 2026-11-15): the app's version in the top right, beside the title. */}
+          <div className="st__title-row">
+            <h2 id="st-title" className="nv__title">
+              Settings
+            </h2>
+            {version && (
+              <span className="st__version" title={`ObsidiNote version ${version.replace(/^v/i, '')}`}>
+                v{version.replace(/^v/i, '')}
+              </span>
+            )}
+          </div>
           <p id="st-desc" className="nv__muted">
             Kept in the vault in OneNote, so every PC that opens it uses the same.{loaded && !canChange ? ` ${why || 'They cannot be changed from this window for now.'}` : ''}
           </p>

@@ -747,29 +747,9 @@ function Undo-AddRequest {
     $r = [ordered]@{ status = 'failed'; message = ''; id = $id; backlinks = 0; unlinked = 0; rewritten = 0; warnings = @(); ms = 0 }
     try {
         Invoke-Store $Store 'AssertWritable' | Out-Null
-        $idx = Invoke-Store $Store 'GetIndex'
-        $rec = (Get-IndexPageMap $idx)[$id]
-        if (-not $rec) { throw "page $id is not in the index" }
-        $recPage = Get-LkString $rec 'pageId'
-        if (-not $pageId) { $pageId = $recPage }
-        if ($recPage -and $recPage -ne $pageId) { throw "page $id does not match the page that was added" }
-        # Undo from History sends only the id: the pages it links to come from its index record.
-        if (-not $targets.Count) { $targets = @(@(Get-LkProp $rec 'links' @()) | Where-Object { $_ } | ForEach-Object { [string](Get-LkProp $_ 'target' (Get-LkProp $_ 't' '')) } | Where-Object { $_ }) }
-        # The pages that link TO this page (Undo is offered from History long after the Add, so
-        # later pages and "Link it" may point at it): taken from the index before the page leaves it.
-        $inbound = Get-IncomingSources -Index $idx -TargetId $id -ExcludeId $id
-        Invoke-Store $Store 'DeletePage' @{ PageId = $pageId } | Out-Null
-        try { Invoke-Store $Store 'IndexRemovePage' @{ Id = $id } | Out-Null }
-        catch { $r.warnings = @($r.warnings) + "The index still lists the page; the next start removes it ($($_.Exception.Message))." }
-        $bl = Update-Backlinks -Store $Store -Index $idx -Targets $targets -ExcludeId $id
-        $r.backlinks = $bl.count
-        $r.warnings = @($r.warnings) + @($bl.warnings)
-        $un = Remove-InboundLinks -Store $Store -Index $idx -TargetId $id -Sources @($inbound)
-        $r.unlinked = $un.count
-        $r.warnings = @($r.warnings) + @($un.warnings)
-        $rw = Update-DeletedAnchors -Store $Store -Index $idx -TargetId $id -TargetLink (Get-LkString $rec 'link') -Title (Get-LkString $rec 'title') -Sources @($inbound)
-        $r.rewritten = $rw.count
-        $r.warnings = @($r.warnings) + @($rw.warnings)
+        $x = Invoke-PageRemoval -Store $Store -Id $id -PageId $pageId -Targets $targets
+        $r.backlinks = $x.backlinks; $r.unlinked = $x.unlinked; $r.rewritten = $x.rewritten
+        $r.warnings = @($x.warnings)
         $r.status = 'undone'
         $r.message = "Undone. The page is in OneNote's Deleted Pages for 60 days."
     } catch {
@@ -778,6 +758,187 @@ function Undo-AddRequest {
     $r.ms = [int]$sw.ElapsedMilliseconds
     Write-AppLog info ingest 'Undo finished' @{ status = $r.status; id = $id; backlinks = $r.backlinks; ms = $r.ms }
     $r
+}
+
+function Invoke-PageRemoval {
+    <# The one way a page leaves the vault (Undo of an Add, Delete): the page goes to OneNote's Deleted
+       Pages (never a permanent delete), leaves the index (Recently deleted keeps title, bucket and
+       date), the "Linked from" lists of the pages it links to are written without it, the pages that
+       link to it lose that link (Remove-InboundLinks) and a link to it in their own body outline
+       becomes "(deleted: <title>)" (Update-DeletedAnchors). $Targets: the pages it links to; empty =
+       from its index record. Returns @{ backlinks; unlinked; rewritten; warnings }. Throws when the
+       page is not in the index or OneNote refuses the delete; later steps only add warnings. #>
+    param($Store, [string]$Id, [string]$PageId = '', [string[]]$Targets = @())
+    $idx = Invoke-Store $Store 'GetIndex'
+    $rec = (Get-IndexPageMap $idx)[$Id]
+    if (-not $rec) { throw "page $Id is not in the index" }
+    $recPage = Get-LkString $rec 'pageId'
+    if (-not $PageId) { $PageId = $recPage }
+    if ($recPage -and $recPage -ne $PageId) { throw "page $Id does not match the page that was added" }
+    if (-not $PageId) { throw "page $Id has no OneNote page" }
+    $tg = @($Targets | Where-Object { $_ })
+    if (-not $tg.Count) { $tg = @(@(Get-LkProp $rec 'links' @()) | Where-Object { $_ } | ForEach-Object { [string](Get-LkProp $_ 'target' (Get-LkProp $_ 't' '')) } | Where-Object { $_ }) }
+    # The pages that link TO this page (later pages and "Link it" may point at it): taken from the
+    # index before the page leaves it.
+    $inbound = Get-IncomingSources -Index $idx -TargetId $Id -ExcludeId $Id
+    $out = @{ backlinks = 0; unlinked = 0; rewritten = 0; warnings = @() }
+    Invoke-Store $Store 'DeletePage' @{ PageId = $PageId } | Out-Null
+    try { Invoke-Store $Store 'IndexRemovePage' @{ Id = $Id } | Out-Null }
+    catch { $out.warnings = @($out.warnings) + "The index still lists the page; the next start removes it ($($_.Exception.Message))." }
+    $bl = Update-Backlinks -Store $Store -Index $idx -Targets $tg -ExcludeId $Id
+    $un = Remove-InboundLinks -Store $Store -Index $idx -TargetId $Id -Sources @($inbound)
+    $rw = Update-DeletedAnchors -Store $Store -Index $idx -TargetId $Id -TargetLink (Get-LkString $rec 'link') -Title (Get-LkString $rec 'title') -Sources @($inbound)
+    $out.backlinks = $bl.count; $out.unlinked = $un.count; $out.rewritten = $rw.count
+    $out.warnings = @($out.warnings) + @($bl.warnings) + @($un.warnings) + @($rw.warnings)
+    $out
+}
+
+# ---------------------------------------------------------------------------- archive, restore, delete
+# FEASIBILITY.md "Archive and delete" (user, 2026-11-12). Archive is the default and reversible: the
+# page moves to Archive/<bucket> and keeps its id, links and "Your notes"; obsn.status = archived and
+# obsn.archivedFrom (its section) are written on the page and its index record. Restore moves it back.
+# Delete goes to OneNote's Deleted Pages through Invoke-PageRemoval, as Undo does. Only ObsidiNote's own
+# pages (those in Ingest's index); the window always asks first (the server's needsConfirm).
+
+$script:RetireRefusal = @{
+    notOurs  = 'It is not one of ObsidiNote''s pages in this vault. A page you made yourself is moved or deleted in OneNote.'
+    archived = 'It is already archived.'
+    notArch  = 'It is not archived.'
+    noBucket = 'It is not in one of ObsidiNote''s type sections.'
+}
+
+function Get-RestoreSection {
+    <# Where Restore puts an archived page: the section it was archived from without its rollover
+       number ('Notes 2' -> 'Notes', 'Journal/2026 2' -> 'Journal/2026'; Get-TargetSection picks the
+       rollover again), else its type's bucket. Throws when neither is known. #>
+    param($Store, [string]$From, [string]$Type)
+    $f = $From -replace ' [2-9][0-9]*$', ''
+    $b = if ($f) { Get-BucketOfSection $f } else { '' }
+    if ($b -and @('00 Index', '01 Intake', 'Archive') -notcontains $b) { return $f }
+    if ($Type) { return [string](Invoke-Store $Store 'BucketForType' @{ Type = $Type }) }
+    throw 'its original section is not known'
+}
+
+function Get-RetirePlanEntry {
+    <# One page of Get-RetirePlan: @{ to; reason } (reason '' = it can be done). #>
+    param($Store, [string]$Action, $Rec)
+    $section = Get-LkString $Rec 'section'
+    $archived = (Get-LkString $Rec 'status') -eq 'archived'
+    if ($Action -eq 'delete') { return @{ to = ''; reason = '' } }
+    if ($Action -eq 'restore') {
+        if (-not $archived) { return @{ to = ''; reason = $script:RetireRefusal.notArch } }
+        try { return @{ to = (Get-RestoreSection -Store $Store -From (Get-LkString $Rec 'archivedFrom') -Type (Get-LkString $Rec 'type')); reason = '' } }
+        catch { return @{ to = ''; reason = "It cannot be put back: $($_.Exception.Message)." } }
+    }
+    if ($archived) { return @{ to = ''; reason = $script:RetireRefusal.archived } }
+    $b = if ($section) { Get-BucketOfSection $section } else { '' }
+    if (-not $b -or @('00 Index', '01 Intake', 'Archive') -contains $b) { return @{ to = ''; reason = $script:RetireRefusal.noBucket } }
+    @{ to = (Get-ArchiveSectionName $section); reason = '' }
+}
+
+function Get-RetirePlan {
+    <# What Archive, Restore or Delete would do to pages $Ids of the active vault; nothing is written.
+       Returns @{ pages = @(@{ id; title; section; to; inbound }); refused = @(@{ id; title; reason }) }:
+       to = the section the page goes to ('' for delete); inbound = how many other pages link to it. #>
+    param([Parameter(Mandatory)]$Store, [ValidateSet('archive', 'restore', 'delete')][string]$Action, [string[]]$Ids = @())
+    $idx = Invoke-Store $Store 'GetIndex'
+    $pages = Get-IndexPageMap $idx
+    $ok = New-Object System.Collections.Generic.List[object]
+    $no = New-Object System.Collections.Generic.List[object]
+    foreach ($id in @($Ids | Where-Object { $_ } | Select-Object -Unique)) {
+        if (-not $pages.ContainsKey($id)) { $no.Add([ordered]@{ id = $id; title = ''; reason = $script:RetireRefusal.notOurs }); continue }
+        $rec = $pages[$id]
+        $title = Get-LkString $rec 'title'
+        $e = Get-RetirePlanEntry -Store $Store -Action $Action -Rec $rec
+        if ($e.reason) { $no.Add([ordered]@{ id = $id; title = $title; reason = $e.reason }); continue }
+        $in = @(Get-IncomingSources -Index $idx -TargetId $id -ExcludeId $id).Count
+        $ok.Add([ordered]@{ id = $id; title = $title; section = (Get-LkString $rec 'section'); to = $e.to; inbound = $in })
+    }
+    @{ pages = @($ok.ToArray()); refused = @($no.ToArray()) }
+}
+
+function Set-PageArchived {
+    <# Moves page $Id to section $To (the store's MovePage: OneNote gives it a new hierarchy id and
+       link) and writes the archive mark (-Archive: status archived, archivedFrom = $From) or clears it.
+       Returns the ids of the pages it links to (their "Linked from" holds its old link). Throws when
+       the move or the mark fails. #>
+    param($Store, [string]$Id, [string]$To, [string]$From, [switch]$Archive)
+    $m = Invoke-Store $Store 'MovePage' @{ Id = $Id; Bucket = $To; Type = '' }
+    $pageId = [string](Get-LkProp $m 'pageId' '')
+    $meta = if ($Archive) { @{ status = 'archived'; archivedFrom = $From } } else { @{ status = ''; archivedFrom = '' } }
+    Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = $meta; Outlines = @(); Title = $null } | Out-Null
+    Invoke-Store $Store 'IndexUpdatePage' @{ Page = (@{ id = $Id } + $meta) } | Out-Null
+    $rec = (Get-IndexPageMap (Invoke-Store $Store 'GetIndex'))[$Id]
+    , @(@(Get-LkProp $rec 'links' @()) | ForEach-Object { [string](Get-LkProp $_ 'target' '') } | Where-Object { $_ })
+}
+
+function Invoke-PageRetire {
+    <# Archive, Restore or Delete pages of the active vault after the person confirmed. Pages the plan
+       refuses are listed and never touched; one page that fails does not stop the others. A moved page
+       gets a new OneNote link, so the "Linked from" lists of the pages it links to are written again.
+       Returns @{ status = done | partial | invalid | refused | failed; message; action;
+       done = @(@{ id; title; to }); refused = @(@{ id; title; reason }); failed = @(@{ id; title; error });
+       warnings; ms }. Never throws. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Store, [ValidateSet('archive', 'restore', 'delete')][string]$Action, [string[]]$Ids = @())
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $r = [ordered]@{ status = 'failed'; message = ''; action = $Action; done = @(); refused = @(); failed = @(); warnings = @(); ms = 0 }
+    try { $r = Invoke-PageRetireWrite -Store $Store -Action $Action -Ids $Ids -Result $r }
+    catch { $r.status = 'failed'; $r.message = "Nothing more was changed: $($_.Exception.Message)" }
+    $r.ms = [int]$sw.ElapsedMilliseconds
+    Write-AppLog info ingest 'Retire finished' @{ action = $Action; status = $r.status; done = @($r.done).Count; refused = @($r.refused).Count; failed = @($r.failed).Count; ms = $r.ms }
+    $r
+}
+
+function Invoke-PageRetireWrite {
+    param($Store, [string]$Action, [string[]]$Ids, $Result)
+    $r = $Result
+    try { Invoke-Store $Store 'AssertWritable' | Out-Null } catch { $r.status = 'refused'; $r.message = "Nothing was changed: $($_.Exception.Message)"; return $r }
+    $plan = Get-RetirePlan -Store $Store -Action $Action -Ids $Ids
+    $r.refused = @($plan.refused)
+    if (-not @($plan.pages).Count) {
+        $r.status = 'invalid'
+        $r.message = if (@($plan.refused).Count) { "Nothing was changed: $(@($plan.refused)[0].reason)" } else { 'Choose at least one page.' }
+        return $r
+    }
+    $done = New-Object System.Collections.Generic.List[object]
+    $failed = New-Object System.Collections.Generic.List[object]
+    $targets = New-Object System.Collections.Generic.List[string]
+    foreach ($p in @($plan.pages)) {
+        try {
+            if ($Action -eq 'delete') { $x = Invoke-PageRemoval -Store $Store -Id $p.id; $r.warnings = @($r.warnings) + @($x.warnings) }
+            else {
+                $tg = Set-PageArchived -Store $Store -Id $p.id -To $p.to -From $p.section -Archive:($Action -eq 'archive')
+                foreach ($t in @($tg)) { if ($t -and -not $targets.Contains($t)) { $targets.Add($t) } }
+            }
+            $done.Add([ordered]@{ id = $p.id; title = $p.title; to = $p.to })
+        } catch { $failed.Add([ordered]@{ id = $p.id; title = $p.title; error = $_.Exception.Message }) }
+    }
+    if ($targets.Count) {
+        $idx = Invoke-Store $Store 'GetIndex'
+        $live = Get-IndexPageMap $idx
+        $bl = Update-Backlinks -Store $Store -Index $idx -Targets @($targets | Where-Object { $live.ContainsKey($_) })
+        $r.warnings = @($r.warnings) + @($bl.warnings)
+    }
+    $r.done = @($done.ToArray()); $r.failed = @($failed.ToArray())
+    $r.status = if (-not $done.Count) { 'failed' } elseif ($failed.Count) { 'partial' } else { 'done' }
+    $r.message = Get-RetireMessage -Action $Action -Done @($r.done) -Failed $failed.Count
+    $r
+}
+
+function Get-RetireMessage {
+    <# The one line the window shows after Archive, Restore or Delete. #>
+    param([string]$Action, [object[]]$Done = @(), [int]$Failed = 0)
+    $n = @($Done).Count
+    $what = if ($n -eq 1) { [string]$Done[0].title } else { "$n pages" }
+    $line = switch ($Action) {
+        'archive' { "Archived: $what. Restore brings $(if ($n -eq 1) { 'it' } else { 'them' }) back." }
+        'restore' { "Restored: $what." }
+        default { "Deleted: $what. OneNote keeps deleted pages in its Deleted Pages for 60 days." }
+    }
+    if (-not $n) { $line = 'Nothing was changed.' }
+    if ($Failed) { $line += " $Failed page(s) could not be changed." }
+    $line
 }
 
 function Get-OutlineText {
@@ -1127,6 +1288,15 @@ $script:EditFields = @('title', 'type', 'topics', 'aliases', 'summary', 'url', '
 
 function Test-EditText([string]$Text, [int]$Max) { $Text.Length -le $Max -and $Text -notmatch '[\x00-\x08\x0b\x0c\x0e-\x1f]' }
 
+function Get-MoveRefusal {
+    <# Why an edit may not move page $Rec to another section ('' = it may). An archived page stays in
+       the Archive until Restore; a link page's section follows its address, never a chosen type. #>
+    param($Rec, [string]$What, [string[]]$Types = @())
+    if ((Get-LkString $Rec 'status') -eq 'archived') { return "This page is archived. Restore it first, then change its $What." }
+    if ($What -eq 'type' -and @($Types | Where-Object { $_ -like 'link-*' }).Count) { return 'A link page''s section comes from its address: change the address, or pick a type that is not a link.' }
+    ''
+}
+
 function Get-EditPlan {
     <# Validates the asked changes of page $Rec against the index; nothing is written. Returns
        @{ ok; message; changes (only fields that differ, normalised) }. Pure apart from store reads. #>
@@ -1144,7 +1314,11 @@ function Get-EditPlan {
         $cur = Get-LkString $Rec 'type'
         if ($ty -ne $cur) {
             $b1 = [string](Invoke-Store $Store 'BucketForType' @{ Type = $cur }); $b2 = [string](Invoke-Store $Store 'BucketForType' @{ Type = $ty })
-            if ($b1 -ne $b2) { return (& $fail "Type '$ty' belongs in ${b2}, not in ${b1}: moving a page to another section is not possible yet.") }
+            if ($b1 -ne $b2) {
+                $why = Get-MoveRefusal -Rec $Rec -What 'type' -Types @($cur, $ty)
+                if ($why) { return (& $fail $why) }
+                $ch.moveTo = $b2
+            }
             $ch.type = $ty
         }
     }
@@ -1176,7 +1350,13 @@ function Get-EditPlan {
         if ($u -notmatch '^(?i)https?://[^\s/?#]+' -or $u.Length -gt 2000) { return (& $fail 'The address must be an http(s) link.') }
         if ($u -ne (Get-LkString $Rec 'url')) {
             $b1 = [string](Invoke-Store $Store 'LinkBucket' @{ Url = (Get-LkString $Rec 'url') }); $b2 = [string](Invoke-Store $Store 'LinkBucket' @{ Url = $u })
-            if ((Get-LkString $Rec 'url') -and $b1 -ne $b2) { return (& $fail "That address belongs in ${b2}, not in ${b1}: moving a page to another section is not possible yet.") }
+            if ((Get-LkString $Rec 'url') -and $b1 -ne $b2) {
+                $why = Get-MoveRefusal -Rec $Rec -What 'address'
+                if ($why) { return (& $fail $why) }
+                # The address decides a link page's section and type (FEASIBILITY.md, Links).
+                $ch.moveTo = $b2
+                $ch.type = $(if ($b2 -eq 'Internal links') { 'link-internal' } else { 'link-web' })
+            }
             $other = Invoke-Store $Store 'FindPageByUrl' @{ Url = $u }
             if ($other -and (Get-LkString $other 'id') -ne (Get-LkString $Rec 'id')) { return (& $fail "That address already has its own page: $(Get-LkString $other 'title').") }
             $ch.url = $u
@@ -1220,7 +1400,8 @@ function Get-EditPlan {
 }
 
 function Edit-Page {
-    <# The person edits one of ObsidiNote's pages in the window: title, type (within its section),
+    <# The person edits one of ObsidiNote's pages in the window: title, type (a type or address of
+       another section moves the page there, store MovePage; result field moved = the new section),
        topics, aliases, summary, a link page's address, and its links to other pages. Only ObsidiNote's
        own parts are written: the title, the page's obsn.* Meta and the properties outline (the store's
        UpdatePage); the body and "Your notes" are never touched. The "Linked from" list of every page
@@ -1266,7 +1447,7 @@ function Invoke-PageEditWrite {
     $plan = Get-EditPlan -Store $Store -Rec $rec -Pages $pages -Ask $Ask
     if (-not $plan.ok) { $r.status = 'invalid'; $r.message = $plan.message; return $r }
     $ch = $plan.changes
-    $r.changed = @($ch.Keys | Where-Object { $_ -ne 'host' } | Sort-Object)
+    $r.changed = @($ch.Keys | Where-Object { @('host', 'moveTo') -notcontains $_ } | Sort-Object)
     if (-not $r.changed.Count) { $r.status = 'unchanged'; $r.message = 'Nothing changed.'; return $r }
 
     $meta = @{}; foreach ($k in 'type', 'topics', 'aliases', 'summary', 'url', 'host', 'links', 'origin', 'tags') { if ($ch.ContainsKey($k)) { $meta[$k] = $ch[$k] } }
@@ -1275,11 +1456,18 @@ function Invoke-PageEditWrite {
     if ($ch.ContainsKey('title')) { $ix.title = $ch.title }
     try { Invoke-Store $Store 'IndexUpdatePage' @{ Page = $ix } | Out-Null }
     catch { $r.warnings = @($r.warnings) + "The index was not updated; the next start reads the page again ($($_.Exception.Message))." }
+    $moved = ''
+    if ($ch.ContainsKey('moveTo')) {
+        # A type or address of another section moves the page there (store MovePage: a new hierarchy
+        # id and link, found again by its obsn.id; the index record follows).
+        try { $mv = Invoke-Store $Store 'MovePage' @{ Id = $Id; Bucket = [string]$ch.moveTo; Type = '' }; $moved = [string](Get-LkProp $mv 'to' '') }
+        catch { $r.warnings = @($r.warnings) + "The page was saved but stays in its section: $($_.Exception.Message)" }
+    }
 
     # "Linked from" on the pages this one links to now or did before (when the links or the title changed).
     $old = @(@(Get-LkProp $rec 'links' @()) | ForEach-Object { [string](Get-LkProp $_ 'target' (Get-LkProp $_ 't' '')) })
     $new = if ($ch.ContainsKey('links')) { @($ch.links | ForEach-Object { $_['target'] }) } else { $old }
-    $targets = if ($ch.ContainsKey('title')) { @($old + $new) } elseif ($ch.ContainsKey('links')) { @(@($old | Where-Object { $new -notcontains $_ }) + @($new | Where-Object { $old -notcontains $_ })) } else { @() }
+    $targets = if ($ch.ContainsKey('title') -or $moved) { @($old + $new) } elseif ($ch.ContainsKey('links')) { @(@($old | Where-Object { $new -notcontains $_ }) + @($new | Where-Object { $old -notcontains $_ })) } else { @() }
     if (@($targets | Where-Object { $_ }).Count) {
         $fresh = Invoke-Store $Store 'GetIndex'
         $bl = Update-Backlinks -Store $Store -Index $fresh -Targets @($targets | Where-Object { $_ -and $pages.ContainsKey($_) })
@@ -1287,7 +1475,8 @@ function Invoke-PageEditWrite {
         $r.warnings = @($r.warnings) + @($bl.warnings)
     }
     $r.status = 'edited'
-    $r.message = "Saved: $(if ($ch.ContainsKey('title')) { $ch.title } else { Get-LkString $rec 'title' })"
+    $r.message = "Saved: $(if ($ch.ContainsKey('title')) { $ch.title } else { Get-LkString $rec 'title' })$(if ($moved) { ", moved to $moved" })"
+    $r['moved'] = $moved
     $r
 }
 
@@ -1425,4 +1614,4 @@ function Rename-Tag {
     $r
 }
 
-Export-ModuleMember -Function Set-PageTags, Rename-Tag, Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle, Add-PageLink, Test-PagesLinked, Edit-Page, Test-WeakLinkIt, Update-LinkItStrength
+Export-ModuleMember -Function Get-RetirePlan, Invoke-PageRetire, Set-PageTags, Rename-Tag, Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle, Add-PageLink, Test-PagesLinked, Edit-Page, Test-WeakLinkIt, Update-LinkItStrength

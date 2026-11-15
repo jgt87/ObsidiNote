@@ -167,6 +167,9 @@ export interface AreaLabelInput {
   y: number
   r: number
   name: string
+  /** Pages drawn in the area, shown beside its name; never more than the layout's count, which
+   *  sized the room kept free for the name (labelSize.ts labelSlot). */
+  count?: number
 }
 
 export interface AreaLabelPlace {
@@ -177,8 +180,9 @@ export interface AreaLabelPlace {
   /** Always centred on its own area (operator, 2026-11-14); kept as a field for the CSS hook. */
   at: 'center'
   rect: Rect
-  /** The name as drawn: shortened with "…" when the full name is wider than its area. */
+  /** The name as drawn: shortened with "…" when the full name and its count are wider than its area. */
   text: string
+  count?: number
 }
 
 import { areaLabelSize, shortenToWidth } from './labelSize'
@@ -187,10 +191,11 @@ export { areaLabelSize, shortenToWidth }
 /**
  * Each topic name centred on its own area (operator, 2026-11-14: names above or below an area sat
  * in the gaps where the topic lines run; centred, a name never meets a line, and the stage hides it
- * while the pointer is over its area so it never blocks the pages). The name alone (review
- * 2026-11-14: the "N pages · subjects" line under it lay on the area's dots and links; the layout
- * keeps the name's own room free of dots, labelSize.ts labelSlot, and the counts and subjects are
- * in the List, the quick switcher and the page window's Topic tab); a name wider than its area is shortened
+ * while the pointer is over its area so it never blocks the pages). One line: the name and its page
+ * count beside it (operator, 2026-11-15), no second line (review 2026-11-14: an "N pages · subjects"
+ * line under the name lay on the area's dots and links; the layout keeps the room of the name with
+ * its count free of dots, labelSize.ts labelSlot, and the subjects are in the List, the quick
+ * switcher and the page window's Topic tab); a name wider than its area is shortened
  * with "…" (code review 2026-11-14: a long SharePoint site name on a one-page area covered its
  * neighbours). On an area too small for even a few letters, a name that would still cover another
  * area or a bigger area's name is left out (larger areas keep theirs first); the area's pages and
@@ -198,10 +203,10 @@ export { areaLabelSize, shortenToWidth }
  */
 export function placeAreaLabels(areas: AreaLabelInput[]): AreaLabelPlace[] {
   const placed = areas.map((a) => {
-    const text = shortenToWidth(a.name, a.r * 1.8)
-    const { w, h } = areaLabelSize(text)
+    const text = shortenToWidth(a.name, a.r * 1.8, a.count)
+    const { w, h } = areaLabelSize(text, a.count)
     const top = a.y - h / 2
-    return { id: a.id, x: a.x, top, at: 'center' as const, rect: [a.x - w / 2, top, a.x + w / 2, top + h] as Rect, text }
+    return { id: a.id, x: a.x, top, at: 'center' as const, rect: [a.x - w / 2, top, a.x + w / 2, top + h] as Rect, text, count: a.count }
   })
   const byId = new Map(areas.map((a) => [a.id, a]))
   const order = [...placed].sort((p, q) => byId.get(q.id)!.r - byId.get(p.id)!.r)

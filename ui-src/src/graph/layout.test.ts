@@ -25,6 +25,15 @@ describe('topic names: the middle of an area stays free of dots', () => {
       expect(dotsUnderNames(syntheticGraph(opts)), JSON.stringify(opts)).toEqual([])
     }
   })
+  it('sizes a name with its page count beside it, and shortens the name, not the count', () => {
+    expect(areaLabelSize('Security', 34).w - areaLabelSize('Security').w).toBeCloseTo(2 * 12 * 0.56 + 8)
+    expect(areaLabelSize('Security', 1234).w).toBeGreaterThan(areaLabelSize('Security', 34).w)
+    const room = areaLabelSize('Security', 34).w
+    expect(shortenToWidth('Security', room, 34)).toBe('Security')
+    const cut = shortenToWidth('Security operations and platform', room, 34)
+    expect(cut.endsWith('…')).toBe(true)
+    expect(areaLabelSize(cut, 34).w).toBeLessThanOrEqual(room)
+  })
   it('holds for a long name on a one-page area (a SharePoint site in the Sources view)', () => {
     const m = syntheticGraph({ pages: 2, topics: 2 })
     m.topics[0].name = 'SharePoint: Platform engineering and operations'
@@ -43,7 +52,7 @@ describe('topic names: the middle of an area stays free of dots', () => {
   // zoom 1. A map of a few hundred pages is fitted zoomed out; the name keeps its screen size and
   // lay on its dots again (4 at 300 pages, over 200 at 600). This one measures on the screen, at
   // the zoom the map is fitted to, with the name as it is drawn (shortened to its area).
-  it('puts no dot under a name ON SCREEN at the fitted zoom, from 100 to 1000 pages', () => {
+  it('puts no dot under a name and its page count ON SCREEN at the fitted zoom, from 100 to 1000 pages', () => {
     const aspect = 1.45
     for (const opts of [{ pages: 100, topics: 6 }, { pages: 300, topics: 15 }, { pages: 600, topics: 25 }, { pages: 1000, topics: 18, seed: 3 }]) {
       const layout = layoutGraph(syntheticGraph(opts), { aspect })
@@ -51,9 +60,11 @@ describe('topic names: the middle of an area stays free of dots', () => {
       const areaById = new Map(layout.areas.map((a) => [a.id, a]))
       const under = layout.dots.filter((d) => {
         const a = areaById.get(d.area)!
-        const text = shortenToWidth(a.name, a.r * k * 1.8)
+        // As the stage draws it: the name and the count of the area's pages (stageModel.ts).
+        const count = a.pageIds.length
+        const text = shortenToWidth(a.name, a.r * k * 1.8, count)
         if (!text) return false // too small for a name: none is drawn
-        const { w, h } = areaLabelSize(text)
+        const { w, h } = areaLabelSize(text, count)
         return Math.abs(d.x - a.x) * k < w / 2 + d.r * k && Math.abs(d.y - a.y) * k < h / 2 + d.r * k
       })
       expect(under.map((d) => `${d.id} in ${areaById.get(d.area)!.name}`), `${JSON.stringify(opts)} fitted at ${k.toFixed(2)}`).toEqual([])

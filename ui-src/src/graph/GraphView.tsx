@@ -3,7 +3,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { exportSourceOf } from '../export/exportApi'
-import { addLink, editPage, fetchPageBody, tagPages } from './graphApi'
+import { updateLink } from '../add/api'
+import { addLink, editPage, fetchPageBody, retirePages, tagPages } from './graphApi'
 import { KnowledgeGraph, type KnowledgeGraphProps } from './KnowledgeGraph'
 import { mentionBetween, withMentions } from './mentions'
 import type { GraphModel } from './model'
@@ -21,7 +22,7 @@ export interface GraphViewProps extends Omit<KnowledgeGraphProps, 'model'> {
   onAdd?: () => void
 }
 
-export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, onTagPages, loadBody, ...rest }: GraphViewProps) {
+export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, onTagPages, loadBody, onRetire, onUpdateLink, ...rest }: GraphViewProps) {
   const [state, setState] = useState<State>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
   const loaded = state.status === 'ready' ? state.model : null
@@ -76,6 +77,34 @@ export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, o
       })
     }
   }, [onTagPages, model, writable, refresh])
+
+  // Archive / Restore / Delete: after a result the map is read again in place; a plan (the confirm's
+  // data) writes nothing, so it needs no re-read. A failed re-read is said in the result's message,
+  // never as a failure: the pages did change.
+  const retireFn = useMemo<PageActions['onRetire']>(() => {
+    if (!model || !writable) return undefined
+    const vault = model.source.id
+    return async (action, ids, confirm) => {
+      const a = onRetire ? await onRetire(action, ids, confirm) : await retirePages(action, ids, vault, confirm)
+      if (a.kind === 'result') {
+        await refresh().catch(() => {
+          a.result.message += ' The map could not be read again; reload it to see the change.'
+        })
+      }
+      return a
+    }
+  }, [onRetire, model, writable, refresh])
+
+  // One link page's Update (the List's "Update summaries"), then the map again, so the page's date
+  // and the stale filter follow.
+  const updateLinkFn = useMemo<PageActions['onUpdateLink']>(() => {
+    if (!model || !writable) return undefined
+    return async (id) => {
+      const status = onUpdateLink ? await onUpdateLink(id) : (await updateLink(id)).status
+      await refresh().catch(() => {})
+      return status
+    }
+  }, [onUpdateLink, model, writable, refresh])
 
   // The page window's text: the shown source's page, read when the window shows it. The function
   // only changes with the source, so an open page is not read again after a tag or an edit.
@@ -135,7 +164,7 @@ export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, o
       </div>
     )
   }
-  return <KnowledgeGraph model={model} onLinkMention={linkMention} onEditPage={editPageFn} onTagPages={tagPagesFn} loadBody={loadBodyFn} {...rest} />
+  return <KnowledgeGraph model={model} onLinkMention={linkMention} onEditPage={editPageFn} onTagPages={tagPagesFn} loadBody={loadBodyFn} onRetire={retireFn} onUpdateLink={updateLinkFn} {...rest} />
 }
 
 /** Loading: the title and one line of text, nothing drawn on the map. design: no placeholder areas;

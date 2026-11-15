@@ -3,18 +3,20 @@
 // mock-up's tool), positioned in screen pixels from the same viewport as the SVG.
 //
 // Performance: the base layer (every area, link and dot) is memoised and never re-renders on
-// hover, pan or zoom; pan/zoom only change one transform, and focus dims the base layer with one
-// attribute and redraws the focused dot and its neighbours in a small layer on top.
+// hover, pan or zoom; pan/zoom only change one transform (useStageView.ts), and focus dims the base
+// layer with one attribute and redraws the focused dot and its neighbours in a small layer on top.
+// What is named, drawn on top and done on a key is decided in stageModel.ts.
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
-import { flushSync } from 'react-dom'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import { plural } from './format'
 import { indexPath, type GraphIndex } from './graphIndex'
 import { HoverCard } from './HoverCard'
-import { bundleEdges, edgePath, onePerPair, restingBundles, type BundleLayout, type DotLayout, type GraphLayout } from './layout'
-import { primaryTopic, type GraphEdge } from './model'
-import { groupLabelSize } from './labelSize'
-import { FIT_BOTTOM, fitViewport, labelMode, lineMode, MIN_ZOOM_FACTOR, needsSharp, nextInDirection, pan, placeAreaLabels, placeLabels, toScreen, zoomAt, type Direction, type LabelBox, type Viewport } from './view'
+import { bundleEdges, restingBundles, type BundleLayout, type DotLayout, type GraphLayout } from './layout'
+import { primaryTopic } from './model'
+import { StageLegend, StageToolbar } from './StageChrome'
+import { areaAt, drawnAtRest, edgeClass, focusEdgeClass, focusEdgeList, sharpDots, stageKey, stageLabels, type StageKeyAction } from './stageModel'
+import { useStageView } from './useStageView'
+import { lineMode, pan, toScreen } from './view'
 
 export interface Filters {
   links: boolean
@@ -72,17 +74,7 @@ const BaseLayer = memo(function BaseLayer({ layout, links, mentions, shown, bund
       <g className="kg-areas">
         {layout.areas.map((a) => (a.pageIds.some(on) ? <circle key={a.id} className="kg-area" cx={a.x} cy={a.y} r={a.r} /> : null))}
       </g>
-      <g>
-        {layout.edges.map((e, i) => {
-          const m = e.edge.kind === 'mention'
-          if (m ? !mentions : !links) return null
-          if (!on(e.edge.from) || !on(e.edge.to)) return null
-          const a = layout.dotById.get(e.edge.from)
-          const b = layout.dotById.get(e.edge.to)
-          if (a && b && a.area !== b.area) return null
-          return <path key={i} d={e.d} className={m ? 'kg-edge kg-edge--mention' : `kg-edge kg-s${e.edge.strength}`} />
-        })}
-      </g>
+      <g>{layout.edges.map((e, i) => (drawnAtRest(e, layout, links, mentions, on) ? <path key={i} d={e.d} className={edgeClass(e.edge)} /> : null))}</g>
       <g>
         {layout.dots.map((d) => (on(d.id) ? <circle key={d.id} data-id={d.id} className={dotClass(d)} cx={d.x} cy={d.y} r={d.r} /> : null))}
       </g>
@@ -94,105 +86,30 @@ function dotClass(d: DotLayout, extra = ''): string {
   return `kg-dot${d.unlinked ? ' kg-dot--unlinked' : d.hub ? ' kg-dot--hub' : ''}${extra}`
 }
 
-const KEY_DIR: Record<string, Direction> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }
+const idOf = (t: EventTarget | null): string | null => (t instanceof Element ? t.getAttribute('data-id') : null)
 
 export function GraphStage({ index, layout, filters, matches, active, onActive, onOpen, stageRef, label, shown = null, onFocusPage, areaWord = 'topic' }: Props) {
-  const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
-  const [view, setView] = useState<Viewport | null>(null)
+  const { size, v, fit, setView, layerRef, current, preview, commit, zoomBy } = useStageView(stageRef, layout)
   const [dragging, setDragging] = useState(false)
   /** The topic area under the pointer (its name is hidden while it is). */
   const [hoverArea, setHoverArea] = useState<string | null>(null)
   const drag = useRef<{ x: number; y: number; id: string | null; moved: boolean; pointer: number } | null>(null)
   const pointerFocus = useRef(false)
   const toolbarRef = useRef<HTMLButtonElement>(null)
-  const layerRef = useRef<HTMLDivElement>(null)
-  // While a wheel or drag gesture runs, the picture moves with a CSS transform only (cheap,
-  // composited); the real viewport is committed when the gesture settles.
-  const live = useRef<Viewport | null>(null)
-  const timer = useRef(0)
-  const drawnAt = useRef(0)
-
-  // Stage size.
-  useLayoutEffect(() => {
-    const el = stageRef.current
-    if (!el) return
-    const measure = () => setSize({ w: el.clientWidth, h: el.clientHeight })
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [stageRef])
-
-  const fit = useMemo(() => fitViewport(layout.bounds, size.w, size.h, FIT_BOTTOM), [layout.bounds, size.w, size.h])
-  // A new layout or the first measurement: show everything.
-  useEffect(() => {
-    if (size.w > 0) setView(fit)
-  }, [layout, size.w > 0]) // eslint-disable-line react-hooks/exhaustive-deps
-  const v = view ?? fit
-  const viewRef = useRef(v)
-  viewRef.current = v
-  const minK = fit.k * MIN_ZOOM_FACTOR
-
-  const commit = useCallback(() => {
-    window.clearTimeout(timer.current)
-    const next = live.current
-    if (!next) return
-    live.current = null
-    flushSync(() => setView(next))
-    drawnAt.current = performance.now()
-    if (layerRef.current) layerRef.current.style.transform = ''
-    stageRef.current?.removeAttribute('data-moving')
-  }, [stageRef])
-  const preview = useCallback(
-    (next: Viewport, settle: number) => {
-      live.current = next
-      const base = viewRef.current
-      // A zoom-in that has stretched the last drawing far enough is drawn again at once, so the
-      // circles and names stay sharp while the wheel keeps turning (view.ts needsSharp).
-      if (needsSharp(next.k / base.k, performance.now() - drawnAt.current, layout.dots.length)) {
-        commit()
-        return
-      }
-      const tx = (base.x - next.x) * next.k
-      const ty = (base.y - next.y) * next.k
-      if (layerRef.current) layerRef.current.style.transform = `translate(${tx}px, ${ty}px) scale(${next.k / base.k})`
-      stageRef.current?.setAttribute('data-moving', 'true')
-      window.clearTimeout(timer.current)
-      timer.current = window.setTimeout(commit, settle)
-    },
-    [commit, stageRef, layout.dots.length],
-  )
-  useEffect(() => () => window.clearTimeout(timer.current), [])
-
-  // Scroll to zoom (a native listener: React's wheel handler is passive).
-  useEffect(() => {
-    const el = stageRef.current
-    if (!el) return
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault()
-      const r = el.getBoundingClientRect()
-      const factor = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015))
-      preview(zoomAt(live.current ?? viewRef.current, factor, e.clientX - r.left, e.clientY - r.top, minK), 140)
-    }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  }, [stageRef, preview, minK])
-
-  // Buttons and +/- keys: the same cheap preview, committed after a short pause (repeated
-  // presses stay smooth).
-  const zoomBy = useCallback(
-    (factor: number) => preview(zoomAt(live.current ?? viewRef.current, factor, size.w / 2, size.h / 2, minK), 220),
-    [preview, size, minK],
-  )
 
   const matchSet = useMemo(() => (matches ? new Set(matches) : null), [matches])
+  // A search highlights its results; it hides nothing (operator, 2026-11-15: "I'm not able to select
+  // any other dots than the searched item"). The pointer reaches every page the filters show
+  // (isShown); the keyboard walks the results while a search runs (visible), as the box's Enter
+  // and arrow keys do.
   const isShown = useCallback((id: string) => !shown || shown.has(id), [shown])
   const visible = useCallback((id: string) => isShown(id) && (!matchSet || matchSet.has(id)), [matchSet, isShown])
   const activeDot = active && isShown(active.id) ? layout.dotById.get(active.id) ?? null : null
+  const viaKeyboard = active?.via === 'keyboard'
 
   // Keyboard focus keeps the active dot on screen.
   useEffect(() => {
-    if (!activeDot || active?.via !== 'keyboard' || !size.w) return
+    if (!activeDot || !viaKeyboard || !size.w) return
     const [sx, sy] = toScreen(v, activeDot.x, activeDot.y)
     const m = 48
     if (sx < m || sy < m || sx > size.w - m || sy > size.h - m) {
@@ -201,42 +118,39 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   }, [activeDot, active?.via]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- pointer ----------
-  const idOf = (t: EventTarget | null): string | null => (t instanceof Element ? t.getAttribute('data-id') : null)
-
   const keyboardMode = useRef(false)
   useEffect(() => {
-    if (active?.via === 'keyboard') keyboardMode.current = true
-  }, [active])
+    if (viaKeyboard) keyboardMode.current = true
+  }, [active]) // eslint-disable-line react-hooks/exhaustive-deps
   // A click anywhere outside the map closes a card the keyboard left open (a pointer card closes
   // when the pointer leaves its dot). Not while the page window is open: it sits on top.
   useEffect(() => {
-    if (active?.via !== 'keyboard') return
+    if (!viaKeyboard) return
     const onDown = (e: PointerEvent) => {
       const el = stageRef.current
       const t = e.target as Node | null
-      if (!el || (t && el.contains(t)) || document.querySelector('dialog[open]')) return
+      const insideMap = !!t && !!el?.contains(t)
+      if (!el || insideMap || document.querySelector('dialog[open]')) return
       onActive(null)
     }
     window.addEventListener('pointerdown', onDown)
     return () => window.removeEventListener('pointerdown', onDown)
-  }, [active?.via, onActive, stageRef])
+  }, [viaKeyboard, onActive, stageRef])
 
   const onPointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
     if (e.button !== 0) return
     pointerFocus.current = true
     drag.current = { x: e.clientX, y: e.clientY, id: idOf(e.target), moved: false, pointer: e.pointerId }
   }
+  const trackHoverArea = (e: ReactPointerEvent<SVGSVGElement>) => {
+    // The area under the pointer: its name gives way so it never covers the pages.
+    const box = e.currentTarget.getBoundingClientRect()
+    const over = areaAt(layout.areas, current(), e.clientX - box.left, e.clientY - box.top)
+    if (over !== hoverArea) setHoverArea(over)
+  }
   const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
     keyboardMode.current = false
-    if (!drag.current?.moved) {
-      // The area under the pointer: its name gives way so it never covers the pages.
-      const box = e.currentTarget.getBoundingClientRect()
-      const cur = live.current ?? viewRef.current
-      const wx = (e.clientX - box.left) / cur.k + cur.x
-      const wy = (e.clientY - box.top) / cur.k + cur.y
-      const over = layout.areas.find((a) => Math.hypot(wx - a.x, wy - a.y) <= a.r)?.id ?? null
-      if (over !== hoverArea) setHoverArea(over)
-    }
+    if (!drag.current?.moved) trackHoverArea(e)
     const d = drag.current
     if (!d || d.pointer !== e.pointerId) return
     const dx = e.clientX - d.x
@@ -250,7 +164,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
     }
     d.x = e.clientX
     d.y = e.clientY
-    preview(pan(live.current ?? viewRef.current, dx, dy), 400)
+    preview(pan(current(), dx, dy), 400)
   }
   const onPointerUp = (e: ReactPointerEvent<SVGSVGElement>) => {
     const d = drag.current
@@ -264,7 +178,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
       commit()
       return
     }
-    if (d.id && visible(d.id)) onOpen(d.id, 'pointer')
+    if (d.id && isShown(d.id)) onOpen(d.id, 'pointer')
     // A click on an empty spot closes a preview card, also one the keyboard left open (2026-11-13).
     else if (active) onActive(null)
   }
@@ -273,7 +187,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
     // hover takes over only after the pointer really moves.
     if (drag.current?.moved || keyboardMode.current) return
     const id = idOf(e.target)
-    if (id && visible(id) && active?.id !== id) onActive({ id, via: 'pointer' })
+    if (id && isShown(id) && active?.id !== id) onActive({ id, via: 'pointer' })
   }
   const onPointerOut = (e: ReactPointerEvent<SVGSVGElement>) => {
     const id = idOf(e.target)
@@ -284,49 +198,23 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
 
   // ---------- keyboard ----------
   const order = useMemo(() => layout.dots.filter((d) => visible(d.id)), [layout.dots, visible])
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.target !== e.currentTarget) return
-    const dir = KEY_DIR[e.key]
-    if (dir) {
-      e.preventDefault()
-      if (!activeDot) {
-        if (order[0]) onActive({ id: order[0].id, via: 'keyboard' })
-        return
-      }
-      const next = nextInDirection(layout.dots, activeDot, dir, visible)
-      if (next) onActive({ id: next.id, via: 'keyboard' })
-      return
-    }
-    if (e.key === 'Tab' && activeDot && !e.altKey && !e.ctrlKey && !e.metaKey) {
-      const i = order.findIndex((d) => d.id === activeDot.id)
-      const j = i + (e.shiftKey ? -1 : 1)
-      if (i >= 0 && j >= 0 && j < order.length) {
-        e.preventDefault()
-        onActive({ id: order[j].id, via: 'keyboard' })
-      }
-      // At either end Tab leaves the map as usual.
-      return
-    }
-    if (e.key === 'Enter' && activeDot) {
-      e.preventDefault()
-      onOpen(activeDot.id)
-    } else if ((e.key === 'f' || e.key === 'F') && activeDot && onFocusPage && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault()
-      onFocusPage(activeDot.id)
-    } else if (e.key === 'Escape' && active) {
-      e.preventDefault()
+  const runKeyAction = (a: StageKeyAction) => {
+    if (a.kind === 'activate') onActive({ id: a.id, via: 'keyboard' })
+    else if (a.kind === 'open') onOpen(a.id)
+    else if (a.kind === 'focusPage') onFocusPage?.(a.id)
+    else if (a.kind === 'zoom') zoomBy(a.factor)
+    else if (a.kind === 'fit') setView(fit)
+    else {
       onActive(null)
       toolbarRef.current?.focus()
-    } else if (e.key === '+' || e.key === '=') {
-      e.preventDefault()
-      zoomBy(1.25)
-    } else if (e.key === '-') {
-      e.preventDefault()
-      zoomBy(0.8)
-    } else if (e.key === '0') {
-      e.preventDefault()
-      setView(fit)
     }
+  }
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return
+    const r = stageKey(e, { activeDot, hasActive: !!active, order, dots: layout.dots, visible, canFocusPage: !!onFocusPage })
+    if (!r) return
+    if (r.prevent) e.preventDefault()
+    if (r.action) runKeyAction(r.action)
   }
   const onFocus = (e: FocusEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return
@@ -338,86 +226,17 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
     else if (active) onActive({ id: active.id, via: 'keyboard' })
   }
   const onBlur = (e: FocusEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget && active?.via === 'keyboard') onActive(null)
+    if (e.target === e.currentTarget && viaKeyboard) onActive(null)
   }
 
-  // ---------- focus layer ----------
+  // ---------- focus layer and names ----------
+  const activeId = activeDot?.id ?? null
   const near = useMemo(() => (activeDot ? (index.neighbours.get(activeDot.id) ?? []).filter(isShown) : []), [index, activeDot, isShown])
-  const focusEdges = useMemo(() => {
-    if (!activeDot) return [] as { e: GraphEdge; d: string }[]
-    const list: GraphEdge[] = []
-    if (filters.links) list.push(...(index.out.get(activeDot.id) ?? []), ...(index.in.get(activeDot.id) ?? []))
-    if (filters.mentions) list.push(...(index.mentions.get(activeDot.id) ?? []))
-    return onePerPair(list).flatMap((e) => {
-      if (!isShown(e.from) || !isShown(e.to)) return []
-      const a = layout.dotById.get(e.from)
-      const b = layout.dotById.get(e.to)
-      return a && b ? [{ e, d: edgePath(a.x, a.y, b.x, b.y) }] : []
-    })
-  }, [index, layout, activeDot, filters.links, filters.mentions, isShown])
-
-  const sharp: DotLayout[] = useMemo(() => {
-    const ids = activeDot ? [...near] : matches ? matches.filter(isShown).slice(0, 400) : []
-    return ids.map((id) => layout.dotById.get(id)).filter((d): d is DotLayout => !!d && d.id !== activeDot?.id)
-  }, [activeDot, near, matches, layout, isShown])
-
+  const focusEdges = useMemo(() => focusEdgeList(index, layout, activeId, filters.links, filters.mentions, isShown), [index, layout, activeId, filters.links, filters.mentions, isShown])
+  const sharp = useMemo(() => sharpDots(layout, activeId, near, matches, isShown), [activeId, near, matches, layout, isShown])
   const dim = !!activeDot || !!matches
+  const { areaLabels, groupLabels, hiddenAreas, labels } = stageLabels({ layout, index, v, fitK: fit.k, size, shown, activeDot, sharp, matches, hubsOnly: filters.hubsOnly, hoverArea })
 
-  // ---------- labels ----------
-  // Topic names first, each where it touches no other topic (placeAreaLabels); page names then
-  // keep clear of them. Candidates in priority order (focused page first); placeLabels drops the
-  // ones that would overlap a label already placed, so labels never pile up on each other.
-  const areaLabels = placeAreaLabels(
-    layout.areas
-      .filter((a) => !shown || a.pageIds.some(isShown))
-      .map((a) => {
-        const [x, y] = toScreen(v, a.x, a.y)
-        return { id: a.id, x, y, r: a.r * v.k, name: a.name }
-      }),
-  )
-  // Group names inside an area (the Tags grouping: a topic's name over its pages). The layout kept
-  // their room free of dots at the fitted zoom; zoomed out further they would cover dots, so they go.
-  const groupLabels =
-    v.k >= fit.k * 0.9
-      ? layout.areas
-          .filter((a) => a.groups && (!shown || a.pageIds.some(isShown)))
-          .flatMap((a) =>
-            a.groups!.map((g) => {
-              const [x, y] = toScreen(v, g.x, g.y)
-              const s = groupLabelSize(g.name)
-              // Its room is g.h layout units high; the text sits in the middle of it.
-              const top = y + (g.h * v.k - s.h) / 2
-              return { key: `${a.id}|${g.id}`, text: g.name, x, top, rect: [x - s.w / 2, top, x + s.w / 2, top + s.h] as [number, number, number, number] }
-            }),
-          )
-      : []
-  // A topic's name gives way while the pointer is over its area, or one of its pages is focused,
-  // so it never covers the pages (operator, 2026-11-14).
-  const hiddenAreas = new Set([hoverArea, activeDot?.area].filter((x): x is string => !!x))
-  const candidates: LabelBox[] = []
-  const addLabel = (d: DotLayout, cls: string) => {
-    const [x, y] = toScreen(v, d.x, d.y)
-    if (x < -200 || y < -40 || x > size.w + 200 || y > size.h + 40) return
-    const px = cls.includes('--on') ? 13 : cls.includes('--hub') ? 12 : 11
-    candidates.push({ id: d.id, text: index.pageById.get(d.id)!.title, x, y: y - d.r * v.k - 4, px, cls })
-  }
-  if (activeDot) {
-    addLabel(activeDot, 'kg-plabel kg-plabel--on')
-    // "Labels: hubs only": the page pointed at, and nothing around it.
-    if (!filters.hubsOnly) for (const d of sharp) addLabel(d, d.hub ? 'kg-plabel kg-plabel--hub' : 'kg-plabel')
-  } else if (matches) {
-    for (const d of sharp.slice(0, 40)) addLabel(d, d.hub ? 'kg-plabel kg-plabel--hub' : 'kg-plabel')
-  } else {
-    // A small map, or one zoomed in, names every page (most linked first); a larger one the most
-    // linked only; with "Labels: hubs only" no page at rest, only the topic names (labelMode).
-    const mode = labelMode(shown ? shown.size : layout.dots.length, v.k, fit.k, filters.hubsOnly)
-    if (mode !== 'none') for (const d of layout.dots) if (d.hub && isShown(d.id)) addLabel(d, 'kg-plabel kg-plabel--hub')
-    if (mode === 'all') for (const d of layout.dots) if (!d.hub && isShown(d.id)) addLabel(d, 'kg-plabel')
-  }
-  const labels = placeLabels(
-    candidates,
-    [...areaLabels.filter((l) => !hiddenAreas.has(l.id)).map((l) => l.rect), ...groupLabels.map((g) => g.rect)],
-  )
   const bundles = useMemo(() => bundleEdges(layout, shown), [layout, shown])
   // At rest the heaviest topic lines; zoomed in far enough, all of them (lineMode).
   const allLines = lineMode(v.k, fit.k) === 'all'
@@ -428,6 +247,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
     [bundles, activeDot, filters.links],
   )
 
+  const world = `matrix(${v.k} 0 0 ${v.k} ${-v.x * v.k} ${-v.y * v.k})`
   const page = activeDot ? index.pageById.get(activeDot.id) : undefined
   const announce = page
     ? `${page.title}, ${indexPath(index, primaryTopic(page))}, ${plural(near.length, 'linked page')}. Enter opens${onFocusPage ? ', F focuses on this page' : ''}.`
@@ -461,18 +281,26 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
         onPointerOut={onPointerOut}
         onPointerLeave={() => setHoverArea(null)}
       >
-        <g transform={`matrix(${v.k} 0 0 ${v.k} ${-v.x * v.k} ${-v.y * v.k})`}>
+        <g transform={world}>
           <g className="kg-focus-bundles">
             {focusBundles.map((b) => (
               <BundleLine key={`${b.a}|${b.b}`} b={b} extra=" kg-bundle--on" />
             ))}
           </g>
-          <g className="kg-base" data-dim={dim}>
+          <g className="kg-base">
             <BaseLayer layout={layout} links={filters.links} mentions={filters.mentions} shown={shown} bundles={resting} />
           </g>
+        </g>
+        {/* design (operator, 2026-11-15): pointing at a page (or searching) lays one veil in the stage's
+            colour over the whole map, areas included, and the focus layer draws the page, its linked
+            pages and their lines above it. One rectangle, whatever the size of the map; the base layer
+            is never redrawn. In screen space: during a gesture it moves with the layer, and what it
+            covers moves with it. */}
+        <rect className="kg-veil" data-on={dim} x={0} y={0} width={size.w} height={size.h} />
+        <g transform={world}>
           <g className="kg-focus">
-            {focusEdges.map(({ e, d }, i) => (
-              <path key={i} d={d} className={e.kind === 'mention' ? 'kg-edge kg-edge--mention' : `kg-edge kg-s${e.strength}`} />
+            {focusEdges.map((f, i) => (
+              <path key={i} d={f.d} className={focusEdgeClass(f)} />
             ))}
             {sharp.map((d) => (
               <circle key={d.id} data-id={d.id} className={dotClass(d, activeDot ? ' kg-dot--near' : '')} cx={d.x} cy={d.y} r={d.r} />
@@ -480,7 +308,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
             {activeDot && (
               <>
                 <circle data-id={activeDot.id} className={dotClass(activeDot, ' kg-dot--on')} cx={activeDot.x} cy={activeDot.y} r={activeDot.r + 2} />
-                {active?.via === 'keyboard' && <circle className="kg-ring" cx={activeDot.x} cy={activeDot.y} r={activeDot.r + 2 + 5 / v.k} />}
+                {viaKeyboard && <circle className="kg-ring" cx={activeDot.x} cy={activeDot.y} r={activeDot.r + 2 + 5 / v.k} />}
               </>
             )}
           </g>
@@ -491,10 +319,11 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
         {areaLabels.map((l) => (
           <div key={l.id} className="kg-alabel" data-dim={dim} data-at={l.at} data-hidden={hiddenAreas.has(l.id)} style={{ left: l.x, top: l.top }}>
             <b>{l.text}</b>
+            {l.count !== undefined && <span className="kg-alabel__count">{l.count}</span>}
           </div>
         ))}
         {groupLabels.map((g) => (
-          <div key={g.key} className="kg-glabel" data-dim={dim} style={{ left: g.x, top: g.top }}>
+          <div key={g.key} className="kg-glabel" data-dim={dim} data-hidden={!!g.hidden} style={{ left: g.x, top: g.top }}>
             {g.text}
           </div>
         ))}
@@ -514,7 +343,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
           view={v}
           stage={size}
           near={near.map((id) => layout.dotById.get(id)).filter((d): d is DotLayout => !!d)}
-          focusKey={onFocusPage && active?.via === 'keyboard' ? 'F' : undefined}
+          focusKey={onFocusPage && viaKeyboard ? 'F' : undefined}
         />
       )}
 
@@ -524,66 +353,13 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
         </p>
       )}
 
-      <div className="kg-toolbar" onPointerDown={(e) => e.stopPropagation()}>
-        <button ref={toolbarRef} type="button" className="btn btn--ghost" aria-label="Zoom in" title="Zoom in (+)" onClick={() => zoomBy(1.25)}>
-          +
-        </button>
-        <button type="button" className="btn btn--ghost" aria-label="Zoom out" title="Zoom out (−)" onClick={() => zoomBy(0.8)}>
-          −
-        </button>
-        <button type="button" className="btn btn--ghost" aria-label="Fit to screen" title="Fit to screen (0)" onClick={() => setView(fit)}>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-            <path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" />
-          </svg>
-        </button>
-        <span className="kg-toolbar__sep" aria-hidden="true" />
-        <span className="kg-hint" id="kg-stage-help">
-          <span>Hover a dot to focus it</span>
-          <span>Click to open</span>
-          <span>Scroll to zoom · drag to pan</span>
-          <span className="kg-sr">Arrow keys or Tab move between pages, Enter opens, F focuses on the page, Esc leaves the map.</span>
-        </span>
-      </div>
-
-      <div className="kg-legend" aria-label="Legend" role="note">
-        <span className="kg-legend__item">
-          <svg viewBox="0 0 22 12" aria-hidden="true">
-            <circle className="kg-dot kg-dot--hub" cx="6" cy="6" r="5" />
-            <circle className="kg-dot" cx="17" cy="6" r="2.5" />
-          </svg>
-          bigger dot = more pages link here
-        </span>
-        <span className="kg-legend__item">
-          <svg viewBox="0 0 22 12" aria-hidden="true">
-            <path className="kg-edge kg-s1" d="M0 3H22" />
-            <path className="kg-edge kg-s3" d="M0 9H22" />
-          </svg>
-          thicker line = stronger link
-        </span>
-        <span className="kg-legend__item">
-          <svg viewBox="0 0 22 12" aria-hidden="true">
-            <circle className="kg-area" cx="4" cy="6" r="4" />
-            <path className="kg-edge kg-bundle" d="M8 6H14" style={{ strokeWidth: '2.5px' }} />
-            <circle className="kg-area" cx="18" cy="6" r="4" />
-          </svg>
-          line between {areaWord}s = their links
-        </span>
-        <span className="kg-legend__item">
-          <svg viewBox="0 0 22 12" aria-hidden="true">
-            <circle className="kg-area" cx="11" cy="6" r="6" />
-          </svg>
-          grey area = {areaWord}
-        </span>
-        <span className="kg-legend__item">
-          <svg viewBox="0 0 22 12" aria-hidden="true">
-            <circle className="kg-dot kg-dot--unlinked" cx="11" cy="6" r="4" />
-          </svg>
-          page with no links yet
-        </span>
+      <div className="kg-bottom">
+        <StageToolbar firstRef={toolbarRef} onZoom={zoomBy} onFit={() => setView(fit)} />
+        <StageLegend areaWord={areaWord} />
       </div>
 
       <div className="kg-sr" aria-live="polite">
-        {active?.via === 'keyboard' ? announce : ''}
+        {viaKeyboard ? announce : ''}
       </div>
     </div>
   )

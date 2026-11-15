@@ -18,6 +18,8 @@
 // Views and states visited: home (idle, with waiting items, after an Add, with an Add that waits),
 // History, knowledge graph (map, List), page window, its Edit form.
 //  17 every text field has its own edge or fill of at least 3:1 against what is behind it (home, graph, Edit; light and dark)
+//  18 the map's zoom toolbar and legend never overlap, in the app beside the side bar (1920, 1440, 1280, 1024)
+//  19 during a search, a page that is not a result still shows its card on hover and opens on click
 //  16 a citation [n] opens the cited page's window (a link page: its address); the box's controls sit in one row
 // NOT covered, so the rules above are not proven there: the Ask answer's other states and its error, a failed Add,
 // the Settings, New vault and Set up dialogs, the quick switcher, the Filter panel, a link Update
@@ -100,7 +102,9 @@ const FIELD_EDGES = `JSON.stringify((() => {
 // a field without its own edge does not read as a place to type (operator, 2026-11-15).
 const UNDER_NAMES = `JSON.stringify((() => { const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
   const dots = [...document.querySelectorAll('.kg-base circle.kg-dot')].map((d) => d.getBoundingClientRect())
-  return [...document.querySelectorAll('.kg-alabel b')].map((l) => ({ name: l.textContent, n: dots.filter((d) => hit(l.getBoundingClientRect(), d)).length })).filter((x) => x.n > 0) })())`
+  // The name and the page count beside it, as one box.
+  const box = (l) => { const rs = [...l.querySelectorAll('b, .kg-alabel__count')].map((e) => e.getBoundingClientRect()); return { left: Math.min(...rs.map((r) => r.left)), right: Math.max(...rs.map((r) => r.right)), top: Math.min(...rs.map((r) => r.top)), bottom: Math.max(...rs.map((r) => r.bottom)) } }
+  return [...document.querySelectorAll('.kg-alabel')].map((l) => ({ name: l.textContent, n: dots.filter((d) => hit(box(l), d)).length })).filter((x) => x.n > 0) })())`
 
 async function main() {
   let ver
@@ -440,6 +444,42 @@ async function main() {
   await go('/#/graph', '.kg-dot'); await touch('knowledge graph')
   await click('List'); await wait(400); await touch('List')
   await go('/graph-demo.html?pages=100', '.kg-dot'); await openDot(); await touch('page window')
+
+  // 18 the map's toolbar and legend never overlap, beside the side bar too (2026-11-15: a longer
+  // legend covered the zoom buttons in the app at 1440, while the demo page without a side bar was fine)
+  for (const [w, h] of [[1920, 1080], [1440, 900], [1280, 800], [1024, 768]]) {
+    await size(w, h, false)
+    await go('/#/graph', '.kg-dot')
+    const hit = await list(`JSON.stringify((() => { const t = document.querySelector('.kg-toolbar')?.getBoundingClientRect(); const l = document.querySelector('.kg-legend')?.getBoundingClientRect()
+      if (!t || !l || l.width === 0) return null
+      return { overlap: t.left < l.right && l.left < t.right && t.top < l.bottom && l.top < t.bottom, toolbar: [Math.round(t.left), Math.round(t.right)], legend: [Math.round(l.left), Math.round(l.right)] } })())`)
+    expect(!hit || !hit.overlap, `map at ${w}px in the app: the legend ${JSON.stringify(hit?.legend)} lies over the zoom toolbar ${JSON.stringify(hit?.toolbar)}`)
+  }
+
+  // 19 a search highlights its results and hides nothing: a page that is not a result still shows
+  // its card on hover and opens on click (operator, 2026-11-15: only the searched dots answered)
+  await size(1440, 900, false)
+  await go('/graph-demo.html?pages=100', '.kg-dot')
+  await js(`document.querySelector('#kg-search').focus()`)
+  await S('Input.insertText', { text: 'zero' }); await wait(600)
+  {
+    const target = await list(`JSON.stringify((() => { const hits = new Set([...document.querySelectorAll('.kg-focus circle.kg-dot')].map((c) => c.getAttribute('data-id')))
+      const d = [...document.querySelectorAll('.kg-base circle.kg-dot')].find((c) => !hits.has(c.getAttribute('data-id')) && (() => { const r = c.getBoundingClientRect(); const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return e === c })())
+      if (!d || hits.size === 0) return null
+      const r = d.getBoundingClientRect(); return { id: d.getAttribute('data-id'), x: r.x + r.width / 2, y: r.y + r.height / 2, hits: hits.size } })())`)
+    expect(!!target, 'search: no dot outside the results could be pointed at, or the search found nothing')
+    if (target) {
+      await S('Input.dispatchMouseEvent', { type: 'mouseMoved', x: target.x - 40, y: target.y - 40 })
+      await S('Input.dispatchMouseEvent', { type: 'mouseMoved', x: target.x, y: target.y }); await wait(400)
+      // The focused dot must be the one pointed at: a card may already be open for the first result.
+      const on = await js(`(document.querySelector('.kg-card') && document.querySelector('.kg-focus circle.kg-dot--on')?.getAttribute('data-id')) || ''`)
+      expect(on === target.id, `search "zero" (${target.hits} results): hovering ${target.id}, which is not a result, focuses "${on}" instead`)
+      for (const type of ['mousePressed', 'mouseReleased']) await S('Input.dispatchMouseEvent', { type, x: target.x, y: target.y, button: 'left', clickCount: 1 })
+      await wait(500)
+      const opened = await js(`document.querySelector('dialog[open] #kg-dlg-title') ? 'yes' : 'no'`)
+      expect(opened === 'yes', `search "zero": clicking a page that is not a result does not open it`)
+    }
+  }
 
   if (checks < 45) problems.push(`only ${checks} checks ran: the script did not reach every view`)
   if (problems.length) { console.error('Design rules broken:\n' + problems.join('\n')); process.exitCode = 1 }

@@ -83,6 +83,9 @@ export interface GraphPage {
   archived: boolean
   /** A link page's original http(s) address ('' otherwise): opened before OneNote. */
   url: string
+  /** When a link page's source was last read, ISO ('' or absent for other pages): the filter
+   *  "Link summaries older than N days" (linkUpdateRun.ts). */
+  summarizedAt?: string
 }
 
 export interface GraphEdge {
@@ -204,6 +207,7 @@ export function normalizeGraph(raw: unknown): GraphModel {
       site: str(p.site),
       archived: p.archived === true,
       url: webUrl(str(p.url)),
+      summarizedAt: str(p.summarizedAt),
       sourceId: str(p.sourceId),
       origin: validOrigin(p.origin),
     })

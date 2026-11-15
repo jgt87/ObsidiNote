@@ -41,3 +41,28 @@ export function pasteMark(pasted: string): string {
 export function originStillApplies(text: string, mark: string): boolean {
   return !mark || mark.split('\n').some((line) => text.includes(line))
 }
+
+/** What the box remembers of the paste its "From:" choice was read from. "seen": the paste has
+ *  landed in the text (the text changes after the paste event); "from": the origin that belongs to
+ *  the mark; "lost": the pasted text was in the box and is gone again. */
+export interface MarkState {
+  mark: string
+  seen: boolean
+  from: string
+  lost: boolean
+}
+
+export function newMark(mark = '', from = ''): MarkState {
+  return { mark, seen: false, from, lost: false }
+}
+
+/** After the box's text changed: the next mark state, and the "From:" choice to set (undefined =
+ *  leave it). The origin goes when the pasted text goes, and comes back with it (Ctrl+Z); an
+ *  emptied box forgets both. */
+export function followMark(m: MarkState, text: string): { mark: MarkState; origin?: string } {
+  if (!text.trim()) return { mark: newMark(), origin: '' }
+  const still = originStillApplies(text, m.mark)
+  if (m.mark && still) return m.lost ? { mark: { ...m, seen: true, lost: false }, origin: m.from } : { mark: { ...m, seen: true } }
+  if (m.seen && !still && !m.lost) return { mark: { ...m, lost: true }, origin: '' }
+  return { mark: m }
+}

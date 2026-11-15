@@ -326,6 +326,52 @@ Describe 'POST /api/vault/check-lease: "Check again" tries to take the vault now
     }
 }
 
+Describe 'Archive, Restore and Delete through the routes (POST /api/pages/archive|restore|delete)' {
+    $w = New-SyntheticVault -SessionId 'server'
+    $app = New-TempAppRoot
+    $state = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'server' -Vault $w.open.vault -Lease $w.open.lease -Model $w.open.model
+    It 'refuses bad input with 400 and writes nothing' {
+        $before = $w.f.Writes.Count
+        foreach ($b in 'not json', '{}', '{"ids":[]}', '{"ids":"p1"}', '{"ids":[5]}', '{"ids":["../x"],"confirm":true}') {
+            (Invoke-ApiRoute -Method 'POST' -Path '/api/pages/archive' -Body $b -State $state).status | Should Be 400
+        }
+        $w.f.Writes.Count | Should Be $before
+    }
+    It 'archive and delete always ask first: 409 needsConfirm with the plan, nothing written' {
+        $before = $w.f.Writes.Count
+        foreach ($b in '{"ids":["p1"]}', '{"ids":["p1"],"confirm":"yes"}', '{"ids":["p1"],"confirm":1}') {
+            $r = Invoke-ApiRoute -Method 'POST' -Path '/api/pages/delete' -Body $b -State $state
+            $r.status | Should Be 409
+            $r.body.needsConfirm | Should Be $true
+        }
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/pages/archive' -Body '{"ids":["p1","p99"]}' -State $state
+        (Get-Json $r) | Should Match '"plan":\{"pages":\[\{"id":"p1","title":"Zero-trust networking","section":"Notes","to":"Archive/Notes","inbound":1\}\],"refused":\[\{"id":"p99"'
+        $w.f.Writes.Count | Should Be $before
+    }
+    It 'answers 409 with the other-vault sentence for another vault''s ids' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/pages/archive' -Body '{"ids":["p1"],"confirm":true,"vault":"cccccccc-0000-4000-8000-000000000003"}' -State $state
+        $r.status | Should Be 409
+        $r.body.error | Should Be 'This item belongs to another vault; open that vault to change it.'
+    }
+    It 'archives with confirm, restores without, and answers lists' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/pages/archive' -Body ('{"ids":["p1"],"confirm":true,"vault":"' + $w.v.vaultId + '"}') -State $state
+        $r.status | Should Be 200
+        (Get-Json $r) | Should Match '^\{"status":"done","message":"Archived: Zero-trust networking\. Restore brings it back\.","action":"archive","done":\[\{"id":"p1","title":"Zero-trust networking","to":"Archive/Notes"\}\],"refused":\[\],"failed":\[\],"warnings":\[\]\}$'
+        $g = Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -State $state
+        @($g.body.pages | Where-Object { $_.id -eq 'p1' })[0].archived | Should Be $true
+        $r2 = Invoke-ApiRoute -Method 'POST' -Path '/api/pages/restore' -Body '{"ids":["p1"]}' -State $state
+        $r2.status | Should Be 200
+        $r2.body.status | Should Be 'done'
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/pages/restore' -Body '{"ids":["p1"]}' -State $state).status | Should Be 400
+    }
+    It 'deletes with confirm' {
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/pages/delete' -Body '{"ids":["p2"],"confirm":true}' -State $state
+        $r.status | Should Be 200
+        $r.body.message | Should Match '60 days'
+        $w.open.model.pages.Contains('p2') | Should Be $false
+    }
+}
+
 Describe 'POST /api/shutdown on the live server (test port)' {
     $ui = Join-Path $env:TEMP ('obsn-ui-' + [guid]::NewGuid().ToString('N'))
     $null = New-Item -ItemType Directory -Force -Path $ui

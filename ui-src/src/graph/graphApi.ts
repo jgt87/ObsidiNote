@@ -5,6 +5,7 @@
 
 import type { PageEditRequest } from './editModel'
 import { normalizeGraph, type GraphModel } from './model'
+import { parsePlan, parseResult, type RetireAction, type RetirePlan, type RetireResult } from './retireModel'
 
 export type GraphSourceRef = { vault: string } | { notebook: string } | Record<string, never>
 
@@ -115,6 +116,30 @@ export async function tagPages(req: { ids: string[]; add: string[]; remove: stri
 export async function renameTag(req: { from: string; to: string; vault?: string }, fetcher: typeof fetch = fetch): Promise<number> {
   const b = await postJson(TAGS_RENAME_ROUTE, { from: req.from, to: req.to, ...(req.vault ? { vault: req.vault } : {}) }, fetcher)
   return typeof b.changed === 'number' ? b.changed : 0
+}
+
+export const RETIRE_ROUTES: Record<RetireAction, string> = { archive: '/api/pages/archive', restore: '/api/pages/restore', delete: '/api/pages/delete' }
+
+export type RetireAnswer = { kind: 'plan'; plan: RetirePlan } | { kind: 'result'; result: RetireResult }
+
+/**
+ * Archive, Restore or Delete pages of the active vault: POST /api/pages/<action> {ids, vault,
+ * confirm}. Archive and delete without confirm answer 409 needsConfirm with the plan the confirm
+ * dialog shows (nothing written); that comes back as kind 'plan'. Throws GraphLoadError with the
+ * server's message otherwise (400 nothing that can be done, 409 read only or another vault).
+ */
+export async function retirePages(action: RetireAction, ids: string[], vault: string, confirm: boolean, fetcher: typeof fetch = fetch): Promise<RetireAnswer> {
+  let res: Response
+  try {
+    res = await fetcher(RETIRE_ROUTES[action], { method: 'POST', headers: { 'X-ObsidiNote': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, ...(vault ? { vault } : {}), ...(confirm ? { confirm: true } : {}) }) })
+  } catch {
+    throw new GraphLoadError('ObsidiNote is not answering. Is it still running?', 0)
+  }
+  const data: unknown = await res.json().catch(() => null)
+  const b = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
+  if (res.status === 409 && b.needsConfirm === true) return { kind: 'plan', plan: parsePlan(b.plan) }
+  if (res.status !== 200) throw new GraphLoadError(b.error ? String(b.error) : `The server answered ${res.status}.`, res.status)
+  return { kind: 'result', result: parseResult(b, action) }
 }
 
 export const LINK_ADD_ROUTE = '/api/link/add'

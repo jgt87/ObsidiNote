@@ -190,7 +190,8 @@ function areaRadius(dotRadii: number[], min = MIN_AREA_R, name = '', scale = 1):
   for (const r of dotRadii) sum += (r + 4.5) * (r + 4.5)
   // design: dots fill about 40% of an area, so a topic reads as a roomy grey field with its
   // pages spread inside (the README map), not a tight clump. The room kept free for the name
-  // (labelSlot) comes on top, so the dots are not squeezed by it.
+  // (labelSlot) comes on top, so the dots are not squeezed by it. Sized by the name alone: its page
+  // count fits in the 40% slack (taking it into the size moved the areas, and bent topic lines).
   const nameRoom = name ? Math.min(areaLabelSize(name).w, 220) * NAME_H * scale * scale : 0
   return Math.max(min, Math.sqrt(sum / 0.4 + nameRoom) + 14)
 }
@@ -381,75 +382,98 @@ function grow(box: { minX: number; maxX: number; minY: number; maxY: number }, c
 
 // ---------- 2. pages inside an area ----------
 
-function placeDots(area: AreaLayout, pages: GraphPage[], index: GraphIndex, areaCentre: Map<string, { x: number; y: number }>): DotLayout[] {
-  // Most linked first: they settle in the middle.
-  const sorted = [...pages].sort((a, b) => Number(b.isHub) - Number(a.isHub) || b.weight - a.weight || b.links - a.links || cmp(a.id, b.id))
+type Centre = { x: number; y: number }
+/** A link inside the area: [dot i, dot j, strength]. */
+type Spring = [number, number, number]
+/** A link to another area: [dot i, that area's centre x, y, strength]. */
+type Outward = [number, number, number, number]
+
+/** The pages in the order they are seeded: most linked first, so they settle in the middle. */
+function seedOrder(pages: GraphPage[]): GraphPage[] {
+  return [...pages].sort((a, b) => Number(b.isHub) - Number(a.isHub) || b.weight - a.weight || b.links - a.links || cmp(a.id, b.id))
+}
+
+/** First positions: a sunflower spiral, rotated per area so areas do not look identical. */
+function seedDots(area: AreaLayout, sorted: GraphPage[]): DotLayout[] {
   const n = sorted.length
-  const dots: DotLayout[] = sorted.map((p, i) => {
+  return sorted.map((p, i) => {
     const r = dotRadius(p)
-    // Sunflower spiral, rotated per area so areas do not look identical.
     const rot = (hash(area.id) % 360) * (Math.PI / 180)
     const a = i * 2.39996323 + rot
     const d = n <= 1 ? 0 : (area.r - 10) * 0.82 * Math.sqrt((i + 0.5) / n)
     return { id: p.id, area: area.id, x: area.x + Math.cos(a) * d, y: area.y + Math.sin(a) * d, r, hub: p.isHub, unlinked: p.unlinked || p.links === 0 }
   })
-  // Groups (only when every page has one and there are two or more): each gathers round its own
-  // point, half way out, the largest first; the pull below keeps it there.
-  const grouped = isGrouped(sorted)
-  const anchor = new Map<string, { x: number; y: number }>()
-  if (grouped) {
-    const count = new Map<string, number>()
-    for (const p of sorted) count.set(p.group!.id, (count.get(p.group!.id) ?? 0) + 1)
-    const order = [...count.keys()].sort((a, b) => count.get(b)! - count.get(a)! || cmp(a, b))
-    const rot = (hash(area.id) % 360) * (Math.PI / 180)
-    order.forEach((g, i) => {
-      const a = rot + (i * 2 * Math.PI) / order.length
-      anchor.set(g, { x: area.x + Math.cos(a) * area.r * 0.52, y: area.y + Math.sin(a) * area.r * 0.52 })
-    })
-    const seen = new Map<string, number>()
-    sorted.forEach((p, i) => {
-      const g = p.group!.id
-      const k = seen.get(g) ?? 0
-      seen.set(g, k + 1)
-      const c = anchor.get(g)!
-      const d = area.r * 0.3 * Math.sqrt((k + 0.5) / count.get(g)!)
-      dots[i].x = c.x + Math.cos(k * 2.39996323) * d
-      dots[i].y = c.y + Math.sin(k * 2.39996323) * d
-    })
-  }
-  if (n <= 1) {
-    // The only page sits under the name, not under its letters.
-    for (const d of dots) {
-      d.y = area.y + area.slot.hh + d.r + SLOT_MARGIN
-      contain(d, area)
-      d.x = round(d.x)
-      d.y = round(d.y)
-    }
-    return dots
-  }
-  const pos = new Map(dots.map((d, i) => [d.id, i]))
+}
 
-  // Springs: links inside the area pull together; links to other areas pull towards that area.
-  const springs: [number, number, number][] = []
-  const outward: [number, number, number, number][] = []
+/** Groups (only when every page has one and there are two or more): each gathers round its own
+ *  point, half way out, the largest first, and its dots start there. Returns the points. */
+function seedGroups(area: AreaLayout, sorted: GraphPage[], dots: DotLayout[]): Map<string, Centre> {
+  const anchor = new Map<string, Centre>()
+  const count = new Map<string, number>()
+  for (const p of sorted) count.set(p.group!.id, (count.get(p.group!.id) ?? 0) + 1)
+  const order = [...count.keys()].sort((a, b) => count.get(b)! - count.get(a)! || cmp(a, b))
+  const rot = (hash(area.id) % 360) * (Math.PI / 180)
+  order.forEach((g, i) => {
+    const a = rot + (i * 2 * Math.PI) / order.length
+    anchor.set(g, { x: area.x + Math.cos(a) * area.r * 0.52, y: area.y + Math.sin(a) * area.r * 0.52 })
+  })
+  const seen = new Map<string, number>()
+  sorted.forEach((p, i) => {
+    const g = p.group!.id
+    const k = seen.get(g) ?? 0
+    seen.set(g, k + 1)
+    const c = anchor.get(g)!
+    const d = area.r * 0.3 * Math.sqrt((k + 0.5) / count.get(g)!)
+    dots[i].x = c.x + Math.cos(k * 2.39996323) * d
+    dots[i].y = c.y + Math.sin(k * 2.39996323) * d
+  })
+  return anchor
+}
+
+/** The only page of an area sits under the name, not under its letters. */
+function placeAlone(dots: DotLayout[], area: AreaLayout): DotLayout[] {
+  for (const d of dots) {
+    d.y = area.y + area.slot.hh + d.r + SLOT_MARGIN
+    contain(d, area)
+    d.x = round(d.x)
+    d.y = round(d.y)
+  }
+  return dots
+}
+
+/** Springs: links inside the area pull together; links to other areas pull towards that area. */
+function dotSprings(dots: DotLayout[], index: GraphIndex, areaCentre: Map<string, Centre>): { springs: Spring[]; outward: Outward[] } {
+  const pos = new Map(dots.map((d, i) => [d.id, i]))
+  const centreOf = (id: string) => {
+    const other = index.pageById.get(id)
+    return other ? areaCentre.get(primaryTopic(other)) : undefined
+  }
+  const springs: Spring[] = []
+  const outward: Outward[] = []
   for (const d of dots) {
     const i = pos.get(d.id)!
     for (const e of index.out.get(d.id) ?? []) {
       const j = pos.get(e.to)
+      const c = j === undefined ? centreOf(e.to) : undefined
       if (j !== undefined) springs.push([i, j, e.strength])
-      else {
-        const other = index.pageById.get(e.to)
-        const c = other ? areaCentre.get(primaryTopic(other)) : undefined
-        if (c) outward.push([i, c.x, c.y, e.strength])
-      }
+      else if (c) outward.push([i, c.x, c.y, e.strength])
     }
     for (const e of index.in.get(d.id) ?? []) {
-      if (pos.has(e.from)) continue
-      const other = index.pageById.get(e.from)
-      const c = other ? areaCentre.get(primaryTopic(other)) : undefined
+      const c = pos.has(e.from) ? undefined : centreOf(e.from)
       if (c) outward.push([i, c.x, c.y, e.strength])
     }
   }
+  return { springs, outward }
+}
+
+function placeDots(area: AreaLayout, pages: GraphPage[], index: GraphIndex, areaCentre: Map<string, Centre>): DotLayout[] {
+  const sorted = seedOrder(pages)
+  const n = sorted.length
+  const dots = seedDots(area, sorted)
+  const grouped = isGrouped(sorted)
+  const anchor = grouped ? seedGroups(area, sorted, dots) : new Map<string, Centre>()
+  if (n <= 1) return placeAlone(dots, area)
+  const { springs, outward } = dotSprings(dots, index, areaCentre)
 
   const iterations = n > 400 ? 70 : n > 150 ? 110 : 160
   const maxR = dots.reduce((m, d) => Math.max(m, d.r), 0)
@@ -460,94 +484,20 @@ function placeDots(area: AreaLayout, pages: GraphPage[], index: GraphIndex, area
   // and their names have room between them; ungrouped pages spread over the whole area.
   const keep = grouped ? Math.min(spacing * 0.9, maxR * 2 + 12) : spacing * 0.9
   const cell = Math.max(maxR * 2 + 6, keep + 1)
-  const vx = new Float64Array(n)
-  const vy = new Float64Array(n)
+  const v: Forces = { x: new Float64Array(n), y: new Float64Array(n) }
   const ideal = Math.max(12, spacing)
+  const groupOf = grouped ? sorted.map((p) => anchor.get(p.group!.id)!) : null
   for (let it = 0; it < iterations; it++) {
     const alpha = 1 - it / iterations
-    vx.fill(0)
-    vy.fill(0)
-    for (const [i, j, s] of springs) {
-      const a = dots[i]
-      const b = dots[j]
-      const dx = b.x - a.x
-      const dy = b.y - a.y
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1
-      const f = ((dist - ideal) / dist) * 0.035 * s * alpha
-      vx[i] += dx * f
-      vy[i] += dy * f
-      vx[j] -= dx * f
-      vy[j] -= dy * f
-    }
-    for (const [i, cx, cy, s] of outward) {
-      const a = dots[i]
-      const dx = cx - a.x
-      const dy = cy - a.y
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1
-      const f = (0.25 * s * alpha) / dist
-      vx[i] += dx * f
-      vy[i] += dy * f
-    }
+    v.x.fill(0)
+    v.y.fill(0)
+    pullSprings(dots, springs, ideal, alpha, v)
+    pullOutward(dots, outward, alpha, v)
     // Gentle pull to the centre, so loose pages do not all drift to the rim.
-    for (let i = 0; i < n; i++) {
-      vx[i] += (area.x - dots[i].x) * 0.0015 * alpha
-      vy[i] += (area.y - dots[i].y) * 0.0015 * alpha
-    }
-    if (grouped) {
-      for (let i = 0; i < n; i++) {
-        const c = anchor.get(sorted[i].group!.id)!
-        vx[i] += (c.x - dots[i].x) * 0.08
-        vy[i] += (c.y - dots[i].y) * 0.08
-      }
-    }
-    // Collisions and short-range spacing on a grid (keeps this near O(n)).
-    const grid = new Map<number, number[]>()
-    const key = (gx: number, gy: number) => gx * 73856093 + gy * 19349663
-    for (let i = 0; i < n; i++) {
-      const k = key(Math.floor(dots[i].x / cell), Math.floor(dots[i].y / cell))
-      const list = grid.get(k)
-      if (list) list.push(i)
-      else grid.set(k, [i])
-    }
-    for (let i = 0; i < n; i++) {
-      const a = dots[i]
-      const gx = Math.floor(a.x / cell)
-      const gy = Math.floor(a.y / cell)
-      for (let ox = -1; ox <= 1; ox++) {
-        for (let oy = -1; oy <= 1; oy++) {
-          for (const j of grid.get(key(gx + ox, gy + oy)) ?? []) {
-            if (j <= i) continue
-            const b = dots[j]
-            let dx = b.x - a.x
-            let dy = b.y - a.y
-            let dist = Math.sqrt(dx * dx + dy * dy)
-            const min = Math.max(a.r + b.r + 5, keep)
-            if (dist >= min) continue
-            if (dist < 1e-6) {
-              // Same spot: split along a direction from the ids (deterministic).
-              const ang = ((hash(a.id + b.id) % 360) * Math.PI) / 180
-              dx = Math.cos(ang)
-              dy = Math.sin(ang)
-              dist = 1
-            }
-            const push = ((min - dist) / dist) * 0.5
-            vx[i] -= dx * push
-            vy[i] -= dy * push
-            vx[j] += dx * push
-            vy[j] += dy * push
-          }
-        }
-      }
-    }
-    for (let i = 0; i < n; i++) {
-      const d = dots[i]
-      const mx = Math.max(-6, Math.min(6, vx[i]))
-      const my = Math.max(-6, Math.min(6, vy[i]))
-      d.x += mx
-      d.y += my
-      clearSlot(d, area)
-      contain(d, area)
-    }
+    pullTo(dots, () => area, 0.0015, alpha, v)
+    if (groupOf) pullTo(dots, (i) => groupOf[i], 0.08, 1, v)
+    pushApart(dots, cell, keep, v)
+    moveDots(dots, area, v)
   }
   for (const d of dots) {
     clearSlot(d, area)
@@ -557,6 +507,105 @@ function placeDots(area: AreaLayout, pages: GraphPage[], index: GraphIndex, area
     contain(d, area)
   }
   return dots
+}
+
+/** The step each dot takes in one round of the simulation, summed over the forces. */
+type Forces = { x: Float64Array; y: Float64Array }
+
+/** Links inside the area pull their dots to the ideal distance, harder for stronger links. */
+function pullSprings(dots: DotLayout[], springs: Spring[], ideal: number, alpha: number, v: Forces): void {
+  for (const [i, j, s] of springs) {
+    const a = dots[i]
+    const b = dots[j]
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1
+    const f = ((dist - ideal) / dist) * 0.035 * s * alpha
+    v.x[i] += dx * f
+    v.y[i] += dy * f
+    v.x[j] -= dx * f
+    v.y[j] -= dy * f
+  }
+}
+
+/** Links to other areas pull their dot towards that area's centre. */
+function pullOutward(dots: DotLayout[], outward: Outward[], alpha: number, v: Forces): void {
+  for (const [i, cx, cy, s] of outward) {
+    const a = dots[i]
+    const dx = cx - a.x
+    const dy = cy - a.y
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1
+    const f = (0.25 * s * alpha) / dist
+    v.x[i] += dx * f
+    v.y[i] += dy * f
+  }
+}
+
+/** Every dot pulled towards its point (the area's centre, or its group's), in proportion to the
+ *  distance. `k` and `alpha` stay two factors, applied in that order: the layout is pinned exactly,
+ *  and (d * k) * alpha is not always d * (k * alpha) in floating point. */
+function pullTo(dots: DotLayout[], point: (i: number) => Centre, k: number, alpha: number, v: Forces): void {
+  for (let i = 0; i < dots.length; i++) {
+    const c = point(i)
+    v.x[i] += (c.x - dots[i].x) * k * alpha
+    v.y[i] += (c.y - dots[i].y) * k * alpha
+  }
+}
+
+const cellKey = (gx: number, gy: number) => gx * 73856093 + gy * 19349663
+
+/** Collisions and short-range spacing: dots closer than `keep` (or touching) push apart. On a grid
+ *  of `cell`-sized squares, so each dot only meets its neighbours (keeps this near O(n)). */
+function pushApart(dots: DotLayout[], cell: number, keep: number, v: Forces): void {
+  const grid = new Map<number, number[]>()
+  for (let i = 0; i < dots.length; i++) {
+    const k = cellKey(Math.floor(dots[i].x / cell), Math.floor(dots[i].y / cell))
+    const list = grid.get(k)
+    if (list) list.push(i)
+    else grid.set(k, [i])
+  }
+  for (let i = 0; i < dots.length; i++) {
+    const gx = Math.floor(dots[i].x / cell)
+    const gy = Math.floor(dots[i].y / cell)
+    for (let ox = -1; ox <= 1; ox++) {
+      for (let oy = -1; oy <= 1; oy++) {
+        for (const j of grid.get(cellKey(gx + ox, gy + oy)) ?? []) if (j > i) pushPair(dots, i, j, keep, v)
+      }
+    }
+  }
+}
+
+function pushPair(dots: DotLayout[], i: number, j: number, keep: number, v: Forces): void {
+  const a = dots[i]
+  const b = dots[j]
+  let dx = b.x - a.x
+  let dy = b.y - a.y
+  let dist = Math.sqrt(dx * dx + dy * dy)
+  const min = Math.max(a.r + b.r + 5, keep)
+  if (dist >= min) return
+  if (dist < 1e-6) {
+    // Same spot: split along a direction from the ids (deterministic).
+    const ang = ((hash(a.id + b.id) % 360) * Math.PI) / 180
+    dx = Math.cos(ang)
+    dy = Math.sin(ang)
+    dist = 1
+  }
+  const push = ((min - dist) / dist) * 0.5
+  v.x[i] -= dx * push
+  v.y[i] -= dy * push
+  v.x[j] += dx * push
+  v.y[j] += dy * push
+}
+
+/** Each dot takes its step (at most 6 units a round), then is kept off the name and inside the area. */
+function moveDots(dots: DotLayout[], area: AreaLayout, v: Forces): void {
+  for (let i = 0; i < dots.length; i++) {
+    const d = dots[i]
+    d.x += Math.max(-6, Math.min(6, v.x[i]))
+    d.y += Math.max(-6, Math.min(6, v.y[i]))
+    clearSlot(d, area)
+    contain(d, area)
+  }
 }
 
 /** Pages that are laid out in groups: two or more groups, and every page in one. */
@@ -756,33 +805,50 @@ const BEND_OUT = AREA_GAP / 2
 export function routeAround(s: Pt, e: Pt, circles: { x: number; y: number; r: number }[]): Pt[] {
   const pts: Pt[] = [s, e]
   for (let guard = 0; guard < 24; guard++) {
-    let hit: { i: number; at: Pt } | null = null
-    for (let i = 0; i < pts.length - 1 && !hit; i++) {
-      let best = Infinity
-      for (const c of circles) {
-        const { t, d } = segmentDistance(pts[i], pts[i + 1], c)
-        if (d >= c.r + ROUTE_CLEARANCE - 0.5 || t >= best) continue
-        best = t
-        // Bend: from the centre through the closest point of the segment, out past the rim.
-        const px = pts[i].x + (pts[i + 1].x - pts[i].x) * t
-        const py = pts[i].y + (pts[i + 1].y - pts[i].y) * t
-        let ux = px - c.x
-        let uy = py - c.y
-        let len = Math.hypot(ux, uy)
-        if (len < 1e-6) {
-          // Straight through the centre: go round on the left of the segment.
-          ux = -(pts[i + 1].y - pts[i].y)
-          uy = pts[i + 1].x - pts[i].x
-          len = Math.hypot(ux, uy) || 1
-        }
-        const out = c.r + BEND_OUT
-        hit = { i, at: { x: c.x + (ux / len) * out, y: c.y + (uy / len) * out } }
-      }
-    }
+    const hit = firstBend(pts, circles)
     if (!hit) break
     pts.splice(hit.i + 1, 0, hit.at)
   }
   return pts
+}
+
+/** The first segment of the route that comes too close to a circle, and the bend it needs. */
+function firstBend(pts: Pt[], circles: { x: number; y: number; r: number }[]): { i: number; at: Pt } | null {
+  for (let i = 0; i < pts.length - 1; i++) {
+    const at = segmentBend(pts[i], pts[i + 1], circles)
+    if (at) return { i, at }
+  }
+  return null
+}
+
+/** The bend a-b needs round the circle it meets first (closest to a), or null when it is clear. */
+function segmentBend(a: Pt, b: Pt, circles: { x: number; y: number; r: number }[]): Pt | null {
+  let best = Infinity
+  let at: Pt | null = null
+  for (const c of circles) {
+    const { t, d } = segmentDistance(a, b, c)
+    if (d >= c.r + ROUTE_CLEARANCE - 0.5 || t >= best) continue
+    best = t
+    at = bendPoint(a, b, c, t)
+  }
+  return at
+}
+
+/** A bend from the circle's centre through the point at t of a-b, out past the rim. */
+function bendPoint(a: Pt, b: Pt, c: { x: number; y: number; r: number }, t: number): Pt {
+  const px = a.x + (b.x - a.x) * t
+  const py = a.y + (b.y - a.y) * t
+  let ux = px - c.x
+  let uy = py - c.y
+  let len = Math.hypot(ux, uy)
+  if (len < 1e-6) {
+    // Straight through the centre: go round on the left of the segment.
+    ux = -(b.y - a.y)
+    uy = b.x - a.x
+    len = Math.hypot(ux, uy) || 1
+  }
+  const out = c.r + BEND_OUT
+  return { x: c.x + (ux / len) * out, y: c.y + (uy / len) * out }
 }
 
 interface Pt {
@@ -790,11 +856,11 @@ interface Pt {
   y: number
 }
 
-/** Distance from a circle's centre to the segment a-b, and where along it (t in 0..1) it is closest. */
 /** Work counters for tests: a speed check that counts operations holds on any machine, where a
  *  wall-clock bound loose enough for a slow runner also passed the slow algorithm. */
 export const layoutStats = { segmentChecks: 0 }
 
+/** Distance from a circle's centre to the segment a-b, and where along it (t in 0..1) it is closest. */
 function segmentDistance(a: Pt, b: Pt, c: Pt): { t: number; d: number } {
   layoutStats.segmentChecks++
   const dx = b.x - a.x
@@ -886,18 +952,22 @@ function curvePieces(pts: Pt[], aa: number, ab: number): Pt[][] {
   return out
 }
 
+/** The point at t (0..1) of a cubic piece [p0, p1, p2, p3]. */
+function cubicAt([p0, p1, p2, p3]: Pt[], t: number): Pt {
+  const u = 1 - t
+  return {
+    x: u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x,
+    y: u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y,
+  }
+}
+
 /** The first point of the curve (sampled) that comes within a few px of a circle, or null. */
 function curveHit(pieces: Pt[][], circles: { x: number; y: number; r: number }[]): { piece: number; at: Pt; circle: { x: number; y: number; r: number } } | null {
   for (let i = 0; i < pieces.length; i++) {
-    const [p0, p1, p2, p3] = pieces[i]
     for (let k = 1; k < 32; k++) {
-      const t = k / 32
-      const u = 1 - t
-      const at = {
-        x: u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x,
-        y: u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y,
-      }
-      for (const c of circles) if (Math.hypot(at.x - c.x, at.y - c.y) < c.r + 2) return { piece: i, at, circle: c }
+      const at = cubicAt(pieces[i], k / 32)
+      const circle = circles.find((c) => Math.hypot(at.x - c.x, at.y - c.y) < c.r + 2)
+      if (circle) return { piece: i, at, circle }
     }
   }
   return null
@@ -1024,7 +1094,9 @@ function layoutOnce(model: GraphModel, aspect: number, index: GraphIndex, slotSc
       y: round(circles[i].y),
       r: round(circles[i].r),
       pageIds: index.pagesByArea.get(id) ?? [],
-      slot: labelSlot(nameOf(id), circles[i].r, slotScale),
+      // The name's room includes its page count: the stage shows the count of the pages drawn,
+      // never more than this (stageModel.ts stageLabels), so it never needs more room.
+      slot: labelSlot(nameOf(id), circles[i].r, slotScale, count),
     }
   })
   const centre = new Map(areas.map((a) => [a.id, { x: a.x, y: a.y }]))

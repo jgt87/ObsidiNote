@@ -11,6 +11,10 @@ import type { GraphLayout } from './layout'
 import { COLUMN_COUNT, TableGroupRows } from './table/TableGroupRows'
 import { tagCounts } from './tags'
 import { TagsRow } from './TagsRow'
+import type { AddStatus } from '../add/types'
+import { isLinkPage } from './linkUpdateRun'
+import { LinkUpdateBar } from './LinkUpdateBar'
+import type { RetireAction } from './retireModel'
 import {
   ariaSort,
   buildTable,
@@ -34,6 +38,10 @@ interface Props {
   onTagPages?: (ids: string[], add: string[], remove: string[]) => Promise<unknown>
   /** A tag in the Tags column: shows that tag on the map (the Tags grouping). */
   onPickTag?: (tag: string) => void
+  /** Archive / Restore / Delete of the ticked pages (the graph asks first, useRetireFlow). */
+  onRetirePages?: (action: RetireAction, ids: string[]) => void
+  /** Update of one link page's summary: "Update summaries" runs it for the ticked link pages. */
+  onUpdateLink?: (id: string) => Promise<AddStatus>
 }
 
 const COLUMNS: { key: SortKey; label: string; className?: string }[] = [
@@ -55,18 +63,28 @@ function SortArrow({ dir }: { dir: 'ascending' | 'descending' | undefined }) {
   )
 }
 
-export function GraphList({ index, layout, matches, onOpen, onTagPages, onPickTag }: Props) {
+export function GraphList({ index, layout, matches, onOpen, onTagPages, onPickTag, onRetirePages, onUpdateLink }: Props) {
+  // A running "Update summaries" (the link pages ticked when it started); it stays while it runs.
+  const [run, setRun] = useState<string[] | null>(null)
+  const canSelect = !!(onTagPages || onRetirePages)
   // Ticked rows, to tag several pages at once (session state). Ids that left the model are dropped.
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  // A ticked page that the search or a filter hides is unticked too: an action on the selection
+  // (Delete, Archive, tags) must only reach pages the person can see.
   useEffect(() => {
+    const visible = matches ? new Set(matches) : null
     setSelected((s) => {
-      const kept = [...s].filter((id) => index.pageById.has(id))
+      const kept = [...s].filter((id) => index.pageById.has(id) && (!visible || visible.has(id)))
       return kept.length === s.size ? s : new Set(kept)
     })
-  }, [index])
+  }, [index, matches])
   const allTags = useMemo(() => tagCounts(index.model.pages), [index])
   // The tags any ticked page has: shown as chips, a chip's x takes that tag off all ticked pages.
   const selectedTags = useMemo(() => [...new Set([...selected].flatMap((id) => index.pageById.get(id)?.tags ?? []))].sort(), [selected, index])
+  const ticked = [...selected].map((id) => index.pageById.get(id)).filter((p) => p !== undefined)
+  const tickedArchived = ticked.filter((p) => p.archived).map((p) => p.id)
+  const tickedLive = ticked.filter((p) => !p.archived).map((p) => p.id)
+  const tickedLinks = ticked.filter(isLinkPage).map((p) => p.id)
   const onSelect = (id: string, on: boolean) =>
     setSelected((s) => {
       const next = new Set(s)
@@ -108,17 +126,38 @@ export function GraphList({ index, layout, matches, onOpen, onTagPages, onPickTa
           </button>
         )}
       </div>
-      {onTagPages && selected.size > 0 && (
+      {canSelect && selected.size > 0 && (
         <div className="kg-tbl__sel" role="group" aria-label="Selected pages">
           <span className="kg-tbl__sel-count" role="status">
             {plural(selected.size, 'page')} selected
           </span>
-          <TagsRow tags={selectedTags} all={allTags} onChange={(add, remove) => onTagPages([...selected], add, remove)} label="Add a tag to the selected pages" />
+          {onTagPages && <TagsRow tags={selectedTags} all={allTags} onChange={(add, remove) => onTagPages([...selected], add, remove)} label="Add a tag to the selected pages" />}
+          {onUpdateLink && tickedLinks.length > 0 && (
+            <button type="button" className="btn btn--sm" disabled={run !== null} onClick={() => setRun(tickedLinks)}>
+              Update summaries ({tickedLinks.length})
+            </button>
+          )}
+          {onRetirePages && tickedLive.length > 0 && (
+            <button type="button" className="btn btn--sm" onClick={() => onRetirePages('archive', tickedLive)}>
+              Archive{tickedArchived.length ? ` (${tickedLive.length})` : ''}
+            </button>
+          )}
+          {onRetirePages && tickedArchived.length > 0 && (
+            <button type="button" className="btn btn--sm" onClick={() => onRetirePages('restore', tickedArchived)}>
+              Restore{tickedLive.length ? ` (${tickedArchived.length})` : ''}
+            </button>
+          )}
+          {onRetirePages && (
+            <button type="button" className="btn btn--sm btn--danger" onClick={() => onRetirePages('delete', [...selected])}>
+              Delete
+            </button>
+          )}
           <button type="button" className="btn btn--sm btn--ghost" onClick={() => setSelected(new Set())}>
             Clear selection
           </button>
         </div>
       )}
+      {run && onUpdateLink && <LinkUpdateBar key={run.join(',')} ids={run} title={(id: string) => index.pageById.get(id)?.title ?? id} update={onUpdateLink} onClose={() => setRun(null)} />}
       <div className="kg-tbl__scroll">
         <table className="kg-tbl__table">
           <caption className="kg-sr">All pages of {index.model.source.name || 'this source'}. Column headers sort the table.</caption>
@@ -165,7 +204,7 @@ export function GraphList({ index, layout, matches, onOpen, onTagPages, onPickTa
                   onMore={() => setLimits((l) => ({ ...l, [k]: (l[k] ?? ROW_BUDGET) + ROW_BUDGET }))}
                   onOpen={onOpen}
                   selected={selected}
-                  onSelect={onTagPages ? onSelect : undefined}
+                  onSelect={canSelect ? onSelect : undefined}
                   onPickTag={onPickTag}
                 />
               )

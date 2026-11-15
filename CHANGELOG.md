@@ -5,6 +5,22 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.11.0] - 2026-11-15
+
+### Added
+- **Archive, Restore and Delete** a page from its window, or several ticked pages from the List. Both Archive and Delete always ask first, naming the pages, where they go and how many links point at them. **Archive** moves a page to Archive / its section with its links and your notes; it is left out of Ask and hidden on the map until you show archived pages, and **Undo** or **Restore** puts it back. **Delete** sends it to OneNote's Deleted Pages (kept 60 days), takes it out of the index and turns links to it on other pages into "(deleted: title)". Only ObsidiNote's own pages; a page you made yourself is moved or deleted in OneNote. No change to existing pages, so no upgrade step.
+- The **Settings** window shows ObsidiNote's version in its top right corner.
+- **Knowledge graph**: each topic shows how many of its pages are on the map beside its name.
+- **Old link summaries**: Filter has "Link summaries older than N days" (the vault setting, 90 by default). Tick link pages in the List and press **Update summaries**: Copilot reads them again one at a time, **Stop** ends after the page it is reading, and the bar says what came of them (updated, unchanged, needs your decision, waiting for Copilot).
+
+### Changed
+- **Knowledge graph**: pointing at a page fades the whole rest of the map, topic areas and names included, so the page and its linked pages stand out. A link from another page that this page does not link back to is drawn dashed. The names of the linked pages now show where a topic name used to push them off. No change to your pages, so no upgrade step.
+- **Edit can move a page**: choose a type of another section (a note that is really a meeting) and saving moves the page there, with its links and your notes; the form says so before you save. A link page's section follows its address: a new address of the other kind (internal or web) now moves it too, where it used to be refused.
+- Ticked rows in the List that a filter or the search hides are unticked, so an action on the selection only reaches pages you can see.
+
+### Fixed
+- **Knowledge graph**: while a search runs, every page on the map can still be pointed at and opened, not only the search results. The arrow keys and Tab still step through the results.
+
 ## [v0.10.2] - 2026-11-15
 
 ### Changed

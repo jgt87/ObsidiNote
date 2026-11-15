@@ -61,7 +61,8 @@ function ConvertTo-IngestPage {
         id = $Page.id; title = $Page.title; type = $Page.type; section = $Page.section; bucket = $Page.bucket; pageId = $Page.oneNoteId
         link = $Page.link; summary = $Page.summary; aliases = @($Page.aliases); topics = @($Page.topics); status = $Page.status
         links = @(@($Page.links) | ForEach-Object { @{ target = [string]$_.target; strength = [int]$_.strength; why = [string]$_.why } })
-        url = $Page.url; origin = $(if ($Page.ContainsKey('origin')) { [string]$Page.origin } else { '' })
+        url = $Page.url; archivedFrom = $(if ($Page.ContainsKey('archivedFrom')) { [string]$Page.archivedFrom } else { '' })
+        origin = $(if ($Page.ContainsKey('origin')) { [string]$Page.origin } else { '' })
         tags = @(if ($Page.ContainsKey('tags')) { @($Page.tags) | Where-Object { $_ } | ForEach-Object { [string]$_ } })
     }
 }
@@ -325,7 +326,7 @@ function Invoke-VsIndexAddPage {
     $old = if ($Ctx.Model.pages.Contains($id)) { $Ctx.Model.pages[$id] } else { $null }
     $rec = @{}
     if ($old) { foreach ($k in @($old.Keys)) { $rec[$k] = $old[$k] } }
-    foreach ($k in 'id', 'title', 'type', 'summary', 'topics', 'aliases', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'link', 'section', 'origin', 'tags') { if ($Page.ContainsKey($k)) { $rec[$k] = $Page[$k] } }
+    foreach ($k in 'id', 'title', 'type', 'summary', 'topics', 'aliases', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'link', 'section', 'origin', 'tags') { if ($Page.ContainsKey($k)) { $rec[$k] = $Page[$k] } }
     if ($Page.ContainsKey('pageId') -and $Page['pageId']) { $rec.oneNoteId = [string]$Page['pageId'] }
     $rec.key = $id
     if ($rec.ContainsKey('section') -and $rec.section) { $b = Get-BucketOfSection ([string]$rec.section); $rec.bucket = $(if ($b) { $b } else { [string]$Page['bucket'] }) } elseif ($Page.ContainsKey('bucket')) { $rec.bucket = $Page['bucket'] }

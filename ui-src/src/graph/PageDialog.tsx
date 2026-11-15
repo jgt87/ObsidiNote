@@ -5,7 +5,10 @@
 // "Ask about this" only calls back; "Edit" opens the edit form (PageEditForm.tsx: title, details,
 // address, links), saved through onEditPage, which the app wires to POST /api/page/edit.
 
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import type { AddStatus } from '../add/types'
+import type { RetireAnswer } from './graphApi'
+import type { RetireAction } from './retireModel'
 import { ExportButton } from '../export/ExportButton'
 import { exportSourceOf } from '../export/exportApi'
 import { summaryProblem, titleProblem, type PageEditRequest } from './editModel'
@@ -35,6 +38,12 @@ export interface PageActions {
   onTagPages?: (ids: string[], add: string[], remove: string[]) => Promise<unknown>
   /** Reads the page's own text (GET /api/page/body); without it the window says where the text is. */
   loadBody?: (pageId: string, signal: AbortSignal) => Promise<PageBodyResult>
+  /** Archive, Restore or Delete pages of the active vault (POST /api/pages/...). Without confirm,
+   *  archive and delete answer with the plan the confirm shows (useRetireFlow). Read-only sources
+   *  get none. */
+  onRetire?: (action: RetireAction, ids: string[], confirm: boolean) => Promise<RetireAnswer>
+  /** Update of one link page's summary (POST /api/link/update): the List's "Update summaries". */
+  onUpdateLink?: (id: string) => Promise<AddStatus>
 }
 
 interface Props extends PageActions {
@@ -48,6 +57,10 @@ interface Props extends PageActions {
   onFocusPage?: (id: string) => void
   /** A tag was pressed: show every page that has it. */
   onPickTag?: (tag: string) => void
+  /** Archive / Restore / Delete pressed (the graph asks first, useRetireFlow). */
+  onRetirePages?: (action: RetireAction, ids: string[]) => void
+  /** What the last Archive / Restore / Delete did, shown at the top of the window. */
+  notice?: ReactNode
 }
 
 type Tab = 'page' | 'topic' | 'neighbourhood'
@@ -64,7 +77,7 @@ function Bars({ s }: { s: number }) {
 }
 
 /* marker */
-export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFocusPage, onPickTag, onAsk, onEditPage, onLinkMention, onTagPages, loadBody }: Props) {
+export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFocusPage, onPickTag, onAsk, onEditPage, onLinkMention, onTagPages, loadBody, onRetirePages, notice }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [tab, setTab] = useState<Tab>('page')
   // Edit form open for this page (closes when another page is shown).
@@ -235,6 +248,7 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
       </div>
 
       <div id="kg-tabpanel" role="tabpanel" aria-labelledby={`kg-tab-${tab}`} className="kg-dlg__body">
+        {notice}
         {editing && onEditPage && (
           <PageEditForm
             index={index}
@@ -438,6 +452,18 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
             }}
           >
             Edit
+          </button>
+        )}
+        {/* Archive is the default way out of sight and can be undone; Delete asks too
+            (FEASIBILITY.md "Archive and delete"). */}
+        {onRetirePages && !ro && (
+          <button type="button" className="btn" onClick={() => onRetirePages(page.archived ? 'restore' : 'archive', [page.id])}>
+            {page.archived ? 'Restore' : 'Archive'}
+          </button>
+        )}
+        {onRetirePages && !ro && (
+          <button type="button" className="btn btn--danger" onClick={() => onRetirePages('delete', [page.id])}>
+            Delete
           </button>
         )}
         {/* The two that leave the page (a file, the map) sit apart at the right, quiet. */}

@@ -7,12 +7,15 @@
 // - tags: tags set by hand; a page with any of the chosen tags stays; empty = no tag filter.
 // - unlinkedOnly: only pages without links.
 // - showArchived: archived pages are hidden unless this is on.
+// - staleBefore: only link pages whose summary was read before this ISO time, or never
+//   (linkUpdateRun.ts isStale); null = no such filter. Set from the vault's linkStaleDays.
 // - focus: the page plus the pages within `depth` link steps (links only, not mentions). The
 //   steps are counted on the whole graph; the other filters then apply to the result, except
 //   that the focused page itself always stays visible.
 
 import type { GraphIndex } from './graphIndex'
 import { UNFILED_ID, type GraphPage } from './model'
+import { isStale } from './linkUpdateRun'
 import { tagCounts, type TagCount } from './tags'
 
 export type FocusDepth = 1 | 2
@@ -23,16 +26,17 @@ export interface GraphFilter {
   tags: Set<string>
   unlinkedOnly: boolean
   showArchived: boolean
+  staleBefore: string | null
   focus: { id: string; depth: FocusDepth } | null
 }
 
 export function emptyFilter(): GraphFilter {
-  return { types: new Set(), topics: new Set(), tags: new Set(), unlinkedOnly: false, showArchived: false, focus: null }
+  return { types: new Set(), topics: new Set(), tags: new Set(), unlinkedOnly: false, showArchived: false, staleBefore: null, focus: null }
 }
 
 /** True when the filter hides anything beyond archived pages (the default). */
 export function isFilterActive(f: GraphFilter): boolean {
-  return f.types.size > 0 || f.topics.size > 0 || f.tags.size > 0 || f.unlinkedOnly || f.showArchived || f.focus !== null
+  return f.types.size > 0 || f.topics.size > 0 || f.tags.size > 0 || f.unlinkedOnly || f.showArchived || f.staleBefore !== null || f.focus !== null
 }
 
 /**
@@ -123,6 +127,7 @@ export function visiblePageIds(index: GraphIndex, f: GraphFilter): Set<string> {
     if (wanted && !underTopics(p, wanted)) continue
     if (f.tags.size && !p.tags.some((t) => f.tags.has(t))) continue
     if (f.unlinkedOnly && !isUnlinked(index, p)) continue
+    if (f.staleBefore !== null && !isStale(p, f.staleBefore)) continue
     shown.add(p.id)
   }
   return shown

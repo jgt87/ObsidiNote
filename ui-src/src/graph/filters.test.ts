@@ -77,6 +77,11 @@ describe('visiblePageIds', () => {
     expect(ids(visiblePageIds(sample(), f({ unlinkedOnly: true })))).toEqual(['e', 'g'])
   })
 
+  it('old link summaries: only link pages read before the cut-off (d has no date, so it counts)', () => {
+    expect(ids(visiblePageIds(sample(), f({ staleBefore: '2026-08-17T12:00:00.000Z' })))).toEqual(['d'])
+    expect(isFilterActive(f({ staleBefore: '2026-08-17T12:00:00.000Z' }))).toBe(true)
+  })
+
   it('combines filters with AND', () => {
     expect(ids(visiblePageIds(sample(), f({ types: new Set(['Notes']), topics: new Set(['ops']) })))).toEqual(['c'])
   })

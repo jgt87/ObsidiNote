@@ -87,7 +87,7 @@ The map above shows every page as a dot in its topic's area. Bigger dots have mo
 
 - Point at a dot for a preview, click it for the page window. `/` searches; search understands `type:meeting`, `topic:"Security / Networking"`, `tag:licensing`, `site:example.org`, `after:2026-03`, `is:unlinked`.
 - **Topics | Sources | Tags** groups the dots by topic, by where they came from (each SharePoint site, OneDrive, Teams, web sites), or by your tags.
-- **Filter** narrows by type, topic and tag, shows or hides links, mentions and archived pages, and can name only the topic areas ("Labels: hubs only").
+- **Filter** narrows by type, topic and tag, finds link summaries older than the days set in Settings, shows or hides links, mentions and archived pages, and can name only the topic areas ("Labels: hubs only").
 - **Focus on this page** (`F`) shows a page and its neighbours one or two steps out. **Mentions, not linked** finds pages that name each other without a link; **Link it** links them.
 - **List** shows every page in one table: sort by any column, group by topic, type, site or year, tick rows to tag them together.
 
@@ -99,11 +99,12 @@ The map above shows every page as a dot in its topic's area. Bigger dots have mo
 - The page's own text, read from OneNote when you open it (long pages up to 20,000 characters), its summary, tags, links out and **Linked from**. A link to another page opens it here; `←` `→` walk the linked pages.
 - **Change the title or summary where they stand**: click, type, `Enter` saves, `Esc` puts it back. **Edit** changes the type, topics, aliases, a link's address and the links to other pages. The page text itself is changed in OneNote (**Open in OneNote**).
 - **Ask about this**, **Export as Markdown**, **Focus on this page**.
+- **Archive** puts a page out of the way (Archive / its section, left out of Ask, hidden on the map until you show archived pages); **Restore** or **Undo** brings it back. **Delete** sends it to OneNote's Deleted Pages, which keeps it 60 days. Both always ask first. Picking a type of another section in **Edit** moves the page there.
 
 ### Tags
 ![Tags view: one area per tag, the topics named inside each area, a chip per tag to show or hide it](docs/screenshots/tags.png)
 
-Your own labels, to relate pages that nothing else relates. Add them in the page window, or tick rows in the List and tag them together. In the **Tags** view each tag is an area, with the pages of each topic together under the topic's name, so you see which topics a tag connects. Rename, merge or remove a tag under **Settings**. Copilot never sets or changes tags.
+Your own labels, to relate pages that nothing else relates. Add them in the page window, or tick rows in the List and tag them together (the same ticked rows can be archived, restored, deleted, or have their link summaries read again with **Update summaries**). In the **Tags** view each tag is an area, with the pages of each topic together under the topic's name, so you see which topics a tag connects. Rename, merge or remove a tag under **Settings**. Copilot never sets or changes tags.
 
 ### More
 - **Find** (`Ctrl+K`): jump to any page or topic.

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { ORIGINS, originLabel, TYPED_LABEL, validOrigin } from '../model/origins'
-import { originOfPaste, originStillApplies, pasteMark } from './pasteOrigin'
+import { followMark, newMark, originOfPaste, originStillApplies, pasteMark } from './pasteOrigin'
 
 // Invented snippets in the shape each app puts on the clipboard; no real mail or chat.
 describe('originOfPaste', () => {
@@ -60,5 +60,36 @@ describe('the origin list', () => {
     expect(validOrigin(3)).toBe('')
     expect(originLabel('')).toBe(TYPED_LABEL)
     expect(originLabel('word')).toBe('Word document')
+  })
+})
+
+describe('followMark: the From choice follows the pasted text', () => {
+  const pasted = 'Quarterly numbers for the partner portal\nSecond line of the mail body'
+  const mark = newMark(pasteMark(pasted), 'outlook')
+
+  it('waits until the paste has landed, then keeps the choice while the text is there', () => {
+    const r = followMark(mark, pasted)
+    expect(r.origin).toBeUndefined()
+    expect(r.mark).toMatchObject({ seen: true, lost: false })
+  })
+
+  it('drops the choice once the pasted text is gone, and brings it back with the text (Ctrl+Z)', () => {
+    const seen = followMark(mark, pasted).mark
+    const gone = followMark(seen, 'something else typed over it')
+    expect(gone).toEqual({ mark: { ...seen, lost: true }, origin: '' })
+    expect(followMark(gone.mark, 'something else typed again').origin).toBeUndefined()
+    expect(followMark(gone.mark, pasted)).toEqual({ mark: { ...seen, lost: false }, origin: 'outlook' })
+  })
+
+  it('does not drop the choice before the paste has landed', () => {
+    expect(followMark(mark, 'text from before the paste')).toEqual({ mark })
+  })
+
+  it('an emptied box forgets the mark and the choice', () => {
+    expect(followMark(followMark(mark, pasted).mark, '   ')).toEqual({ mark: newMark(), origin: '' })
+  })
+
+  it('a choice made by hand (no mark) stays whatever is typed', () => {
+    expect(followMark(newMark(), 'anything')).toEqual({ mark: newMark() })
   })
 })

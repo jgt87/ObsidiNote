@@ -100,6 +100,9 @@ function ConvertTo-GraphModel {
             modified = [string]$p.updated; readOnly = $ro; archived = ($p.status -eq 'archived')
             aliases = @(@($p.aliases) | Where-Object { $_ } | ForEach-Object { [string]$_ }); site = [string]$p.host
             url = $(if ([string]$p.url -match '^(?i)https?://') { [string]$p.url } else { '' })
+            # summarizedAt: when a link page's source was last read ('' for other pages); the
+            # window's "Link summaries older than N days" filter reads it.
+            summarizedAt = [string]$p.summarizedAt
             sourceId = [string]$src.of[$p.key]
             origin = [string]$p['origin']
             # tags: set by hand (obsn.tags); always an array, [] when none.

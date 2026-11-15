@@ -1,9 +1,9 @@
-// The page window's Edit form: title, type (within its section), topics, aliases, summary, a link
+// The page window's Edit form: title, type (another section moves the page), topics, aliases, summary, a link
 // page's address, and its links to other pages. Saving sends only what changed (editModel.ts); the
 // server writes only ObsidiNote's own parts of the page, never your own text in OneNote.
 
 import { useId, useMemo, useState, type FormEvent } from 'react'
-import { editProblem, editRequest, formFor, linkChoices, typeChoices, type EditForm, type PageEditRequest } from './editModel'
+import { editProblem, editRequest, formFor, linkChoices, moveNote, typeChoices, type EditForm, type PageEditRequest } from './editModel'
 import type { GraphIndex } from './graphIndex'
 import type { GraphPage, Strength } from './model'
 import { ORIGINS, TYPED_LABEL } from '../model/origins'
@@ -67,13 +67,16 @@ export function PageEditForm({ index, page, onSave, onCancel }: Props) {
         {types.length > 1 && (
           <>
             <label htmlFor={`${id}-type`}>Type</label>
-            <select id={`${id}-type`} className="field" value={form.type} onChange={(e) => set({ type: e.target.value })} disabled={busy}>
-              {types.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+            <div>
+              <select id={`${id}-type`} className="field" value={form.type} onChange={(e) => set({ type: e.target.value })} disabled={busy}>
+                {types.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+              {moveNote(index.model, page, form.type) && <p className="kg-edit__hint">{moveNote(index.model, page, form.type)}</p>}
+            </div>
           </>
         )}
 

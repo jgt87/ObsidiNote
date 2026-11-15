@@ -16,6 +16,7 @@ import { ReadOnlyBanner } from '../components/ReadOnlyBanner'
 import { readOnlyWhy } from './readOnly'
 import { availableTags, byTag } from './tagView'
 import { searchPages } from './view'
+import { useRetireFlow } from './useRetireFlow'
 import { SearchFilters } from '../search/SearchFilters'
 import { getSettings, saveSetting } from '../api'
 import type { VaultSettings } from '../model/vaultSettings'
@@ -89,6 +90,8 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   const mapLayout = tagLayout ?? sourceLayout ?? layout
   const focus = useMemo(() => (focusIds ?? []).filter((id) => index.pageById.has(id)), [focusIds, index])
   const [filters, setFilters] = useState<Filters>({ links: true, mentions: false, hubsOnly: false })
+  // The vault's "older than N days" for link summaries (linkStaleDays): the Filter's stale box.
+  const [staleDays, setStaleDays] = useState(90)
   // The map opens with the vault's settings (kept in OneNote, model/vaultSettings.ts) and a change
   // made here is saved there, when this window may change them; otherwise it lasts this session.
   const canSave = useRef(false)
@@ -100,6 +103,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
         canSave.current = s.canChange
         setGroupBy(s.settings.graphView)
         setFilters((f) => ({ ...f, hubsOnly: s.settings.labelsHubsOnly }))
+        setStaleDays(s.settings.linkStaleDays)
         if (s.settings.graphShowArchived) setFilterState((f) => ({ ...f, showArchived: true }))
       })
       .catch(() => {}) // the defaults stay; the map works without them
@@ -233,6 +237,13 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
     if (g !== 'tags') remember('graphView', g)
   }
   const tagOn = (name: string) => !tagChoice || tagChoice.has(name)
+  // Archive / Restore / Delete (useRetireFlow): a deleted page's window closes; the outcome shows
+  // in the page window while it is open, else above the map or the List.
+  const retire = useRetireFlow(actions.onRetire, (r) => {
+    if (r.action === 'delete' && dialog && r.done.some((d) => d.id === dialog.pageId)) setDialog(null)
+  })
+  const retirePages = actions.onRetire ? retire.start : undefined
+
   const toggleTag = (name: string) => {
     const next = new Set(tagChoice ?? groupTags.map((t) => t.name))
     if (next.has(name)) next.delete(name)
@@ -270,7 +281,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
               </div>
             </>
           )}
-          <FilterButton index={index} filter={liveFilter} onChange={setFilter} show={mode === 'graph' ? filters : undefined} onShow={setShow} />
+          <FilterButton index={index} filter={liveFilter} onChange={setFilter} show={mode === 'graph' ? filters : undefined} onShow={setShow} staleDays={staleDays} />
           <label htmlFor="kg-search" className="kg-sr">
             Search pages and topics
           </label>
@@ -354,6 +365,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
       )}
 
       <FilterSummary index={index} filter={liveFilter} onChange={setFilter} shown={shown.size} />
+      {!dialog && retire.notice}
 
       {mode === 'graph' ? (
         <GraphStage
@@ -370,7 +382,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           stageRef={stageRef}
         />
       ) : (
-        <GraphList index={index} layout={layout} matches={listMatches} onOpen={open} onTagPages={actions.onTagPages} onPickTag={showTag} />
+        <GraphList index={index} layout={layout} matches={listMatches} onOpen={open} onTagPages={actions.onTagPages} onPickTag={showTag} onRetirePages={retirePages} onUpdateLink={actions.onUpdateLink} />
       )}
 
       {dialog && (
@@ -387,8 +399,11 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
             showTag(t)
           }}
           {...actions}
+          onRetirePages={retirePages}
+          notice={retire.notice}
         />
       )}
+      {retire.dialog}
     </div>
   )
 }
