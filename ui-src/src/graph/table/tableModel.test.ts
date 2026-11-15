@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { growth } from '../../testing/scaling'
 import { buildIndex } from '../graphIndex'
 import { layoutGraph } from '../layout'
 import { normalizeGraph, UNFILED_ID } from '../model'
@@ -162,16 +163,21 @@ describe('header and folding helpers', () => {
     expect([...defaultOpenGroups([g('a', 5000), g('b', 1)], 500)]).toEqual(['a'])
     expect([...defaultOpenGroups([])]).toEqual([])
   })
-  it('5,000 pages: the table builds fast and opens at most about one budget of rows', () => {
-    const big = syntheticGraph({ pages: 5000, topics: 12, seed: 7 })
-    const bigIndex = buildIndex(big)
-    const layout = layoutGraph(big, {}, bigIndex)
-    const t0 = performance.now()
-    const t = buildTable(bigIndex, layout.areas, null, 'topic', { key: 'title', dir: 'asc' })
-    const ms = performance.now() - t0
+  it('5,000 pages: the table grows in step with the pages and opens at most about one budget of rows', () => {
+    const at = (n: number) => {
+      const g = syntheticGraph({ pages: n, topics: 12, seed: 7 })
+      const index = buildIndex(g)
+      return { index, areas: layoutGraph(g, {}, index).areas }
+    }
+    const small = at(500)
+    const bigSet = at(5000)
+    const bigIndex = bigSet.index
+    const t = buildTable(bigIndex, bigSet.areas, null, 'topic', { key: 'title', dir: 'asc' })
     expect(t.total).toBe(5000)
     expect(t.groups.reduce((n, g) => n + g.rows.length, 0)).toBe(5000)
-    expect(ms).toBeLessThan(1000)
+    const build = (s: typeof small) => () => void buildTable(s.index, s.areas, null, 'topic', { key: 'title', dir: 'asc' })
+    // Ten times the pages: sorting gives about 13 times longer, all-pairs work about 100.
+    expect(growth(build(small), build(bigSet), 2)).toBeLessThan(35)
     const open = defaultOpenGroups(t.groups)
     const openRows = t.groups.filter((g) => open.has(g.key)).reduce((n, g) => n + g.rows.length, 0)
     const firstClosed = t.groups.findIndex((g) => !open.has(g.key))

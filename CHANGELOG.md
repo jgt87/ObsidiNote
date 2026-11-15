@@ -5,6 +5,9 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- The interface's speed tests no longer fail on a slow build machine: they compare how the work grows from 500 to 5,000 pages instead of holding a time limit (the v0.10.0 release build failed on three of them; the release itself was not affected).
+
 ## [v0.10.0] - 2026-11-15
 
 ### Added

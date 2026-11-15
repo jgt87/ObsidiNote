@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { growth } from '../testing/scaling'
 import { findMentions, mentionBetween, nameKey, normalizeWords, withMentions } from './mentions'
 import type { GraphEdge, GraphModel, GraphPage } from './model'
 
@@ -81,14 +82,17 @@ describe('findMentions', () => {
     expect(fromX).toHaveLength(5)
     expect(fromX.slice(0, 3)).toEqual(['t2', 't6', 't1'])
   })
-  it('handles 5,000 pages quickly', () => {
-    const pages: GraphPage[] = []
-    for (let i = 0; i < 5000; i++) pages.push(page(`p${i}`, `Subject ${i} plan`, { summary: `Follows subject ${(i * 7) % 5000} plan and subject ${(i * 13) % 5000} plan closely.` }))
-    const t0 = performance.now()
-    const es = findMentions(model(pages))
-    const ms = performance.now() - t0
-    expect(es.length).toBeGreaterThan(4000)
-    expect(ms).toBeLessThan(1500)
+  it('handles 5,000 pages, and grows in step with them from 500 (no page compared with every other)', () => {
+    const at = (n: number) => {
+      const pages: GraphPage[] = []
+      for (let i = 0; i < n; i++) pages.push(page(`p${i}`, `Subject ${i} plan`, { summary: `Follows subject ${(i * 7) % n} plan and subject ${(i * 13) % n} plan closely.` }))
+      return model(pages)
+    }
+    const small = at(500)
+    const big = at(5000)
+    expect(findMentions(big).length).toBeGreaterThan(4000)
+    // Ten times the pages: linear work takes about 10 times longer, all-pairs work about 100.
+    expect(growth(() => void findMentions(small), () => void findMentions(big), 2)).toBeLessThan(30)
   })
 })
 

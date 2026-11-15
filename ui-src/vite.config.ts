@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
@@ -21,6 +22,11 @@ const favicons: Plugin = {
 export default defineConfig({
   plugins: [react(), favicons],
   base: './',
+  // A CI runner was 9 times slower than this PC on one run (v0.10.0's tag run, 2026-11-15) and the
+  // geometry tests that lay out 1,000 to 5,000 pages ran past vitest's 5 s default. This is the
+  // time a test may take before it counts as hung; how fast code is stays pinned by growth tests
+  // (src/testing/scaling.ts), never by this number.
+  test: { testTimeout: 30000 },
   build: { outDir: '../ui', emptyOutDir: true, assetsInlineLimit: 8192 },
   server: {
     port: 5190,

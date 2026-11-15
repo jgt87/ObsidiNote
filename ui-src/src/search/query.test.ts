@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { growth } from '../testing/scaling'
 import { buildIndex } from '../graph/graphIndex'
 import { normalizeGraph } from '../graph/model'
 import { describeFilter, findAll, normalizeText, parseQuery, rankPages, rankTopics, startsWord, topicQuery, withoutFilter, withoutFilters } from './query'
@@ -163,12 +164,16 @@ describe('rankTopics and findAll', () => {
     expect(capped.total).toBe(4)
   })
 
-  it('stays fast at 5,000 pages', () => {
-    const pages = Array.from({ length: 5000 }, (_, i) => ({ id: `q${i}`, title: `Page number ${i} about topic ${i % 50}`, topicIds: ['t1'], summary: 'Some longer summary text', modified: '2026-01-01' }))
-    const big = buildIndex(normalizeGraph({ source: {}, topics: model.topics, pages, edges: [] }))
-    rankPages(big, parseQuery('warm up'))
-    const t0 = performance.now()
-    for (let i = 0; i < 10; i++) rankPages(big, parseQuery(`about topic ${i}`))
-    expect((performance.now() - t0) / 10).toBeLessThan(50)
+  it('grows in step with the pages, from 500 to 5,000 (no page compared with every other)', () => {
+    const at = (n: number) => {
+      const pages = Array.from({ length: n }, (_, i) => ({ id: `q${i}`, title: `Page number ${i} about topic ${i % 50}`, topicIds: ['t1'], summary: 'Some longer summary text', modified: '2026-01-01' }))
+      return buildIndex(normalizeGraph({ source: {}, topics: model.topics, pages, edges: [] }))
+    }
+    const small = at(500)
+    const big = at(5000)
+    let k = 0
+    const run = (index: typeof small) => () => void rankPages(index, parseQuery(`about topic ${k++ % 10}`))
+    // Ten times the pages: linear work takes about 10 times longer, all-pairs work about 100.
+    expect(growth(run(small), run(big))).toBeLessThan(30)
   })
 })
