@@ -51,7 +51,7 @@ nav.rail > .rail__footer { margin-top: auto; }
   transition: background-color var(--dur-fast) ease-out;
 }
 @media (hover: hover) { .rail__link:hover:not([aria-current="page"]) { background: var(--hover); } }
-.rail__link[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.rail__link[aria-current="page"] { background: var(--pressed); color: var(--ink); font-weight: 600; }
 /* Settings opens a window, not a view: a button that looks like the menu's links. */
 .rail__link--btn { width: 100%; box-sizing: border-box; border: 0; background: transparent; font: inherit; font-size: var(--text-body); text-align: left; cursor: pointer; }
 

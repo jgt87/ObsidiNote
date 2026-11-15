@@ -15,6 +15,20 @@ interface PanelProps {
   onChange: (f: GraphFilter) => void
 }
 
+/** What the map draws (not which pages): the panel's first group, on the map only. */
+export interface MapShow {
+  links: boolean
+  mentions: boolean
+  hubsOnly: boolean
+}
+
+interface ButtonProps extends PanelProps {
+  /** With these the panel starts with "Show on the map" (design round 2, 2026-11-15: the three
+   *  switches left the toolbar, which keeps grouping, search, Filter and Graph/List). */
+  show?: MapShow
+  onShow?: (key: keyof MapShow, value: boolean) => void
+}
+
 function toggle(set: Set<string>, key: string): Set<string> {
   const next = new Set(set)
   if (next.has(key)) next.delete(key)
@@ -27,7 +41,7 @@ function choiceCount(f: GraphFilter): number {
   return f.types.size + f.topics.size + f.tags.size + (f.unlinkedOnly ? 1 : 0) + (f.showArchived ? 1 : 0)
 }
 
-export function FilterButton({ index, filter, onChange }: PanelProps) {
+export function FilterButton({ index, filter, onChange, show, onShow }: ButtonProps) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
@@ -95,6 +109,16 @@ export function FilterButton({ index, filter, onChange }: PanelProps) {
         Filter{n > 0 ? ` · ${n}` : ''}
       </button>
       <div ref={panelRef} id={panelId} className="kg-fp__panel" role="group" aria-label="Filter pages" hidden={!open}>
+        {show && onShow && (
+          <fieldset className="kg-fp__set">
+            <legend>Show on the map</legend>
+            <div className="kg-fp__list">
+              {box('show:links', 'Links', null, show.links, () => onShow('links', !show.links))}
+              {box('show:mentions', 'Mentions, not linked', null, show.mentions, () => onShow('mentions', !show.mentions))}
+              {box('show:hubsOnly', 'Labels: hubs only', null, show.hubsOnly, () => onShow('hubsOnly', !show.hubsOnly))}
+            </div>
+          </fieldset>
+        )}
         <fieldset className="kg-fp__set">
           <legend>Type</legend>
           <div className="kg-fp__list">

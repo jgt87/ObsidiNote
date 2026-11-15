@@ -9,7 +9,7 @@ export function readOnlyWhy(source: Pick<GraphSource, 'kind' | 'readOnly' | 'rea
   if (!source.readOnly) return ''
   switch (source.readOnlyReason) {
     case 'lease':
-      return 'Another ObsidiNote is writing in this vault, so this window can only read. The side bar says which and what to do.'
+      return 'Read only: another ObsidiNote is writing in this vault. This window takes over within about two minutes after that one closes.'
     case 'not-active':
       return 'This is not the active vault. Choose it under Notebook in the side bar to change its pages.'
     case 'notebook':

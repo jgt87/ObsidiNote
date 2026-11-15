@@ -93,13 +93,26 @@ export function parseAliases(text: string): string[] {
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const normLinks = (ls: EditLink[]) => ls.map((l) => ({ target: l.target, strength: clampStrength(l.strength), why: l.why.trim() }))
 
-/** What is wrong with the form before it is sent ('' = nothing). The server checks again. */
-export function editProblem(form: EditForm, isLink: boolean): string {
-  const t = form.title.trim()
+/** What is wrong with a title ('' = nothing): the one rule for the form and for the title changed
+ *  in place (InlineText). */
+export function titleProblem(title: string): string {
+  const t = title.trim()
   if (!t) return 'The title cannot be empty.'
   if (t.length > 200 || /[\r\n]/.test(t)) return 'The title must be one line of at most 200 characters.'
+  return ''
+}
+
+/** What is wrong with a summary ('' = nothing). */
+export function summaryProblem(summary: string): string {
+  return summary.trim().length > 2000 ? 'The summary can be at most 2,000 characters.' : ''
+}
+
+/** What is wrong with the form before it is sent ('' = nothing). The server checks again. */
+export function editProblem(form: EditForm, isLink: boolean): string {
+  const title = titleProblem(form.title)
+  if (title) return title
   if (isLink && !webUrl(form.url)) return 'The address must be an http(s) link.'
-  if (form.summary.trim().length > 2000) return 'The summary can be at most 2,000 characters.'
+  if (summaryProblem(form.summary)) return summaryProblem(form.summary)
   if (form.links.some((l) => l.why.length > 300)) return 'A link\'s reason can be at most 300 characters.'
   return ''
 }

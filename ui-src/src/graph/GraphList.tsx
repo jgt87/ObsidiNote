@@ -32,6 +32,8 @@ interface Props {
   /** Adds and removes tags on pages; with it the rows get a tick box and ticked rows a tag bar
    *  (a read-only source has none). */
   onTagPages?: (ids: string[], add: string[], remove: string[]) => Promise<unknown>
+  /** A tag in the Tags column: shows that tag on the map (the Tags grouping). */
+  onPickTag?: (tag: string) => void
 }
 
 const COLUMNS: { key: SortKey; label: string; className?: string }[] = [
@@ -53,7 +55,7 @@ function SortArrow({ dir }: { dir: 'ascending' | 'descending' | undefined }) {
   )
 }
 
-export function GraphList({ index, layout, matches, onOpen, onTagPages }: Props) {
+export function GraphList({ index, layout, matches, onOpen, onTagPages, onPickTag }: Props) {
   // Ticked rows, to tag several pages at once (session state). Ids that left the model are dropped.
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   useEffect(() => {
@@ -164,6 +166,7 @@ export function GraphList({ index, layout, matches, onOpen, onTagPages }: Props)
                   onOpen={onOpen}
                   selected={selected}
                   onSelect={onTagPages ? onSelect : undefined}
+                  onPickTag={onPickTag}
                 />
               )
             })

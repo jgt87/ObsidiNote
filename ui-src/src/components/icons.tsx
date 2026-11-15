@@ -51,6 +51,19 @@ export const InfoIcon = () => (
   </Icon>
 )
 
+export const PencilIcon = () => (
+  <Icon>
+    <path d="M10.5 3.2l2.3 2.3L6 12.3l-3 .7.7-3z" />
+  </Icon>
+)
+
+export const LockIcon = () => (
+  <Icon>
+    <rect x="3" y="7" width="10" height="7" rx="1.5" />
+    <path d="M5.5 7V5a2.5 2.5 0 015 0v2" />
+  </Icon>
+)
+
 export const WarnIcon = () => (
   <Icon>
     <path d="M8 2.5 14 13H2Z" />

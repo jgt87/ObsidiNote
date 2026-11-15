@@ -7,9 +7,11 @@
 //   5 no dot of the map lies under a topic name (100 pages, the Sources view, 600 pages)
 //   6 a section row of the side bar opens a List that holds pages
 //   7 "Labels: hubs only" leaves the topic names and names a page only while it is pointed at
-//  10 tags: added in the page window, joined on the map by n - 1 lines, added to two ticked rows of the List
-//  13 the Tags grouping shows one area per tag with only tagged pages; a chip removes a tag's area
-//  12 the side bar names the reason the window is read only; Settings lists the vault's tags
+//  10 tags: added in the page window, its chip opens the Tags grouping with that tag alone, added to two ticked rows of the List
+//  15 the page window shows the page's text (headings, lists, a table, a link to another page that opens it; only http(s)/mailto/onenote addresses; a failed read as an error with one retry; a long page says so)
+//  14 the page window's title is changed in place (Esc keeps the old one and the window, Enter saves, empty is refused)
+//  13 the Tags grouping shows one area per tag with only tagged pages; a chip removes a tag's area; the topics inside are named on no dot
+//  12 one banner names the reason the window is read only (not the side bar, no badge); Settings lists the vault's tags
 //  11 a read-only page window says why and shows Edit disabled
 //   9 the map's search shows its clear button whenever it holds text, without hover, and it clears
 //   8 during a long zoom-in with the wheel the map is drawn again before it is stretched 1.35 times
@@ -144,7 +146,12 @@ async function main() {
   const pageNames = () => js(`document.querySelectorAll('.kg-plabel').length`)
   const topicNames = () => js(`document.querySelectorAll('.kg-alabel').length`)
   const before = [await pageNames(), await topicNames()]
-  await click('Labels: hubs only'); await wait(400)
+  // The switch is in the Filter panel ("Show on the map"), no longer a button in the bar.
+  await click('Filter'); await wait(300)
+  await js(`[...document.querySelectorAll('.kg-fp__opt')].find((l) => l.textContent.trim() === 'Labels: hubs only').querySelector('input').click()`)
+  await wait(300)
+  await js(`[...document.querySelectorAll('.kg-fp__foot button')].find((b) => b.textContent.trim() === 'Done').click()`)
+  await wait(400)
   expect(before[0] > 0 && (await pageNames()) === 0 && (await topicNames()) === before[1], `hubs only: ${await pageNames()} page name(s) at rest (were ${before[0]}), ${await topicNames()} topic name(s) (were ${before[1]})`)
   {
     const pos = await list(`JSON.stringify((() => { const r = document.querySelectorAll('.kg-base circle.kg-dot--hub')[0].getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2] })())`)
@@ -203,16 +210,12 @@ async function main() {
     await wait(900)
     const chips = await list(`JSON.stringify([...document.querySelectorAll('dialog[open] .kg-tagchip__name')].map((e) => e.textContent.trim()))`)
     expect(chips.includes('trial tag'), `tags, page window: after adding "  Trial   Tag " the page's tags are ${JSON.stringify(chips)} ("trial tag" expected)`)
-    await js(`document.querySelector('dialog[open]')?.close()`)
-    await wait(300)
-    // The picker: the tag's pages are joined by n - 1 lines.
-    const picked = await js(`(() => { const s = document.querySelector('.kg-tagpick'); if (!s) return ''; const o = [...s.options].find((x) => x.value === 'licensing'); if (!o) return ''; s.value = o.value; s.dispatchEvent(new Event('change', { bubbles: true })); return o.textContent })()`)
-    await wait(600)
-    const n = Number((/\((\d+)\)/.exec(picked) || [])[1] || 0)
-    const lines = await js(`document.querySelectorAll('.kg-tagline').length`)
-    expect(n >= 2 && lines === n - 1, `tags, map: picking "licensing" (${picked}) drew ${lines} joining line(s); ${n - 1} expected for ${n} pages`)
-    // The List: tick two rows, tag them, both show the tag.
-    await js(`document.querySelector('.kg-tagpick').value = ''; document.querySelector('.kg-tagpick').dispatchEvent(new Event('change', { bubbles: true }))`)
+    // The tag's chip: the window closes and the map shows the Tags grouping with that tag alone.
+    await js(`[...document.querySelectorAll('dialog[open] .kg-tagchip__name')].find((e) => e.textContent.trim() === 'trial tag').click()`)
+    await wait(900)
+    const one = await list(`JSON.stringify({ open: !!document.querySelector('dialog[open]'), areas: [...document.querySelectorAll('.kg-alabel b')].map((e) => e.textContent), dots: document.querySelectorAll('.kg-base circle.kg-dot').length, tags: document.querySelector('.seg__btn[aria-pressed="true"]')?.textContent.trim(), picker: !!document.querySelector('.kg-tagpick'), lines: document.querySelectorAll('.kg-tagline').length })`)
+    expect(!one.open && one.tags === 'Tags' && JSON.stringify(one.areas) === '["trial tag"]' && one.dots === 1 && !one.picker && one.lines === 0, `tags, a chip in the page window: ${JSON.stringify(one)} (window closed, Tags grouping, the one area "trial tag" with 1 page expected)`)
+    await click('Topics'); await wait(600)
     await click('List'); await wait(500)
     await js(`[...document.querySelectorAll('.kg-tbl__tick')].slice(0, 2).forEach((b) => b.click())`)
     await wait(300)
@@ -240,6 +243,56 @@ async function main() {
     expect(!fewer.includes('licensing') && fewer.length === 2 && (await dots()) < tagged, `Tags grouping, "licensing" switched off: areas ${JSON.stringify(fewer)}, ${await dots()} dots (were ${tagged})`)
     const under = await list(UNDER_NAMES)
     expect(under.length === 0, `Tags grouping: dots under tag names: ${JSON.stringify(under)}`)
+    // The topics inside a tag area are named, and no name lies on a dot.
+    await click('All tags'); await wait(900)
+    const groups = await list(`JSON.stringify((() => { const dots = [...document.querySelectorAll('.kg-base circle.kg-dot')].map((c) => c.getBoundingClientRect()); const labels = [...document.querySelectorAll('.kg-glabel')]; const hit = labels.filter((l) => { const r = l.getBoundingClientRect(); return dots.some((d) => d.left < r.right - 1 && d.right > r.left + 1 && d.top < r.bottom - 1 && d.bottom > r.top + 1) }).map((l) => l.textContent); return { names: labels.length, hit } })())`)
+    expect(groups.names >= 3 && groups.hit.length === 0, `Tags grouping, topics inside the areas: ${groups.names} topic name(s) shown, on a dot: ${JSON.stringify(groups.hit)}`)
+  }
+  // 14 the title is changed in place: Esc keeps the window and the old title, Enter saves the new one
+  await go('/graph-demo.html?pages=100', '.kg-dot')
+  {
+    await openDot()
+    const key = async (k, code) => { for (const type of ['keyDown', 'keyUp']) await S('Input.dispatchKeyEvent', { type, key: k, code: k, windowsVirtualKeyCode: code }) }
+    const titleNow = () => js(`document.querySelector('dialog[open] #kg-dlg-title')?.textContent.replace('Change the title', '').trim() ?? ''`)
+    const before = await titleNow()
+    await js(`document.querySelector('dialog[open] #kg-dlg-title .kg-inline').click()`); await wait(300)
+    await S('Input.insertText', { text: 'Thrown away' })
+    await key('Escape', 27); await wait(400)
+    const afterEsc = await list(`JSON.stringify({ open: !!document.querySelector('dialog[open]'), field: !!document.querySelector('dialog[open] .kg-inline-edit') })`)
+    expect(afterEsc.open && !afterEsc.field && (await titleNow()) === before, `title in place, Esc: window open ${afterEsc.open}, field still shown ${afterEsc.field}, title "${await titleNow()}" (was "${before}")`)
+    await js(`document.querySelector('dialog[open] #kg-dlg-title .kg-inline').click()`); await wait(300)
+    await S('Input.insertText', { text: 'Renamed in place' })
+    await key('Enter', 13); await wait(900)
+    expect((await titleNow()) === 'Renamed in place' && !(await js(`!!document.querySelector('dialog[open] .kg-inline-edit')`)), `title in place, Enter: the title reads "${await titleNow()}" ("Renamed in place" expected)`)
+    await js(`document.querySelector('dialog[open] #kg-dlg-title .kg-inline').click()`); await wait(300)
+    await js(`(() => { const f = document.querySelector('dialog[open] .kg-inline-edit__field'); f.select() })()`)
+    await S('Input.insertText', { text: ' ' })
+    await key('Enter', 13); await wait(500)
+    const empty = await js(`document.querySelector('dialog[open] .kg-inline-edit__error')?.textContent ?? ''`)
+    expect(/cannot be empty/.test(empty), `title in place, an empty title: the message reads "${empty}"`)
+  }
+  // 15 the page window shows the page's text; a failed read is an error with its own retry; a long page says so
+  await go('/graph-demo.html?pages=100', '.kg-dot')
+  {
+    await openDot(); await wait(700)
+    const body = await list(`JSON.stringify((() => { const b = document.querySelector('dialog[open] .kg-body'); if (!b) return { shown: false }; return { shown: true, headings: b.querySelectorAll('h3, h4, h5').length, lists: b.querySelectorAll('ul, ol').length, table: !!b.querySelector('table'), pageLinks: b.querySelectorAll('button.kg-body__page').length, web: [...b.querySelectorAll('a')].map((a) => a.getAttribute('href')), html: /<script|onerror=/i.test(b.innerHTML), width: Math.round(b.getBoundingClientRect().width), scroll: b.scrollWidth > b.clientWidth + 1 } })())`)
+    expect(body.shown && body.headings >= 3 && body.lists >= 3 && body.table && body.pageLinks === 1 && body.web.every((h) => /^(https?:|mailto:|onenote:)/.test(h)) && !body.html && !body.scroll, `page text in the page window: ${JSON.stringify(body)}`)
+    const before = await js(`document.querySelector('dialog[open] #kg-dlg-title').textContent`)
+    await js(`document.querySelector('dialog[open] button.kg-body__page').click()`); await wait(900)
+    const after = await js(`document.querySelector('dialog[open] #kg-dlg-title')?.textContent ?? ''`)
+    expect(after && after !== before && (await js(`!!document.querySelector('dialog[open] .kg-body')`)), `page text: a link to another page showed "${after}" (was "${before}") with its own text`)
+  }
+  await go('/graph-demo.html?pages=100&body=fail', '.kg-dot')
+  {
+    await openDot(); await wait(700)
+    const err = await list(`JSON.stringify((() => { const n = document.querySelector('dialog[open] .notice--error'); return { text: n?.textContent ?? '', role: n?.getAttribute('role') ?? '', retry: [...(n?.querySelectorAll('button') ?? [])].map((b) => b.textContent.trim()), links: document.querySelectorAll('dialog[open] .kg-row').length } })())`)
+    expect(/could not be read/.test(err.text) && err.role === 'alert' && err.retry.length === 1 && err.links > 0, `page text, the read fails: ${JSON.stringify(err)} (an error box with one retry; the links stay)`)
+  }
+  await go('/graph-demo.html?pages=100&body=long', '.kg-dot')
+  {
+    await openDot(); await wait(700)
+    const more = await js(`[...document.querySelectorAll('dialog[open] .kg-body .kg-note')].map((n) => n.textContent).join('')`)
+    expect(/first part of a long page/.test(more), `page text, a long page: the note reads "${more}"`)
   }
   // 11 a read-only page says why and shows Edit disabled, not missing
   await go('/graph-demo.html?pages=100&readOnly=1', '.kg-dot')
@@ -253,8 +306,9 @@ async function main() {
   vaultStatus = { name: 'Work wiki', vaultId: 'v1', mode: 'readonly', reason: 'other-pc', since: new Date(Date.now() - 3600000).toISOString(), detail: '' }
   waiting = false; await go('/#/', '.recent__row')
   {
-    const note = await js(`[...document.querySelectorAll('.rail__note')].map((n) => n.textContent).join(' | ')`)
-    expect(/another PC/.test(note) && /Close it there/.test(note), `side bar, vault held on another PC: the note reads "${note}"`)
+    const note = await js(`[...document.querySelectorAll('.ro-banner')].map((n) => n.textContent).join(' | ')`)
+    const elsewhere = await js(`[...document.querySelectorAll('.rail__note, .kg-readonly')].filter((n) => /read only|another PC/i.test(n.textContent)).length`)
+    expect(/another PC/.test(note) && /Close it there/.test(note) && /Check again/.test(note) && !note.includes(' | ') && elsewhere === 0, `vault held on another PC: the one banner reads "${note}"; other places that say it: ${elsewhere}`)
     vaultStatus = null
     await click('Settings'); await wait(900)
     const tags = await js(`document.querySelectorAll('dialog[open] .st__tag').length`)

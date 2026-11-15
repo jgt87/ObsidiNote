@@ -126,7 +126,7 @@
 .kg-tbl__title { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
 /* Tick box for tagging several pages at once; a ticked row is tinted (selection, not hover). */
 .kg-tbl__tick { flex: none; margin: 0 var(--space-2) 0 0; align-self: center; }
-.kg-tbl__table tbody tr[data-selected] td { background-image: linear-gradient(var(--accent-soft), var(--accent-soft)); } /* design: one flat tint laid over the cell's own fill, as the hover is */
+.kg-tbl__table tbody tr[data-selected] td { background-image: linear-gradient(var(--pressed), var(--pressed)); } /* design: one flat tint laid over the cell's own fill, as the hover is */
 .kg-tbl__sel { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
 .kg-tbl__sel-count { font-size: var(--text-body); font-weight: 600; font-variant-numeric: tabular-nums; }
 .kg-tbl__title .kg-linkbtn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

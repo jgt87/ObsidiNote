@@ -6,7 +6,7 @@ describe('readOnlyWhy: why a page cannot be changed here', () => {
     expect(readOnlyWhy({ kind: 'vault', readOnly: false, readOnlyReason: '' })).toBe('')
   })
   it('names each reason the server gives, with what to do', () => {
-    expect(readOnlyWhy({ kind: 'vault', readOnly: true, readOnlyReason: 'lease' })).toMatch(/Another ObsidiNote is writing/)
+    expect(readOnlyWhy({ kind: 'vault', readOnly: true, readOnlyReason: 'lease' })).toMatch(/another ObsidiNote is writing/)
     expect(readOnlyWhy({ kind: 'vault', readOnly: true, readOnlyReason: 'not-active' })).toMatch(/not the active vault/)
     expect(readOnlyWhy({ kind: 'notebook', readOnly: true, readOnlyReason: 'notebook' })).toMatch(/never writes/)
   })

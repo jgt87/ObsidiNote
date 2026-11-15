@@ -3,10 +3,36 @@
 # Builders: AddNotebook(name), AddGroup(parentId, name), AddSection(parentId, name),
 # AddPage(sectionId, title, meta hashtable, level, bodyHtml). Writes are recorded in .Writes,
 # hierarchy reads in .Reads ("<start id>|<scope>").
+# What OneNote may hold back for a notebook (not seen live; for the tests of "the active vault is
+# never demoted" and the start's NavigateTo): .Hidden[<notebook id>] = 'sections' answers that
+# notebook without its sections, 'meta' answers its pages without Meta. NavigateTo(id) is recorded
+# in .Navigations (never in .Writes), makes that notebook the current one (GetCurrentNotebookId) and,
+# while .RevealOnNavigate, takes it out of .Hidden. .GuidIds = $true before the first Add gives ids
+# in OneNote's own shape ({GUID}{1}{B0}), which the server's id checks accept.
 
 function New-FakeOneNote {
-    $f = [pscustomobject]@{ Kind = 'fake'; Nodes = @{}; Roots = (New-Object System.Collections.ArrayList); Seq = 0; Writes = (New-Object System.Collections.ArrayList); Calls = @{}; Reads = (New-Object System.Collections.ArrayList) }
-    $f | Add-Member ScriptMethod NewId { param([string]$Prefix) $this.Seq++; '{' + $Prefix + '-' + $this.Seq.ToString('0000') + '}{1}{B0}' }
+    $f = [pscustomobject]@{ Kind = 'fake'; Nodes = @{}; Roots = (New-Object System.Collections.ArrayList); Seq = 0; Writes = (New-Object System.Collections.ArrayList); Calls = @{}; Reads = (New-Object System.Collections.ArrayList)
+        GuidIds = $false; Hidden = @{}; Current = ''; Navigations = (New-Object System.Collections.ArrayList); RevealOnNavigate = $true }
+    $f | Add-Member ScriptMethod NewId { param([string]$Prefix) $this.Seq++
+        if ($this.GuidIds) { return '{00000000-0000-4000-8000-' + $this.Seq.ToString('x12') + '}{1}{B0}' }
+        '{' + $Prefix + '-' + $this.Seq.ToString('0000') + '}{1}{B0}' }
+    $f | Add-Member ScriptMethod HiddenMode { param([string]$Id)
+        if (-not $this.Hidden.Count) { return '' }
+        $n = $this.Nodes[$Id]
+        while ($n -and $n.parent) { $n = $this.Nodes[$n.parent] }
+        if ($n -and $this.Hidden.ContainsKey($n.id)) { return [string]$this.Hidden[$n.id] }
+        ''
+    }
+    $f | Add-Member ScriptMethod NavigateTo { param([string]$Id)
+        $this.Count('NavigateTo')
+        $null = $this.Navigations.Add($Id)
+        if (-not $this.Nodes.ContainsKey($Id)) { throw "fake: no object $Id" }
+        $n = $this.Nodes[$Id]
+        while ($n.parent) { $n = $this.Nodes[$n.parent] }
+        $this.Current = $n.id
+        if ($this.RevealOnNavigate -and $this.Hidden.ContainsKey($n.id)) { $this.Hidden.Remove($n.id) }
+    }
+    $f | Add-Member ScriptMethod GetCurrentNotebookId { $this.Count('GetCurrentNotebookId'); [string]$this.Current }
     $f | Add-Member ScriptMethod Count { param([string]$Name) if ($this.Calls.ContainsKey($Name)) { $this.Calls[$Name]++ } else { $this.Calls[$Name] = 1 } }
     $f | Add-Member ScriptMethod AddNode { param([string]$Kind, [string]$ParentId, [string]$Name)
         $id = $this.NewId($Kind.Substring(0, 2).ToUpperInvariant())
@@ -41,7 +67,9 @@ function New-FakeOneNote {
             'Page' { $a = ' ID="' + $n.id + '" name="' + [Security.SecurityElement]::Escape($n.title) + '" lastModifiedTime="' + $n.modified + '" pageLevel="' + $n.level + '"'; if ($n.recycle) { $a += ' isInRecycleBin="true"' } }
         }
         $inner = ''
-        if ($n.kind -eq 'Page') { foreach ($k in $n.meta.Keys) { $inner += '<one:Meta name="' + $k + '" content="' + [Security.SecurityElement]::Escape([string]$n.meta[$k]) + '"/>' } }
+        $hide = $this.HiddenMode($Id)
+        if ($n.kind -eq 'Notebook' -and $hide -eq 'sections') { return "<one:Notebook$a></one:Notebook>" }
+        if ($n.kind -eq 'Page' -and $hide -ne 'meta') { foreach ($k in $n.meta.Keys) { $inner += '<one:Meta name="' + $k + '" content="' + [Security.SecurityElement]::Escape([string]$n.meta[$k]) + '"/>' } }
         $depth = @{ Notebook = 2; SectionGroup = 2; Section = 3; Page = 4 }
         # OneNote lists sections before section groups.
         $ordered = @($n.children | Where-Object { $this.Nodes[$_].kind -ne 'SectionGroup' }) + @($n.children | Where-Object { $this.Nodes[$_].kind -eq 'SectionGroup' })

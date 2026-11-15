@@ -17,6 +17,12 @@ Import-Module (Join-Path $PSScriptRoot 'Log.psm1')
 
 $script:SkipRoles = @('props', 'backlinks', 'index', 'state')
 $script:LeftOut = '_(An image, drawing or attached file is left out of the export.)_'
+# The page window's text (GET /api/page/body, Get-PageBody): the same converter with -LinkStyle page.
+# The summary outline is left out too (the window shows the summary itself), and the text is cut at
+# $script:BodyMax characters. Read only, in memory, never on disk; the log gets counts only.
+$script:BodySkipRoles = $script:SkipRoles + @('summary')
+$script:NotShown = '_(An image, drawing or attached file is not shown here.)_'
+$script:BodyMax = 20000
 
 # --- names --------------------------------------------------------------------------------------
 
@@ -96,8 +102,8 @@ function ConvertFrom-OneHtml {
     <# The HTML of a one:T (spans with styles, links, br) as Markdown inline text. Bold, italic,
        strikethrough and Consolas (code) spans become **, *, ~~ and backticks; a link to a page in
        $Targets becomes [[name|text]], other http(s)/mailto links [text](url); other tags are
-       dropped, their text kept. #>
-    param([string]$Html, [hashtable]$Targets = @{})
+       dropped, their text kept. -LinkStyle page (the page window): see Complete-MdLink. #>
+    param([string]$Html, [hashtable]$Targets = @{}, [ValidateSet('wiki', 'page')][string]$LinkStyle = 'wiki')
     $sb = New-Object Text.StringBuilder
     $open = New-Object System.Collections.Generic.List[object]   # @{ tag; close; at; href }
     $code = 0
@@ -129,7 +135,7 @@ function ConvertFrom-OneHtml {
         while ($i -ge 0 -and $open[$i].tag -ne $tag) { $i-- }
         if ($i -lt 0) { continue }
         $o = $open[$i]; $open.RemoveAt($i)
-        if ($tag -eq 'a') { Complete-MdLink $sb $o $Targets; continue }
+        if ($tag -eq 'a') { Complete-MdLink $sb $o $Targets $LinkStyle; continue }
         if ($o.close -eq '`') { $code-- }
         if (-not $o.close) { continue }
         if ($sb.Length -eq $o.at) { [void]$sb.Remove($o.at - $o.close.Length, $o.close.Length); continue }
@@ -139,7 +145,18 @@ function ConvertFrom-OneHtml {
     ($sb.ToString() -replace '\s+$', '')
 }
 
-function Complete-MdLink($Sb, $Open, [hashtable]$Targets) {
+function ConvertTo-MdDestination([string]$Href) {
+    <# A link destination that needs no angle brackets: no control characters, and space, angle
+       brackets and parentheses percent-encoded, so "](" ... ")" ends where the address ends. #>
+    $h = $Href -replace '[\x00-\x1f\x7f]', ''
+    $h.Replace(' ', '%20').Replace('(', '%28').Replace(')', '%29').Replace('<', '%3C').Replace('>', '%3E')
+}
+
+function Complete-MdLink($Sb, $Open, [hashtable]$Targets, [string]$LinkStyle = 'wiki') {
+    <# Closes a link. wiki (the export): a page of the model [[name|text]], http(s)/mailto
+       [text](<url>), anything else plain text. page (the page window; $Targets holds page ids):
+       a page of the model [text](obsn:<page id>), http(s)/mailto/onenote [text](url), anything else
+       (javascript:, file:, ...) plain text. #>
     $text = $Sb.ToString($Open.at, $Sb.Length - $Open.at)
     $href = [string]$Open.href
     $name = ''
@@ -147,7 +164,14 @@ function Complete-MdLink($Sb, $Open, [hashtable]$Targets) {
         if ($Targets.ContainsKey($href)) { $name = $Targets[$href] }
         else { $g = Get-PageGuid $href; if ($g -and $Targets.ContainsKey("guid:$g")) { $name = $Targets["guid:$g"] } }
     }
-    if ($name) {
+    if ($LinkStyle -eq 'page') {
+        if ($name -and $text.Trim()) { $link = "[$text](obsn:$(ConvertTo-MdDestination $name))" }
+        elseif ($name) { return }
+        elseif ($href -match '^(?i)(https?:|mailto:|onenote:)') {
+            $label = if ($text.Trim()) { $text } else { ConvertTo-MdText $href $false }
+            $link = "[$label]($(ConvertTo-MdDestination $href))"
+        } else { return }
+    } elseif ($name) {
         $plain = $text -replace '\\([\\`*_\[\]])', '$1'
         $link = if ($plain -eq $name -or -not $plain.Trim()) { "[[$name]]" } else { "[[$name|$($plain -replace '[\[\]|]', ' ')]]" }
     } elseif ($href -match '^(?i)(https?:|mailto:)') {
@@ -187,7 +211,7 @@ function ConvertFrom-OneOE {
         $out.Add(@{ kind = 'table'; text = (ConvertFrom-OneTable $table $Ns $Ctx) })
     } elseif ($t) {
         $html = $t.InnerText
-        $text = ConvertFrom-OneHtml -Html $html -Targets $Ctx.targets
+        $text = ConvertFrom-OneHtml -Html $html -Targets $Ctx.targets -LinkStyle $Ctx.linkStyle
         $style = $OE.GetAttribute('quickStyleIndex')
         # ObsidiNote's own headings (lib/VaultStore.psm1): a bold line in 16/14/12 pt. It writes a size
         # span; OneNote stores the size on the line's style instead (seen live, 2026-11-13). A line
@@ -208,7 +232,7 @@ function ConvertFrom-OneOE {
         elseif ($Ctx.headings.ContainsKey($style) -and $text) { $out.Add(@{ kind = 'para'; text = ('#' * $Ctx.headings[$style]) + ' ' + $text }) }
         elseif ($text) { $out.Add(@{ kind = 'para'; text = $text }) }
     } elseif ($OE.SelectSingleNode('one:Image|one:InkDrawing|one:InsertedFile|one:MediaFile', $Ns)) {
-        $out.Add(@{ kind = 'para'; text = $script:LeftOut })
+        $out.Add(@{ kind = 'para'; text = $Ctx.leftOut })
     }
     $kids = $OE.SelectSingleNode('one:OEChildren', $Ns)
     if ($kids) {
@@ -232,7 +256,7 @@ function ConvertFrom-OneTable($Table, $Ns, [hashtable]$Ctx) {
     $headerDone = $false
     $rows =@(foreach ($row in @($Table.SelectNodes('one:Row', $Ns))) {
         $cells = @(foreach ($c in @($row.SelectNodes('one:Cell', $Ns))) {
-            $parts = @(foreach ($t in @($c.SelectNodes('.//one:T', $Ns))) { ConvertFrom-OneHtml -Html $t.InnerText -Targets $Ctx.targets })
+            $parts = @(foreach ($t in @($c.SelectNodes('.//one:T', $Ns))) { ConvertFrom-OneHtml -Html $t.InnerText -Targets $Ctx.targets -LinkStyle $Ctx.linkStyle })
             $cell = (($parts | Where-Object { $_ }) -join ' ') -replace '\|', '\|'
             # The header row is bold in OneNote; a Markdown header row is bold already.
             if (-not $headerDone -and $cell -match '^\*\*(.+)\*\*$') { $cell = $Matches[1] }
@@ -267,21 +291,24 @@ function Join-MdBlocks([object[]]$Blocks) {
 
 function ConvertFrom-OnePageXml {
     <# The Markdown body of one page (GetPageContent XML): every outline in page order, except the
-       generated ones (obsn.role props, backlinks, index, state). $Targets: Get-LinkTargets. #>
-    param([Parameter(Mandatory)][string]$Xml, [hashtable]$Targets = @{})
+       generated ones (obsn.role props, backlinks, index, state; -SkipRoles names another list).
+       $Targets: Get-LinkTargets. -LinkStyle page: links as the page window reads them
+       (Complete-MdLink); $Targets then maps to page ids. #>
+    param([Parameter(Mandatory)][string]$Xml, [hashtable]$Targets = @{}, [string[]]$SkipRoles = $script:SkipRoles,
+        [ValidateSet('wiki', 'page')][string]$LinkStyle = 'wiki')
     [xml]$doc = $Xml
     $ns = Get-OneNs $doc
-    $ctx = @{ targets = $Targets; headings = (Get-HeadingStyles $doc $ns) }
+    $ctx = @{ targets = $Targets; headings = (Get-HeadingStyles $doc $ns); linkStyle = $LinkStyle; leftOut = $(if ($LinkStyle -eq 'page') { $script:NotShown } else { $script:LeftOut }) }
     $parts = New-Object System.Collections.Generic.List[string]
     foreach ($o in @($doc.DocumentElement.SelectNodes('one:Outline', $ns))) {
         $role = $o.SelectSingleNode('one:Meta[@name="obsn.role"]', $ns)
-        if ($role -and $script:SkipRoles -contains $role.GetAttribute('content')) { continue }
+        if ($role -and $SkipRoles -contains $role.GetAttribute('content')) { continue }
         $kids = $o.SelectSingleNode('one:OEChildren', $ns)
         if (-not $kids) { continue }
         $md = Join-MdBlocks (ConvertFrom-OneChildren $kids $ns $ctx '')
         if ($md) { $parts.Add($md) }
     }
-    foreach ($x in @($doc.DocumentElement.SelectNodes('one:Image|one:InkDrawing|one:InsertedFile|one:MediaFile', $ns))) { $parts.Add($script:LeftOut); break }
+    foreach ($x in @($doc.DocumentElement.SelectNodes('one:Image|one:InkDrawing|one:InsertedFile|one:MediaFile', $ns))) { $parts.Add($ctx.leftOut); break }
     ($parts.ToArray() -join "`n`n")
 }
 
@@ -366,6 +393,44 @@ function New-MarkdownExport {
     $r
 }
 
+# --- the page window's text ---------------------------------------------------------------------------
+
+function Limit-BodyText {
+    <# Text cut at $Max characters, at the last line break before the limit (no line break: at the
+       limit, never inside a surrogate pair). @{ markdown; truncated; length = the full length }. #>
+    param([AllowEmptyString()][string]$Markdown, [int]$Max = $script:BodyMax)
+    $full = $Markdown.Length
+    if ($full -le $Max) { return @{ markdown = $Markdown; truncated = $false; length = $full } }
+    $at = $Markdown.LastIndexOf("`n", $Max - 1)
+    if ($at -le 0) { $at = $Max; if ([char]::IsHighSurrogate($Markdown[$at - 1])) { $at-- } }
+    @{ markdown = $Markdown.Substring(0, $at).TrimEnd(); truncated = $true; length = $full }
+}
+
+function Get-PageBody {
+    <# The text of one page of the model for the page window: @{ id; markdown; truncated; length }, or
+       @{ error = 'not-found' } when $Key is no page of the model. $ReadPage { param($OneNoteId) }
+       returns the page XML (GetPageContent); a failed read throws. No front matter and no title;
+       the generated outlines and the summary are left out, "Your notes" stays; a link to a page of
+       the model is [text](obsn:<page id>). Built in memory; the log gets counts only. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Model, [Parameter(Mandatory)][string]$Key, [Parameter(Mandatory)][scriptblock]$ReadPage, [int]$Max = $script:BodyMax)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    if (-not $Model.pages.Contains($Key)) { return @{ error = 'not-found' } }
+    $p = $Model.pages[$Key]
+    $md = ''
+    if ($p.oneNoteId) {
+        $ids = @{}
+        foreach ($k in $Model.pages.Keys) { $ids[$k] = [string]$k }
+        $targets = Get-LinkTargets -Model $Model -Names $ids
+        $md = ConvertFrom-OnePageXml -Xml ([string](& $ReadPage ([string]$p.oneNoteId))) -Targets $targets -SkipRoles $script:BodySkipRoles -LinkStyle page
+        $md = $md -replace "`r`n?", "`n"
+    }
+    $r = Limit-BodyText -Markdown $md -Max $Max
+    $r['id'] = $Key
+    Write-AppLog info export 'Page body' @{ chars = [int]$r.length; truncated = [bool]$r.truncated; ms = [int]$sw.ElapsedMilliseconds }
+    $r
+}
+
 function New-ZipBytes {
     <# A zip in memory (entries "<root>/<path>", '/' separators); nothing touches the disk. #>
     param([object[]]$Files, [string]$Root)
@@ -385,4 +450,4 @@ function New-ZipBytes {
     , $out
 }
 
-Export-ModuleMember -Function ConvertTo-SafeName, Get-ExportNames, ConvertFrom-OneHtml, ConvertFrom-OnePageXml, New-FrontMatter, Select-ExportPages, New-MarkdownExport
+Export-ModuleMember -Function ConvertTo-SafeName, Get-ExportNames, ConvertFrom-OneHtml, ConvertFrom-OnePageXml, New-FrontMatter, Select-ExportPages, New-MarkdownExport, Limit-BodyText, Get-PageBody

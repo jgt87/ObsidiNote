@@ -10,7 +10,8 @@ import { Rail } from './components/Rail'
 import { fetchGraph, GraphView } from './graph'
 import { useHomeFlow } from './hooks/useHomeFlow'
 import { useNotebook, useNotebooks, useStatus } from './hooks/useServerData'
-import { attentionNotes, sendBlock } from './model/attention'
+import { attentionNotes, sendBlock, vaultNote } from './model/attention'
+import { ReadOnlyBanner } from './components/ReadOnlyBanner'
 import { askAboutText } from './model/handoff'
 import { addTargetFor, askSourceChoices, graphRefFor } from './model/notebooks'
 import { viewFromHash, VIEWS, type View } from './model/views'
@@ -51,6 +52,12 @@ export function App() {
     }
   }, [notebooks.activeId])
   const [notice, setNotice] = useState('')
+  // Why this window cannot write in its vault ('' when it can); one banner says it.
+  const vaultWhy = status && !serverDown ? vaultNote(status) : ''
+  const checkAgain = () => {
+    void refreshStatus()
+    setGraphReload((n) => n + 1)
+  }
 
   const goto = (v: View) => { window.location.hash = VIEWS[v].hash }
   const home = useHomeFlow(choices, (ids) => {
@@ -111,6 +118,7 @@ export function App() {
             </button>
           </p>
         )}
+        {vaultWhy && view !== 'graph' && <ReadOnlyBanner text={vaultWhy} onCheck={checkAgain} />}
         {view === 'home' && (
           <HomeView
             home={home}
@@ -134,6 +142,8 @@ export function App() {
             focusIds={graphFocus}
             request={findRequest}
             onRequestDone={() => setFindRequest(null)}
+            readOnlyNote={vaultWhy}
+            onCheckAgain={checkAgain}
             onAdd={() => goto('home')}
             onAsk={(page) => {
               home.askAbout(askAboutText(page.title))

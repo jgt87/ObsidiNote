@@ -20,6 +20,14 @@ export function shortenToWidth(name: string, maxW: number): string {
   return fit >= letters.length ? name : letters.slice(0, fit - 1).join('').trimEnd() + '…'
 }
 
+/** Height of a group name inside an area, px (graph.css .kg-glabel: 11px). */
+export const GROUP_H = 16
+
+/** Estimated size of a group name inside an area (the Tags grouping: a topic's name). */
+export function groupLabelSize(name: string): { w: number; h: number } {
+  return { w: [...name].length * 11 * 0.56 + 8, h: GROUP_H }
+}
+
 /**
  * The room in the middle of an area that stays free for its name: half width and half height, in
  * layout units. `scale` = layout units per screen pixel at the zoom the map is fitted to: 1 on

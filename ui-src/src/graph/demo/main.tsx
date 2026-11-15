@@ -47,7 +47,7 @@ function Demo() {
         onEditPage={(req) =>
           // Never the real route in the demo. ?edit=fail shows the error in the form.
           new Promise<void>((resolve, reject) =>
-            setTimeout(() => (q.get('edit') === 'fail' ? reject(new Error('Read only: another ObsidiNote is writing in this vault.')) : (setLog(`Edit: ${JSON.stringify(req)}`), resolve())), 400),
+            setTimeout(() => (q.get('edit') === 'fail' ? reject(new Error('Read only: another ObsidiNote is writing in this vault.')) : ((model = { ...model, pages: model.pages.map((p) => (p.id === req.id ? { ...p, title: req.title ?? p.title, summary: req.summary ?? p.summary } : p)) }), setLog(`Edit: ${JSON.stringify(req)}`), resolve())), 400),
           )
         }
         onLinkMention={(a, b) =>
@@ -62,6 +62,31 @@ function Demo() {
           model = { ...model, pages: model.pages.map((p) => (ids.includes(p.id) ? { ...p, tags: [...p.tags.filter((t) => !remove.includes(t)), ...add.filter((t) => !p.tags.includes(t))] } : p)) }
           setLog(`Tag ${ids.length} page(s): +[${add.join(', ')}] -[${remove.join(', ')}]`)
         }}
+        loadBody={(id) =>
+          // Never the real route in the demo: an invented page text. ?body=fail|empty|long shows the other states.
+          new Promise((resolve, reject) =>
+            setTimeout(() => {
+              if (q.get('body') === 'fail') return reject(new Error('The page could not be read from OneNote. Try again.'))
+              if (q.get('body') === 'empty') return resolve({ markdown: '', truncated: false })
+              const other = model.pages.find((p) => p.id !== id)
+              resolve({
+                truncated: q.get('body') === 'long',
+                markdown: [
+                  '# Overview',
+                  'An invented page text for the demo: it checks **who** asks and *from where*, as [the guide](https://example.com/guide) says.',
+                  '## Steps',
+                  '1. Plan\n2. Roll **out**\n3. Review',
+                  `See ${other ? `[${other.title}](obsn:${other.id})` : 'another page'} for the background.`,
+                  '- Check the user\n    - with a second factor\n- Check the device',
+                  '- [ ] ask the network team\n- [x] read the guide',
+                  '| Name | Use |\n| --- | --- |\n| Proxy | checks every request |\n| `vpn` | the old way |',
+                  '## Your notes',
+                  'My own words stay.',
+                ].join('\n\n'),
+              })
+            }, 300),
+          )
+        }
         onAdd={() => setLog('Add')}
         request={find}
         onRequestDone={() => setFind(null)}

@@ -49,6 +49,10 @@
   /* status: no hue of their own; the icon + word carry the meaning (never colour alone).
      Soft fills stay neutral so a status never reads as the accent. */
   --neutral-soft: color-mix(in srgb, CanvasText 8%, transparent);
+  /* A choice that is on (pressed toggle, current nav item, selected row): a neutral fill, a step
+     stronger than hover. design (round 2, 2026-11-15): never the accent, which means "do this"
+     (the primary button) and "the page you are on" in the map; follows the theme by itself. */
+  --pressed: color-mix(in srgb, CanvasText 13%, transparent);
   --danger: var(--ink);  --danger-soft: var(--neutral-soft);
   --warn: var(--ink);    --warn-soft: var(--neutral-soft);
   --ok: var(--ink);      --ok-soft: var(--neutral-soft);
@@ -155,13 +159,14 @@ code, kbd, .mono { font-family: var(--font-mono); }
 .btn--danger { background: var(--danger-soft); border-color: transparent; color: var(--danger); }
 .btn--sm { height: var(--control-h-sm); padding: 0 var(--space-3); font-size: var(--text-meta); }
 .btn--icon { width: var(--control-h); padding: 0; }
-.btn[aria-pressed="true"], .btn[data-active="true"] { background: var(--accent-soft); color: var(--ink); }
+.btn[aria-pressed="true"], .btn[data-active="true"] { background: var(--pressed); color: var(--ink); }
 .btn svg { width: 16px; height: 16px; flex: none; }
 a.btn { text-decoration: none; } /* a link styled as a button is a button: no underline */
 
 /* ---------- either/or and on/off ---------- */
 /* design (review 2026-11-14): ONE look per kind of choice. Either/or (mode, theme, Topics/Sources,
-   Graph/List) is this segmented control: a sunken track, the chosen segment raised with the accent.
+   Graph/List) is this segmented control: a sunken track, the chosen segment raised (surface, a
+   strong edge, bold; not the accent, see --pressed).
    On/off is a .btn with aria-pressed and a .toggle-mark box that shows a check when on. Tabs keep
    their underline, the menu its soft fill. */
 .seg { display: inline-flex; gap: var(--space-1); padding: var(--space-1); border-radius: var(--radius); background: var(--active); }
@@ -173,7 +178,7 @@ a.btn { text-decoration: none; } /* a link styled as a button is a button: no un
 }
 @media (hover: hover) { .seg__btn:hover:not([aria-pressed="true"]):not([aria-checked="true"]) { background: var(--hover); } }
 .seg__btn[aria-pressed="true"], .seg__btn[aria-checked="true"] {
-  background: var(--surface); color: var(--accent); font-weight: 600; box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 /* In a bar of small controls: the track has no padding, so the control is as tall as its neighbours. */
 .seg--sm { padding: 0; gap: 0; }
@@ -223,7 +228,8 @@ a.btn { text-decoration: none; } /* a link styled as a button is a button: no un
 @media (pointer: coarse) { input.field, select.field, textarea.field, textarea { font-size: max(16px, 1em); } }
 .field:focus-visible { border-color: var(--ring); } /* keeps the global 2px ring; a soft halo is not a ring (docs/17 §8) */
 input[type="number"].field { text-align: right; font-variant-numeric: tabular-nums; }
-input[type="range"], input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+/* A ticked box is a choice that is on: ink, not the accent (see --pressed). */
+input[type="range"], input[type="checkbox"], input[type="radio"] { accent-color: var(--ink); }
 .range-value { min-width: 38px; text-align: right; font: var(--text-meta) var(--font-mono);
   font-variant-numeric: tabular-nums; color: var(--muted); }
 

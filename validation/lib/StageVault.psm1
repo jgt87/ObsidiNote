@@ -65,7 +65,7 @@ function Invoke-WithKnownParams {
 }
 
 function Add-SkipAll($Ctx, [string]$Why) {
-    foreach ($n in 'Vaults', 'Index completeness', 'Upgrade plan', 'Vault settings', 'Knowledge graph', 'Markdown export', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Undo of a linked page', 'Tags', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
+    foreach ($n in 'Vaults', 'Notebook reads', 'Index completeness', 'Upgrade plan', 'Vault settings', 'Knowledge graph', 'Markdown export', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Undo of a linked page', 'Tags', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
 }
 
 function Add-VaultResults($Ctx, $Adapter) {
@@ -83,6 +83,71 @@ function Add-VaultResults($Ctx, $Adapter) {
     }
     # Each vault to the pipeline: the caller collects them with @().
     $vaults
+}
+
+function Get-KitSections($Node) {
+    <# The Section elements below $Node that are not in the recycle bin. #>
+    @($Node.SelectNodes(".//*[local-name()='Section']") | Where-Object { $_.GetAttribute('isInRecycleBin') -ne 'true' -and $_.ParentNode.GetAttribute('isRecycleBin') -ne 'true' })
+}
+
+function Get-NotebookReadFacts($Adapter, [string]$NotebookId, [xml]$AllDoc) {
+    <# What OneNote answers for one open notebook, as counts (read only: GetHierarchy only, never
+       NavigateTo): its sections read by the notebook's id and in the read of all notebooks, its
+       `00 Index` sections (the notebook's own and those of its top-level section groups, as the app
+       looks for vaults), their pages, how many carry obsn Meta, and whether a state page is found. #>
+    [xml]$own = $Adapter.GetHierarchy($NotebookId, 3)
+    $inAll = 0; $index = @()
+    foreach ($n in @($AllDoc.DocumentElement.ChildNodes)) {
+        if ($n.NodeType -ne 'Element' -or $n.GetAttribute('ID') -ne $NotebookId) { continue }
+        $inAll = @(Get-KitSections $n).Count
+        $roots = @($n) + @($n.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -eq 'SectionGroup' -and $_.GetAttribute('isRecycleBin') -ne 'true' })
+        foreach ($r in $roots) { $index += @($r.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -eq 'Section' -and $_.GetAttribute('name') -eq '00 Index' } | ForEach-Object { $_.GetAttribute('ID') }) }
+    }
+    $pages = 0; $withMeta = 0; $states = 0
+    foreach ($id in $index) {
+        $x = $Adapter.GetHierarchy($id, 4)
+        [xml]$d = $x
+        foreach ($p in @($d.SelectNodes("//*[local-name()='Page']"))) {
+            $pages++
+            if (@($p.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -eq 'Meta' -and "$($_.GetAttribute('name'))".StartsWith('obsn.') }).Count) { $withMeta++ }
+        }
+        if (Find-StatePage $x) { $states++ }
+    }
+    [pscustomobject]@{ sections = @(Get-KitSections $own.DocumentElement).Count; sectionsInAll = $inAll; indexSections = @($index).Count; pages = $pages; withMeta = $withMeta; states = $states }
+}
+
+function Add-NotebookReadResults($Ctx, $Adapter, [object[]]$Vaults) {
+    <# Read only (operator, 2026-11-15: pages of the vault showed "read only" while another notebook
+       was the selected one in OneNote): per open notebook, what OneNote answers and whether it is the
+       notebook OneNote shows now. Run it once with another notebook selected and once with the vault's
+       notebook selected, and compare the "state page found" of the vault's notebook. Counts and yes/no
+       only. It never selects a notebook itself. #>
+    $cur = ''
+    if ($Adapter.PSObject.Methods['GetCurrentNotebookId']) { try { $cur = [string]$Adapter.GetCurrentNotebookId() } catch { $cur = '' } }
+    $all = Measure-KitStep { $x = $Adapter.GetHierarchy('', 3); [xml]$d = $x; $d }
+    if (-not $all.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Notebook reads' $all.error; return }
+    $nbs = @($all.value.DocumentElement.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -eq 'Notebook' })
+    $isOpen = [bool](@($nbs | Where-Object { $_.GetAttribute('ID') -eq $cur }).Count)
+    $shown = if (-not $cur) { 'not known' } elseif ($isOpen) { 'one of them' } else { 'none of them' }
+    # Never "OneNote:" in a line: the kit's masking reads that as the start of a onenote: link.
+    Add-ValidationResult $Ctx 'V6' 'INFO' 'Notebook reads' "$($nbs.Count) notebooks open; the selected notebook is $shown; read in $($all.ms) ms (read only, nothing is selected)"
+    foreach ($nb in @($nbs | Select-Object -First $script:GraphMax)) {
+        $id = [string]$nb.GetAttribute('ID')
+        $alias = Register-ValidationName $Ctx 'notebook' "$($nb.GetAttribute('name'))"
+        $r = Measure-KitStep { Get-NotebookReadFacts $Adapter $id $all.value }
+        if (-not $r.ok) { Add-ValidationResult $Ctx 'V6' 'WARN' "Reads of $alias" $r.error; continue }
+        $f = $r.value
+        $sel = if (-not $cur) { 'not known' } else { Format-YesNo ($cur -eq $id) }
+        $listed = @($Vaults | Where-Object { "$(Get-KitProp $_ 'notebookId' '')" -eq $id }).Count
+        $detail = "selected: $sel; sections: $($f.sections) read by notebook, $($f.sectionsInAll) read with all notebooks; "
+        if ($f.indexSections) {
+            $found = Format-YesNo ($f.states -eq $f.indexSections)
+            $detail += "00 Index sections: $($f.indexSections); their pages: $($f.pages), with obsn Meta: $($f.withMeta); state page found: $found$(if ($f.indexSections -gt 1) { " ($($f.states) of $($f.indexSections))" })"
+        } else { $detail += 'no 00 Index section listed; state page found: no' }
+        $detail += "; vaults listed in it: $listed; $($r.ms) ms"
+        $odd = ($f.indexSections -and $f.states -ne $f.indexSections) -or ($f.sections -ne $f.sectionsInAll)
+        Add-ValidationResult $Ctx 'V6' $(if ($odd) { 'WARN' } else { 'INFO' }) "Reads of $alias" $detail $(if ($odd) { 'Run this stage again with this notebook selected in OneNote and send both logs.' } else { '' })
+    }
 }
 
 function Add-IndexResults($Ctx, $Adapter, [object[]]$Vaults) {
@@ -570,6 +635,7 @@ function Invoke-StageVault {
     $a = Measure-KitStep { Get-OneNoteAdapter }
     if (-not $a.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' 'OneNote adapter' $a.error; return }
     $vaults = @(Add-VaultResults $Ctx $a.value)
+    Add-NotebookReadResults $Ctx $a.value $vaults
     Add-IndexResults $Ctx $a.value $vaults
     Add-UpgradePlanResults $Ctx $vaults $a.value
     Add-SettingsResults $Ctx $vaults $a.value

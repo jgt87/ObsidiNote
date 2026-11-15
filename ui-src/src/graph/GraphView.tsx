@@ -2,7 +2,8 @@
 // The merge renders <GraphView load={() => fetchGraph({ vault })} ... /> for the Map nav entry.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { addLink, editPage, tagPages } from './graphApi'
+import { exportSourceOf } from '../export/exportApi'
+import { addLink, editPage, fetchPageBody, tagPages } from './graphApi'
 import { KnowledgeGraph, type KnowledgeGraphProps } from './KnowledgeGraph'
 import { mentionBetween, withMentions } from './mentions'
 import type { GraphModel } from './model'
@@ -20,7 +21,7 @@ export interface GraphViewProps extends Omit<KnowledgeGraphProps, 'model'> {
   onAdd?: () => void
 }
 
-export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, onTagPages, ...rest }: GraphViewProps) {
+export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, onTagPages, loadBody, ...rest }: GraphViewProps) {
   const [state, setState] = useState<State>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
   const loaded = state.status === 'ready' ? state.model : null
@@ -52,10 +53,10 @@ export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, o
 
   // Edit in the page window: save, then read the map again in place (the dialog stays open).
   const editPageFn = useMemo<PageActions['onEditPage']>(() => {
-    if (onEditPage) return onEditPage
-    if (!writable) return undefined
+    if (!onEditPage && !writable) return undefined
     return async (req) => {
-      await editPage(req)
+      // A handler given from outside (the demo's) is followed by the same re-read.
+      await (onEditPage ? onEditPage(req) : editPage(req))
       await refresh().catch(() => {
         throw new Error('The page was saved, but the map could not be read again. Reload the map to see it.')
       })
@@ -75,6 +76,15 @@ export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, o
       })
     }
   }, [onTagPages, model, writable, refresh])
+
+  // The page window's text: the shown source's page, read when the window shows it. The function
+  // only changes with the source, so an open page is not read again after a tag or an edit.
+  const bodySource = model ? JSON.stringify(exportSourceOf(model.source)) : ''
+  const loadBodyFn = useMemo<PageActions['loadBody']>(() => {
+    if (loadBody) return loadBody
+    if (!bodySource) return undefined
+    return (pageId, signal) => fetchPageBody(pageId, JSON.parse(bodySource), signal)
+  }, [loadBody, bodySource])
 
   useEffect(() => {
     const ctl = new AbortController()
@@ -125,7 +135,7 @@ export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, o
       </div>
     )
   }
-  return <KnowledgeGraph model={model} onLinkMention={linkMention} onEditPage={editPageFn} onTagPages={tagPagesFn} {...rest} />
+  return <KnowledgeGraph model={model} onLinkMention={linkMention} onEditPage={editPageFn} onTagPages={tagPagesFn} loadBody={loadBodyFn} {...rest} />
 }
 
 /** Loading: the title and one line of text, nothing drawn on the map. design: no placeholder areas;

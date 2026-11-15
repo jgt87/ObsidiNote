@@ -149,9 +149,13 @@ if (-not $NoOneNote) {
     Import-Module (Join-Path $PSScriptRoot 'lib\Update.psm1') -Force
     try {
         $mainAdapter = Get-OneNoteAdapter
-        $vaults = @(Get-VaultList -Adapter $mainAdapter)
-        $notebooks = @(Get-NotebookList -Adapter $mainAdapter -Vaults $vaults)
-        $pick = Select-StartVault -Vaults $vaults -RecordVaultId "$(Get-AppSetting -Key 'vaultId' -Default '' -AppRoot $PSScriptRoot)" -Record (Get-NotebookRecord -AppRoot $PSScriptRoot) -Notebooks $notebooks
+        # Find-StartVault (lib/VaultSession.psm1): the open vaults and the one to continue in. When the
+        # notebook on record is open but OneNote lists no vault in it (seen when another notebook was
+        # the selected one in OneNote, operator 2026-11-15), it selects that notebook in OneNote once
+        # (NavigateTo: not a write) and looks again a few times; one status line only when it did.
+        $det = Find-StartVault -Adapter $mainAdapter -RecordVaultId "$(Get-AppSetting -Key 'vaultId' -Default '' -AppRoot $PSScriptRoot)" -Record (Get-NotebookRecord -AppRoot $PSScriptRoot)
+        if ($det.status) { Write-Status -ToError $det.status 'Vault' $det.detail -Hint $det.hint }
+        $vaults = @($det.vaults); $notebooks = @($det.notebooks); $pick = $det.pick
         if ($pick.vault) {
             # Vault settings live in OneNote (lib/VaultSettings.psm1); a local "internalHosts" fills
             # the OneNote key once when it is missing, never over an existing value.

@@ -11,9 +11,9 @@ import { GraphStage, type Active, type Filters } from './GraphStage'
 import { layoutGraph } from './layout'
 import type { GraphModel } from './model'
 import { bySource, type GroupBy } from './sourceView'
-import { LockIcon, PageDialog, type PageActions } from './PageDialog'
+import { PageDialog, type PageActions } from './PageDialog'
+import { ReadOnlyBanner } from '../components/ReadOnlyBanner'
 import { readOnlyWhy } from './readOnly'
-import { tagCounts, tagOfQuery, tagQuery } from './tags'
 import { availableTags, byTag } from './tagView'
 import { searchPages } from './view'
 import { SearchFilters } from '../search/SearchFilters'
@@ -33,6 +33,11 @@ export interface KnowledgeGraphProps extends PageActions {
   /** A quick-switcher pick (open a page, or set the search); applied once, then onRequestDone. */
   request?: FindRequest | null
   onRequestDone?: () => void
+  /** Why the ACTIVE vault is read only in this window, as the app's status has it (who holds it,
+   *  since when); shown instead of the general sentence when this graph is that vault's. */
+  readOnlyNote?: string
+  /** "Check again" on the read-only banner. */
+  onCheckAgain?: () => void
 }
 
 /** Width / height of the stage, in steps of 0.1 (the layout only reruns when the shape really changes). */
@@ -56,7 +61,7 @@ function roundAspect(w: number, h: number): number {
   return Math.min(3, Math.max(0.6, Math.round((w / h) * 10) / 10))
 }
 
-export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode = 'graph', focusIds, request, onRequestDone, ...actions }: KnowledgeGraphProps) {
+export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode = 'graph', focusIds, request, onRequestDone, readOnlyNote, onCheckAgain, ...actions }: KnowledgeGraphProps) {
   const index = useMemo(() => buildIndex(model), [model])
   const [mode, setMode] = useState<'graph' | 'list'>(initialMode)
   const stageRef = useRef<HTMLDivElement>(null)
@@ -211,29 +216,17 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
     }
   }
 
-  const tagList = useMemo(() => tagCounts(model.pages, false), [model])
-  const pickedTag = tagOfQuery(query)
-  const chip = (key: keyof Filters, label: string, title?: string) => (
-    <button
-      type="button"
-      className="btn btn--sm"
-      title={title}
-      aria-pressed={filters[key]}
-      onClick={() => {
-        const next = !filters[key]
-        setFilters((f) => ({ ...f, [key]: next }))
-        if (key === 'hubsOnly') remember('labelsHubsOnly', next)
-      }}
-    >
-      {/* design: an on/off control carries a check box, so it never reads as one of the either/or
-          segments beside it (review 2026-11-14); the box keeps its place, so the label never jumps. */}
-      <svg className="toggle-mark" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <rect x="1" y="1" width="10" height="10" rx="2" />
-        {filters[key] && <path d="m3.4 6.2 1.9 1.9 3.3-3.8" />}
-      </svg>
-      {label}
-    </button>
-  )
+  const setShow = (key: keyof Filters, next: boolean) => {
+    setFilters((f) => ({ ...f, [key]: next }))
+    if (key === 'hubsOnly') remember('labelsHubsOnly', next)
+  }
+  // A tag picked in the page window or the List: the Tags grouping with that tag alone.
+  const showTag = (tag: string) => {
+    setGroupBy('tags')
+    setTagChoice(new Set([tag]))
+    setMode('graph')
+    onQuery('')
+  }
   const chooseGroup = (g: GroupBy) => {
     setGroupBy(g)
     if (g !== 'tags') remember('graphView', g)
@@ -259,11 +252,6 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
             {mode === 'graph' && groupBy === 'sources' ? plural(mapLayout.areas.length, 'source') : mode === 'graph' && groupBy === 'tags' ? plural(groupTags.length, 'tag') : plural(layout.areas.filter((a) => a.topic).length, 'topic')} · {plural(index.linkCount, 'link')}
             {hiddenArchived > 0 ? ` · ${hiddenArchived} archived hidden` : ''}
           </span>
-          {src.readOnly && (
-            <span className="kg-readonly" title={readOnlyWhy(src)}>
-              <LockIcon /> read only
-            </span>
-          )}
         </div>
         <div className="kg-tools">
           {mode === 'graph' && (
@@ -279,30 +267,9 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
                   Tags
                 </button>
               </div>
-              {chip('links', 'Links')}
-              {chip('mentions', 'Mentions, not linked')}
-              {chip('hubsOnly', 'Labels: hubs only', 'Only the topic names show; a page shows its name while you point at it')}
             </>
           )}
-          {tagList.length > 0 && !(mode === 'graph' && groupBy === 'tags') && (
-            // A tag picked here is a search (tag:name): its pages light up on the map, joined into
-            // one group by thin dashed lines, and the List shows only them.
-            <select
-              className="field kg-tagpick"
-              aria-label="Show the pages of a tag"
-              title="Show the pages of a tag, wherever they are on the map"
-              value={tagList.some((t) => t.name === pickedTag) ? pickedTag : ''}
-              onChange={(e) => onQuery(e.target.value ? tagQuery(e.target.value) : '')}
-            >
-              <option value="">Tag…</option>
-              {tagList.map((t) => (
-                <option key={t.name} value={t.name}>
-                  {t.name} ({t.count})
-                </option>
-              ))}
-            </select>
-          )}
-          <FilterButton index={index} filter={liveFilter} onChange={setFilter} />
+          <FilterButton index={index} filter={liveFilter} onChange={setFilter} show={mode === 'graph' ? filters : undefined} onShow={setShow} />
           <label htmlFor="kg-search" className="kg-sr">
             Search pages and topics
           </label>
@@ -350,6 +317,9 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           </div>
         </div>
       </div>
+      {src.readOnly && (
+        <ReadOnlyBanner text={src.readOnlyReason === 'lease' && readOnlyNote ? readOnlyNote : readOnlyWhy(src)} onCheck={src.readOnlyReason === 'lease' ? onCheckAgain : undefined} />
+      )}
       <SearchFilters query={query} onQuery={onQuery} />
       {mode === 'graph' && groupBy === 'tags' && (
         // The Tags grouping: which tags make the areas. Every tag is on at first; a chip takes one
@@ -392,7 +362,6 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           filters={filters}
           shown={allShown ? null : shown}
           matches={matches}
-          joinIds={pickedTag && matches ? matches : null}
           active={active}
           onActive={setActive}
           onOpen={open}
@@ -400,7 +369,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           stageRef={stageRef}
         />
       ) : (
-        <GraphList index={index} layout={layout} matches={listMatches} onOpen={open} onTagPages={actions.onTagPages} />
+        <GraphList index={index} layout={layout} matches={listMatches} onOpen={open} onTagPages={actions.onTagPages} onPickTag={showTag} />
       )}
 
       {dialog && (
@@ -413,8 +382,8 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           onClose={close}
           onFocusPage={focusOn}
           onPickTag={(t) => {
-            onQuery(tagQuery(t))
             close()
+            showTag(t)
           }}
           {...actions}
         />

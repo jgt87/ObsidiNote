@@ -10,6 +10,7 @@ knowledge graph's data, Add and Ask.
 | Check | What it does | Writes? |
 |---|---|---|
 | Vaults | Lists the ObsidiNote vaults in your open notebooks (counts only) | No |
+| Notebook reads, Reads of notebook #n | For each open notebook: whether it is the notebook selected in OneNote, how many sections OneNote lists for it, how many pages its `00 Index` section has, how many of those carry ObsidiNote's page data, and whether the vault's state page is found (counts and yes/no only). It selects nothing in OneNote | No |
 | Index of Vault n | Loads each vault's index and checks that every page is listed in it | No |
 | Graph of notebook #n | Builds the knowledge graph's data for each open notebook (counts of pages, topics, links) | No |
 | Markdown export of Vault n | Builds the Markdown export of each vault in memory and drops it (counts of pages, unreadable pages, size, time); nothing is saved | No |
@@ -45,6 +46,24 @@ knowledge graph's data, Add and Ask.
    - A `[WARN] Markdown export ...` line with unreadable pages > 0: send the files; the export still
      works, those pages get a line saying they could not be read.
    - If not, send this: the two newest Desktop files.
+
+3a. Which notebook is selected in OneNote (read only; for pages of your vault that show "read
+   only" in the window while ObsidiNote is the writer). Run the command of step 3 twice: once with
+   ANOTHER notebook selected in OneNote (click any other notebook in OneNote's notebook list first),
+   and once with the vault's notebook selected. The kit selects nothing itself.
+   - What you should see, in both runs: `[INFO] Notebook reads  N notebooks open; the selected
+     notebook is one of them`, then one `Reads of notebook #n` line per open notebook. For
+     the vault's notebook (the `notebook #n` named in the `Vault n` line):
+     `selected: yes` in one run and `no` in the other, the same two section counts in
+     both runs, `with obsn Meta` equal to `their pages`, `state page found: yes` and
+     `vaults listed in it: 1`.
+   - The fault this step looks for: with another notebook selected, the vault's notebook shows
+     `[WARN] Reads of notebook #n ... state page found: no` (or `sections: 0`, or
+     `with obsn Meta: 0`), and `state page found: yes` once it is selected.
+   - `selected: not known` in every line: OneNote did not say which notebook it shows;
+     send the files anyway.
+   - Send this in every case: the two newest Desktop files of BOTH runs, and which run had which
+     notebook selected.
 
 4. Write pass, only in the test vault:
    ```powershell

@@ -5,6 +5,23 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.10.0] - 2026-11-15
+
+### Added
+- The page window shows the page's own text (headings, lists, tables, links; a link to another page opens that page). It is read from OneNote when the window opens and never stored; a long page is shown up to 20,000 characters, with a note to open OneNote for the rest. Text is still changed in OneNote.
+- The title and the summary of a page can be changed where they stand in the page window: click the text, type, **Enter** saves, **Esc** puts the old text back. The Edit form stays for type, topics, aliases, address and links.
+
+### Changed
+- Tags on the map work one way: the **Tags** view of the Topics / Sources / Tags switch. Inside a tag's area the pages of one topic sit together under that topic's name, so you see which topics a tag connects. A tag in the page window or in the List opens that view with the tag alone. The tag picker above the map and its dashed joining lines are gone.
+- The bar above the map is shorter: grouping, Filter, search and Graph/List. **Links**, **Mentions, not linked** and **Labels: hubs only** are now in the Filter panel under "Show on the map".
+- Why a vault or notebook is read only is said in one place, a banner above the content, with **Check again** where waiting helps. The note in the side bar and the "read only" badges are gone; the page window keeps the line under its disabled Edit.
+- Purple now only means "do this" (the main button), keyboard focus, and the page you are on in the map. A choice that is on (a pressed switch, the chosen segment, the current menu item, a selected row or tab, a ticked box) is neutral.
+- The README is written for installing and using ObsidiNote, with screenshots of the current window.
+- After a send, the home view shows the result alone; "Waiting for Copilot" and "Recently changed" show while nothing was sent, and in History.
+
+### Fixed
+- Pages of your vault no longer show as "read only" when another notebook is the selected one in OneNote: ObsidiNote keeps the vault it opened as the active vault, and at start it selects the vault's notebook in OneNote once when its pages cannot be read otherwise. No upgrade step is needed: nothing stored changes. The validation kit (stage V6, runbook RB-05 step 3a) records what OneNote returns for each open notebook, selected or not.
+
 ## [v0.9.0] - 2026-11-15
 
 ### Added

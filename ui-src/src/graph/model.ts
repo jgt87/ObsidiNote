@@ -48,6 +48,9 @@ export interface GraphPage {
   section: string
   /** Tags set by hand, in normal form (tags.ts); never set by Copilot. */
   tags: string[]
+  /** Only on a regrouped model (tagView.ts): what the page belongs to inside its area, so the
+   *  layout keeps the pages of one group together and names it (the page's topic). */
+  group?: { id: string; name: string }
   /** Copilot's type, e.g. "concept", "link-web", "meeting"; free text for connected notebooks. */
   kind: string
   /** Distinct linked pages, either direction (weights.ts, derived from the edges). */

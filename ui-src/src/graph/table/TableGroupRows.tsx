@@ -20,6 +20,8 @@ interface Props {
   /** Ticked rows (ids), and the tick handler; without it the rows have no tick box (read only). */
   selected?: ReadonlySet<string>
   onSelect?: (id: string, on: boolean) => void
+  /** A tag in the Tags column was clicked. */
+  onPickTag?: (tag: string) => void
 }
 
 function Chevron({ open }: { open: boolean }) {
@@ -30,7 +32,7 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-function Row({ row, onOpen, selected, onSelect }: { row: TableRow; onOpen: (id: string) => void; selected: boolean; onSelect?: (id: string, on: boolean) => void }) {
+function Row({ row, onOpen, selected, onSelect, onPickTag }: { row: TableRow; onOpen: (id: string) => void; selected: boolean; onSelect?: (id: string, on: boolean) => void; onPickTag?: (tag: string) => void }) {
   const p = row.page
   const [first, ...rest] = row.topicNames
   return (
@@ -55,7 +57,16 @@ function Row({ row, onOpen, selected, onSelect }: { row: TableRow; onOpen: (id: 
         {rest.length > 0 && <span className="kg-tag"> +{rest.length}</span>}
       </td>
       <td className="kg-tag" title={row.tags.length ? row.tags.join(', ') : undefined}>
-        {row.tags.join(', ')}
+        {onPickTag
+          ? row.tags.map((t, i) => (
+              <span key={t}>
+                {i > 0 && ', '}
+                <button type="button" className="kg-linkbtn" onClick={() => onPickTag(t)} title={`Show the pages tagged "${t}" on the map`}>
+                  {t}
+                </button>
+              </span>
+            ))
+          : row.tags.join(', ')}
       </td>
       <td className="kg-tag" title={row.site || undefined}>
         {row.site}
@@ -66,7 +77,7 @@ function Row({ row, onOpen, selected, onSelect }: { row: TableRow; onOpen: (id: 
   )
 }
 
-export function TableGroupRows({ group, open, limit, exportRequest, onToggle, onMore, onOpen, selected, onSelect }: Props) {
+export function TableGroupRows({ group, open, limit, exportRequest, onToggle, onMore, onOpen, selected, onSelect, onPickTag }: Props) {
   const shown = open ? group.rows.slice(0, limit) : []
   const hidden = group.rows.length - shown.length
   return (
@@ -84,7 +95,7 @@ export function TableGroupRows({ group, open, limit, exportRequest, onToggle, on
         </th>
       </tr>
       {shown.map((row) => (
-        <Row key={row.id} row={row} onOpen={onOpen} selected={selected?.has(row.id) ?? false} onSelect={onSelect} />
+        <Row key={row.id} row={row} onOpen={onOpen} selected={selected?.has(row.id) ?? false} onSelect={onSelect} onPickTag={onPickTag} />
       ))}
       {open && hidden > 0 && (
         <tr className="kg-tbl__more">

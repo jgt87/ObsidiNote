@@ -52,6 +52,96 @@ function ConvertTo-VaultRecord {
     }
 }
 
+function Join-ActiveVault {
+    <# The vaults and notebooks as a running ObsidiNote sees them (pure): what detection found
+       (Get-VaultList, Get-NotebookList), plus the ACTIVE vault from its record ($Record: the server
+       state's Vault, ConvertTo-VaultRecord) when detection does not list it while its notebook is
+       still open. Detection reads OneNote again every few seconds; when OneNote answered a notebook
+       without its sections, or its Index pages without their Meta, the vault this session had opened
+       and was writing in turned into a read-only connected notebook in the window (operator,
+       2026-11-15: another notebook was the selected one in OneNote). A vault that was opened stays
+       the active vault until the person switches or its notebook is closed.
+       Returns @{ vaults; notebooks; kept }: kept = the record was added. Nothing is added without a
+       record, when the vault is listed, when its notebook is not open, or when detection found
+       another vault at the same root (what OneNote shows wins). Other vaults are never touched. #>
+    param([object[]]$Vaults = @(), [object[]]$Notebooks = @(), $Record = $null)
+    $vs = @($Vaults | Where-Object { $_ }); $nbs = @($Notebooks | Where-Object { $_ })
+    $same = @{ vaults = $vs; notebooks = $nbs; kept = $false }
+    if (-not $Record -or -not $Record.vaultId -or -not $Record.notebookId -or -not $Record.rootId) { return $same }
+    if (@($vs | Where-Object { $_.vaultId -eq $Record.vaultId -or $_.rootId -eq $Record.rootId }).Count) { return $same }
+    if (-not @($nbs | Where-Object { $_.id -eq $Record.notebookId }).Count) { return $same }
+    # The same fields as a Get-VaultList item; the page and topic counts of the state page are not
+    # known here (nothing in the app reads them from the list).
+    $item = [pscustomobject]@{
+        vaultId = [string]$Record.vaultId; name = [string]$Record.name; rootId = [string]$Record.rootId; rootKind = [string]$Record.rootKind
+        notebookId = [string]$Record.notebookId; notebookName = [string]$Record.notebookName; location = [string]$Record.location
+        schema = (Get-ObsnSchemaVersion); statePageId = [string]$Record.statePageId; indexSectionId = [string]$Record.indexSectionId; pages = 0; topics = 0
+    }
+    $out = @(foreach ($n in $nbs) {
+        if ($n.id -ne $Record.notebookId) { $n; continue }
+        [pscustomobject]@{
+            name = $n.name; id = $n.id; location = $n.location; cloud = $n.cloud
+            structured = [bool]($n.structured -or $item.rootKind -eq 'notebook')
+            vaultIds = @(@($n.vaultIds) + $item.vaultId | Where-Object { $_ })
+        }
+    })
+    @{ vaults = @($vs + $item); notebooks = $out; kept = $true }
+}
+
+function Get-NotebookToSelect {
+    <# The notebook the start selects in OneNote before it looks for the vault again, or $null (pure).
+       Only when all of this holds: a vault was opened here before ("vaultId" on record) and is not
+       among the vaults found; the notebook on record ("notebook") is open; no vault is found in that
+       notebook; and it is not the notebook OneNote already shows ($CurrentId, '' = unknown). #>
+    param([object[]]$Vaults = @(), [object[]]$Notebooks = @(), [string]$RecordVaultId = '', [string]$Record = '', [string]$CurrentId = '')
+    if (-not $RecordVaultId -or -not $Record) { return $null }
+    if (@($Vaults | Where-Object { $_ -and $_.vaultId -eq $RecordVaultId }).Count) { return $null }
+    $nb = @($Notebooks | Where-Object { $_ -and $_.location -and (Test-RecordMatchesPath $Record ([string]$_.location)) }) | Select-Object -First 1
+    if (-not $nb) { return $null }
+    if (@($Vaults | Where-Object { $_ -and $_.notebookId -eq $nb.id }).Count) { return $null }
+    if ($CurrentId -and $CurrentId -eq $nb.id) { return $null }
+    $nb
+}
+
+function Find-StartVault {
+    <# The start's vault step before opening: the open vaults and notebooks and the vault to continue
+       in (Select-StartVault). When the notebook on record is open but no vault is found in it
+       (Get-NotebookToSelect), that notebook is selected in OneNote ONCE (NavigateTo: not a write) and
+       detection is read again up to $Tries times, $WaitMs apart, until the vault shows; then the
+       start goes on as before with whatever was found. Never navigates when the vault was found,
+       and only here, at the start. -Sleep replaces the wait (tests).
+       Returns @{ vaults; notebooks; pick; navigated; tries; status ('' | OK | WARN); detail; hint }:
+       status is set only when the notebook was selected (one status line). #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Adapter, [string]$RecordVaultId = '', [string]$Record = '', [int]$Tries = 5, [int]$WaitMs = 2000,
+        [scriptblock]$Sleep = { param($ms) Start-Sleep -Milliseconds $ms })
+    $r = @{ vaults = @(); notebooks = @(); pick = $null; navigated = $false; tries = 0; status = ''; detail = ''; hint = '' }
+    $r.vaults = @(Get-VaultList -Adapter $Adapter)
+    $r.notebooks = @(Get-NotebookList -Adapter $Adapter -Vaults $r.vaults)
+    $current = ''
+    try { if ($Adapter.PSObject.Methods['GetCurrentNotebookId']) { $current = [string]$Adapter.GetCurrentNotebookId() } } catch { $current = '' }
+    $nb = Get-NotebookToSelect -Vaults $r.vaults -Notebooks $r.notebooks -RecordVaultId $RecordVaultId -Record $Record -CurrentId $current
+    if ($nb -and $Adapter.PSObject.Methods['NavigateTo']) {
+        $found = $false
+        try {
+            $Adapter.NavigateTo([string]$nb.id)
+            $r.navigated = $true
+            while (-not $found -and $r.tries -lt $Tries) {
+                $r.tries++
+                & $Sleep $WaitMs
+                $r.vaults = @(Get-VaultList -Adapter $Adapter)
+                $r.notebooks = @(Get-NotebookList -Adapter $Adapter -Vaults $r.vaults)
+                $found = [bool]@($r.vaults | Where-Object { $_.notebookId -eq $nb.id }).Count
+            }
+        } catch { $found = $false }
+        if ($found) { $r.status = 'OK'; $r.detail = 'the notebook was selected in OneNote so its pages could be read' }
+        elseif ($r.navigated) { $r.status = 'WARN'; $r.detail = "the notebook on record still shows no vault after selecting it in OneNote ($($r.tries) checks)"; $r.hint = 'Open that notebook in OneNote, wait until it has synced, then start ObsidiNote again.' }
+        else { $r.status = 'WARN'; $r.detail = 'the notebook on record shows no vault and could not be selected in OneNote'; $r.hint = 'Select that notebook in OneNote, then start ObsidiNote again.' }
+    }
+    $r.pick = Select-StartVault -Vaults $r.vaults -RecordVaultId $RecordVaultId -Record $Record -Notebooks $r.notebooks
+    $r
+}
+
 function ConvertTo-LeaseRecord {
     <# The plain record of a lease (Request-WriterLease result); $null stays $null. #>
     param($Lease)
@@ -151,4 +241,4 @@ function Format-VaultStatus {
     @{ status = 'OK'; detail = "$($Open.vault.name) ($pages pages, $topics topics); $done; this ObsidiNote is the writer"; hint = '' }
 }
 
-Export-ModuleMember -Function Get-LeaseTimings, Select-StartVault, ConvertTo-VaultRecord, ConvertTo-LeaseRecord, Get-VaultRecordFor, Open-VaultSession, Update-SessionLease, Close-VaultSession, Format-VaultStatus
+Export-ModuleMember -Function Get-LeaseTimings, Select-StartVault, Join-ActiveVault, Get-NotebookToSelect, Find-StartVault,ConvertTo-VaultRecord, ConvertTo-LeaseRecord, Get-VaultRecordFor, Open-VaultSession, Update-SessionLease, Close-VaultSession, Format-VaultStatus

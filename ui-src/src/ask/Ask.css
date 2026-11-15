@@ -42,7 +42,7 @@
   display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: var(--space-4); align-items: center;
   padding: var(--space-4) 0; border-top: 1px solid var(--border); font-size: var(--text-body);
 }
-.ask-src:target, .ask-src:focus { background: var(--accent-soft); outline: none; }
+.ask-src:target, .ask-src:focus { background: var(--pressed); outline: none; }
 .ask-src__main { min-width: 0; overflow-wrap: anywhere; }
 .ask-src__age { white-space: nowrap; }
 .ask-stale { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-top: var(--space-2); }

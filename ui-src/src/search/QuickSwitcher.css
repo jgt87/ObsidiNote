@@ -28,7 +28,7 @@
 .qs__list { list-style: none; margin: 0; padding: 0; }
 .qs__row { display: flex; align-items: center; gap: var(--space-3); box-sizing: border-box; min-height: 36px; padding: var(--space-2) var(--space-3);
   border-radius: var(--radius); cursor: pointer; font-size: var(--text-body); }
-.qs__row[aria-selected="true"] { background: var(--accent-soft); }
+.qs__row[aria-selected="true"] { background: var(--pressed); }
 .qs__label { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
 .qs__context { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: var(--text-meta); color: var(--muted); }

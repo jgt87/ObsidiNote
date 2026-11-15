@@ -5,7 +5,6 @@ import type { NotebookState } from '../hooks/useServerData'
 import type { useHomeFlow } from '../hooks/useHomeFlow'
 import type { AddTarget } from '../model/notebooks'
 import { AskOptions, type AskChoices } from './AskOptions'
-import { isWaitingStatus } from '../add/waiting'
 import type { SendBlock } from '../model/attention'
 import { Composer } from './Composer'
 import { Notice } from './Notice'
@@ -17,7 +16,7 @@ import './HomeView.css'
 type Home = ReturnType<typeof useHomeFlow>
 
 /** Add or ask: the box, Ask's options, then the result of the last send (Add result, Ask answer or
- *  a notice), or the recently changed pages while nothing was sent. */
+ *  a notice), or what waits for Copilot and the recently changed pages while nothing was sent. */
 export function HomeView({ home, addTarget, notebook, choices, onChoices, sourceOptions, activityKey, onOpenRecent, onOpenActive, block, onRetryCopilot }: {
   home: Home
   addTarget: AddTarget | null
@@ -45,8 +44,6 @@ export function HomeView({ home, addTarget, notebook, choices, onChoices, source
     </p>
   ) : null
   const connect = onRetryCopilot ? <ConnectCopilot onRetry={onRetryCopilot} /> : null
-  // The item of the result on screen is not listed a second time under it.
-  const shownWaiting = flow.kind === 'add' && isWaitingStatus(flow.result.status) ? flow.result.inboxId ?? '' : ''
   return (
     <div className="page">
       <h1 className="page__title">Add something, or ask your wiki</h1>
@@ -55,8 +52,9 @@ export function HomeView({ home, addTarget, notebook, choices, onChoices, source
         <AskOptions choices={choices} options={sourceOptions} onChange={onChoices} />
       </Composer>
       <FlowArea home={home} connect={connect} />
-      {/* Items still waiting for Copilot stay reachable after their Add result is gone. */}
-      <WaitingList refreshKey={activityKey} onOpen={onOpenActive} hideId={shownWaiting} />
+      {/* design (round 2, 2026-11-15): after a send the result stands alone; what still waits for
+          Copilot and what changed lately show while nothing was sent (and in History). */}
+      {flow.kind === 'idle' && <WaitingList refreshKey={activityKey} onOpen={onOpenActive} />}
       {flow.kind === 'idle' && <RecentList notebook={notebook} onOpen={onOpenRecent} />}
     </div>
   )

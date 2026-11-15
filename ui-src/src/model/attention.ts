@@ -57,8 +57,8 @@ export function attentionNotes(status: AppStatus | null, serverDown: boolean): A
   const notes: AttentionNote[] = []
   if (!status.oneNote.running) notes.push({ id: 'onenote', text: 'OneNote is not running. Start OneNote to see your notebook.' })
   else if (!status.oneNote.notebookOpen) notes.push({ id: 'notebook', text: 'No ObsidiNote vault is open in OneNote. Choose one under Notebook, set up an empty notebook, or make a new vault.' })
-  const vault = vaultNote(status)
-  if (vault) notes.push({ id: 'vault', text: vault })
+  // Why the vault is read only is not a side bar note: the banner above the content says it
+  // (vaultNote, components/ReadOnlyBanner).
   const copilot = COPILOT[status.copilot.state] ?? ''
   if (copilot) notes.push({ id: 'copilot', text: copilot, retry: RETRY[status.copilot.state] ?? false })
   return notes

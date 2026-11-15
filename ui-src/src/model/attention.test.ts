@@ -48,7 +48,7 @@ describe('vaultNote: why this window cannot write in its vault', () => {
     expect(vaultNote(withVault({ name: '', vaultId: '', mode: 'none', reason: 'not-opened', detail: 'two vaults are open' }))).toBe('The vault could not be opened: two vaults are open Nothing can be added until it is; start ObsidiNote again after fixing it.')
   })
   it('is listed with the other things that need attention', () => {
-    expect(attentionNotes(withVault({ name: 'V', vaultId: 'v1', mode: 'readonly', reason: 'other-pc' }), false).map((n) => n.id)).toEqual(['vault'])
+    expect(attentionNotes(withVault({ name: 'V', vaultId: 'v1', mode: 'readonly', reason: 'other-pc' }), false).map((n) => n.id)).toEqual([])
   })
 })
 

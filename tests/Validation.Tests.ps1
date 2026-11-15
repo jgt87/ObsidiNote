@@ -30,7 +30,8 @@ function New-KitFake {
     $f | Add-Member NoteProperty MoveWorks $true
     $f | Add-Member ScriptMethod SyncHierarchy { param([string]$Id) $null = $this.Writes.Add("SyncHierarchy $Id") }
     $f | Add-Member ScriptMethod CurrentPageId { $this.Shown }
-    $f | Add-Member ScriptMethod NavigateTo { param([string]$Id) $this.Shown = $Id }
+    # -Force: the kit's own navigation (to a page) in place of FakeOneNote's notebook one.
+    $f | Add-Member -Force ScriptMethod NavigateTo { param([string]$Id) $this.Shown = $Id }
     $f | Add-Member ScriptMethod NavigateToUrl { param([string]$Url)
         foreach ($v in $this.Nodes.Values) { if ($v.kind -eq 'Page' -and $Url -like "*$($v.guid)*") { $this.Shown = $v.id; return } }
         throw 'fake: 0x80042014 object does not exist'
@@ -505,8 +506,9 @@ Describe 'V6 skips what is not in this version yet' {
         $null = New-Item -ItemType Directory -Force -Path (Join-Path $d 'lib')
         $c = New-TestCtx -AppRoot $d -Flags @{ WriteTest = $true }
         Invoke-StageVault -Ctx $c
-        $c.Results.Count | Should Be 14
-        @($c.Results | Where-Object { $_.status -eq 'SKIP' -and $_.detail -match '^not in this version yet' }).Count | Should Be 14
+        $c.Results.Count | Should Be 15
+        @($c.Results | Where-Object { $_.status -eq 'SKIP' -and $_.detail -match '^not in this version yet' }).Count | Should Be 15
+        @($c.Results | Where-Object { $_.name -eq 'Notebook reads' }).Count | Should Be 1
         @($c.Results | Where-Object { $_.name -eq 'Undo of a linked page' }).Count | Should Be 1
         @($c.Results | Where-Object { $_.name -eq 'Tags' }).Count | Should Be 1
         @($c.Results | Where-Object { $_.name -eq 'Vault settings' }).Count | Should Be 1
@@ -610,6 +612,60 @@ Describe 'V6 "Upgrade move" in the dev vault (in-memory OneNote, no Copilot)' {
         & (Get-Module StageVault) { param($c, $v, $a) Add-UpgradePlanResults $c $v $a } $c2 @($x) $w.a
         $c2.Results[0].detail | Should Match '^0 link page'
         $w.f.Writes.Count | Should Be $writes
+    }
+}
+
+Describe 'V6 "Notebook reads" (in-memory OneNote; read only)' {
+    foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore') { Import-Module (Join-Path $root "lib\$m.psm1") -Global }
+    . (Join-Path $here 'SyntheticVault.ps1')
+    $w = New-SyntheticVault
+    $nb = [string]$w.open.vault.notebookId
+    $writes = $w.f.Writes.Count
+    $run = {
+        $c = New-TestCtx
+        $vaults = @(Get-VaultList -Adapter $w.a)
+        & (Get-Module StageVault) { param($c, $a, $v) Add-NotebookReadResults $c $a $v } $c $w.a $vaults
+        $c
+    }
+    It 'shows "state page found: no" while the vault''s notebook is not selected and comes without Meta' {
+        $w.f.Current = [string]$w.household
+        $w.f.Hidden[$nb] = 'meta'
+        $c = & $run
+        (@($c.Results | ForEach-Object { $_.name }) -join ',') | Should Be 'Notebook reads,Reads of notebook #1,Reads of notebook #2'
+        $c.Results[0].detail | Should Match '^2 notebooks open; the selected notebook is one of them;'
+        $v = @($c.Results | Where-Object { $_.detail -match '00 Index sections: 1' })
+        $v.Count | Should Be 1
+        $v[0].status | Should Be 'WARN'
+        $v[0].detail | Should Match '^selected: no; sections: (\d+) read by notebook, \1 read with all notebooks; 00 Index sections: 1; their pages: \d+, with obsn Meta: 0; state page found: no; vaults listed in it: 0; \d+ ms$'
+        $o = @($c.Results | Where-Object { $_.detail -match 'no 00 Index section listed' })[0]
+        "$($o.status)|$($o.detail -replace '; \d+ ms$', '')" | Should Be 'INFO|selected: yes; sections: 1 read by notebook, 1 read with all notebooks; no 00 Index section listed; state page found: no; vaults listed in it: 0'
+    }
+    It 'shows the notebook without its sections' {
+        $w.f.Hidden[$nb] = 'sections'
+        $c = & $run
+        @($c.Results | Where-Object { $_.detail -match '^selected: no; sections: 0 read by notebook, 0 read with all notebooks; no 00 Index section listed; state page found: no' }).Count | Should Be 1
+    }
+    It 'shows "state page found: yes" while it is selected and answered in full' {
+        $w.f.Hidden.Remove($nb)
+        $w.f.Current = $nb
+        $c = & $run
+        $v = @($c.Results | Where-Object { $_.detail -match '00 Index sections: 1' })[0]
+        $v.status | Should Be 'INFO'
+        $v.detail | Should Match '^selected: yes; .*; their pages: (\d+), with obsn Meta: \1; state page found: yes; vaults listed in it: 1; '
+    }
+    It 'says so when the selected notebook cannot be read, and only reads: no write, nothing selected' {
+        $w.f.Current = ''
+        $c = & $run
+        $c.Results[0].detail | Should Match 'the selected notebook is not known'
+        @($c.Results | Where-Object { $_.detail -match '^selected: not known; ' }).Count | Should Be 2
+        $w.f.Writes.Count | Should Be $writes
+        $w.f.Navigations.Count | Should Be 0
+        (Get-Content -LiteralPath (Join-Path $root 'validation\lib\StageVault.psm1') | Where-Object { $_ -match 'NavigateTo\(' }) | Should BeNullOrEmpty
+    }
+    It 'logs counts and yes/no only: no notebook name, id or address' {
+        $c = & $run
+        $all = (@($c.Results | ForEach-Object { "$($_.name) $($_.detail) $($_.hint)" }) -join ' ')
+        $all | Should Not Match 'Synthetic|Household|example\.invalid|\{[A-Z]{2}-'
     }
 }
 

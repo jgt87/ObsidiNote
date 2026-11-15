@@ -40,6 +40,30 @@ export async function fetchGraph(ref: GraphSourceRef = {}, signal?: AbortSignal,
   return normalizeGraph(body)
 }
 
+export const PAGE_BODY_ROUTE = '/api/page/body'
+
+/**
+ * The page's own text for the page window: GET /api/page/body?page=<id>[&vault=|&notebook=] ->
+ * Markdown (bodyText.ts reads it). Read only; built in memory by the server and never stored.
+ * Throws GraphLoadError with the server's message (400, 404, 409, 500, 503).
+ */
+export async function fetchPageBody(page: string, source: { vault?: string; notebook?: string }, signal?: AbortSignal, fetcher: typeof fetch = fetch): Promise<{ markdown: string; truncated: boolean }> {
+  const q = new URLSearchParams({ page })
+  if (source.vault) q.set('vault', source.vault)
+  if (source.notebook) q.set('notebook', source.notebook)
+  let res: Response
+  try {
+    res = await fetcher(`${PAGE_BODY_ROUTE}?${q}`, { headers: { 'X-ObsidiNote': '1' }, cache: 'no-store', signal })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw e
+    throw new GraphLoadError('ObsidiNote is not answering. Is it still running?', 0)
+  }
+  const data: unknown = await res.json().catch(() => null)
+  const b = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
+  if (res.status !== 200) throw new GraphLoadError(b.error ? String(b.error) : `The server answered ${res.status}.`, res.status)
+  return { markdown: typeof b.markdown === 'string' ? b.markdown : '', truncated: b.truncated === true }
+}
+
 export const PAGE_EDIT_ROUTE = '/api/page/edit'
 
 /**

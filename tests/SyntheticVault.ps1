@@ -4,8 +4,10 @@
 # FakeOneNote.ps1. Fictional names and example.invalid links only.
 
 function New-SyntheticVault {
-    param([string]$SessionId = 'session-one')
+    # -GuidIds: object ids in OneNote's own shape, for routes that check an id before using it.
+    param([string]$SessionId = 'session-one', [switch]$GuidIds)
     $f = New-FakeOneNote
+    $f.GuidIds = [bool]$GuidIds
     $hh = $f.AddNotebook('Household')
     $garden = $f.AddSection($hh, 'Garden')
     $tomato = $f.AddPage($garden, 'Tomatoes', @{}, 1, 'Water them every <b>morning</b>. See the seed list.')

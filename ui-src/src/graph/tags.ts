@@ -66,29 +66,3 @@ export function tagOfQuery(query: string): string {
   const m = /^\s*tag:(?:"([^"]+)"|(\S+))\s*$/i.exec(query)
   return m ? (m[1] ?? m[2]).toLowerCase() : ''
 }
-
-/**
- * The lines that join the pages of one tag on the map into one group: a minimum spanning tree over
- * their positions (each page joined to its nearest already-joined page), so n pages get n - 1 short
- * lines instead of a line between every pair. Deterministic: starts at the first id in order.
- */
-export function joinLines(points: { id: string; x: number; y: number }[], max = 200): [string, string][] {
-  const pts = [...points].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).slice(0, max)
-  if (pts.length < 2) return []
-  const inTree = [pts[0]]
-  const rest = pts.slice(1)
-  const out: [string, string][] = []
-  while (rest.length) {
-    let best = { d: Infinity, i: 0, from: inTree[0] }
-    for (let i = 0; i < rest.length; i++) {
-      for (const t of inTree) {
-        const d = (rest[i].x - t.x) ** 2 + (rest[i].y - t.y) ** 2
-        if (d < best.d) best = { d, i, from: t }
-      }
-    }
-    const [next] = rest.splice(best.i, 1)
-    out.push([best.from.id, next.id])
-    inTree.push(next)
-  }
-  return out
-}

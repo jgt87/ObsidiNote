@@ -13,7 +13,7 @@ import { indexPath, type GraphIndex } from './graphIndex'
 import { HoverCard } from './HoverCard'
 import { bundleEdges, edgePath, onePerPair, restingBundles, type BundleLayout, type DotLayout, type GraphLayout } from './layout'
 import { primaryTopic, type GraphEdge } from './model'
-import { joinLines } from './tags'
+import { groupLabelSize } from './labelSize'
 import { FIT_BOTTOM, fitViewport, labelMode, lineMode, MIN_ZOOM_FACTOR, needsSharp, nextInDirection, pan, placeAreaLabels, placeLabels, toScreen, zoomAt, type Direction, type LabelBox, type Viewport } from './view'
 
 export interface Filters {
@@ -47,8 +47,6 @@ interface Props {
   onFocusPage?: (id: string) => void
   /** What an area stands for, for the legend: a topic, or a source (the Sources view). */
   areaWord?: 'topic' | 'source' | 'tag'
-  /** The pages of a picked tag: joined into one group by thin dashed lines (tags.ts joinLines). */
-  joinIds?: string[] | null
 }
 
 type BaseProps = { layout: GraphLayout; links: boolean; mentions: boolean; shown: Set<string> | null; bundles: BundleLayout[] }
@@ -98,7 +96,7 @@ function dotClass(d: DotLayout, extra = ''): string {
 
 const KEY_DIR: Record<string, Direction> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }
 
-export function GraphStage({ index, layout, filters, matches, active, onActive, onOpen, stageRef, label, shown = null, onFocusPage, areaWord = 'topic', joinIds = null }: Props) {
+export function GraphStage({ index, layout, filters, matches, active, onActive, onOpen, stageRef, label, shown = null, onFocusPage, areaWord = 'topic' }: Props) {
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
   const [view, setView] = useState<Viewport | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -359,22 +357,11 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   }, [index, layout, activeDot, filters.links, filters.mentions, isShown])
 
   const sharp: DotLayout[] = useMemo(() => {
-    // The pages of a picked tag stay lit while one page is pointed at: they are the group shown.
-    const tagged = joinIds ? joinIds.filter(isShown) : []
-    const ids = activeDot ? [...new Set([...near, ...tagged])] : matches ? matches.filter(isShown).slice(0, 400) : []
+    const ids = activeDot ? [...near] : matches ? matches.filter(isShown).slice(0, 400) : []
     return ids.map((id) => layout.dotById.get(id)).filter((d): d is DotLayout => !!d && d.id !== activeDot?.id)
-  }, [activeDot, near, matches, layout, isShown, joinIds])
-  const taggedSet = useMemo(() => new Set(joinIds ?? []), [joinIds])
+  }, [activeDot, near, matches, layout, isShown])
 
   const dim = !!activeDot || !!matches
-  // A picked tag: its visible pages joined by a few short lines, so pages in different areas read
-  // as one group (never a line per pair).
-  const tagLines = useMemo(() => {
-    if (!joinIds) return []
-    const dots = joinIds.filter(isShown).map((id) => layout.dotById.get(id)).filter((d): d is DotLayout => !!d)
-    const byId = new Map(dots.map((d) => [d.id, d]))
-    return joinLines(dots.map((d) => ({ id: d.id, x: d.x, y: d.y }))).map(([a, b]) => [byId.get(a)!, byId.get(b)!] as const)
-  }, [joinIds, layout, isShown])
 
   // ---------- labels ----------
   // Topic names first, each where it touches no other topic (placeAreaLabels); page names then
@@ -388,6 +375,22 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
         return { id: a.id, x, y, r: a.r * v.k, name: a.name }
       }),
   )
+  // Group names inside an area (the Tags grouping: a topic's name over its pages). The layout kept
+  // their room free of dots at the fitted zoom; zoomed out further they would cover dots, so they go.
+  const groupLabels =
+    v.k >= fit.k * 0.9
+      ? layout.areas
+          .filter((a) => a.groups && (!shown || a.pageIds.some(isShown)))
+          .flatMap((a) =>
+            a.groups!.map((g) => {
+              const [x, y] = toScreen(v, g.x, g.y)
+              const s = groupLabelSize(g.name)
+              // Its room is g.h layout units high; the text sits in the middle of it.
+              const top = y + (g.h * v.k - s.h) / 2
+              return { key: `${a.id}|${g.id}`, text: g.name, x, top, rect: [x - s.w / 2, top, x + s.w / 2, top + s.h] as [number, number, number, number] }
+            }),
+          )
+      : []
   // A topic's name gives way while the pointer is over its area, or one of its pages is focused,
   // so it never covers the pages (operator, 2026-11-14).
   const hiddenAreas = new Set([hoverArea, activeDot?.area].filter((x): x is string => !!x))
@@ -413,7 +416,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   }
   const labels = placeLabels(
     candidates,
-    areaLabels.filter((l) => !hiddenAreas.has(l.id)).map((l) => l.rect),
+    [...areaLabels.filter((l) => !hiddenAreas.has(l.id)).map((l) => l.rect), ...groupLabels.map((g) => g.rect)],
   )
   const bundles = useMemo(() => bundleEdges(layout, shown), [layout, shown])
   // At rest the heaviest topic lines; zoomed in far enough, all of them (lineMode).
@@ -468,14 +471,11 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
             <BaseLayer layout={layout} links={filters.links} mentions={filters.mentions} shown={shown} bundles={resting} />
           </g>
           <g className="kg-focus">
-            {tagLines.map(([a, b]) => (
-              <line key={`${a.id}|${b.id}`} className="kg-tagline" x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
-            ))}
             {focusEdges.map(({ e, d }, i) => (
               <path key={i} d={d} className={e.kind === 'mention' ? 'kg-edge kg-edge--mention' : `kg-edge kg-s${e.strength}`} />
             ))}
             {sharp.map((d) => (
-              <circle key={d.id} data-id={d.id} className={dotClass(d, (taggedSet.has(d.id) ? ' kg-dot--tag' : '') + (activeDot ? ' kg-dot--near' : ''))} cx={d.x} cy={d.y} r={d.r} />
+              <circle key={d.id} data-id={d.id} className={dotClass(d, activeDot ? ' kg-dot--near' : '')} cx={d.x} cy={d.y} r={d.r} />
             ))}
             {activeDot && (
               <>
@@ -491,6 +491,11 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
         {areaLabels.map((l) => (
           <div key={l.id} className="kg-alabel" data-dim={dim} data-at={l.at} data-hidden={hiddenAreas.has(l.id)} style={{ left: l.x, top: l.top }}>
             <b>{l.text}</b>
+          </div>
+        ))}
+        {groupLabels.map((g) => (
+          <div key={g.key} className="kg-glabel" data-dim={dim} style={{ left: g.x, top: g.top }}>
+            {g.text}
           </div>
         ))}
         {labels.map((l) => (

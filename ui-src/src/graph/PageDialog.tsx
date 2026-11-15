@@ -8,7 +8,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { ExportButton } from '../export/ExportButton'
 import { exportSourceOf } from '../export/exportApi'
-import type { PageEditRequest } from './editModel'
+import { summaryProblem, titleProblem, type PageEditRequest } from './editModel'
+import { InlineText } from './InlineText'
+import { PageBody, type PageBodyResult } from './PageBody'
 import { formatDate, plural } from './format'
 import { pageTypeLabel } from '../model/format'
 import { indexPath, type GraphIndex } from './graphIndex'
@@ -31,6 +33,8 @@ export interface PageActions {
   /** Adds and removes hand-set tags on pages of the active vault; resolves once the map shows it.
    *  Read-only sources get none. */
   onTagPages?: (ids: string[], add: string[], remove: string[]) => Promise<unknown>
+  /** Reads the page's own text (GET /api/page/body); without it the window says where the text is. */
+  loadBody?: (pageId: string, signal: AbortSignal) => Promise<PageBodyResult>
 }
 
 interface Props extends PageActions {
@@ -59,7 +63,8 @@ function Bars({ s }: { s: number }) {
   )
 }
 
-export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFocusPage, onPickTag, onAsk, onEditPage, onLinkMention, onTagPages }: Props) {
+/* marker */
+export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFocusPage, onPickTag, onAsk, onEditPage, onLinkMention, onTagPages, loadBody }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [tab, setTab] = useState<Tab>('page')
   // Edit form open for this page (closes when another page is shown).
@@ -98,6 +103,9 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
   const mentions = (index.mentions.get(page.id) ?? []).filter((e) => e.from === page.id || e.to === page.id)
   const ro = page.readOnly
   const why = ro ? readOnlyWhy(index.model.source) : ''
+  // Title and summary are changed where they stand (InlineText); not while the form is open,
+  // which holds its own copy of both.
+  const inPlace = onEditPage && !ro && !editing ? onEditPage : null
   const title = (id: string) => index.pageById.get(id)?.title ?? id
   const where = (id: string) => {
     const p = index.pageById.get(id)
@@ -172,7 +180,7 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
             {indexPath(index, topicId)}
           </nav>
           <h2 id="kg-dlg-title" className="kg-dlg__title">
-            {page.title}
+            {inPlace ? <InlineText key={page.id} value={page.title} name="title" problem={titleProblem} onSave={(title) => inPlace({ id: page.id, title })} /> : page.title}
           </h2>
           <div className="kg-dlg__meta">
             <span>
@@ -187,11 +195,6 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
                 .filter(Boolean)
                 .join(' · ')}
             </span>
-            {ro && (
-              <span className="kg-readonly" title={why}>
-                <LockIcon /> read only
-              </span>
-            )}
           </div>
         </div>
         <nav className="kg-dlg__hist" aria-label="Pages visited">
@@ -247,7 +250,13 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
           <div className="kg-cols">
             <div>
               <p className="kg-lbl">Summary</p>
-              <p className="kg-summary">{page.summary || 'No summary yet.'}</p>
+              <p className="kg-summary">
+                {inPlace ? (
+                  <InlineText key={page.id} value={page.summary} name="summary" empty="No summary yet." multiline problem={summaryProblem} onSave={(summary) => inPlace({ id: page.id, summary })} />
+                ) : (
+                  page.summary || 'No summary yet.'
+                )}
+              </p>
               <p className="kg-lbl">Tags</p>
               <TagsRow
                 key={page.id}
@@ -258,7 +267,11 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
                 onPick={onPickTag}
               />
               <p className="kg-lbl">Page content</p>
-              <p className="kg-note">The page text stays in OneNote: open it there to read or edit it, or export a copy as Markdown.</p>
+              {loadBody ? (
+                <PageBody pageId={page.id} load={loadBody} hasPage={(id) => index.pageById.has(id)} onOpenPage={go} />
+              ) : (
+                <p className="kg-note">The page text stays in OneNote: open it there to read or edit it, or export a copy as Markdown.</p>
+              )}
               {page.topicIds.length > 1 && (
                 <>
                   <p className="kg-lbl">Also under</p>
@@ -458,11 +471,3 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
   )
 }
 
-export function LockIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-      <rect x="3" y="7" width="10" height="7" rx="1.5" />
-      <path d="M5.5 7V5a2.5 2.5 0 015 0v2" />
-    </svg>
-  )
-}

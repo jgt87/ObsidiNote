@@ -1,0 +1,32 @@
+{
+  "cases": [
+    {
+      "name": "headings and styled text",
+      "markdown": "# Overview\n\n## How it works\n\n### Details\n\nA proxy checks **who** asks and *from where*, not ~~where from~~.\n\nPlain text keeps its signs: 2 \\* 3, snake\\_case, \\[brackets\\] & a <tag>.\n\n## Own heading"
+    },
+    {
+      "name": "bulleted, numbered and task lists",
+      "markdown": "Before the lists.\n\n- Check the user\n    - with a second factor\n    - on every request\n- Check the device\n\nSteps:\n\n1. Plan\n2. Roll **out**\n3. Review\n\nTo do:\n\n- [ ] ask the network team\n- [x] read the guide"
+    },
+    {
+      "name": "a table",
+      "markdown": "The parts:\n\n| Name | Use |\n| --- | --- |\n| Proxy | checks a\\|b |\n| `vpn` |  |\n\nAfter the table."
+    },
+    {
+      "name": "code",
+      "markdown": "Run `proxy --check a_b*c` first.\n\n`if ($ok) { start }`\n\n`else { stop <now> }`"
+    },
+    {
+      "name": "links",
+      "markdown": "See [the portal](obsn:p2) and [Partner portal](obsn:p2).\n\nA page from another section: [the list](obsn:n:{44444444-4444-4444-4444-444444444444}{1}{E1}).\n\nRead [the guide](https://example.com/guide?a=1&b=2), [an old page](http://example.com/a%20%28b%29/c) or [https://example.com/bare](https://example.com/bare).\n\nMail [the owner](mailto:someone@example.com).\n\nIn OneNote: [a page outside the map](onenote:https://team.example/Elsewhere.one#Other%20page&page-id={99999999-9999-9999-9999-999999999999}&end).\n\nNever a script: click me, a file or data."
+    },
+    {
+      "name": "outlines: summary, properties and Linked from left out, Your notes kept",
+      "markdown": "The body stays.\n\n_(An image, drawing or attached file is not shown here.)_\n\n## Your notes\n\nMy own words stay.\n\nAn outline the person made stays too."
+    },
+    {
+      "name": "an empty page",
+      "markdown": ""
+    }
+  ]
+}

@@ -181,6 +181,7 @@ $script:ComAdapter = $null
 $script:XmlAdapter = $null
 $script:XmlAdapterSource = ''
 $script:VaultCache = $null
+$script:VaultKept = $false
 $script:Model = $null
 $script:ModelKey = ''
 $script:AskConversations = @{}
@@ -206,17 +207,28 @@ function Get-ServerAdapter($State) {
 function Reset-VaultCache { $script:VaultCache = $null }
 
 function Get-VaultData($State, [switch]$Fresh) {
-    <# @{ adapter; vaults (Get-VaultList); notebooks (Get-NotebookList); message }. Cached for a few
-       seconds (the window asks for the list and the status often). Read only. #>
+    <# @{ adapter; vaults (Get-VaultList); notebooks (Get-NotebookList); message; kept }. Cached for a
+       few seconds (the window asks for the list and the status often). Read only.
+       THE one place the server learns which vaults are open: every route takes "is this the active
+       vault" from this list. The vault this session opened ($State.Vault) is therefore put back here
+       when a detection does not list it while its notebook is still open (Join-ActiveVault,
+       lib/VaultSession.psm1; kept = that happened): the active vault is never demoted to a read-only
+       notebook by what OneNote answers later (operator, 2026-11-15). #>
     $c = $script:VaultCache
     if (-not $Fresh -and $c -and $c.at.ElapsedMilliseconds -lt $script:CacheMs -and $c.key -eq $State.Id) { return $c.data }
-    $data = @{ adapter = $null; vaults = @(); notebooks = @(); message = '' }
+    $data = @{ adapter = $null; vaults = @(); notebooks = @(); message = ''; kept = $false }
     try {
         $ad = Get-ServerAdapter $State
         if (-not $ad) { $data.message = $script:NotRunning; return $data }
         $data.adapter = $ad
-        $data.vaults = @(Get-VaultList -Adapter $ad)
-        $data.notebooks = @(Get-NotebookList -Adapter $ad -Vaults $data.vaults)
+        $found = @(Get-VaultList -Adapter $ad)
+        $j = Join-ActiveVault -Vaults $found -Notebooks @(Get-NotebookList -Adapter $ad -Vaults $found) -Record $State.Vault
+        $data.vaults = @($j.vaults); $data.notebooks = @($j.notebooks); $data.kept = [bool]$j.kept
+        # One log line when it starts and one when it ends (counts only), not one per read.
+        if ($data.kept -ne $script:VaultKept) {
+            $script:VaultKept = $data.kept
+            Write-AppLog info server $(if ($data.kept) { 'Active vault not listed by OneNote; kept from its record' } else { 'Active vault listed by OneNote again' }) @{ vaults = $data.vaults.Count; notebooks = $data.notebooks.Count }
+        }
         if (-not $data.notebooks.Count) { $data.message = 'No notebooks are open in OneNote.' }
     } catch {
         $script:ComAdapter = $null
@@ -794,6 +806,41 @@ function Get-ExportSource($State, [string]$VaultId, [string]$NotebookId) {
     @{ ok = $true; model = $c.model; name = $nb.name; adapter = $d.adapter }
 }
 
+function Get-SourceIdError([string]$VaultId, [string]$NotebookId) {
+    <# The 400 message for a vault or notebook id that is not one ('' when both are fine or absent);
+       the one check of POST /api/export and GET /api/page/body before Get-ExportSource. #>
+    if ($VaultId -and -not (Test-VaultIdText $VaultId)) { return 'vault must be a vault id.' }
+    if ($NotebookId -and -not (Test-NotebookId $NotebookId)) { return 'notebook must be a OneNote notebook id.' }
+    ''
+}
+
+function Test-MapPageKey([string]$Key) {
+    <# A page id of the map: an obsn id (p1a), or n:<OneNote page id> for a page ObsidiNote did not make. #>
+    $Key.Length -le 220 -and ((Test-ObsnId $Key) -or ($Key.StartsWith('n:') -and (Test-PageIdText $Key.Substring(2))))
+}
+
+function Get-PageBodyRoute($State, [string]$Query) {
+    <# GET /api/page/body?page=<map page id>[&vault=|&notebook=]: the page's text as Markdown for the
+       page window, { id, markdown, truncated, length } (lib/MarkdownExport.psm1 Get-PageBody). The
+       source is found like POST /api/export with scope page (Get-ExportSource): the active vault
+       without either id; another vault or a connected notebook is read too. Read only: one
+       GetPageContent, built in memory, nothing kept and nothing on disk. 400 for a bad id, 404 for
+       a page, vault or notebook that is not there, 409 without a vault. #>
+    $key = Get-QueryValue $Query 'page'
+    $vid = Get-QueryValue $Query 'vault'; $nid = Get-QueryValue $Query 'notebook'
+    if (-not (Test-MapPageKey $key)) { return @{ status = 400; body = @{ error = 'page must be a page id of the map.' } } }
+    $bad = Get-SourceIdError $vid $nid
+    if ($bad) { return @{ status = 400; body = @{ error = $bad } } }
+    $src = Get-ExportSource $State $vid $nid
+    if (-not $src.ok) { return @{ status = $src.status; body = @{ error = $src.error } } }
+    $ad = $src.adapter
+    $read = { param([string]$OneNoteId) $ad.GetPageContent($OneNoteId) }.GetNewClosure()
+    try { $x = Get-PageBody -Model $src.model -Key $key -ReadPage $read }
+    catch { return @{ status = 500; body = @{ error = 'The page could not be read from OneNote. Try again.' } } }
+    if ($x.ContainsKey('error')) { return @{ status = 404; body = @{ error = "Page $key is not in this vault's index." } } }
+    @{ status = 200; body = [ordered]@{ id = [string]$x.id; markdown = [string]$x.markdown; truncated = [bool]$x.truncated; length = [int]$x.length } }
+}
+
 function Invoke-ExportRoute($State, [string]$Body) {
     <# POST /api/export {scope page|topic|all, vault?, notebook?, page?, topic?}: Markdown for one page
        (.md), a topic or everything (.zip), as a download the person asked for (user, 2026-11-13, the
@@ -803,9 +850,9 @@ function Invoke-ExportRoute($State, [string]$Body) {
     $vid = "$(Get-BodyValue $b 'vault' '')"; $nid = "$(Get-BodyValue $b 'notebook' '')"
     $key = "$(Get-BodyValue $b 'page' '')"; $topic = "$(Get-BodyValue $b 'topic' '')"
     if (@('page', 'topic', 'all') -notcontains $scope) { return @{ status = 400; body = @{ error = 'scope must be page, topic or all.' } } }
-    if ($vid -and -not (Test-VaultIdText $vid)) { return @{ status = 400; body = @{ error = 'vault must be a vault id.' } } }
-    if ($nid -and -not (Test-NotebookId $nid)) { return @{ status = 400; body = @{ error = 'notebook must be a OneNote notebook id.' } } }
-    if ($scope -eq 'page' -and ($key.Length -gt 220 -or -not ((Test-ObsnId $key) -or ($key.StartsWith('n:') -and (Test-PageIdText $key.Substring(2)))))) { return @{ status = 400; body = @{ error = 'page must be a page id of the map.' } } }
+    $bad = Get-SourceIdError $vid $nid
+    if ($bad) { return @{ status = 400; body = @{ error = $bad } } }
+    if ($scope -eq 'page' -and -not (Test-MapPageKey $key)) { return @{ status = 400; body = @{ error = 'page must be a page id of the map.' } } }
     if ($scope -eq 'topic' -and (-not $topic.Trim() -or $topic.Length -gt 300 -or $topic -match '[\x00-\x1f]')) { return @{ status = 400; body = @{ error = 'topic must be a topic path.' } } }
     $src = Get-ExportSource $State $vid $nid
     if (-not $src.ok) { return @{ status = $src.status; body = @{ error = $src.error } } }
@@ -1158,6 +1205,7 @@ function Invoke-ApiRoute {
             return @{ status = 200; body = $v }
         }
         'GET /api/graph' { return (Get-GraphRoute $State $Query) }
+        'GET /api/page/body' { return (Get-PageBodyRoute $State $Query) }
         'GET /api/whats-new' { return @{ status = 200; body = (Get-WhatsNew -AppRoot $State.AppRoot -UpdatedTo "$($State.UpdatedTo)") } }
         'POST /api/active-vault' { return (Set-ActiveVault $State $Body) }
         'POST /api/vault/new' { return (New-VaultRoute $State $Body) }

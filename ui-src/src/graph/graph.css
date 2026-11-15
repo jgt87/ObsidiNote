@@ -29,15 +29,9 @@
 .kg-head__title { display: flex; align-items: baseline; gap: var(--space-4); flex-wrap: wrap; min-width: 0; }
 .kg-title { margin: 0; font-size: var(--text-heading); font-weight: 600; }
 .kg-meta { color: var(--muted); font-size: var(--text-meta); font-variant-numeric: tabular-nums; }
-.kg-readonly { display: inline-flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3);
-  height: 22px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
-  font-size: var(--text-label); color: var(--muted); }
-.kg-readonly svg { width: 12px; height: 12px; }
 .kg-tools { margin-left: auto; display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
-/* select.: the shared "select.field" height (32px) would win over a class alone; the bar is 28px. */
 /* The Tags grouping's chips: which tags make the areas. One row that wraps. */
 .kg-tagbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
-select.kg-tagpick { height: var(--control-h-sm); max-width: 190px; font-size: var(--text-meta); }
 .kg-search { height: var(--control-h-sm); width: 220px; box-sizing: border-box; font-size: var(--text-meta); padding-right: var(--control-h-sm); }
 /* The field's own clear button: always there while the field holds text, as tall as the field (so
    it is a full-height target on touch too). The browser's "x", which hides until hover, is off. */
@@ -96,12 +90,7 @@ select.kg-tagpick { height: var(--control-h-sm); max-width: 190px; font-size: va
 .kg-focus .kg-s2 { stroke-width: 2.6px; }
 .kg-focus .kg-s3 { stroke-width: 3.4px; }
 .kg-focus .kg-edge--mention { stroke-opacity: 0.7; stroke-width: 1.4px; }
-/* The pages of a picked tag, joined: the accent (the thing you picked), dashed so it never reads
-   as a link between two pages. */
-.kg-tagline { stroke: var(--kg-focus); stroke-width: 1.4px; stroke-opacity: 0.75; stroke-dasharray: 5 4; stroke-linecap: round; vector-effect: non-scaling-stroke; fill: none; pointer-events: none; }
 .kg-dot--near { stroke-width: 2px; }
-/* A page of the picked tag: the accent edge, like the lines that join the group. */
-.kg-dot--tag { stroke: var(--kg-focus); stroke-width: 2px; stroke-dasharray: none; }
 .kg-dot--on { fill: var(--kg-focus); stroke: var(--kg-focus); stroke-dasharray: none; }
 .kg-ring { fill: none; stroke: var(--ring); stroke-width: 2px; vector-effect: non-scaling-stroke; pointer-events: none; }
 
@@ -118,6 +107,12 @@ select.kg-tagpick { height: var(--control-h-sm); max-width: 190px; font-size: va
    over the area or one of its pages is focused (data-hidden), so it never blocks the pages. */
 .kg-alabel { display: flex; flex-direction: column; align-items: center; line-height: 1.25;
   transform: translate(-50%, 0); transition: opacity var(--dur) var(--ease-out); padding: 1px var(--space-3); }
+/* A group's name inside an area (the Tags grouping: the topic of the pages under it): small and
+   muted, so it never reads as the area's own name or as a page; layout.ts keeps its room free. */
+.kg-glabel { position: absolute; transform: translate(-50%, 0); white-space: nowrap; pointer-events: none;
+  font-size: var(--text-label); line-height: 16px; color: var(--muted); padding: 0 var(--space-2);
+  text-shadow: 0 0 2px var(--kg-label-halo), 0 0 2px var(--kg-label-halo), 0 0 3px var(--kg-label-halo); }
+.kg-glabel[data-dim="true"] { opacity: 0.75; }
 /* Bigger and bolder than a page name (pill, 11-13px), so a topic never reads as a page. */
 .kg-alabel b { font-size: var(--text-control); font-weight: 700; }
 .kg-alabel[data-dim="true"] { opacity: 0.75; }
@@ -224,7 +219,7 @@ button.kg-tagchip__name:focus-visible { outline: 2px solid var(--ring); outline-
 .kg-tabs { display: flex; gap: var(--space-2); padding: var(--space-4) var(--space-6) 0; border-bottom: 1px solid var(--border); }
 .kg-tab { height: 30px; padding: 0 var(--space-4); border: 0; border-bottom: 2px solid transparent; background: transparent;
   font: inherit; font-size: var(--text-body); color: var(--muted); cursor: pointer; }
-.kg-tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
+.kg-tab[aria-selected="true"] { border-bottom-color: var(--ink); color: var(--ink); font-weight: 600; }
 @media (hover: hover) { .kg-tab:hover { color: var(--ink); } }
 .kg-dlg__body { overflow: auto; padding: var(--space-5) var(--space-6); flex: 1 1 auto; min-height: 0; }
 /* The links are the longer column: they get the wider half (the summary side stood 73% empty). */
@@ -233,7 +228,52 @@ button.kg-tagchip__name:focus-visible { outline: 2px solid var(--ring); outline-
 .kg-lbl { font-size: var(--text-meta); font-weight: 600; color: var(--muted); margin: 0 0 var(--space-2); }
 .kg-lbl + .kg-lbl, * + .kg-lbl { margin-top: var(--space-5); }
 .kg-summary { margin: 0; font-size: var(--text-control); }
+/* Text changed in place (InlineText): the text is the button; a pencil shows it can be changed
+   (always on touch, where nothing hovers). The field takes the full width of its place. */
+.kg-inline { display: inline-flex; align-items: baseline; gap: var(--space-2); max-width: 100%; margin: 0; padding: 0; border: 0;
+  border-radius: var(--radius-sm); background: none; color: inherit; font: inherit; text-align: left; cursor: text; }
+.kg-inline__text { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.kg-inline[data-empty] .kg-inline__text { color: var(--muted); }
+.kg-inline svg { flex: none; width: 14px; height: 14px; align-self: center; color: var(--muted); opacity: 0; transition: opacity var(--dur-fast) ease-out; }
+.kg-inline:focus-visible svg { opacity: 1; }
+@media (hover: hover) { .kg-inline:hover svg { opacity: 1; } .kg-inline:hover .kg-inline__text { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; } }
+@media (hover: none) { .kg-inline svg { opacity: 1; } }
+@media (pointer: coarse) { .kg-inline { min-height: var(--touch-target); align-items: center; } }
+.kg-inline-edit { display: flex; flex-direction: column; gap: var(--space-3); font-size: var(--text-body); font-weight: 400; }
+.kg-inline-edit__field { width: 100%; }
+textarea.kg-inline-edit__field { height: auto; padding: var(--space-3); resize: vertical; line-height: 1.4; }
+.kg-inline-edit__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.kg-inline-edit__error { font-size: var(--text-meta); color: var(--ink); }
 .kg-note { margin: 0; color: var(--muted); font-size: var(--text-meta); }
+/* The page's own text (PageBody): reading text, a step larger than the interface around it, at a
+   readable measure. Headings sit under the window's title, so they stay small and bold. */
+.kg-body { font-size: var(--text-control); line-height: 1.5; max-width: 70ch; overflow-wrap: anywhere; }
+.kg-body > * { margin: 0; }
+.kg-body > * + * { margin-top: var(--space-4); }
+.kg-body h3, .kg-body h4, .kg-body h5 { font-weight: 600; line-height: 1.3; }
+.kg-body h3 { font-size: var(--text-title); }
+.kg-body h4 { font-size: var(--text-control); }
+.kg-body h5 { font-size: var(--text-body); }
+.kg-body > * + h3, .kg-body > * + h4, .kg-body > * + h5 { margin-top: var(--space-6); }
+.kg-body p { white-space: pre-wrap; }
+.kg-body ul, .kg-body ol { padding-left: var(--space-6); }
+.kg-body li + li { margin-top: var(--space-1); }
+.kg-body li[data-depth="1"] { margin-left: var(--space-6); }
+.kg-body li[data-depth="2"] { margin-left: calc(var(--space-6) * 2); }
+.kg-body li[data-depth="3"] { margin-left: calc(var(--space-6) * 3); }
+.kg-body li[data-depth="4"] { margin-left: calc(var(--space-6) * 4); }
+/* A task: an empty or a checked box drawn before the text (the text says it too, for a reader). */
+.kg-body li[data-task] { list-style: none; position: relative; }
+.kg-body li[data-task]::before { content: ''; position: absolute; left: calc(var(--space-5) * -1); top: 0.3em; width: 11px; height: 11px;
+  box-sizing: border-box; border: 1.5px solid var(--border-strong); border-radius: 2px; }
+.kg-body li[data-task="done"]::before { background: var(--ink); border-color: var(--ink); }
+.kg-body code { font-size: var(--text-body); padding: 1px var(--space-2); border-radius: var(--radius-sm); background: var(--neutral-soft); }
+.kg-body a, .kg-body__page { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 2px; color: inherit; }
+@media (hover: hover) { .kg-body a:hover { color: var(--accent); text-decoration-color: currentColor; } }
+.kg-body__table { overflow-x: auto; }
+.kg-body table { border-collapse: collapse; font-size: var(--text-body); }
+.kg-body th, .kg-body td { padding: var(--space-2) var(--space-4); border: 1px solid var(--border); text-align: left; vertical-align: top; }
+.kg-body th { font-weight: 600; background: var(--neutral-soft); }
 .kg-rows { list-style: none; margin: 0; padding: 0; }
 .kg-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: var(--space-4); align-items: start;
   padding: var(--space-3) 0; border-top: 1px solid var(--border); font-size: var(--text-body); }

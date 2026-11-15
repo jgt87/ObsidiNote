@@ -81,6 +81,12 @@ function New-OneNoteComAdapter {
     # OneNote's own folder for new notebooks (slDefaultNotebookFolder = 2): the fallback when a
     # notebook cannot be made next to the cloud notebooks (0x80042006).
     $a | Add-Member ScriptMethod GetDefaultNotebookFolder { $p = ''; $this.Com.GetSpecialLocation(2, [ref]$p); [string]$p }
+    # Not writes: NavigateTo shows an object in OneNote's window (IApplication.NavigateTo(id, '', false):
+    # no new window); the start uses it once when the notebook on record is open but OneNote lists no
+    # vault in it (lib/VaultSession.psm1 Find-StartVault). GetCurrentNotebookId: the notebook OneNote's
+    # current window shows ('' when it cannot be read).
+    $a | Add-Member ScriptMethod NavigateTo { param([string]$Id) $this.Com.NavigateTo($Id, '', $false) }
+    $a | Add-Member ScriptMethod GetCurrentNotebookId { try { [string]$this.Com.Windows.CurrentWindow.CurrentNotebookId } catch { '' } }
     return $a
 }
 
@@ -150,6 +156,16 @@ function New-GuardedOneNote {
     $g | Add-Member ScriptMethod GetPageContent { param([string]$PageId) $this.Inner.GetPageContent($PageId) }
     $g | Add-Member ScriptMethod GetHyperlinkToObject { param([string]$Id) $this.Inner.GetHyperlinkToObject($Id) }
     $g | Add-Member ScriptMethod GetDefaultNotebookFolder { if ($this.Inner.PSObject.Methods['GetDefaultNotebookFolder']) { $this.Inner.GetDefaultNotebookFolder() } else { '' } }
+    # Navigation changes nothing in a notebook, so it needs no root; only an id that is one of the
+    # open notebooks ever reaches OneNote. An adapter without the method (older stand-ins) does nothing.
+    $g | Add-Member ScriptMethod NavigateTo { param([string]$NotebookId)
+        if (-not $this.Inner.PSObject.Methods['NavigateTo']) { return }
+        [xml]$all = $this.Inner.GetHierarchy('', 2)
+        $open = @($all.DocumentElement.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -eq 'Notebook' -and $_.GetAttribute('ID') -eq $NotebookId })
+        if (-not $NotebookId -or -not $open.Count) { throw 'NavigateTo refused: not an open notebook.' }
+        $this.Inner.NavigateTo($NotebookId)
+    }
+    $g | Add-Member ScriptMethod GetCurrentNotebookId { if ($this.Inner.PSObject.Methods['GetCurrentNotebookId']) { [string]$this.Inner.GetCurrentNotebookId() } else { '' } }
     $g | Add-Member ScriptMethod SetRoot { param([string]$RootId) $this.RootId = $RootId; $this.Refresh() }
     $g | Add-Member ScriptMethod Refresh {
         $set = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
@@ -249,6 +265,9 @@ function New-XmlOneNoteAdapter {
         '<?xml version="1.0"?><one:Page xmlns:one="' + $script:OneNs + '" ID="' + (ConvertTo-XmlAttr $PageId) + '">' + $meta + '<one:Title><one:OE><one:T>' + (ConvertTo-OneText $n.GetAttribute('name')) + '</one:T></one:OE></one:Title></one:Page>'
     }
     $a | Add-Member ScriptMethod GetHyperlinkToObject { param([string]$Id) $g = ([regex]::Match($Id, '^\{([0-9A-Fa-f-]{36})\}')).Groups[1].Value; "onenote:https://example.invalid/notebook.one#page&page-id={$g}&end" }
+    # Nothing to show and no window: navigation does nothing, no notebook is the current one.
+    $a | Add-Member ScriptMethod NavigateTo { param([string]$Id) }
+    $a | Add-Member ScriptMethod GetCurrentNotebookId { '' }
     foreach ($w in 'OpenHierarchy', 'CreateNewPage', 'UpdatePageContent', 'DeleteHierarchy', 'DeletePageContent', 'RenameSection', 'MovePage') {
         $a | Add-Member ScriptMethod $w ([scriptblock]::Create("throw 'Read only: this stand-in cannot write ($w).'"))
     }

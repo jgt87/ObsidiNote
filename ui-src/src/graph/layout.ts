@@ -13,6 +13,7 @@
 
 import { buildIndex, type GraphIndex } from './graphIndex'
 import { areaLabelSize, labelSlot, NAME_H } from './labelSize'
+import { groupLabelSize } from './labelSize'
 import { primaryTopic, UNFILED_ID, type GraphEdge, type GraphModel, type GraphPage, type GraphTopic } from './model'
 
 export interface AreaLayout {
@@ -28,6 +29,21 @@ export interface AreaLayout {
   pageIds: string[]
   /** The room in the middle kept free of dots for the name (labelSize.ts labelSlot): half extents. */
   slot: { hw: number; hh: number }
+  /** Names of the groups inside the area (pages with a `group`, the Tags grouping), each where
+   *  it lies on no dot, not on the area's name and inside the area; a group without such a place
+   *  has no name here (the hover card still names the page's topic). */
+  groups?: GroupLabel[]
+}
+
+/** A group's name inside an area: `x` = its centre, `y` = its top, in layout units. */
+export interface GroupLabel {
+  id: string
+  name: string
+  count: number
+  x: number
+  y: number
+  w: number
+  h: number
 }
 
 export interface DotLayout {
@@ -377,6 +393,30 @@ function placeDots(area: AreaLayout, pages: GraphPage[], index: GraphIndex, area
     const d = n <= 1 ? 0 : (area.r - 10) * 0.82 * Math.sqrt((i + 0.5) / n)
     return { id: p.id, area: area.id, x: area.x + Math.cos(a) * d, y: area.y + Math.sin(a) * d, r, hub: p.isHub, unlinked: p.unlinked || p.links === 0 }
   })
+  // Groups (only when every page has one and there are two or more): each gathers round its own
+  // point, half way out, the largest first; the pull below keeps it there.
+  const grouped = isGrouped(sorted)
+  const anchor = new Map<string, { x: number; y: number }>()
+  if (grouped) {
+    const count = new Map<string, number>()
+    for (const p of sorted) count.set(p.group!.id, (count.get(p.group!.id) ?? 0) + 1)
+    const order = [...count.keys()].sort((a, b) => count.get(b)! - count.get(a)! || cmp(a, b))
+    const rot = (hash(area.id) % 360) * (Math.PI / 180)
+    order.forEach((g, i) => {
+      const a = rot + (i * 2 * Math.PI) / order.length
+      anchor.set(g, { x: area.x + Math.cos(a) * area.r * 0.52, y: area.y + Math.sin(a) * area.r * 0.52 })
+    })
+    const seen = new Map<string, number>()
+    sorted.forEach((p, i) => {
+      const g = p.group!.id
+      const k = seen.get(g) ?? 0
+      seen.set(g, k + 1)
+      const c = anchor.get(g)!
+      const d = area.r * 0.3 * Math.sqrt((k + 0.5) / count.get(g)!)
+      dots[i].x = c.x + Math.cos(k * 2.39996323) * d
+      dots[i].y = c.y + Math.sin(k * 2.39996323) * d
+    })
+  }
   if (n <= 1) {
     // The only page sits under the name, not under its letters.
     for (const d of dots) {
@@ -416,7 +456,9 @@ function placeDots(area: AreaLayout, pages: GraphPage[], index: GraphIndex, area
   // Hexagonal spacing at which n dots would fill 95% of the area; dots keep 90% of it apart, so
   // they use the whole area and clusters show as denser patches, not one clump in the middle.
   const spacing = ((area.r - 12) * 0.95 * 1.905) / Math.sqrt(n)
-  const keep = spacing * 0.9
+  // Grouped (the Tags grouping): the pages of a group stay close, so the groups read as groups
+  // and their names have room between them; ungrouped pages spread over the whole area.
+  const keep = grouped ? Math.min(spacing * 0.9, maxR * 2 + 12) : spacing * 0.9
   const cell = Math.max(maxR * 2 + 6, keep + 1)
   const vx = new Float64Array(n)
   const vy = new Float64Array(n)
@@ -450,6 +492,13 @@ function placeDots(area: AreaLayout, pages: GraphPage[], index: GraphIndex, area
     for (let i = 0; i < n; i++) {
       vx[i] += (area.x - dots[i].x) * 0.0015 * alpha
       vy[i] += (area.y - dots[i].y) * 0.0015 * alpha
+    }
+    if (grouped) {
+      for (let i = 0; i < n; i++) {
+        const c = anchor.get(sorted[i].group!.id)!
+        vx[i] += (c.x - dots[i].x) * 0.08
+        vy[i] += (c.y - dots[i].y) * 0.08
+      }
     }
     // Collisions and short-range spacing on a grid (keeps this near O(n)).
     const grid = new Map<number, number[]>()
@@ -508,6 +557,67 @@ function placeDots(area: AreaLayout, pages: GraphPage[], index: GraphIndex, area
     contain(d, area)
   }
   return dots
+}
+
+/** Pages that are laid out in groups: two or more groups, and every page in one. */
+function isGrouped(pages: GraphPage[]): boolean {
+  const ids = new Set(pages.map((p) => p.group?.id ?? ''))
+  return pages.length > 1 && ids.size > 1 && !ids.has('')
+}
+
+type Box = [number, number, number, number]
+const boxesMeet = (a: Box, b: Box) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
+
+/** True when the dot (with `margin`) reaches into the box. */
+export function dotMeetsBox(d: { x: number; y: number; r: number }, b: Box, margin = 0): boolean {
+  const nx = Math.max(b[0], Math.min(d.x, b[2]))
+  const ny = Math.max(b[1], Math.min(d.y, b[3]))
+  return Math.hypot(d.x - nx, d.y - ny) < d.r + margin
+}
+
+/**
+ * Where each group's name goes: above its dots, else below, left or right of them; the first
+ * place that lies inside the area, on no dot, not on the area's name and on no other group's
+ * name. Largest group first. A group with no such place gets no name (never a name on a dot).
+ * `scale` = layout units per screen pixel at the fitted zoom, as for the area's own name.
+ */
+function groupLabels(area: AreaLayout, pages: GraphPage[], dots: DotLayout[], scale: number): GroupLabel[] {
+  const by = new Map<string, { name: string; dots: DotLayout[] }>()
+  pages.forEach((p, i) => {
+    const g = by.get(p.group!.id) ?? { name: p.group!.name, dots: [] }
+    g.dots.push(dots[i])
+    by.set(p.group!.id, g)
+  })
+  const taken: Box[] = [[area.x - area.slot.hw, area.y - area.slot.hh, area.x + area.slot.hw, area.y + area.slot.hh]]
+  const out: GroupLabel[] = []
+  const order = [...by.entries()].sort((a, b) => b[1].dots.length - a[1].dots.length || cmp(a[0], b[0]))
+  for (const [id, g] of order) {
+    const size = groupLabelSize(g.name)
+    const w = size.w * scale
+    const h = size.h * scale
+    const minX = Math.min(...g.dots.map((d) => d.x - d.r))
+    const maxX = Math.max(...g.dots.map((d) => d.x + d.r))
+    const minY = Math.min(...g.dots.map((d) => d.y - d.r))
+    const maxY = Math.max(...g.dots.map((d) => d.y + d.r))
+    const cx = (minX + maxX) / 2
+    const cy = (minY + maxY) / 2
+    const gap = 3 * scale
+    const places: [number, number][] = [
+      [cx, minY - h - gap],
+      [cx, maxY + gap],
+      [minX - w / 2 - gap, cy - h / 2],
+      [maxX + w / 2 + gap, cy - h / 2],
+    ]
+    for (const [x, top] of places) {
+      const box: Box = [x - w / 2, top, x + w / 2, top + h]
+      const inside = [[box[0], box[1]], [box[2], box[1]], [box[0], box[3]], [box[2], box[3]]].every(([px, py]) => Math.hypot(px - area.x, py - area.y) <= area.r - 2)
+      if (!inside || taken.some((t) => boxesMeet(box, t)) || dots.some((d) => dotMeetsBox(d, box, 2 * scale))) continue
+      out.push({ id, name: g.name, count: g.dots.length, x: round(x), y: round(top), w: round(w), h: round(h) })
+      taken.push(box)
+      break
+    }
+  }
+  return out
 }
 
 /** Space between a dot and the room kept for the topic name. */
@@ -837,6 +947,18 @@ export function layoutGraph(model: GraphModel, opts: LayoutOptions = {}, index: 
     if (k >= 0.97 || scale * k >= 1) break
     scale = Math.min(MAX_NAME_SCALE, 1 / (k * NAME_SCALE_MARGIN))
     layout = layoutOnce(model, aspect, index, scale)
+  }
+  // Group names (the Tags grouping) are placed last, at the size they really have on the fitted
+  // map: on a small map, fitted zoomed in, a name covers less of the layout than one unit per
+  // pixel, and a name sized for more would stand far from its pages.
+  if (layout.areas.length) {
+    const unit = 1 / (nominalFit(layout.bounds, aspect) * NAME_SCALE_MARGIN)
+    for (const area of layout.areas) {
+      const pages = area.pageIds.map((id) => index.pageById.get(id)!)
+      if (!isGrouped(pages)) continue
+      const groups = groupLabels(area, pages, pages.map((p) => layout.dotById.get(p.id)!), unit)
+      if (groups.length) area.groups = groups
+    }
   }
   return layout
 }

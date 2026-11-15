@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { joinLines, normalizeTag, normalizeTags, suggestTags, tagCounts, tagOfQuery, tagQuery } from './tags'
+import { normalizeTag, normalizeTags, suggestTags, tagCounts, tagOfQuery, tagQuery } from './tags'
 
 // The same cases the server's tag function is tested against (tests/*.Tests.ps1 reads this file).
 const fixture = JSON.parse(readFileSync(fileURLToPath(new URL('../../../tests/fixtures/tags.json', import.meta.url)), 'utf8')) as {
@@ -53,18 +53,5 @@ describe('tags in use', () => {
     expect(tagOfQuery(' tag:Licensing ')).toBe('licensing')
     expect(tagOfQuery('tag:licensing zero')).toBe('')
     expect(tagOfQuery('zero trust')).toBe('')
-  })
-})
-
-describe('joinLines: the pages of a tag as one group on the map', () => {
-  it('joins n pages with n - 1 lines, each to its nearest joined page', () => {
-    const pts = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 10, y: 0 }, { id: 'c', x: 100, y: 0 }, { id: 'd', x: 110, y: 0 }]
-    expect(joinLines(pts)).toEqual([['a', 'b'], ['b', 'c'], ['c', 'd']])
-  })
-  it('gives the same lines whatever order the pages come in, and none for one page', () => {
-    const pts = [{ id: 'c', x: 5, y: 9 }, { id: 'a', x: 0, y: 0 }, { id: 'b', x: 4, y: 1 }]
-    expect(joinLines(pts)).toEqual(joinLines([...pts].reverse()))
-    expect(joinLines([{ id: 'a', x: 0, y: 0 }])).toEqual([])
-    expect(joinLines([])).toEqual([])
   })
 })
