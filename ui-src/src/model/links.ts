@@ -3,6 +3,19 @@
 // clickable. Only http(s) ever becomes a link (no javascript:, file:, onenote: here). Pure.
 
 /** The address when it is an http(s) URL, else ''. */
+/**
+ * The address when the text is one link and nothing else: a bare address, or one Markdown link
+ * "[title](address)"; else null. A link copied from the browser (Edge's "Copy link") arrives as
+ * a titled link; kept as Markdown it read as "a link and other text", so it was not taken as a
+ * link page and "From" guessed "Web page" for a SharePoint address (operator, 2026-11-15).
+ */
+export function loneLink(text: string): string | null {
+  const t = text.trim()
+  if (/^https?:\/\/\S+$/i.test(t)) return t
+  const m = /^\[[^\]\n]*\]\((https?:\/\/[^\s()]+(?:\([^\s()]*\)[^\s()]*)*)\)$/i.exec(t)
+  return m ? m[1] : null
+}
+
 export function webUrl(value: string | null | undefined): string {
   const v = (value ?? '').trim()
   return /^https?:\/\/[^\s/?#]+/i.test(v) ? v : ''

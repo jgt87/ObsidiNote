@@ -136,8 +136,72 @@ Describe 'Upgrade: counts pages, not steps' {
         $r.planned | Should Be 1
         (Format-UpgradeStatus $r).detail | Should Match '^1 page\(s\) do not follow'
     }
-    It 'says "N of M pages" from page counts on a partial run' {
-        (Format-UpgradeStatus @{ status = 'partial'; planned = 3; moved = 1; raised = 2; failed = 1 }).detail | Should Match '^2 of 3 page\(s\) brought in line; 1 could not'
+    It 'says "N of M pages" from the pages really changed on a partial run, never planned minus failed' {
+        # 3 planned: 1 changed, 1 failed, 1 needed nothing after all (or was not reached).
+        (Format-UpgradeStatus @{ status = 'partial'; planned = 3; changed = 1; moved = 1; raised = 1; failed = 1; reason = '' }).detail | Should Be '1 of 3 page(s) brought in line; 1 could not be changed'
+        (Format-UpgradeStatus @{ status = 'partial'; planned = 3; changed = 0; moved = 0; raised = 0; failed = 0; reason = 'OneNote did not answer' }).detail | Should Be '0 of 3 page(s) brought in line; the upgrade stopped early (OneNote did not answer)'
+    }
+}
+
+Describe 'Upgrade: a partial run reports what really happened (code review 2026-11-15)' {
+    $w = New-SyntheticVault
+    $null = Add-OldLinkPage $w 'p7' 'Service desk article' 'https://contoso.service-now.com/kb?id=1'
+    $null = Add-OldLinkPage $w 'p10' 'Internal vacancies' 'https://contoso.service-now.com/vacancies' -Links '[{"t":"p1","s":2,"w":"explains"}]'
+    $null = Add-OldLinkPage $w 'p11' 'Change calendar' 'https://contoso.service-now.com/changes'
+    $real = New-VaultStore -Adapter $w.a -Vault $w.open.vault -Model $w.open.model -GetLease { $w.box.lease }.GetNewClosure()
+    # Two pages cannot be moved; then the step after the moves (the "Linked from" lists) stops the run.
+    $store = @{} + $real
+    $move = $real.MovePage
+    $store.MovePage = { param([string]$Id, [string]$Bucket, [string]$Type) if ($Id -ne 'p10') { throw 'OneNote refused the move' }; & $move $Id $Bucket $Type }.GetNewClosure()
+    $store.GetIndex = { throw 'OneNote did not answer' }
+    $r = Invoke-VaultUpgrade -Store $store
+    It 'counts the page that moved and both that failed, although a later step stopped the run' {
+        $r.status | Should Be 'partial'
+        $r.planned | Should Be 3
+        $r.moved | Should Be 1
+        $r.changed | Should Be 1
+        $r.failed | Should Be 2
+        $r.reason | Should Be 'OneNote did not answer'
+        $w.open.model.pages['p10'].section | Should Be 'Internal links'
+        $w.open.model.pages['p7'].section | Should Be 'Web links'
+    }
+    It 'says so in the status line' {
+        $line = Format-UpgradeStatus $r
+        $line.status | Should Be 'WARN'
+        $line.detail | Should Be '1 of 3 page(s) brought in line; 2 could not be changed; the upgrade stopped early (OneNote did not answer)'
+    }
+    It 'brings the others in line at the next start' {
+        $again = Invoke-VaultUpgrade -Store $real
+        "$($again.status):$($again.planned):$($again.changed):$($again.failed)" | Should Be 'done:2:2:0'
+    }
+}
+
+Describe 'Upgrade: personal OneDrive links filed under Web links before 2026-11-15 move to Internal links' {
+    $w = New-SyntheticVault
+    # Old shape: a dropped file's link page (d.docs.live.net) and a shared onedrive.live.com link,
+    # both filed as link-web in Web links; a public page next to them stays.
+    $one = Add-OldLinkPage $w 'p7' 'Budget review' 'https://d.docs.live.net/0123456789abcdef/Documents/Budget%20review.docx'
+    $null = Add-OldLinkPage $w 'p8' 'Holiday list' 'https://onedrive.live.com/edit?id=ABC&cid=0123456789abcdef'
+    $null = Add-OldLinkPage $w 'p9' 'Public handbook' 'https://www.example.org/handbook'
+    It 'files a new personal OneDrive address as internal, as the Sources view names it' {
+        foreach ($u in 'https://d.docs.live.net/0123456789abcdef/a.docx', 'https://onedrive.live.com/edit?id=ABC') {
+            Get-LinkBucket -Url $u | Should Be 'Internal links'
+            (Get-LinkSource -Url $u).id | Should Be 'onedrive'
+        }
+        Get-LinkBucket -Url 'https://live.com/' | Should Be 'Web links'
+        Get-LinkBucket -Url 'https://docs.live.net.example.org/a' | Should Be 'Web links'
+    }
+    It 'plans the old pages for a move, and only those' {
+        (@(Get-UpgradePlan -Model $w.open.model | ForEach-Object { "$($_.step):$($_.id):$($_.from)>$($_.to):$($_.type)" } | Sort-Object) -join ',') | Should Be 'link-bucket:p7:Web links>Internal links:link-internal,link-bucket:p8:Web links>Internal links:link-internal'
+    }
+    $r = Invoke-VaultUpgrade -Store $w.store
+    It 'moves them at the next start and finds nothing to do after it' {
+        "$($r.status):$($r.moved)" | Should Be 'done:2'
+        $rec = $w.open.model.pages['p7']
+        "$($rec.section):$($rec.type)" | Should Be 'Internal links:link-internal'
+        $w.f.Nodes.ContainsKey($one) | Should Be $false
+        $w.open.model.pages['p9'].section | Should Be 'Web links'
+        (Invoke-VaultUpgrade -Store $w.store).status | Should Be 'none'
     }
 }
 

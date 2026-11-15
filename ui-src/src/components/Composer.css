@@ -68,21 +68,7 @@ kbd {
   text-align: center;
 }
 
-.seg { display: inline-flex; gap: var(--space-1); padding: var(--space-1); border-radius: var(--radius); background: var(--active); }
-.seg__btn {
-  height: var(--control-h-sm);
-  padding: 0 var(--space-4);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  font-size: var(--text-body);
-  cursor: pointer;
-  transition: background-color var(--dur-fast) ease-out;
-}
-@media (hover: hover) { .seg__btn:hover:not([aria-pressed="true"]) { background: var(--hover); } }
-.seg__btn[aria-pressed="true"] { background: var(--surface); color: var(--accent); font-weight: 600; box-shadow: inset 0 0 0 1px var(--accent); }
+/* The segmented control (.seg) lives in src/styles/tokens.css: the map uses it too. */
 
 .composer__text {
   width: 100%;
@@ -118,6 +104,10 @@ kbd {
 }
 .composer__intent { display: flex; align-items: flex-start; gap: var(--space-3); flex: 1 1 320px; min-width: 0; margin: 0; font-size: var(--text-body); }
 .composer__intent .icon { flex: none; margin-top: 2px; color: var(--muted); }
+/* Copilot off or ObsidiNote gone: the line carries the warning (icon + words, ink). */
+.composer__intent[data-block] .icon { color: var(--ink); }
+.composer__intent[data-block] .btn { margin-left: var(--space-2); vertical-align: baseline; }
+.composer__block { flex: none; }
 .composer__send { min-width: 88px; }
 /* A file over the box: the card says it takes it (an accent edge and one line), nothing moves. */
 .composer[data-dragging] { border-color: var(--accent); background: var(--accent-soft); }
@@ -143,4 +133,4 @@ kbd {
 @media (hover: hover) { .link-btn:hover { color: var(--accent); } }
 
 /* Sits right under the card (the page gap minus 8px), so an empty line costs little room. */
-.composer__reply { min-height: 1.45em; margin: calc(-1 * var(--space-3)) 0 0; font-size: var(--text-body); color: var(--muted); }
+

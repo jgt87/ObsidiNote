@@ -60,6 +60,39 @@ export async function editPage(req: PageEditRequest, fetcher: typeof fetch = fet
   return b.status === 'unchanged' ? 'unchanged' : 'edited'
 }
 
+async function postJson(route: string, body: unknown, fetcher: typeof fetch): Promise<Record<string, unknown>> {
+  let res: Response
+  try {
+    res = await fetcher(route, { method: 'POST', headers: { 'X-ObsidiNote': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  } catch {
+    throw new GraphLoadError('ObsidiNote is not answering. Is it still running?', 0)
+  }
+  const data: unknown = await res.json().catch(() => null)
+  const b = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
+  if (res.status !== 200) throw new GraphLoadError(b.error ? String(b.error) : `The server answered ${res.status}.`, res.status)
+  return b
+}
+
+export const PAGES_TAG_ROUTE = '/api/pages/tag'
+export const TAGS_RENAME_ROUTE = '/api/tags/rename'
+
+/**
+ * Tags set by hand: POST /api/pages/tag {ids, add, remove, vault} adds and removes tags on pages of
+ * the active vault (400 an invalid tag or nothing to do, 404 a page that is not in the vault, 409
+ * read only or another vault). Resolves with the number of pages changed.
+ */
+export async function tagPages(req: { ids: string[]; add: string[]; remove: string[]; vault?: string }, fetcher: typeof fetch = fetch): Promise<number> {
+  const b = await postJson(PAGES_TAG_ROUTE, { ids: req.ids, add: req.add, remove: req.remove, ...(req.vault ? { vault: req.vault } : {}) }, fetcher)
+  return typeof b.changed === 'number' ? b.changed : 0
+}
+
+/** POST /api/tags/rename {from, to, vault}: every page with `from` gets `to` (merged when it has
+ *  both); `to` = '' takes the tag off every page. Resolves with the number of pages changed. */
+export async function renameTag(req: { from: string; to: string; vault?: string }, fetcher: typeof fetch = fetch): Promise<number> {
+  const b = await postJson(TAGS_RENAME_ROUTE, { from: req.from, to: req.to, ...(req.vault ? { vault: req.vault } : {}) }, fetcher)
+  return typeof b.changed === 'number' ? b.changed : 0
+}
+
 export const LINK_ADD_ROUTE = '/api/link/add'
 
 export type LinkAddStatus = 'linked' | 'already-linked'

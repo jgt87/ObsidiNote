@@ -4,6 +4,9 @@
 //   type:<kind or bucket>   prefix match ("type:meet" = kind "meeting" or bucket "Meetings")
 //   topic:<path or name>    the topic and all its subtopics ("topic:security/networking")
 //   site:<host>             suffix match on the page's site ("site:example.org" = www.example.org)
+//   tag:<name>              a tag set by hand, exactly ("tag:licensing", tag:"follow up")
+//   section:<path>          the page's section, exactly ("section:Notes", section:"Journal/2026");
+//                           what a section row of the side bar asks for (model/sections.ts)
 //   after:<date>            modified on or after YYYY-MM-DD, or from the start of YYYY-MM
 //   before:<date>           modified before YYYY-MM-DD, or before the start of YYYY-MM
 //   is:archived | is:hub | is:unlinked
@@ -20,7 +23,7 @@
 import type { GraphIndex } from '../graph/graphIndex'
 import type { GraphPage, GraphTopic } from '../graph/model'
 
-export type FilterKey = 'type' | 'topic' | 'site' | 'after' | 'before' | 'is'
+export type FilterKey = 'type' | 'topic' | 'site' | 'section' | 'tag' | 'after' | 'before' | 'is'
 export type IsValue = 'archived' | 'hub' | 'unlinked'
 
 export interface QueryFilter {
@@ -40,7 +43,7 @@ export interface ParsedQuery {
   filters: QueryFilter[]
 }
 
-const FILTER_KEYS: readonly FilterKey[] = ['type', 'topic', 'site', 'after', 'before', 'is']
+const FILTER_KEYS: readonly FilterKey[] = ['type', 'topic', 'site', 'section', 'tag', 'after', 'before', 'is']
 const IS_VALUES: readonly IsValue[] = ['archived', 'hub', 'unlinked']
 const DATE_RE = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/
 
@@ -115,7 +118,7 @@ function toFilter(rawKey: string, rawValue: string, start: number, end: number):
   const label = collapse(rawValue)
   if (!label) return 'empty'
   let value: string
-  if (key === 'topic') value = normalizePath(label)
+  if (key === 'topic' || key === 'section') value = normalizePath(label)
   else if (key === 'site') value = normalizeSite(label)
   else value = collapse(normalizeText(label))
   if ((key === 'after' || key === 'before') && !validDate(value)) return null
@@ -194,6 +197,9 @@ interface PreparedPage {
   summary: string
   kind: string
   bucket: string
+  /** The section path, normalized like a topic path ("journal/2026"). */
+  section: string
+  tags: string[]
   site: string
   date: string
 }
@@ -238,6 +244,8 @@ function prepare(index: GraphIndex): Prepared {
       summary: collapse(normalizeText(p.summary)),
       kind: collapse(normalizeText(p.kind)),
       bucket: collapse(normalizeText(p.bucket)),
+      section: normalizePath(p.section ?? ''), // '' from a server older than the field
+      tags: (p.tags ?? []).map((t) => collapse(normalizeText(t))),
       site: normalizeSite(p.site),
       date: /^\d{4}-\d{2}-\d{2}/.test(p.modified) ? p.modified.slice(0, 10) : '',
     }
@@ -295,6 +303,8 @@ function filterPredicate(prep: Prepared, filters: QueryFilter[]): ((p: PreparedP
   const of = (k: FilterKey) => filters.filter((f) => f.key === k).map((f) => f.value)
   const types = of('type')
   const sites = of('site')
+  const sections = of('section')
+  const tags = of('tag')
   const after = of('after')
   const before = of('before')
   const is = of('is')
@@ -303,6 +313,8 @@ function filterPredicate(prep: Prepared, filters: QueryFilter[]): ((p: PreparedP
   return (p) => {
     if (types.length && !types.some((v) => p.kind.startsWith(v) || p.bucket.startsWith(v))) return false
     if (sites.length && !sites.some((v) => p.site === v || p.site.endsWith(`.${v}`))) return false
+    if (sections.length && !sections.includes(p.section)) return false
+    if (tags.length && !tags.some((v) => p.tags.includes(v))) return false
     if (topicIds && !p.page.topicIds.some((id) => topicIds.has(id))) return false
     if (after.some((v) => !p.date || p.date < v)) return false
     if (before.some((v) => !p.date || p.date >= v)) return false

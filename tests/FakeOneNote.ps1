@@ -1,10 +1,11 @@
 # An in-memory stand-in for OneNote's COM API with the adapter's method names (lib/OneNote.psm1).
 # Dot-source it in a test. Synthetic data only: fictional names, made-up ids, example.invalid links.
 # Builders: AddNotebook(name), AddGroup(parentId, name), AddSection(parentId, name),
-# AddPage(sectionId, title, meta hashtable, level, bodyHtml). Writes are recorded in .Writes.
+# AddPage(sectionId, title, meta hashtable, level, bodyHtml). Writes are recorded in .Writes,
+# hierarchy reads in .Reads ("<start id>|<scope>").
 
 function New-FakeOneNote {
-    $f = [pscustomobject]@{ Kind = 'fake'; Nodes = @{}; Roots = (New-Object System.Collections.ArrayList); Seq = 0; Writes = (New-Object System.Collections.ArrayList); Calls = @{} }
+    $f = [pscustomobject]@{ Kind = 'fake'; Nodes = @{}; Roots = (New-Object System.Collections.ArrayList); Seq = 0; Writes = (New-Object System.Collections.ArrayList); Calls = @{}; Reads = (New-Object System.Collections.ArrayList) }
     $f | Add-Member ScriptMethod NewId { param([string]$Prefix) $this.Seq++; '{' + $Prefix + '-' + $this.Seq.ToString('0000') + '}{1}{B0}' }
     $f | Add-Member ScriptMethod Count { param([string]$Name) if ($this.Calls.ContainsKey($Name)) { $this.Calls[$Name]++ } else { $this.Calls[$Name] = 1 } }
     $f | Add-Member ScriptMethod AddNode { param([string]$Kind, [string]$ParentId, [string]$Name)
@@ -52,6 +53,7 @@ function New-FakeOneNote {
     }
     $f | Add-Member ScriptMethod GetHierarchy { param([string]$StartId, [int]$Scope)
         $this.Count('GetHierarchy')
+        $null = $this.Reads.Add("$StartId|$Scope")   # which object was read at which scope
         $ns = 'xmlns:one="http://schemas.microsoft.com/office/onenote/2013/onenote"'
         if (-not $StartId) {
             $s = if ($Scope -eq 2) { 3 } else { $Scope }

@@ -55,6 +55,13 @@ describe('markdownForPaste', () => {
   it('gives null when the only structure is one the server would not convert (italic alone)', () => {
     expect(markdownForPaste('<i>', parse(body(el('p', {}, 'A ', el('i', {}, 'quiet'), ' word.'))))).toBeNull()
   })
+  it('gives the bare address for a paste that is one link and nothing else (a link copied from the browser)', () => {
+    const link = el('a', { href: 'https://contoso.sharepoint.com/sites/SupportApp' }, txt('Support App - Home'))
+    expect(markdownForPaste('<a>', parse(body(link)))).toBe('https://contoso.sharepoint.com/sites/SupportApp')
+    expect(markdownForPaste('<a>', parse(body(el('p', {}, link))))).toBe('https://contoso.sharepoint.com/sites/SupportApp')
+    // A link inside a sentence stays text with a link.
+    expect(markdownForPaste('<p>', parse(body(el('p', {}, 'See ', link, ' for details.'))))).toBe('See [Support App - Home](https://contoso.sharepoint.com/sites/SupportApp) for details.')
+  })
   it('gives the Markdown when there is structure', () => {
     expect(markdownForPaste('<ul>', parse(body(el('ul', {}, el('li', {}, txt('a')), el('li', {}, txt('b'))))))).toBe('- a\n- b')
   })

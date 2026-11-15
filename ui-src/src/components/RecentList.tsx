@@ -1,5 +1,6 @@
 import type { NotebookState } from '../hooks/useServerData'
 import { formatModified, pageTypeLabel } from '../model/format'
+import { Notice } from './Notice'
 import './RecentList.css'
 
 /** The 10 most recently changed pages of the notebook. A title opens the page window (the same as in
@@ -10,11 +11,18 @@ export function RecentList({ notebook, onOpen }: { notebook: NotebookState; onOp
   if (!nb && notebook.loading) body = <p className="recent__state" role="status">Reading your notebook...</p>
   else if (!nb && notebook.error) {
     body = (
-      <div className="recent__state" role="alert">
-        <p>Could not read the notebook: {notebook.error}</p>
-        <button type="button" className="btn btn--sm" onClick={notebook.reload}>
-          Try again
-        </button>
+      <div className="recent__state">
+        <Notice
+          error
+          title="The notebook could not be read"
+          actions={
+            <button type="button" className="btn btn--sm" onClick={notebook.reload}>
+              Try again
+            </button>
+          }
+        >
+          <p>{notebook.error}</p>
+        </Notice>
       </div>
     )
   } else if (!nb?.available) body = <p className="recent__state">{nb?.message || 'The notebook is not available.'}</p>
@@ -44,7 +52,7 @@ export function RecentList({ notebook, onOpen }: { notebook: NotebookState; onOp
                 {formatModified(p.modified)}
               </time>
               {p.pageId && onOpen && p.link ? (
-                <a className="btn btn--sm btn--ghost recent__onenote" href={p.link} aria-label={`Open "${p.title}" in OneNote`}>
+                <a className="btn btn--sm btn--ghost" href={p.link} aria-label={`Open "${p.title}" in OneNote`}>
                   OneNote
                 </a>
               ) : (

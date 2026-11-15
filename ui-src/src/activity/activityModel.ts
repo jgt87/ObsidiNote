@@ -26,6 +26,9 @@ export interface ActivityItem {
 export interface ActivityList {
   items: ActivityItem[]
   canChange: boolean
+  /** The vault these items are in; sent back with Undo, Remove and Check, and refused by the
+   *  server when another vault is active by then. '' from an older server. */
+  vaultId: string
 }
 
 const STATES: ActivityState[] = ['working', 'waiting', 'added', 'updated', 'failed', 'gone']
@@ -53,7 +56,7 @@ export function normalizeActivity(raw: unknown): ActivityList {
       canRemove: i.canRemove === true,
       canUndo: i.canUndo === true,
     }))
-  return { items, canChange: o.canChange === true }
+  return { items, canChange: o.canChange === true, vaultId: str(o.vaultId) }
 }
 
 /** One word per state, for the list (with an icon or the row's text; never colour alone). */

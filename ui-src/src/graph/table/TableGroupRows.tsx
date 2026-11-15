@@ -6,7 +6,7 @@ import type { ExportRequest } from '../../export/exportApi'
 import { formatDate, plural } from '../format'
 import { ROW_BUDGET, type TableGroup, type TableRow } from './tableModel'
 
-export const COLUMN_COUNT = 6
+export const COLUMN_COUNT = 7
 
 interface Props {
   group: TableGroup
@@ -17,6 +17,9 @@ interface Props {
   onToggle: () => void
   onMore: () => void
   onOpen: (id: string) => void
+  /** Ticked rows (ids), and the tick handler; without it the rows have no tick box (read only). */
+  selected?: ReadonlySet<string>
+  onSelect?: (id: string, on: boolean) => void
 }
 
 function Chevron({ open }: { open: boolean }) {
@@ -27,17 +30,18 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-function Row({ row, onOpen }: { row: TableRow; onOpen: (id: string) => void }) {
+function Row({ row, onOpen, selected, onSelect }: { row: TableRow; onOpen: (id: string) => void; selected: boolean; onSelect?: (id: string, on: boolean) => void }) {
   const p = row.page
   const [first, ...rest] = row.topicNames
   return (
-    <tr>
+    <tr data-selected={selected || undefined}>
       <td className="kg-tbl__page">
         <div className="kg-tbl__title">
+          {onSelect && <input type="checkbox" className="kg-tbl__tick" checked={selected} aria-label={`Select ${row.title}`} onChange={(e) => onSelect(row.id, e.target.checked)} />}
           <button type="button" className="kg-linkbtn" onClick={() => onOpen(row.id)} title={row.title}>
             {row.title}
           </button>
-          {p.isHub && <span className="kg-tag"> · hub</span>}
+          {p.isHub && <span className="kg-tag"> · most linked</span>}
           {p.unlinked && <span className="kg-tag"> · no links yet</span>}
           {p.archived && <span className="kg-tag"> · archived</span>}
           {p.readOnly && <span className="kg-tag"> · read only</span>}
@@ -50,6 +54,9 @@ function Row({ row, onOpen }: { row: TableRow; onOpen: (id: string) => void }) {
         {first ?? ''}
         {rest.length > 0 && <span className="kg-tag"> +{rest.length}</span>}
       </td>
+      <td className="kg-tag" title={row.tags.length ? row.tags.join(', ') : undefined}>
+        {row.tags.join(', ')}
+      </td>
       <td className="kg-tag" title={row.site || undefined}>
         {row.site}
       </td>
@@ -59,7 +66,7 @@ function Row({ row, onOpen }: { row: TableRow; onOpen: (id: string) => void }) {
   )
 }
 
-export function TableGroupRows({ group, open, limit, exportRequest, onToggle, onMore, onOpen }: Props) {
+export function TableGroupRows({ group, open, limit, exportRequest, onToggle, onMore, onOpen, selected, onSelect }: Props) {
   const shown = open ? group.rows.slice(0, limit) : []
   const hidden = group.rows.length - shown.length
   return (
@@ -77,7 +84,7 @@ export function TableGroupRows({ group, open, limit, exportRequest, onToggle, on
         </th>
       </tr>
       {shown.map((row) => (
-        <Row key={row.id} row={row} onOpen={onOpen} />
+        <Row key={row.id} row={row} onOpen={onOpen} selected={selected?.has(row.id) ?? false} onSelect={onSelect} />
       ))}
       {open && hidden > 0 && (
         <tr className="kg-tbl__more">

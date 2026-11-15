@@ -1,0 +1,25 @@
+{
+  "about": "The normal form of a hand-set tag, the same on the server (the one tag function, e.g. ConvertTo-TagList) and in the interface (ui-src/src/graph/tags.ts): trimmed, inner spaces collapsed to one, lower case; 1 to 40 characters; no double quote, comma, colon or line break; in a list duplicates go (the first stays), order is kept, at most 12 per page. \"out\": null means refused. Read by tests/*.Tests.ps1 and by vitest: change all three together.",
+  "tags": [
+    { "in": "licensing", "out": "licensing" },
+    { "in": "  Licensing  ", "out": "licensing" },
+    { "in": "Follow   Up", "out": "follow up" },
+    { "in": "KEY-ref_2", "out": "key-ref_2" },
+    { "in": "a", "out": "a" },
+    { "in": "1234567890123456789012345678901234567890", "out": "1234567890123456789012345678901234567890" },
+    { "in": "12345678901234567890123456789012345678901", "out": null },
+    { "in": "", "out": null },
+    { "in": "   ", "out": null },
+    { "in": "a\"b", "out": null },
+    { "in": "a,b", "out": null },
+    { "in": "a:b", "out": null },
+    { "in": "a\nb", "out": null }
+  ],
+  "lists": [
+    { "in": ["B", "a", "b "], "out": ["b", "a"] },
+    { "in": [], "out": [] },
+    { "in": ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"], "out": ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"] },
+    { "in": ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen"], "out": null },
+    { "in": ["ok", "not:ok"], "out": null }
+  ]
+}

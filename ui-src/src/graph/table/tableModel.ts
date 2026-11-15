@@ -8,8 +8,9 @@
 
 import type { GraphIndex } from '../graphIndex'
 import { UNFILED_ID, type GraphPage } from '../model'
+import { pageTypeLabel } from '../../model/format'
 
-export type SortKey = 'title' | 'type' | 'topics' | 'site' | 'links' | 'modified'
+export type SortKey = 'title' | 'type' | 'topics' | 'tags' | 'site' | 'links' | 'modified'
 export type SortDir = 'asc' | 'desc'
 export interface TableSort {
   key: SortKey
@@ -45,6 +46,8 @@ export interface TableRow {
   topicNames: string[]
   /** Full topic paths, primary first (for the cell's title). */
   topicPaths: string[]
+  /** Tags set by hand, as on the page. */
+  tags: string[]
   /** Area id of the primary topic (UNFILED_ID without a topic). */
   areaId: string
   site: string
@@ -79,9 +82,11 @@ export function buildRows(index: GraphIndex, matches: readonly string[] | null):
       id: page.id,
       page,
       title: page.title,
-      type: page.kind || page.bucket,
+      // The same words as Recently changed ("web link", never the stored "link-web").
+      type: pageTypeLabel(page.kind) || page.bucket,
       topicNames: topics.map((t) => t.name),
       topicPaths: topics.map((t) => t.path),
+      tags: page.tags,
       areaId: page.topicIds[0] ?? UNFILED_ID,
       site: page.site,
       links: page.links,
@@ -116,6 +121,8 @@ export function rowCompare(sort: TableSort | null): (a: TableRow, b: TableRow) =
       return (a, b) => emptyLast(!a.type, !b.type) || sign * compareText(a.type, b.type) || tie(a, b)
     case 'topics':
       return (a, b) => emptyLast(!a.topicPaths.length, !b.topicPaths.length) || sign * compareText(a.topicPaths[0] ?? '', b.topicPaths[0] ?? '') || tie(a, b)
+    case 'tags':
+      return (a, b) => emptyLast(!a.tags.length, !b.tags.length) || sign * compareText(a.tags.join(', '), b.tags.join(', ')) || tie(a, b)
     case 'site':
       return (a, b) => emptyLast(!a.site, !b.site) || sign * compareText(a.site, b.site) || tie(a, b)
     case 'links':

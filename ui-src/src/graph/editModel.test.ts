@@ -6,13 +6,13 @@ import type { GraphModel, GraphPage } from './model'
 // Invented example data only.
 function page(id: string, title: string, extra: Partial<GraphPage> = {}): GraphPage {
   return {
-    id, title, topicIds: [], bucket: 'Notes', kind: 'concept', links: 0, linkedFrom: 0, weight: 0, isHub: false, sourceId: 'obsidinote', origin: '', unlinked: true, summary: '',
+    id, title, topicIds: [], bucket: 'Notes', section: 'Notes', tags: [], kind: 'concept', links: 0, linkedFrom: 0, weight: 0, isHub: false, sourceId: 'obsidinote', origin: '', unlinked: true, summary: '',
     onenoteUrl: '', modified: '', readOnly: false, aliases: [], site: '', archived: false, url: '', ...extra,
   }
 }
 
 const model: GraphModel = {
-  source: { kind: 'vault', id: 'v1', name: 'V', readOnly: false },
+  source: { kind: 'vault', id: 'v1', name: 'V', readOnly: false, readOnlyReason: '' },
   topics: [{ id: 'Security', name: 'Security', path: 'Security', parent: null, pageCount: 1, subjects: '' }, { id: 'Security/Networking', name: 'Networking', path: 'Security / Networking', parent: 'Security', pageCount: 1, subjects: '' }],
   pages: [
     page('p1', 'Zero trust', { topicIds: ['Security/Networking'], aliases: ['ZT'], summary: 'Never trust.' }),

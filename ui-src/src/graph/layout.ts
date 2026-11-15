@@ -12,6 +12,7 @@
 // 3. Edges: quadratic curves whose control point sits off the midpoint, perpendicular to the line.
 
 import { buildIndex, type GraphIndex } from './graphIndex'
+import { areaLabelSize, labelSlot, NAME_H } from './labelSize'
 import { primaryTopic, UNFILED_ID, type GraphEdge, type GraphModel, type GraphPage, type GraphTopic } from './model'
 
 export interface AreaLayout {
@@ -25,6 +26,8 @@ export interface AreaLayout {
   y: number
   r: number
   pageIds: string[]
+  /** The room in the middle kept free of dots for the name (labelSize.ts labelSlot): half extents. */
+  slot: { hw: number; hh: number }
 }
 
 export interface DotLayout {
@@ -166,12 +169,14 @@ export function topicOrder(topics: GraphTopic[]): GraphTopic[] {
 export const MIN_AREA_R = 52
 export const MIN_UNFILED_R = 30
 
-function areaRadius(dotRadii: number[], min = MIN_AREA_R): number {
+function areaRadius(dotRadii: number[], min = MIN_AREA_R, name = '', scale = 1): number {
   let sum = 0
   for (const r of dotRadii) sum += (r + 4.5) * (r + 4.5)
   // design: dots fill about 40% of an area, so a topic reads as a roomy grey field with its
-  // pages spread inside (the README map), not a tight clump.
-  return Math.max(min, Math.sqrt(sum / 0.4) + 14)
+  // pages spread inside (the README map), not a tight clump. The room kept free for the name
+  // (labelSlot) comes on top, so the dots are not squeezed by it.
+  const nameRoom = name ? Math.min(areaLabelSize(name).w, 220) * NAME_H * scale * scale : 0
+  return Math.max(min, Math.sqrt(sum / 0.4 + nameRoom) + 14)
 }
 
 interface Circle {
@@ -372,7 +377,16 @@ function placeDots(area: AreaLayout, pages: GraphPage[], index: GraphIndex, area
     const d = n <= 1 ? 0 : (area.r - 10) * 0.82 * Math.sqrt((i + 0.5) / n)
     return { id: p.id, area: area.id, x: area.x + Math.cos(a) * d, y: area.y + Math.sin(a) * d, r, hub: p.isHub, unlinked: p.unlinked || p.links === 0 }
   })
-  if (n <= 1) return dots
+  if (n <= 1) {
+    // The only page sits under the name, not under its letters.
+    for (const d of dots) {
+      d.y = area.y + area.slot.hh + d.r + SLOT_MARGIN
+      contain(d, area)
+      d.x = round(d.x)
+      d.y = round(d.y)
+    }
+    return dots
+  }
   const pos = new Map(dots.map((d, i) => [d.id, i]))
 
   // Springs: links inside the area pull together; links to other areas pull towards that area.
@@ -482,16 +496,34 @@ function placeDots(area: AreaLayout, pages: GraphPage[], index: GraphIndex, area
       const my = Math.max(-6, Math.min(6, vy[i]))
       d.x += mx
       d.y += my
+      clearSlot(d, area)
       contain(d, area)
     }
   }
   for (const d of dots) {
+    clearSlot(d, area)
     contain(d, area)
     d.x = round(d.x)
     d.y = round(d.y)
     contain(d, area)
   }
   return dots
+}
+
+/** Space between a dot and the room kept for the topic name. */
+const SLOT_MARGIN = 3
+
+/** Moves a dot out of the room kept free for the area's name (AreaLayout.slot): up or down, the
+ *  short way out of a wide, low box. A dot exactly on the middle line goes by its id, so the
+ *  layout stays the same on every run. In an area too small for both, staying inside the area wins
+ *  (contain runs after this). */
+function clearSlot(d: DotLayout, area: AreaLayout): void {
+  const ex = area.slot.hw + d.r + SLOT_MARGIN
+  const ey = area.slot.hh + d.r + SLOT_MARGIN
+  const dy = d.y - area.y
+  if (Math.abs(d.x - area.x) >= ex || Math.abs(dy) >= ey) return
+  const down = dy !== 0 ? dy > 0 : hash(d.id) % 2 === 0
+  d.y = area.y + (down ? ey : -ey)
 }
 
 /** Keeps a dot (with its radius and a margin) inside its area. */
@@ -649,7 +681,12 @@ interface Pt {
 }
 
 /** Distance from a circle's centre to the segment a-b, and where along it (t in 0..1) it is closest. */
+/** Work counters for tests: a speed check that counts operations holds on any machine, where a
+ *  wall-clock bound loose enough for a slow runner also passed the slow algorithm. */
+export const layoutStats = { segmentChecks: 0 }
+
 function segmentDistance(a: Pt, b: Pt, c: Pt): { t: number; d: number } {
+  layoutStats.segmentChecks++
   const dx = b.x - a.x
   const dy = b.y - a.y
   const l2 = dx * dx + dy * dy || 1
@@ -770,14 +807,48 @@ export function crossesAreas(layout: GraphLayout, from: string, to: string): boo
 
 // ---------- 3. all together ----------
 
+/** How far the name room may grow (a map fitted at a quarter of its size), and the margin for the
+ *  areas growing with it. */
+const MAX_NAME_SCALE = 4
+const NAME_SCALE_MARGIN = 0.9
+
+/** The stage width the name room is worked out for (a 1440px window with the side bar). */
+export const NOMINAL_STAGE_W = 1100
+
+/** The zoom at which a layout of these bounds is fitted on the nominal stage (view.ts fitViewport). */
+export function nominalFit(bounds: Bounds, aspect: number): number {
+  return Math.min(NOMINAL_STAGE_W / bounds.w, (NOMINAL_STAGE_W / aspect - 52) / bounds.h, 2.5)
+}
+
+/**
+ * The layout. A topic name is drawn at a fixed screen size, so on a map that is fitted zoomed out
+ * it covers more of the layout than its room of one layout unit per pixel: 4 dots lay under names
+ * at 300 pages and over 200 at 600 (code review 2026-11-15). So the map is laid out once, the
+ * fitted zoom is read from its size, and while the name room is smaller on screen than the name
+ * it is laid out again with the room that much larger (the areas grow a little with it, so the
+ * zoom drops again: a margin, and at most three more passes).
+ */
 export function layoutGraph(model: GraphModel, opts: LayoutOptions = {}, index: GraphIndex = buildIndex(model)): GraphLayout {
   const aspect = opts.aspect && opts.aspect > 0 ? opts.aspect : 1.45
+  let scale = 1
+  let layout = layoutOnce(model, aspect, index, scale)
+  for (let pass = 0; pass < 3 && layout.areas.length; pass++) {
+    const k = nominalFit(layout.bounds, aspect)
+    if (k >= 0.97 || scale * k >= 1) break
+    scale = Math.min(MAX_NAME_SCALE, 1 / (k * NAME_SCALE_MARGIN))
+    layout = layoutOnce(model, aspect, index, scale)
+  }
+  return layout
+}
+
+function layoutOnce(model: GraphModel, aspect: number, index: GraphIndex, slotScale: number): GraphLayout {
   const ordered = topicOrder(model.topics).filter((t) => (index.pagesByArea.get(t.id)?.length ?? 0) > 0)
   const areaIds: (string)[] = ordered.map((t) => t.id)
   if (index.pagesByArea.has(UNFILED_ID)) areaIds.push(UNFILED_ID)
 
+  const nameOf = (id: string) => index.topicById.get(id)?.name ?? 'Unfiled'
   const radii = areaIds.map((id) =>
-    areaRadius((index.pagesByArea.get(id) ?? []).map((pid) => dotRadius(index.pageById.get(pid)!)), id === UNFILED_ID ? MIN_UNFILED_R : MIN_AREA_R),
+    areaRadius((index.pagesByArea.get(id) ?? []).map((pid) => dotRadius(index.pageById.get(pid)!)), id === UNFILED_ID ? MIN_UNFILED_R : MIN_AREA_R, nameOf(id), slotScale),
   )
   const slot = new Map(areaIds.map((id, i) => [id, i]))
   const targets = areaIds.map((id) => {
@@ -831,6 +902,7 @@ export function layoutGraph(model: GraphModel, opts: LayoutOptions = {}, index: 
       y: round(circles[i].y),
       r: round(circles[i].r),
       pageIds: index.pagesByArea.get(id) ?? [],
+      slot: labelSlot(nameOf(id), circles[i].r, slotScale),
     }
   })
   const centre = new Map(areas.map((a) => [a.id, { x: a.x, y: a.y }]))

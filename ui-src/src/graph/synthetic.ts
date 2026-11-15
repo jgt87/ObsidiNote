@@ -90,7 +90,7 @@ export function syntheticGraph(opts: SyntheticOptions = {}): GraphModel {
     const [bucket, kind] = hub ? ['00 Index', 'hub'] : pick(BUCKETS)
     const id = `p${pages.length + 1}`
     const page: GraphPage = {
-      id, title, topicIds, bucket, kind, links: 0, linkedFrom: 0, weight: 0, isHub: false, unlinked: false,
+      id, title, topicIds, bucket, section: bucket, tags: pages.length % 11 === 3 ? ['follow up'] : pages.length % 9 === 4 ? ['licensing'] : pages.length % 31 === 7 ? ['licensing', 'key reference'] : [], kind, links: 0, linkedFrom: 0, weight: 0, isHub: false, unlinked: false,
       summary: `Example summary for “${title}”: invented text for the demo.`,
       onenoteUrl: `onenote:#example-page-${pages.length + 1}`,
       modified: new Date(day - Math.floor(rnd() * 90) * 86_400_000).toISOString(),
@@ -165,8 +165,8 @@ export function syntheticGraph(opts: SyntheticOptions = {}): GraphModel {
 
   return {
     source: readOnly
-      ? { kind: 'notebook', id: 'nb-example', name: 'Team notebook (example)', readOnly: true }
-      : { kind: 'vault', id: 'vault-example', name: 'ObsidiNote (example)', readOnly: false },
+      ? { kind: 'notebook', id: 'nb-example', name: 'Team notebook (example)', readOnly: true, readOnlyReason: 'notebook' }
+      : { kind: 'vault', id: 'vault-example', name: 'ObsidiNote (example)', readOnly: false, readOnlyReason: '' },
     topics,
     pages,
     edges: unique,

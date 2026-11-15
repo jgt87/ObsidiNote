@@ -14,13 +14,16 @@ export interface AskAnswerActions {
   onUpdateLink?: (pageId: string) => void
 }
 
-/** "Path through the central index": Index > branch + branch > N pages read, and the counts. */
+/** "How it was found": Index > branch + branch > N pages read, and the counts. Folded: it explains
+ *  the answer, it is not the answer (review 2026-11-14: it stood above the answer, at more weight). */
 export function AskPathCard({ result }: { result: AskResult }) {
   const chips = pathChips(result.path)
   if (!chips.length) return null
   return (
-    <section className="card ask-path" aria-label="Path through the index">
-      <p className="ask-label">Path through the central index</p>
+    <details className="card ask-unused ask-path">
+      <summary className="ask-label ask-unused__summary">
+        How it was found{result.path?.summary ? `: ${result.path.summary}` : ''}
+      </summary>
       <ol className="ask-path__steps">
         {chips.map((c, i) => (
           <li key={i} className="ask-path__item">
@@ -37,8 +40,7 @@ export function AskPathCard({ result }: { result: AskResult }) {
           </li>
         ))}
       </ol>
-      {result.path?.summary && <p className="ask-muted ask-path__summary">{result.path.summary}</p>}
-    </section>
+    </details>
   )
 }
 
@@ -62,8 +64,6 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
         <div className="ask-muted">{result.path?.followUp ? 'You asked a follow-up' : 'You asked'}</div>
         <h2 className="ask-question">{result.question}</h2>
       </div>
-
-      <AskPathCard result={result} />
 
       <section className="card" aria-label="Answer">
         <p className="ask-label">Answer</p>
@@ -105,6 +105,9 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
         </p>
       </section>
 
+      {/* The actions follow the answer directly; the sources and the path explain it below. */}
+      <AskActions {...actions} />
+
       <section className="card" aria-label="Sources">
         <p className="ask-label">Sources</p>
         <ol className="ask-sources">
@@ -124,7 +127,7 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
                   if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setLit((v) => (v === s.n ? null : v))
                 }}
               >
-                <span className="ask-muted ask-src__n">{s.n}</span>
+                <span className="ask-muted">{s.n}</span>
                 <div className="ask-src__main">
                   <SourceTitle source={s} onShowPage={actions.onShowPage} />
                   <div className="ask-muted">
@@ -182,7 +185,7 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
         </details>
       )}
 
-      <AskActions {...actions} />
+      <AskPathCard result={result} />
     </div>
   )
 }

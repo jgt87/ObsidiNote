@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { ALL_LABELS_UP_TO, ALL_LINES_ZOOM, areaLabelSize, cardPosition, labelMode, lineMode, placeAreaLabels, placeLabels, type AreaLabelInput } from './view'
+import { ALL_LABELS_UP_TO, ALL_LINES_ZOOM, areaLabelSize, cardPosition, labelMode, lineMode, needsSharp, placeAreaLabels, placeLabels, SHARP_AT, SHARP_EVERY_MS, type AreaLabelInput } from './view'
+
+describe('needsSharp: a running zoom-in is drawn again before it turns to coarse pixels', () => {
+  it('draws again once the picture is stretched by 15 percent, at most every 60 ms', () => {
+    expect(needsSharp(1.1, 500, 100)).toBe(false)
+    expect(needsSharp(SHARP_AT, SHARP_EVERY_MS, 100)).toBe(true)
+    expect(needsSharp(2, SHARP_EVERY_MS - 1, 100)).toBe(false)
+  })
+  it('lets a very large map stretch further before the costlier redraw', () => {
+    expect(needsSharp(1.3, 500, 1000)).toBe(false)
+    expect(needsSharp(1.5, 500, 1000)).toBe(true)
+  })
+  it('leaves zooming out to the rest: a shrunk picture stays sharp', () => {
+    expect(needsSharp(0.4, 500, 100)).toBe(false)
+  })
+})
 
 describe('labelMode: which pages get a name', () => {
   it('names every page on a small map, hubs only on a big one', () => {
@@ -11,8 +26,12 @@ describe('labelMode: which pages get a name', () => {
     expect(labelMode(400, 0.6, 0.5, false)).toBe('hubs')
     expect(labelMode(400, 0.9, 0.5, false)).toBe('all')
   })
-  it('keeps hubs only when "Labels: hubs only" is on', () => {
-    expect(labelMode(10, 4, 1, true)).toBe('hubs')
+  // operator, 2026-11-15: "hubs" are the topic areas. With the switch on only their bold names
+  // show; no page is named at rest, however small the map or far the zoom (a page shows its name
+  // while pointed at, GraphStage).
+  it('names no page at rest when "Labels: hubs only" is on', () => {
+    expect(labelMode(10, 4, 1, true)).toBe('none')
+    expect(labelMode(400, 0.5, 0.5, true)).toBe('none')
   })
 })
 
@@ -34,7 +53,7 @@ describe('lineMode: zooming in shows every topic line', () => {
 })
 
 describe('placeAreaLabels: topic names sit on their own topic', () => {
-  const area = (id: string, x: number, y: number, r: number, name = id): AreaLabelInput => ({ id, x, y, r, name, sub: '12 pages · a, b' })
+  const area = (id: string, x: number, y: number, r: number, name = id): AreaLabelInput => ({ id, x, y, r, name })
   const hits = (rect: [number, number, number, number], c: AreaLabelInput) => {
     const nx = Math.max(rect[0], Math.min(c.x, rect[2]))
     const ny = Math.max(rect[1], Math.min(c.y, rect[3]))
@@ -49,9 +68,15 @@ describe('placeAreaLabels: topic names sit on their own topic', () => {
     for (const [x, y] of [[p.rect[0], p.rect[1]], [p.rect[2], p.rect[3]]]) expect(Math.hypot(x - 200, y - 200)).toBeLessThan(80)
   })
 
-  it('drops the "N pages" line on a small area, keeps the name', () => {
+  it('draws no name at all on an area too small for two letters (never one wider than the area)', () => {
+    expect(placeAreaLabels([area('a', 200, 200, 12, 'Networking')])).toEqual([])
     const [p] = placeAreaLabels([area('a', 200, 200, 28, 'Networking')])
-    expect(p.withSub).toBe(false)
+    expect(p.rect[2] - p.rect[0]).toBeLessThanOrEqual(28 * 2)
+  })
+  it('never cuts an emoji in half when it shortens a name', () => {
+    const [p] = placeAreaLabels([area('a', 200, 200, 30, 'Ab\u{1F680}\u{1F680}\u{1F680}\u{1F680}\u{1F680} notes')])
+    expect(p.text.endsWith('…')).toBe(true)
+    expect(/[\uD800-\uDBFF]$/.test(p.text.slice(0, -1))).toBe(false)
   })
 
   it('never lets two names overlap and keeps every name off other areas on a crowded map', () => {
@@ -84,9 +109,8 @@ describe('placeAreaLabels: topic names sit on their own topic', () => {
     expect(places[0].text).toBe('Security')
   })
 
-  it('estimates a wider label for a longer name and drops the second line when asked', () => {
-    expect(areaLabelSize('A much longer topic name', '', false).w).toBeGreaterThan(areaLabelSize('Short', '', false).w)
-    expect(areaLabelSize('X', 'sub', false).h).toBeLessThan(areaLabelSize('X', 'sub', true).h)
+  it('estimates a wider label for a longer name', () => {
+    expect(areaLabelSize('A much longer topic name').w).toBeGreaterThan(areaLabelSize('Short').w)
   })
 })
 

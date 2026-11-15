@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { getSettings, saveSetting } from '../api'
 import { changedKeys, NUMBER_RANGES, parseHosts, parseNumber, SETTING_DEFAULTS, settleNumber, type NumberKey, type VaultSettings } from '../model/vaultSettings'
 import { WarnIcon } from './icons'
+import { TagsSettings } from './TagsSettings'
 import './NewVaultDialog.css'
 import './SettingsDialog.css'
 
@@ -9,7 +10,7 @@ import './SettingsDialog.css'
  *  the vault keeps in OneNote (lib/VaultSettings.psm1), so every PC that opens it uses the same.
  *  Save sends only what changed. A read-only window shows the values without Save. The theme stays
  *  per PC at the bottom of the side bar; ports and sign-in stay in config\obsidinote.local.json. */
-export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSaved?: (s: VaultSettings) => void }) {
+export function SettingsDialog({ onClose, onSaved, onTagsChanged }: { onClose: () => void; onSaved?: (s: VaultSettings) => void; /** A tag was renamed or removed: the graph must read its pages again. */ onTagsChanged?: () => void }) {
   const ref = useRef<HTMLDialogElement>(null)
   const first = useRef<HTMLTextAreaElement>(null)
   const close = useRef(onClose)
@@ -19,6 +20,7 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
   const [hostText, setHostText] = useState('')
   const [nums, setNums] = useState<Record<NumberKey, string>>({ relatedCount: '3', linkStaleDays: '90', askMaxPages: '20' })
   const [canChange, setCanChange] = useState(false)
+  const [why, setWhy] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -35,6 +37,7 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
         setHostText(r.settings.internalHosts.join('\n'))
         setNums({ relatedCount: String(r.settings.relatedCount), linkStaleDays: String(r.settings.linkStaleDays), askMaxPages: String(r.settings.askMaxPages) })
         setCanChange(r.canChange)
+        setWhy(r.message)
         setLoaded(true)
         // The fields are disabled until the settings arrive, so the dialog's own focus went elsewhere.
         if (r.canChange) requestAnimationFrame(() => first.current?.focus())
@@ -126,7 +129,7 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
             Settings
           </h2>
           <p id="st-desc" className="nv__muted">
-            Kept in the vault in OneNote, so every PC that opens it uses the same.{loaded && !canChange ? ' This window is read only.' : ''}
+            Kept in the vault in OneNote, so every PC that opens it uses the same.{loaded && !canChange ? ` ${why || 'This window is read only.'}` : ''}
           </p>
         </div>
         <div className="st__body">
@@ -191,8 +194,11 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
                 <option value="sources">Sources</option>
               </select>
             </div>
-            {check('labelsHubsOnly', 'Labels: hubs only')}
+            {check('labelsHubsOnly', 'Labels: hubs only (topic names; a page shows its name when pointed at)')}
             {check('graphShowArchived', 'Show archived pages')}
+          </Group>
+          <Group title="Tags">
+            <TagsSettings canChange={canChange} onChanged={() => onTagsChanged?.()} />
           </Group>
           {error && (
             <p className="nv__error" role="alert">

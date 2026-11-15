@@ -206,7 +206,7 @@ $script:Reading = '{33333333-3333-3333-3333-333333333333}{1}{B0}'
 $script:VaultA = 'aaaaaaaa-0000-4000-8000-000000000001'
 
 # The fake OneNote world for the routes that write (in process only: its methods are scriptblocks).
-foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'Linker') { Import-Module (Join-Path $root "lib\$m.psm1") }
+foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'Linker', 'VaultSettings') { Import-Module (Join-Path $root "lib\$m.psm1") }
 . (Join-Path $here 'FakeOneNote.ps1')
 . (Join-Path $here 'SyntheticVault.ps1')
 
@@ -299,6 +299,15 @@ Describe 'Invoke-ApiRoute: notebooks and vaults (read only)' {
         $bad.status | Should Be 400
         $bad.body.error | Should Be 'Unknown origin.'
         (Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"x","mode":"add","origin":5}' -State $state).status | Should Be 400
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"x","mode":"add","origin":" teams "}' -State $state).status | Should Be 503
+    }
+    It 'an Ask ignores origin and is never refused for it' {
+        # 503 = it got past the checks to "Copilot is not connected"; 400 would be a refusal.
+        foreach ($o in '"slack"', '5', 'null') {
+            $r = Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body ('{"text":"What is zero trust?","mode":"ask","origin":' + $o + '}') -State $state
+            "$o $($r.status) $($r.body.intent)" | Should Be "$o 503 ask"
+        }
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"question":"x","mode":"ask","action":"follow-up","origin":"slack"}' -State $state).status | Should Be 503
     }
     It 'returns the graph of a vault, and 400/404 for bad or unknown ids' {
         $g = Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -Query 'vault=bbbbbbbb-0000-4000-8000-000000000002' -State $state
@@ -494,6 +503,125 @@ Describe 'Invoke-ApiRoute: Add, Undo, Ask and the graph through the routes (in-m
         $u.body.status | Should Be 'undone'
         (Find-FakePage $w.f 'Identity-aware proxies') | Should BeNullOrEmpty
         (Invoke-ApiRoute -Method 'POST' -Path '/api/add/undo' -Body '{"undo":5}' -State $state).status | Should Be 400
+    }
+    Remove-Item $app -Recurse -Force
+}
+
+Describe 'Invoke-ApiRoute: History belongs to one vault (activity vaultId; optional vault on undo, remove, fetch; code review 2026-11-15)' {
+    $w = New-SyntheticVault -SessionId 'server'
+    $app = New-TempAppRoot
+    $copilot = @{ Send = { param([string]$Text) [pscustomobject]@{ Text = ''; Result = 'Pending'; ChatUrl = 'https://m365.cloud.microsoft/chat/conversation/c0ffee12' } }; NewChat = { } }
+    $state = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'server' -Vault $w.open.vault -Lease $w.open.lease -Model $w.open.model -TestCopilot $copilot
+    $add = Invoke-ApiRoute -Method 'POST' -Path '/api/submit' -Body '{"text":"Tidal gardens grow salt-tolerant crops where the sea reaches the land.","mode":"add"}' -State $state
+    $inbox = [string]$add.body.inboxId
+    $mine = [string]$w.v.vaultId
+    $other = 'cccccccc-0000-4000-8000-000000000003'
+    $refused = 'This item belongs to another vault; open that vault to change it.'
+    It 'says which vault the activity list is of' {
+        $a = Invoke-ApiRoute -Method 'GET' -Path '/api/activity' -State $state
+        $a.status | Should Be 200
+        $a.body.vaultId | Should Be $mine
+        @($a.body.items).Count | Should Be 1
+        @($a.body.items)[0].inboxId | Should Be $inbox
+        @($a.body.items)[0].state | Should Be 'waiting'
+        (ConvertTo-Json -InputObject $a.body -Depth 6 -Compress) | Should Match ('"vaultId":"' + $mine + '"')
+    }
+    It 'reads only the Intake section for the list and for one item, never the whole vault at page scope' {
+        $root = [string]$w.open.vault.rootId
+        $intake = [string]$w.v.sectionIds['01 Intake']
+        $w.f.Reads.Clear()
+        $a = Invoke-ApiRoute -Method 'GET' -Path '/api/activity' -State $state
+        @($a.body.items).Count | Should Be 1
+        (@($w.f.Reads) -contains "$root|4") | Should Be $false
+        (@($w.f.Reads) -contains "$intake|4") | Should Be $true
+        $w.f.Reads.Clear()
+        (& $w.store.ReadInboxItem $inbox).status | Should Be 'waiting'
+        (@($w.f.Reads) -contains "$root|4") | Should Be $false
+        { & $w.store.ReadInboxItem $w.tomato } | Should Throw 'not an Intake item'
+        { & $w.store.ReadInboxItem (Find-FakePage $w.f 'Zero-trust networking').id } | Should Throw 'not an Intake item'
+    }
+    It 'refuses undo, remove and "Check for the answer" for another vault''s item with 409 and does nothing' {
+        $writes = $w.f.Writes.Count
+        $bodies = @{
+            '/api/add/undo'      = '{"undo":{"id":"p1"},"vault":"' + $other + '"}'
+            '/api/intake/remove' = '{"inboxId":"' + $inbox + '","vault":"' + $other + '"}'
+            '/api/add/fetch'     = '{"inboxId":"' + $inbox + '","vault":"' + $other + '"}'
+        }
+        foreach ($p in $bodies.Keys) {
+            $r = Invoke-ApiRoute -Method 'POST' -Path $p -Body $bodies[$p] -State $state
+            "$p $($r.status) $($r.body.error)" | Should Be "$p 409 $refused"
+        }
+        $w.f.Writes.Count | Should Be $writes
+        $w.open.model.pages.Contains('p1') | Should Be $true
+        $w.f.Nodes.ContainsKey($inbox) | Should Be $true
+    }
+    It 'refuses them too while no vault is active' {
+        $none = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'server' -TestCopilot $copilot
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/add/undo' -Body ('{"undo":{"id":"p1"},"vault":"' + $mine + '"}') -State $none).status | Should Be 409
+    }
+    It 'checks for the answer and removes the item with the active vault''s id' {
+        $f = Invoke-ApiRoute -Method 'POST' -Path '/api/add/fetch' -Body ('{"inboxId":"' + $inbox + '","vault":"' + $mine + '"}') -State $state
+        $f.status | Should Be 200
+        $f.body.intent | Should Be 'add'
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/intake/remove' -Body ('{"inboxId":"' + $inbox + '","vault":"' + $mine + '"}') -State $state
+        $r.status | Should Be 200
+        $w.f.Nodes.ContainsKey($inbox) | Should Be $false
+    }
+    It 'undoes a page with the active vault''s id, and the page that linked to it no longer does (Meta, index, graph)' {
+        # p3 links to p1 (tests/SyntheticVault.ps1); "Link it" adds p2 -> p1.
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/link/add' -Body '{"from":"p2","to":"p1"}' -State $state).status | Should Be 200
+        $u = Invoke-ApiRoute -Method 'POST' -Path '/api/add/undo' -Body ('{"undo":{"id":"p1"},"vault":"' + $mine + '"}') -State $state
+        $u.status | Should Be 200
+        $u.body.status | Should Be 'undone'
+        $u.body.unlinked | Should Be 2
+        (Find-FakePage $w.f 'Zero-trust networking') | Should BeNullOrEmpty
+        foreach ($t in 'VPN retirement plan', 'Partner portal: access review notes') { (Find-FakePage $w.f $t).meta['obsn.links'] | Should Be '[]' }
+        @($w.open.model.pages['p3'].links).Count | Should Be 0
+        @($w.open.model.pages['p2'].links).Count | Should Be 0
+        $g = Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -State $state
+        @($g.body.pages | Where-Object { $_.id -eq 'p1' }).Count | Should Be 0
+        @($g.body.edges | Where-Object { $_.to -eq 'p1' }).Count | Should Be 0
+        # and after a rebuild from the pages' own Meta (the next start) no link to p1 comes back
+        $scan = Read-VaultScan -Adapter $w.a -RootId $w.open.vault.rootId -VaultId $mine
+        @($scan.pages.Values | Where-Object { @($_.links | Where-Object { $_ -and $_.target -eq 'p1' }).Count }).Count | Should Be 0
+    }
+    Remove-Item $app -Recurse -Force
+}
+
+Describe 'Invoke-ApiRoute: the graph of another vault uses that vault''s link rules (code review 2026-11-15)' {
+    $w = New-SyntheticVault -SessionId 'server'
+    # A second vault at a company address, with its own internalHosts setting.
+    $v2 = New-ObsidiVault -Adapter $w.a -Name 'Team Vault' -Location 'https://contoso-my.sharepoint.com/personal/someone/Documents' -Year 2026
+    $web = $v2.sectionIds['Web links']
+    $null = $w.f.AddPage($web, 'Vacancies', @{ 'obsn.id' = 'p1'; 'obsn.type' = 'link-web'; 'obsn.url' = 'https://contoso.example-hr.com/vacancies'; 'obsn.links' = '[]' }, 1, '')
+    $null = $w.f.AddPage($web, 'Team intranet', @{ 'obsn.id' = 'p2'; 'obsn.type' = 'link-web'; 'obsn.url' = 'https://intranet.example.invalid/home'; 'obsn.links' = '[]' }, 1, '')
+    $null = $w.f.AddPage($web, 'A wiki', @{ 'obsn.id' = 'p3'; 'obsn.type' = 'link-web'; 'obsn.url' = 'https://wiki.example.invalid/a'; 'obsn.links' = '[]' }, 1, '')
+    $vaults = @(Get-VaultList -Adapter $w.a)
+    $item2 = @($vaults | Where-Object { $_.vaultId -eq $v2.vaultId })[0]
+    $o2 = Open-VaultSession -Adapter $w.a -Vault $item2 -SessionId 'server' -Vaults $vaults -LocalSettings @{ internalHosts = @('intranet.example.invalid') }
+    $null = Close-VaultSession -Adapter $w.a -Vault $o2.vault -Lease $o2.lease
+    Set-OneNoteWriteRoot -Adapter $w.a -RootId $w.open.vault.rootId
+    $app = New-TempAppRoot
+    # The ACTIVE vault calls wiki.example.invalid internal and knows no company name.
+    $set = Get-VaultSettingDefaults
+    $set['internalHosts'] = @('wiki.example.invalid')
+    $state = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'server' -Vault $w.open.vault -Lease $w.open.lease -Model $w.open.model -VaultSettings $set
+    $g = Invoke-ApiRoute -Method 'GET' -Path '/api/graph' -Query "vault=$($v2.vaultId)" -State $state
+    $src = { param($id) [string]@($g.body.pages | Where-Object { $_.id -eq $id })[0].sourceId }
+    It 'answers the other vault read only' {
+        $g.status | Should Be 200
+        $g.body.source.readOnly | Should Be $true
+        @($g.body.pages).Count | Should Be 3
+    }
+    It 'groups by the shown vault''s company name and its own internalHosts, not the active vault''s' {
+        & $src 'p1' | Should Be 'internal'   # contoso from the shown vault's own address
+        & $src 'p2' | Should Be 'internal'   # the shown vault's internalHosts setting
+        & $src 'p3' | Should Be 'web'        # internal only in the active vault's setting
+    }
+    It 'still groups the active vault by its own rules' {
+        $r = & (Get-Module Server) { param($s) Get-ServerLinkRules $s } $state
+        (@($r.InternalHosts) -join ',') | Should Be 'wiki.example.invalid'
+        @($r.CompanyNames).Count | Should Be 0
     }
     Remove-Item $app -Recurse -Force
 }

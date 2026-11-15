@@ -29,7 +29,7 @@ describe('activity', () => {
     expect(waitedFor('', now)).toBe('')
   })
   it('lists only waiting items, the longest wait first', () => {
-    const l = { canChange: true, items: [item({ inboxId: 'a', state: 'waiting', since: '2026-11-14T10:00:00Z' }), item({ inboxId: 'b', state: 'added' }), item({ inboxId: 'c', state: 'waiting', since: '2026-11-14T08:00:00Z' })] }
+    const l = { canChange: true, vaultId: 'v1', items: [item({ inboxId: 'a', state: 'waiting', since: '2026-11-14T10:00:00Z' }), item({ inboxId: 'b', state: 'added' }), item({ inboxId: 'c', state: 'waiting', since: '2026-11-14T08:00:00Z' })] }
     expect(waitingItems(l).map((i) => i.inboxId)).toEqual(['c', 'a'])
   })
 })

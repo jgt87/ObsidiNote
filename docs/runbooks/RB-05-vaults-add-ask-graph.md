@@ -21,6 +21,8 @@ knowledge graph's data, Add and Ask.
 | Settings of Vault n | How many of the vault's settings are in OneNote and which are missing (names only, no values); the next start adds the missing ones | No |
 | Upgrade move | Makes a made-up link page with a company-tenant address under Web links (as an older version filed it), lets the upgrade move it to Internal links, checks it is found again there, then undoes it | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Link it | Makes two made-up pages in the test vault, links the first to the second as "Link it" does in the window, checks that a second "Link it" writes nothing, then undoes both pages. No Copilot needed | Only `ObsidiNote-Validation`, with `-WriteTest` |
+| Undo of a linked page | Makes two made-up pages, the first with a link to the second (in its properties and as a link in its own text), undoes the second, then checks that the first has no link to it left and that its text says "(deleted: ...)" where the link was; then undoes the first. No Copilot needed | Only `ObsidiNote-Validation`, with `-WriteTest` |
+| Tags | Makes one made-up page, gives it a tag, reads the page back, renames the tag, removes it, then undoes the page. No Copilot needed; the log holds counts only, never the tag | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Ask (synthetic) | Asks "What do my notes say about tidal gardens?" against the test vault | No (Ask never writes) |
 
 ## Steps
@@ -69,6 +71,15 @@ knowledge graph's data, Add and Ask.
      - `[OK] Link it  status linked; backlinks 1; ... ms`, then `[OK] Link it again  status
        already-linked`, then `[OK] Link it (undo)  2 of 2 test pages back out`. Two pages titled
        "Validation link source" and "Validation link target" are then in the test vault's Deleted Pages.
+     - `[OK] Undo of a linked page  status undone; unlinked 1; text rewritten on 1 page(s); links left
+       in the linking page: 0; its text says deleted: True; ... ms`, then `[OK] Undo of a linked page
+       (undo)  1 of 1 test pages back out`. Pages titled "Validation undo target" and "Validation
+       undo linker" are then in the test vault's Deleted Pages. A `[FAIL]` line with `links left ...:
+       1` or `says deleted: False` means OneNote did not take the change: send the files.
+     - `[OK] Tags  status tagged; pages changed 1; tags read back from the page: 1; ... ms`, then
+       `[OK] Tags (rename)  status renamed; pages changed 1; the page has the new name: True`, then
+       `[OK] Tags (remove)  status tagged; tags left on the page: 0`, then `[OK] Tags (undo)  status
+       undone`. The log never shows the tag itself.
      - `[OK] Upgrade move  status done; moved 1 of 1; found again in Internal links: True; ... ms`, then
        `[OK] Upgrade move (undo)  status undone`.
      - `[OK] Ask (synthetic)  status ...; writes 0`

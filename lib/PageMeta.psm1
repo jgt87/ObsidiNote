@@ -19,8 +19,12 @@ Import-Module (Join-Path $PSScriptRoot 'OneNote.psm1')
 # pasted again, and why the last check could not update it (lib/Ingest.psm1, Update-LinkSummary).
 # origin: where a page without an address came from (Outlook mail, Teams, Word, ...: lib/NotebookStructure.psm1
 # Get-OriginList; set at Add from the paste or by the person, changeable in Edit; 2026-11-14).
-$script:MetaKeys = @('id', 'type', 'topics', 'aliases', 'summary', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'linkSummary', 'summaryHash', 'history', 'seenAt', 'checkStatus', 'origin')
-$script:ListKeys = @('topics', 'aliases')
+# tags: set by hand only (2026-11-15), never by Copilot; a JSON array of normal-form tags
+# (ConvertTo-TagList). A page that never had a tag has no obsn.tags Meta; '' = all were removed.
+$script:MetaKeys = @('id', 'type', 'topics', 'aliases', 'summary', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'linkSummary', 'summaryHash', 'history', 'seenAt', 'checkStatus', 'origin', 'tags')
+$script:ListKeys = @('topics', 'aliases', 'tags')
+$script:MaxTagLength = 40
+$script:MaxTagsPerPage = 12
 # Values that can grow past one Meta tag: always written with their obsn.X.n part count.
 $script:SplitKeys = @('linkSummary', 'history')
 # Outlines ObsidiNote owns (obsn.role). body: the item as added; checked: when a link was summarized
@@ -65,6 +69,27 @@ function ConvertTo-TopicPath {
     $segs -join '/'
 }
 function Format-TopicPath { param([string]$Path) $Path.Replace('/', ' / ') }
+
+function ConvertTo-TagList {
+    <# THE normal form of hand-set tags (pinned by tests/fixtures/tags.json, which the interface's
+       tests read too: change all three together). Each tag: trimmed, inner spaces collapsed to one,
+       lower case; 1 to 40 characters; no double quote, comma, colon, line break or control
+       character. In the list duplicates go (the first stays), order is kept, at most $Max (12 per
+       page). An invalid tag refuses the whole list: nothing is dropped silently.
+       Returns @{ ok; tags (string[]); error (a plain sentence) }. Pure. #>
+    param([object[]]$Tags = @(), [int]$Max = $script:MaxTagsPerPage)
+    $out = New-Object System.Collections.Generic.List[string]
+    $fail = { param($m) @{ ok = $false; tags = @(); error = $m } }
+    foreach ($raw in @($Tags)) {
+        if ($null -eq $raw -or $raw -isnot [string]) { return (& $fail 'A tag must be text.') }
+        if ($raw -match '[\x00-\x1f\x7f]' -or $raw -match '[",:]') { return (& $fail 'A tag cannot hold a double quote, a comma, a colon or a line break.') }
+        $t = ($raw -replace '\s+', ' ').Trim().ToLowerInvariant()
+        if (-not $t -or $t.Length -gt $script:MaxTagLength) { return (& $fail "A tag is 1 to $($script:MaxTagLength) characters long.") }
+        if (-not $out.Contains($t)) { $out.Add($t) }
+    }
+    if ($out.Count -gt $Max) { return (& $fail "A page can have at most $Max tags.") }
+    @{ ok = $true; tags = [string[]]$out.ToArray(); error = '' }
+}
 
 function ConvertTo-CompactJson {
     param($Value)
@@ -123,6 +148,7 @@ function ConvertTo-ObsnMeta {
         $v = $Page[$k]
         if ($k -eq 'topics') { $v = ConvertTo-CompactJson -Value @(@($v) | Where-Object { $_ } | ForEach-Object { ConvertTo-TopicPath ([string]$_) }) }
         elseif ($k -eq 'aliases') { $v = ConvertTo-CompactJson -Value @(@($v) | Where-Object { $_ } | ForEach-Object { [string]$_ }) }
+        elseif ($k -eq 'tags') { $tg = @(@($v) | Where-Object { $_ } | ForEach-Object { [string]$_ }); $v = if ($tg.Count) { ConvertTo-CompactJson -Value $tg } else { '' } }
         elseif ($k -eq 'links') { $v = ConvertTo-ObsnLinksValue -Links @($v) }
         elseif ($null -eq $v) { $v = '' }
         if ($script:SplitKeys -contains $k) {
@@ -341,6 +367,8 @@ function Get-PropertiesLines {
     if ($tp.Count) { $lines += 'topics: ' + (($tp | ForEach-Object { Format-TopicPath $_ }) -join '; ') }
     $al = @(@($Page['aliases']) | Where-Object { $_ })
     if ($al.Count) { $lines += 'aliases: ' + ($al -join ', ') }
+    $tg = @(@($Page['tags']) | Where-Object { $_ })
+    if ($tg.Count) { $lines += 'tags: ' + ($tg -join ', ') }
     if ($Page['url']) { $lines += "link: $($Page['url'])" }
     if ($Page['status']) { $lines += "status: $($Page['status'])" }
     if ($Page['id']) { $lines += "id: $($Page['id'])" }
@@ -353,6 +381,59 @@ function Get-LinkedFromLines {
     $l = @(New-OneLine -Text 'Linked from:' -Bold)
     foreach ($s in @($Sources | Sort-Object { [string]$_['title'] })) { $l += New-OneLine -Html (New-OneLink -Href $s['link'] -Label $s['title']) }
     , $l
+}
+
+function Get-OneLinkPageGuid([string]$Text) {
+    <# The page-id GUID of an onenote: link (also URL-encoded braces), lower case; '' without one. #>
+    $m = [regex]::Match([string]$Text, '(?i)page-id=(?:%7B|\{)([0-9a-f-]{36})(?:%7D|\})')
+    if ($m.Success) { return $m.Groups[1].Value.ToLowerInvariant() }
+    ''
+}
+
+function Convert-ObsnBodyLinks {
+    <# Delete invariant (AGENTS.md, Archive and delete): in the page XML of GetPageContent, every link
+       to the page $TargetLink (an onenote: link; matched as written or by its page-id GUID) inside an
+       outline ObsidiNote owns with obsn.role = body becomes the plain text $Text. Outlines with any
+       other role ("Your notes" = notes among them) and outlines without a role are never read for
+       it or returned. Returns @{ count (links replaced); xml (the update for UpdatePageContent: the
+       page with only the changed body outlines, each whole and by its objectID; '' when count is 0) }.
+       Pure. #>
+    param([Parameter(Mandatory)][string]$Xml, [Parameter(Mandatory)][string]$TargetLink, [Parameter(Mandatory)][string]$Text)
+    [xml]$doc = $Xml
+    $ns = New-OneNoteNsManager $doc
+    $page = $doc.DocumentElement
+    $guid = Get-OneLinkPageGuid $TargetLink
+    $plain = ConvertTo-OneHtml $Text
+    $state = @{ n = 0 }
+    $eval = [System.Text.RegularExpressions.MatchEvaluator] {
+        param($m)
+        $href = [System.Net.WebUtility]::HtmlDecode($m.Groups[1].Value)
+        $g = Get-OneLinkPageGuid $href
+        if (($guid -and $g -eq $guid) -or $href -eq $TargetLink) { $state.n++; return $plain }
+        $m.Value
+    }
+    $rx = New-Object System.Text.RegularExpressions.Regex ('<a\b[^>]*?\bhref\s*=\s*"([^"]*)"[^>]*>.*?</a>', ([System.Text.RegularExpressions.RegexOptions]'IgnoreCase, Singleline'))
+    $changed = @()
+    foreach ($o in @($page.SelectNodes('one:Outline', $ns))) {
+        $r = $o.SelectSingleNode('one:Meta[@name="obsn.role"]', $ns)
+        if (-not $r -or $r.GetAttribute('content') -ne 'body') { continue }
+        $before = $state.n
+        foreach ($t in @($o.SelectNodes('.//one:T', $ns))) {
+            $old = [string]$t.InnerText
+            if ($old -notmatch '(?i)<a\b') { continue }
+            $new = $rx.Replace($old, $eval)
+            # Only the text is replaced: the element keeps its attributes (lang, style).
+            if ($new -ne $old) { foreach ($c in @($t.ChildNodes)) { $null = $t.RemoveChild($c) }; $null = $t.AppendChild($doc.CreateCDataSection($new.Replace(']]>', ']]&gt;'))) }
+        }
+        if ($state.n -gt $before) { $changed += $o }
+    }
+    if (-not $state.n) { return @{ count = 0; xml = '' } }
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.Append('<?xml version="1.0"?>')
+    [void]$sb.Append("<one:Page xmlns:one=""$(Get-OneNoteSchemaNs)"" ID=""$(ConvertTo-XmlAttr $page.GetAttribute('ID'))"">")
+    foreach ($o in $changed) { [void]$sb.Append($o.OuterXml) }
+    [void]$sb.Append('</one:Page>')
+    @{ count = $state.n; xml = $sb.ToString() }
 }
 
 function Read-ObsnPage {
@@ -383,4 +464,4 @@ function Write-ObsnPage {
     $Adapter.UpdatePageContent((New-ObsnPageXml @args2))
 }
 
-Export-ModuleMember -Function Get-ObsnRoles, Get-ObsnMetaKeys, ConvertTo-Base36, ConvertFrom-Base36, New-ObsnId, Test-ObsnId, Get-ObsnIdNumber, ConvertTo-TopicPath, Format-TopicPath, ConvertTo-CompactJson, Get-JsonProp, ConvertFrom-JsonList, ConvertTo-ObsnLinksValue, ConvertFrom-ObsnLinksValue, ConvertTo-ObsnMeta, ConvertFrom-ObsnMeta, Split-ObsnMetaValue, Join-ObsnMetaValue, ConvertTo-OneHtml, New-OneLink, New-OneLine, New-ObsnOutlineXml, New-ObsnPageXml, ConvertFrom-ObsnPageXml, ConvertFrom-ObsnPageText, Get-PropertiesLines, Get-LinkedFromLines, Read-ObsnPage, Write-ObsnPage
+Export-ModuleMember -Function Get-ObsnRoles, Get-ObsnMetaKeys, ConvertTo-Base36, ConvertFrom-Base36, New-ObsnId, Test-ObsnId, Get-ObsnIdNumber, ConvertTo-TopicPath, Format-TopicPath, ConvertTo-CompactJson, Get-JsonProp, ConvertFrom-JsonList, ConvertTo-ObsnLinksValue, ConvertFrom-ObsnLinksValue, ConvertTo-ObsnMeta, ConvertFrom-ObsnMeta, Split-ObsnMetaValue, Join-ObsnMetaValue, ConvertTo-OneHtml, New-OneLink, New-OneLine, New-ObsnOutlineXml, New-ObsnPageXml, ConvertFrom-ObsnPageXml, ConvertFrom-ObsnPageText, Get-PropertiesLines, Get-LinkedFromLines, Read-ObsnPage, Write-ObsnPage, ConvertTo-TagList, Convert-ObsnBodyLinks, Get-OneLinkPageGuid

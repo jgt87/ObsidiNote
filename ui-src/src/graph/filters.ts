@@ -4,6 +4,7 @@
 // dot, no link line and no place in arrow-key navigation; the list gets the same set.
 // - types: page types (the page's bucket, see typeOf); empty = every type.
 // - topics: topic ids; a topic includes its subtopics; UNFILED_ID = pages without a topic.
+// - tags: tags set by hand; a page with any of the chosen tags stays; empty = no tag filter.
 // - unlinkedOnly: only pages without links.
 // - showArchived: archived pages are hidden unless this is on.
 // - focus: the page plus the pages within `depth` link steps (links only, not mentions). The
@@ -12,24 +13,26 @@
 
 import type { GraphIndex } from './graphIndex'
 import { UNFILED_ID, type GraphPage } from './model'
+import { tagCounts, type TagCount } from './tags'
 
 export type FocusDepth = 1 | 2
 
 export interface GraphFilter {
   types: Set<string>
   topics: Set<string>
+  tags: Set<string>
   unlinkedOnly: boolean
   showArchived: boolean
   focus: { id: string; depth: FocusDepth } | null
 }
 
 export function emptyFilter(): GraphFilter {
-  return { types: new Set(), topics: new Set(), unlinkedOnly: false, showArchived: false, focus: null }
+  return { types: new Set(), topics: new Set(), tags: new Set(), unlinkedOnly: false, showArchived: false, focus: null }
 }
 
 /** True when the filter hides anything beyond archived pages (the default). */
 export function isFilterActive(f: GraphFilter): boolean {
-  return f.types.size > 0 || f.topics.size > 0 || f.unlinkedOnly || f.showArchived || f.focus !== null
+  return f.types.size > 0 || f.topics.size > 0 || f.tags.size > 0 || f.unlinkedOnly || f.showArchived || f.focus !== null
 }
 
 /**
@@ -118,6 +121,7 @@ export function visiblePageIds(index: GraphIndex, f: GraphFilter): Set<string> {
     if (p.archived && !f.showArchived) continue
     if (f.types.size && !f.types.has(typeOf(p))) continue
     if (wanted && !underTopics(p, wanted)) continue
+    if (f.tags.size && !p.tags.some((t) => f.tags.has(t))) continue
     if (f.unlinkedOnly && !isUnlinked(index, p)) continue
     shown.add(p.id)
   }
@@ -148,7 +152,7 @@ export interface TopicOption {
  * The choices in the filter panel with their page counts. Counts leave archived pages out unless
  * they are shown, so a count is what ticking the box would show (before the other filters).
  */
-export function filterOptions(index: GraphIndex, showArchived: boolean): { types: TypeOption[]; topics: TopicOption[] } {
+export function filterOptions(index: GraphIndex, showArchived: boolean): { types: TypeOption[]; topics: TopicOption[]; tags: TagCount[] } {
   const pages = index.model.pages.filter((p) => showArchived || !p.archived)
   const typeCount = new Map<string, number>()
   for (const p of pages) {
@@ -180,7 +184,7 @@ export function filterOptions(index: GraphIndex, showArchived: boolean): { types
     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   const unfiled = pages.filter((p) => !p.topicIds.length).length
   if (unfiled) topics.push({ id: UNFILED_ID, name: 'Unfiled', path: 'Unfiled', depth: 0, count: unfiled })
-  return { types, topics }
+  return { types, topics, tags: tagCounts(pages) }
 }
 
 /** Archived pages the current filter hides because "Show archived" is off. */
@@ -197,6 +201,8 @@ export function pruneFilter(index: GraphIndex, f: GraphFilter): GraphFilter {
   const nextTypes = new Set([...f.types].filter((t) => types.has(t)))
   const nextTopics = new Set([...f.topics].filter((t) => t === UNFILED_ID || index.topicById.has(t)))
   const focus = f.focus && index.pageById.has(f.focus.id) ? f.focus : null
-  if (nextTypes.size === f.types.size && nextTopics.size === f.topics.size && focus === f.focus) return f
-  return { ...f, types: nextTypes, topics: nextTopics, focus }
+  const tags = new Set(index.model.pages.flatMap((p) => p.tags))
+  const nextTags = new Set([...f.tags].filter((t) => tags.has(t)))
+  if (nextTypes.size === f.types.size && nextTopics.size === f.topics.size && nextTags.size === f.tags.size && focus === f.focus) return f
+  return { ...f, types: nextTypes, topics: nextTopics, tags: nextTags, focus }
 }

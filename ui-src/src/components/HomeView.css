@@ -7,4 +7,5 @@
   background: var(--surface);
   font-size: var(--text-body);
 }
-.home-notice--error { border-color: var(--border-strong); color: var(--ink); }
+/* A message from "Connect Copilot again" sits on the buttons' line. */
+.notice__actions [role="status"] { align-self: center; font-size: var(--text-meta); }

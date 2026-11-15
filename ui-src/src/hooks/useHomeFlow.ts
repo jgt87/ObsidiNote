@@ -9,6 +9,7 @@ import type { AskResult } from '../ask/types'
 import type { AskChoices } from '../components/AskOptions'
 import type { Prefill } from '../components/Composer'
 import { pageSpecToText } from '../model/handoff'
+import { lastRun } from '../model/lastRun'
 
 /** What the home view shows under the box. Session state in memory only (it is content). */
 export type Flow =
@@ -16,7 +17,13 @@ export type Flow =
   | { kind: 'adding'; text: string }
   | { kind: 'add'; result: AddResult; busy: boolean }
   | { kind: 'ask'; view: AskViewState }
-  | { kind: 'notice'; text: string; error: boolean }
+  /** copilot: the send failed because Copilot is not connected (503), so the notice offers to connect it. */
+  | { kind: 'notice'; text: string; error: boolean; copilot?: boolean }
+
+/** 503 = no Copilot (AGENTS.md, POST /api/submit). */
+function needsCopilot(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 503
+}
 
 function message(e: unknown): string {
   if (e instanceof ApiError || e instanceof Error) return e.message
@@ -34,12 +41,17 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
   const [followUp, setFollowUp] = useState<{ conversationId: string; question: string } | null>(null)
   const [clearKey, setClearKey] = useState(0)
   const n = useRef(0)
+  // The Ask that ran last, as it was sent: "Try again" repeats exactly this (the same conversation
+  // for a follow-up, the same sources), never a similar call (code review 2026-11-15).
+  const lastAsk = useRef(lastRun()).current
+  // Counts Add results and undos: the waiting list and History read the Intake again on each.
+  const [changes, setChanges] = useState(0)
   const busy = flow.kind === 'adding' || (flow.kind === 'ask' && flow.view.kind === 'progress') || (flow.kind === 'add' && flow.busy)
 
   const showAsk = (r: AskResult) => setFlow({ kind: 'ask', view: { kind: 'result', result: r } })
-  const showAdd = (r: AddResult) => setFlow({ kind: 'add', result: r, busy: false })
+  const showAdd = (r: AddResult) => { setFlow({ kind: 'add', result: r, busy: false }); setChanges((c) => c + 1) }
   const fail = (question: string, e: unknown, asking: boolean) =>
-    setFlow(asking ? { kind: 'ask', view: { kind: 'error', question, message: message(e) } } : { kind: 'notice', text: `Not sent: ${message(e)} Your text stays in the box.`, error: true })
+    setFlow(asking ? { kind: 'ask', view: { kind: 'error', question, message: message(e), copilot: needsCopilot(e) } } : { kind: 'notice', text: `Not sent: ${message(e)} Your text stays in the box.`, error: true, copilot: needsCopilot(e) })
 
   const addText = useCallback((text: string) => {
     setFlow({ kind: 'adding', text })
@@ -47,8 +59,10 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
   }, [])
 
   const askNew = useCallback((question: string) => {
-    setFlow({ kind: 'ask', view: { kind: 'progress', question, step: 1 } })
-    ask(question, choices).then(showAsk, (e: unknown) => fail(question, e, true))
+    lastAsk.run(() => {
+      setFlow({ kind: 'ask', view: { kind: 'progress', question, step: 1 } })
+      ask(question, choices).then(showAsk, (e: unknown) => fail(question, e, true))
+    })
   }, [choices])
 
   // The box empties once the server has processed what was sent (any answer, also failed or
@@ -61,16 +75,22 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
     if (followUp && mode !== 'add') {
       const conv = followUp.conversationId
       setFollowUp(null)
-      setFlow({ kind: 'ask', view: { kind: 'progress', question: text, step: 3 } })
-      askFollowUp(conv, text).then((r) => { showAsk(r); cleared() }, (e: unknown) => fail(text, e, true))
+      lastAsk.run(() => {
+        setFlow({ kind: 'ask', view: { kind: 'progress', question: text, step: 3 } })
+        askFollowUp(conv, text).then((r) => { showAsk(r); cleared() }, (e: unknown) => fail(text, e, true))
+      })
       return
     }
     const asking = willAsk(mode, intent)
-    setFlow(asking ? { kind: 'ask', view: { kind: 'progress', question: text, step: 1 } } : { kind: 'adding', text })
-    submit({ text, mode, sources: choices.sources, includeArchived: choices.includeArchived, ...(origin ? { origin } : {}), ...(fileUrl && !asking ? { fileUrl } : {}) }).then(
-      (r) => { if (r.intent === 'ask') showAsk(r); else showAdd(r); cleared() },
-      (e: unknown) => fail(text, e, asking),
-    )
+    const run = () => {
+      setFlow(asking ? { kind: 'ask', view: { kind: 'progress', question: text, step: 1 } } : { kind: 'adding', text })
+      submit({ text, mode, sources: choices.sources, includeArchived: choices.includeArchived, ...(origin ? { origin } : {}), ...(fileUrl && !asking ? { fileUrl } : {}) }).then(
+        (r) => { if (r.intent === 'ask') showAsk(r); else showAdd(r); cleared() },
+        (e: unknown) => fail(text, e, asking),
+      )
+    }
+    if (asking) lastAsk.run(run)
+    else run()
   }, [choices, followUp])
 
   const withAddBusy = (p: Promise<AddResult>) => {
@@ -84,7 +104,7 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
       if (!r.undo) return
       setFlow({ kind: 'add', result: r, busy: true })
       undoAdd(r.undo).then(
-        (u) => setFlow({ kind: 'notice', text: u.status === 'undone' ? u.message : `Undo did not work: ${u.message}`, error: u.status !== 'undone' }),
+        (u) => { setFlow({ kind: 'notice', text: u.status === 'undone' ? u.message : `Undo did not work: ${u.message}`, error: u.status !== 'undone' }); setChanges((c) => c + 1) },
         (e: unknown) => setFlow({ kind: 'notice', text: `Undo did not work: ${message(e)}`, error: true }),
       )
     },
@@ -114,5 +134,5 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
 
   const askAbout = useCallback((text: string) => { setFollowUp(null); setPrefill({ text, mode: 'ask', key: ++n.current }) }, [])
 
-  return { flow, busy, send, prefill, followUp, cancelFollowUp: () => setFollowUp(null), clearKey, add, askActions, askAbout }
+  return { flow, busy, send, retryAsk: lastAsk.again, changes, prefill, followUp, cancelFollowUp: () => setFollowUp(null), clearKey, add, askActions, askAbout }
 }

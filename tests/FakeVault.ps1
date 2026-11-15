@@ -32,7 +32,9 @@ function New-FakeVault {
         content = @{}
         updates = (New-Object System.Collections.Generic.List[object])
         linkedFrom = @{}
-        deleted = (New-Object System.Collections.Generic.List[string])
+        rewrites = (New-Object System.Collections.Generic.List[object])
+        bodyLinkPages = @()
+        deleted =(New-Object System.Collections.Generic.List[string])
         indexOps = (New-Object System.Collections.Generic.List[object])
     }
     $st.content['{P7}'] = @{
@@ -96,6 +98,13 @@ function New-FakeVault {
         DeletePage = { param([string]$PageId) & $guard 'DeletePage'; $st.deleted.Add($PageId) }.GetNewClosure()
         IndexAddPage = { param([hashtable]$Page) & $guard 'IndexAddPage'; $st.indexOps.Add(@{ op = 'add'; page = $Page }); $st.index.pages = @($st.index.pages) + $Page }.GetNewClosure()
         IndexUpdatePage = { param([hashtable]$Page) & $guard 'IndexUpdatePage'; $st.indexOps.Add(@{ op = 'update'; page = $Page }) }.GetNewClosure()
+        # Undo: a link to the removed page in a page's own body outline becomes plain text. The fake
+        # counts one for the pages listed in $st.bodyLinkPages and records every call.
+        RewriteBodyLinks = { param([string]$PageId, [string]$TargetLink, [string]$Text)
+            & $guard 'RewriteBodyLinks'
+            $st.rewrites.Add(@{ pageId = $PageId; targetLink = $TargetLink; text = $Text })
+            @{ count = $(if (@($st.bodyLinkPages) -contains $PageId) { 1 } else { 0 }) }
+        }.GetNewClosure()
         IndexRemovePage = { param([string]$Id) & $guard 'IndexRemovePage'; $st.indexOps.Add(@{ op = 'remove'; id = $Id }); $st.index.pages = @($st.index.pages | Where-Object { $_['id'] -ne $Id }) }.GetNewClosure()
     }
     @{ store = $store; st = $st }

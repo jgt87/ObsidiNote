@@ -12,6 +12,9 @@ import { layoutGraph } from './layout'
 import type { GraphModel } from './model'
 import { bySource, type GroupBy } from './sourceView'
 import { LockIcon, PageDialog, type PageActions } from './PageDialog'
+import { readOnlyWhy } from './readOnly'
+import { tagCounts, tagOfQuery, tagQuery } from './tags'
+import { availableTags, byTag } from './tagView'
 import { searchPages } from './view'
 import { SearchFilters } from '../search/SearchFilters'
 import { getSettings, saveSetting } from '../api'
@@ -67,7 +70,17 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
     const m = bySource(model)
     return layoutGraph(m, { aspect }, buildIndex(m))
   }, [groupBy, model, aspect])
-  const mapLayout = sourceLayout ?? layout
+  // Areas by hand-set tag (tagView.ts): the third grouping. Which tags make the areas is chosen
+  // with the chips under the bar (null = every tag); session state, like the grouping itself (the
+  // vault's "opens on" setting knows Topics and Sources only).
+  const [tagChoice, setTagChoice] = useState<ReadonlySet<string> | null>(null)
+  const groupTags = useMemo(() => availableTags(model), [model])
+  const tagLayout = useMemo(() => {
+    if (groupBy !== 'tags') return null
+    const m = byTag(model, tagChoice)
+    return layoutGraph(m, { aspect }, buildIndex(m))
+  }, [groupBy, model, aspect, tagChoice])
+  const mapLayout = tagLayout ?? sourceLayout ?? layout
   const focus = useMemo(() => (focusIds ?? []).filter((id) => index.pageById.has(id)), [focusIds, index])
   const [filters, setFilters] = useState<Filters>({ links: true, mentions: false, hubsOnly: false })
   // The map opens with the vault's settings (kept in OneNote, model/vaultSettings.ts) and a change
@@ -166,6 +179,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   useEffect(() => {
     if (!request || request.sourceId !== model.source.id) return
     onQuery(request.query ?? '')
+    if (request.list) setMode('list')
     if (request.pageId && index.pageById.has(request.pageId)) {
       setActive({ id: request.pageId, via: 'keyboard' })
       returnTo.current = null
@@ -197,10 +211,13 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
     }
   }
 
-  const chip = (key: keyof Filters, label: string) => (
+  const tagList = useMemo(() => tagCounts(model.pages, false), [model])
+  const pickedTag = tagOfQuery(query)
+  const chip = (key: keyof Filters, label: string, title?: string) => (
     <button
       type="button"
       className="btn btn--sm"
+      title={title}
       aria-pressed={filters[key]}
       onClick={() => {
         const next = !filters[key]
@@ -208,12 +225,25 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
         if (key === 'hubsOnly') remember('labelsHubsOnly', next)
       }}
     >
+      {/* design: an on/off control carries a check box, so it never reads as one of the either/or
+          segments beside it (review 2026-11-14); the box keeps its place, so the label never jumps. */}
+      <svg className="toggle-mark" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="1" y="1" width="10" height="10" rx="2" />
+        {filters[key] && <path d="m3.4 6.2 1.9 1.9 3.3-3.8" />}
+      </svg>
       {label}
     </button>
   )
   const chooseGroup = (g: GroupBy) => {
     setGroupBy(g)
-    remember('graphView', g)
+    if (g !== 'tags') remember('graphView', g)
+  }
+  const tagOn = (name: string) => !tagChoice || tagChoice.has(name)
+  const toggleTag = (name: string) => {
+    const next = new Set(tagChoice ?? groupTags.map((t) => t.name))
+    if (next.has(name)) next.delete(name)
+    else next.add(name)
+    setTagChoice(next.size === groupTags.length ? null : next)
   }
 
   const src = model.source
@@ -224,12 +254,13 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           {title && <h1 className="kg-title">{title}</h1>}
           <span className="kg-meta">
             {src.name ? `${src.name} · ` : ''}
-            {plural(model.pages.length, 'page')} in{' '}
-            {mode === 'graph' && groupBy === 'sources' ? plural(mapLayout.areas.length, 'source') : plural(layout.areas.filter((a) => a.topic).length, 'topic')} · {plural(index.linkCount, 'link')}
+            {plural(model.pages.length, 'page')}
+            {mode === 'graph' && groupBy === 'tags' ? ', ' : ' in '}
+            {mode === 'graph' && groupBy === 'sources' ? plural(mapLayout.areas.length, 'source') : mode === 'graph' && groupBy === 'tags' ? plural(groupTags.length, 'tag') : plural(layout.areas.filter((a) => a.topic).length, 'topic')} · {plural(index.linkCount, 'link')}
             {hiddenArchived > 0 ? ` · ${hiddenArchived} archived hidden` : ''}
           </span>
           {src.readOnly && (
-            <span className="kg-readonly" title={src.kind === 'notebook' ? 'Connected notebook: ObsidiNote never writes here' : 'Not the active vault: ObsidiNote never writes here'}>
+            <span className="kg-readonly" title={readOnlyWhy(src)}>
               <LockIcon /> read only
             </span>
           )}
@@ -237,48 +268,119 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
         <div className="kg-tools">
           {mode === 'graph' && (
             <>
-              <div className="kg-seg" role="group" aria-label="Group the map by">
-                <button type="button" className="btn btn--sm" aria-pressed={groupBy === 'topics'} onClick={() => chooseGroup('topics')}>
+              <div className="seg seg--sm" role="group" aria-label="Group the map by">
+                <button type="button" className="seg__btn" aria-pressed={groupBy === 'topics'} onClick={() => chooseGroup('topics')}>
                   Topics
                 </button>
-                <button type="button" className="btn btn--sm" aria-pressed={groupBy === 'sources'} onClick={() => chooseGroup('sources')}>
+                <button type="button" className="seg__btn" aria-pressed={groupBy === 'sources'} onClick={() => chooseGroup('sources')}>
                   Sources
+                </button>
+                <button type="button" className="seg__btn" aria-pressed={groupBy === 'tags'} onClick={() => chooseGroup('tags')}>
+                  Tags
                 </button>
               </div>
               {chip('links', 'Links')}
               {chip('mentions', 'Mentions, not linked')}
-              {chip('hubsOnly', 'Labels: hubs only')}
+              {chip('hubsOnly', 'Labels: hubs only', 'Only the topic names show; a page shows its name while you point at it')}
             </>
+          )}
+          {tagList.length > 0 && !(mode === 'graph' && groupBy === 'tags') && (
+            // A tag picked here is a search (tag:name): its pages light up on the map, joined into
+            // one group by thin dashed lines, and the List shows only them.
+            <select
+              className="field kg-tagpick"
+              aria-label="Show the pages of a tag"
+              title="Show the pages of a tag, wherever they are on the map"
+              value={tagList.some((t) => t.name === pickedTag) ? pickedTag : ''}
+              onChange={(e) => onQuery(e.target.value ? tagQuery(e.target.value) : '')}
+            >
+              <option value="">Tag…</option>
+              {tagList.map((t) => (
+                <option key={t.name} value={t.name}>
+                  {t.name} ({t.count})
+                </option>
+              ))}
+            </select>
           )}
           <FilterButton index={index} filter={liveFilter} onChange={setFilter} />
           <label htmlFor="kg-search" className="kg-sr">
             Search pages and topics
           </label>
-          <input
-            id="kg-search"
-            ref={searchRef}
-            className="field kg-search"
-            type="search"
-            placeholder="Search pages and topics  /"
-            value={query}
-            onChange={(e) => onQuery(e.target.value)}
-            onKeyDown={onSearchKey}
-            aria-describedby="kg-search-count"
-          />
+          {/* design: the search has its own clear button, shown whenever there is text (operator,
+              2026-11-15: the browser's own "x" only shows while the pointer is over the field). */}
+          <span className="kg-searchbox">
+            <input
+              id="kg-search"
+              ref={searchRef}
+              className="field kg-search"
+              type="search"
+              placeholder="Search pages and topics  /"
+              value={query}
+              onChange={(e) => onQuery(e.target.value)}
+              onKeyDown={onSearchKey}
+              aria-describedby="kg-search-count"
+            />
+            {query && (
+              <button
+                type="button"
+                className="kg-search__clear"
+                aria-label="Clear search"
+                title="Clear search"
+                onClick={() => {
+                  onQuery('')
+                  searchRef.current?.focus()
+                }}
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+                  <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+                </svg>
+              </button>
+            )}
+          </span>
           <span id="kg-search-count" className="kg-sr" aria-live="polite">
             {matches ? plural(matches.length, 'match', 'matches') : ''}
           </span>
-          <div className="kg-seg" role="group" aria-label="View">
-            <button type="button" className="btn btn--sm" aria-pressed={mode === 'graph'} onClick={() => setMode('graph')}>
+          <div className="seg seg--sm" role="group" aria-label="View">
+            <button type="button" className="seg__btn" aria-pressed={mode === 'graph'} onClick={() => setMode('graph')}>
               Graph
             </button>
-            <button type="button" className="btn btn--sm" aria-pressed={mode === 'list'} onClick={() => setMode('list')}>
+            <button type="button" className="seg__btn" aria-pressed={mode === 'list'} onClick={() => setMode('list')}>
               List
             </button>
           </div>
         </div>
       </div>
       <SearchFilters query={query} onQuery={onQuery} />
+      {mode === 'graph' && groupBy === 'tags' && (
+        // The Tags grouping: which tags make the areas. Every tag is on at first; a chip takes one
+        // out or puts it back. Only pages that carry a shown tag are on this map.
+        <div className="kg-tagbar" role="group" aria-label="Tags shown as areas">
+          {groupTags.length === 0 ? (
+            <span className="kg-meta">No page has a tag yet. Add one in a page's window, or tick rows in the List and tag them together.</span>
+          ) : (
+            <>
+              <span className="kg-meta">Areas:</span>
+              {groupTags.map((t) => (
+                <button key={t.name} type="button" className="btn btn--sm" aria-pressed={tagOn(t.name)} onClick={() => toggleTag(t.name)}>
+                  <svg className="toggle-mark" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="1" y="1" width="10" height="10" rx="2" />
+                    {tagOn(t.name) && <path d="m3.4 6.2 1.9 1.9 3.3-3.8" />}
+                  </svg>
+                  {t.name} <span className="kg-meta num">{t.count}</span>
+                </button>
+              ))}
+              {tagChoice && (
+                <button type="button" className="kg-linkbtn" onClick={() => setTagChoice(null)}>
+                  All tags
+                </button>
+              )}
+              <span className="kg-meta">
+                {plural(mapLayout.dots.length, 'tagged page')} of {plural(model.pages.length, 'page')} shown
+              </span>
+            </>
+          )}
+        </div>
+      )}
 
       <FilterSummary index={index} filter={liveFilter} onChange={setFilter} shown={shown.size} />
 
@@ -286,10 +388,11 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
         <GraphStage
           index={index}
           layout={mapLayout}
-          areaWord={sourceLayout ? 'source' : 'topic'}
+          areaWord={tagLayout ? 'tag' : sourceLayout ? 'source' : 'topic'}
           filters={filters}
           shown={allShown ? null : shown}
           matches={matches}
+          joinIds={pickedTag && matches ? matches : null}
           active={active}
           onActive={setActive}
           onOpen={open}
@@ -297,7 +400,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           stageRef={stageRef}
         />
       ) : (
-        <GraphList index={index} layout={layout} matches={listMatches} onOpen={open} />
+        <GraphList index={index} layout={layout} matches={listMatches} onOpen={open} onTagPages={actions.onTagPages} />
       )}
 
       {dialog && (
@@ -309,6 +412,10 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           onNavigate={(id) => setDialog((d) => (d ? { ...d, pageId: id } : d))}
           onClose={close}
           onFocusPage={focusOn}
+          onPickTag={(t) => {
+            onQuery(tagQuery(t))
+            close()
+          }}
           {...actions}
         />
       )}

@@ -34,10 +34,22 @@
   font-size: var(--text-label); color: var(--muted); }
 .kg-readonly svg { width: 12px; height: 12px; }
 .kg-tools { margin-left: auto; display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
-.kg-search { height: var(--control-h-sm); width: 220px; box-sizing: border-box; font-size: var(--text-meta); }
-.kg-seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; }
-.kg-seg .btn { border: 0; border-radius: 0; }
-.kg-seg .btn + .btn { border-left: 1px solid var(--border-strong); }
+/* select.: the shared "select.field" height (32px) would win over a class alone; the bar is 28px. */
+/* The Tags grouping's chips: which tags make the areas. One row that wraps. */
+.kg-tagbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+select.kg-tagpick { height: var(--control-h-sm); max-width: 190px; font-size: var(--text-meta); }
+.kg-search { height: var(--control-h-sm); width: 220px; box-sizing: border-box; font-size: var(--text-meta); padding-right: var(--control-h-sm); }
+/* The field's own clear button: always there while the field holds text, as tall as the field (so
+   it is a full-height target on touch too). The browser's "x", which hides until hover, is off. */
+.kg-searchbox { position: relative; display: inline-flex; }
+.kg-search::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
+.kg-search__clear { position: absolute; top: 0; right: 0; bottom: 0; width: var(--control-h-sm); display: inline-flex; align-items: center; justify-content: center;
+  padding: 0; border: 0; border-radius: var(--radius); background: transparent; color: var(--muted); cursor: pointer; }
+.kg-search__clear svg { width: 14px; height: 14px; }
+@media (hover: hover) { .kg-search__clear:hover { color: var(--ink); } }
+.kg-search__clear:focus-visible { outline-offset: -2px; }
+@media (pointer: coarse) { .kg-search__clear { width: var(--touch-target); } .kg-search { padding-right: var(--touch-target); } }
+/* Topics/Sources and Graph/List are the shared segmented control (.seg.seg--sm, tokens.css). */
 
 /* ---------- stage ---------- */
 .kg-stage {
@@ -84,7 +96,12 @@
 .kg-focus .kg-s2 { stroke-width: 2.6px; }
 .kg-focus .kg-s3 { stroke-width: 3.4px; }
 .kg-focus .kg-edge--mention { stroke-opacity: 0.7; stroke-width: 1.4px; }
+/* The pages of a picked tag, joined: the accent (the thing you picked), dashed so it never reads
+   as a link between two pages. */
+.kg-tagline { stroke: var(--kg-focus); stroke-width: 1.4px; stroke-opacity: 0.75; stroke-dasharray: 5 4; stroke-linecap: round; vector-effect: non-scaling-stroke; fill: none; pointer-events: none; }
 .kg-dot--near { stroke-width: 2px; }
+/* A page of the picked tag: the accent edge, like the lines that join the group. */
+.kg-dot--tag { stroke: var(--kg-focus); stroke-width: 2px; stroke-dasharray: none; }
 .kg-dot--on { fill: var(--kg-focus); stroke: var(--kg-focus); stroke-dasharray: none; }
 .kg-ring { fill: none; stroke: var(--ring); stroke-width: 2px; vector-effect: non-scaling-stroke; pointer-events: none; }
 
@@ -95,19 +112,16 @@
   text-shadow: 0 0 2px var(--kg-label-halo), 0 0 2px var(--kg-label-halo), 0 0 3px var(--kg-label-halo);
 }
 /* Topic names: centred on their own area by view.ts placeAreaLabels (anchored at their top centre),
-   so they never meet a topic line, which runs outside the areas. No plate: the text halo keeps the
-   name readable over the dots while the dots stay visible around the letters (a plate hid the only
-   dots of a small area); it fades out while the pointer is over the area or one of its pages is
-   focused (data-hidden), so it never blocks the pages. */
+   so they never meet a topic line, which runs outside the areas. The layout keeps that room free of
+   dots (labelSize.ts labelSlot), so a name never lies on the pages it names; no plate, the text halo
+   keeps it readable where a link inside the area passes behind it. It fades out while the pointer is
+   over the area or one of its pages is focused (data-hidden), so it never blocks the pages. */
 .kg-alabel { display: flex; flex-direction: column; align-items: center; line-height: 1.25;
   transform: translate(-50%, 0); transition: opacity var(--dur) var(--ease-out); padding: 1px var(--space-3); }
 /* Bigger and bolder than a page name (pill, 11-13px), so a topic never reads as a page. */
 .kg-alabel b { font-size: var(--text-control); font-weight: 700; }
-.kg-alabel span { font-size: var(--text-label); color: var(--muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
 .kg-alabel[data-dim="true"] { opacity: 0.75; }
 .kg-alabel[data-hidden="true"] { opacity: 0; } /* after data-dim: a focused page dims the map too */
-/* Narrow: areas are small, so only the topic name; the counts stay in List and the hover card. */
-@media (max-width: 640px) { .kg-alabel span { display: none; } }
 /* Page labels sit on a small solid pill, so links and dots never run through the text (operator,
    2026-11-13: "more readable, maybe with a pill/cell element around the text"). The focused page's
    label is the strongest: ink text, a purple edge like its dot. view.ts labelRect counts the padding. */
@@ -157,7 +171,13 @@
 /* The hints give way to the legend when both do not fit on one line (2026-11-14: the legend's topic
    line made it wider). Screen readers still get the help through aria-describedby. */
 @media (max-width: 1500px) { .kg-hint, .kg-toolbar__sep { display: none; } }
-@media (max-width: 640px) { .kg-legend { display: none; } }
+/* The legend needs the stage's width; in a narrow window it would cover the map (clipped at 768px,
+   review 2026-11-14). The line weights and dot sizes are also described for screen readers. */
+@media (max-width: 1000px) { .kg-legend { display: none; } }
+@media (pointer: coarse) {
+  .kg-toolbar .btn { min-width: var(--touch-target); }
+  .kg-tab { min-height: var(--touch-target); }
+}
 
 /* ---------- shared bits (the List view's table lives in table/table.css) ---------- */
 .kg-dlg__export { margin: var(--space-4) 0 0; }
@@ -173,6 +193,26 @@
 .kg-state h2 { margin: 0; font-size: var(--text-title); font-weight: 600; }
 .kg-state p { margin: 0; color: var(--muted); max-width: 46ch; }
 
+/* ---------- tags (set by hand): chips with a remove button, and the field that adds one ---------- */
+.kg-tags { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.kg-tags__list { display: contents; list-style: none; margin: 0; padding: 0; }
+.kg-tagchip { display: inline-flex; align-items: center; height: 24px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface); font-size: var(--text-label); font-weight: 500; }
+.kg-tagchip__name { all: unset; padding: 0 var(--space-3); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+button.kg-tagchip__name { cursor: pointer; }
+@media (hover: hover) { button.kg-tagchip__name:hover { text-decoration: underline; text-underline-offset: 3px; } }
+button.kg-tagchip__name:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; border-radius: var(--radius-pill); }
+.kg-tagchip__x { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-right: 1px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.kg-tagchip__x svg { width: 12px; height: 12px; }
+@media (hover: hover) { .kg-tagchip__x:hover { color: var(--ink); background: var(--hover); } }
+.kg-tagchip__x:disabled { opacity: 0.45; cursor: not-allowed; }
+.kg-tags__add { display: inline-flex; align-items: center; gap: var(--space-2); }
+.kg-tags__input { height: var(--control-h-sm); width: 150px; font-size: var(--text-meta); }
+.kg-tags__error { flex-basis: 100%; padding: var(--space-2) var(--space-3); border-radius: var(--radius); background: var(--danger-soft); color: var(--danger); font-size: var(--text-meta); font-weight: 600; }
+@media (pointer: coarse) {
+  /* The chip keeps its size; its remove button reaches 44px through an invisible box. */
+  .kg-tagchip__x::after { content: ''; position: absolute; inset: -11px; }
+}
+
 /* ---------- page dialog ---------- */
 .kg-dialog { width: min(880px, calc(100vw - 32px)); max-height: min(790px, calc(100dvh - 48px)); }
 .kg-dialog[open] { display: flex; flex-direction: column; }
@@ -187,16 +227,23 @@
 .kg-tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
 @media (hover: hover) { .kg-tab:hover { color: var(--ink); } }
 .kg-dlg__body { overflow: auto; padding: var(--space-5) var(--space-6); flex: 1 1 auto; min-height: 0; }
-.kg-cols { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: var(--space-6); }
+/* The links are the longer column: they get the wider half (the summary side stood 73% empty). */
+.kg-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: var(--space-6); }
 @media (max-width: 720px) { .kg-cols { grid-template-columns: minmax(0, 1fr); } }
 .kg-lbl { font-size: var(--text-meta); font-weight: 600; color: var(--muted); margin: 0 0 var(--space-2); }
 .kg-lbl + .kg-lbl, * + .kg-lbl { margin-top: var(--space-5); }
 .kg-summary { margin: 0; font-size: var(--text-control); }
-.kg-note { margin: 0; color: var(--muted); font-size: var(--text-meta); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3) var(--space-4); }
+.kg-note { margin: 0; color: var(--muted); font-size: var(--text-meta); }
 .kg-rows { list-style: none; margin: 0; padding: 0; }
 .kg-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: var(--space-4); align-items: start;
   padding: var(--space-3) 0; border-top: 1px solid var(--border); font-size: var(--text-body); }
 .kg-row__sub { color: var(--muted); font-size: var(--text-meta); }
+/* A row's name and the line under it: one button that opens that page. */
+.kg-rowbtn { all: unset; box-sizing: border-box; display: flex; flex-direction: column; min-width: 0; cursor: pointer;
+  margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-3)); padding: var(--space-2) var(--space-3); border-radius: var(--radius);
+  overflow-wrap: anywhere; }
+@media (hover: hover) { .kg-rowbtn:hover { background: var(--hover); } .kg-rowbtn:hover .kg-rowbtn__title { text-decoration: underline; text-underline-offset: 3px; } }
+.kg-rowbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .kg-row__none { color: var(--muted); font-size: var(--text-meta); padding: var(--space-3) 0; border-top: 1px solid var(--border); }
 .kg-bar { display: flex; gap: 2px; padding-top: 7px; }
 .kg-bar i { display: block; width: 12px; height: 5px; border-radius: 2px; background: var(--kg-bar-off); }
@@ -204,7 +251,11 @@
 .kg-dlg__foot { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--border); }
 .kg-dlg__foot a.btn { text-decoration: none; }
-.kg-dlg__keys { margin-left: auto; color: var(--muted); font-size: var(--text-meta); }
+.kg-dlg__side { margin-left: auto; display: inline-flex; flex-wrap: wrap; gap: var(--space-3); }
+.kg-dlg__keys { flex-basis: 100%; text-align: right; color: var(--muted); font-size: var(--text-meta); }
+/* Why the page is read only: a full line in the footer, ink (it explains a disabled button). */
+.kg-dlg__why { flex-basis: 100%; font-size: var(--text-meta); color: var(--ink); }
+@media (max-width: 720px) { .kg-dlg__side { margin-left: 0; } .kg-dlg__keys { text-align: left; } }
 
 /* screen-reader-only text (own copy, so the graph does not depend on the app shell's CSS) */
 .kg-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;

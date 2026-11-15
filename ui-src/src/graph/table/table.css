@@ -34,7 +34,7 @@
 .kg-tbl__table {
   width: 100%;
   /* narrower windows scroll sideways inside the area; the Page column (>= 260px) stays in view */
-  min-width: 880px;
+  min-width: 1030px;
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
@@ -42,6 +42,7 @@
 }
 .kg-tbl__c-type { width: 120px; }
 .kg-tbl__c-topics { width: 170px; }
+.kg-tbl__c-tags { width: 150px; }
 .kg-tbl__c-site { width: 160px; }
 .kg-tbl__c-links { width: 64px; }
 .kg-tbl__c-changed { width: 100px; }
@@ -123,6 +124,11 @@
   }
 }
 .kg-tbl__title { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+/* Tick box for tagging several pages at once; a ticked row is tinted (selection, not hover). */
+.kg-tbl__tick { flex: none; margin: 0 var(--space-2) 0 0; align-self: center; }
+.kg-tbl__table tbody tr[data-selected] td { background-image: linear-gradient(var(--accent-soft), var(--accent-soft)); } /* design: one flat tint laid over the cell's own fill, as the hover is */
+.kg-tbl__sel { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+.kg-tbl__sel-count { font-size: var(--text-body); font-weight: 600; font-variant-numeric: tabular-nums; }
 .kg-tbl__title .kg-linkbtn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kg-tbl__title .kg-tag { flex: none; }
 
@@ -135,5 +141,9 @@
 .kg-tbl__table td.kg-tbl__empty { color: var(--muted); text-align: center; height: 120px; border-bottom: 0; }
 
 @media (pointer: coarse) {
-  .kg-tbl { --kg-tbl-row-h: 44px; }
+  /* Rows and the header are 44px, and the sort and fold buttons fill that height (they were 16 and
+     20px targets inside taller cells; scripts/check-design-rules.mjs). */
+  .kg-tbl { --kg-tbl-row-h: 44px; --kg-tbl-head-h: 44px; }
+  .kg-tbl__sort, .kg-tbl__fold { min-height: var(--touch-target); }
+  .kg-tbl select.kg-tbl__select { font-size: max(16px, 1em); } /* a focused field under 16px zooms the page on iOS */
 }

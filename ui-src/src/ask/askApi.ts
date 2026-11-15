@@ -1,3 +1,4 @@
+import { ApiError, request } from '../api'
 import { normalizeAskResult } from './askModel'
 import type { AskPageSpec, AskRequest, AskResult } from './types'
 
@@ -8,11 +9,11 @@ import type { AskPageSpec, AskRequest, AskResult } from './types'
 const HEADERS: Record<string, string> = { 'X-ObsidiNote': '1', 'Content-Type': 'application/json' }
 
 async function post(body: AskRequest, signal?: AbortSignal): Promise<Record<string, unknown>> {
-  const res = await fetch('/api/submit', { method: 'POST', headers: HEADERS, body: JSON.stringify(body), signal, cache: 'no-store' })
+  const res = await request('/api/submit', { method: 'POST', headers: HEADERS, body: JSON.stringify(body), signal, cache: 'no-store' })
   const data: unknown = await res.json().catch(() => null)
   if (!res.ok || !data || typeof data !== 'object') {
     const msg = data && typeof data === 'object' && 'error' in data ? String((data as { error: unknown }).error) : `The server answered ${res.status}.`
-    throw new Error(msg)
+    throw new ApiError(msg, res.status) // the status tells the view when Copilot is the reason (503)
   }
   const obj = data as Record<string, unknown>
   if (obj.ok === false) throw new Error(String(obj.error ?? 'Ask did not work.'))

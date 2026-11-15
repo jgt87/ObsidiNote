@@ -141,14 +141,120 @@ function Invoke-P8 {
     Invoke-LinkProbe -Ctx $Ctx -Bridge $Bridge -Name 'P8 web, Work IQ on' -Url $url -Kinds 'article, docs, tool, video or other' -WorkIq 'on'
 }
 
-function Invoke-StageGrounding {
-    param([Parameter(Mandatory)]$Ctx)
-    $b = Connect-KitCopilot -Ctx $Ctx -Stage 'V5'
-    if (-not $b) { Add-ValidationResult $Ctx 'V5' 'SKIP' 'P3, P4, P7, P8' 'need Copilot (see the line above)'; return }
-    Invoke-P3 $Ctx $b
-    Invoke-P4 $Ctx $b
-    Invoke-P7 $Ctx $b
-    Invoke-P8 $Ctx $b
+# P10 Meetings (operator, 2026-11-14: "In many meetings, Copilot is used to transcribe or use
+# facilitator to create action lists and meeting notes"): can Copilot, with the person's own access,
+# list recent meetings with a transcript, recap or notes, and turn one into structured notes? This
+# decides whether ObsidiNote gets an "Add a meeting" step. Read only. Logged: counts and yes/no only,
+# never a meeting title, a name, a link or any text.
+$script:MeetingListKeys = @('meetings')
+$script:MeetingNotesKeys = @('found', 'attendees', 'decisions', 'actions')
+$script:MeetingDays = 7
+
+function New-MeetingListPrompt([int]$Days = $script:MeetingDays) {
+    "List my Teams meetings of the last $Days days, newest first, at most 10. For each, say whether a transcript, a Copilot recap (intelligent recap) or meeting notes (for example Facilitator or Loop notes) exist that you can read. " +
+    'Answer only with one JSON object and no other text: {"meetings": [{"title": "...", "start": "yyyy-mm-dd hh:mm", "attendees": 0, "hasTranscript": true or false, "hasRecap": true or false, "hasNotes": true or false, "link": "the address of the recap or notes, or empty"}], "searched": ["the sources you were able to use"]}. ' +
+    'If you cannot see my meetings, answer {"meetings": [], "searched": []}.'
 }
 
-Export-ModuleMember -Function Invoke-StageGrounding, New-MarkerPrompt, Test-MarkerReply, New-LinkPrompt, Test-LinkReply, Get-UrlKind
+function Test-MeetingListReply {
+    <# @{ valid; count; transcript; recap; notes; links; pick } from a reply to New-MeetingListPrompt.
+       pick: the newest meeting with a transcript, recap or notes (@{ title; start }) for the second
+       question, or $null. Only the counts are logged. Pure. #>
+    param([AllowEmptyString()][string]$Text)
+    $j = Get-JsonFromReply $Text
+    $valid = Test-JsonShape $j $script:MeetingListKeys
+    $list = @(if ($valid) { @($j.meetings) | Where-Object { $_ -is [pscustomobject] } })
+    $has = { param($m, $k) $m.PSObject.Properties[$k] -and "$($m.$k)" -eq 'True' }
+    $rich = @($list | Where-Object { (& $has $_ 'hasTranscript') -or (& $has $_ 'hasRecap') -or (& $has $_ 'hasNotes') })
+    # The second question names the meeting by its title: only a meeting that came back with one can
+    # be picked (a reply may leave "title" out or empty; reading it unguarded threw under StrictMode
+    # and stopped the stage, code review 2026-11-15).
+    $titled = @($rich | Where-Object { $_.PSObject.Properties['title'] -and "$($_.title)".Trim() })
+    $pick = $null
+    if ($titled.Count) { $pick = @{ title = "$($titled[0].title)".Trim(); start = $(if ($titled[0].PSObject.Properties['start']) { "$($titled[0].start)" } else { '' }) } }
+    [pscustomobject]@{
+        valid = $valid; count = $list.Count; rich = $rich.Count
+        transcript = @($list | Where-Object { & $has $_ 'hasTranscript' }).Count
+        recap = @($list | Where-Object { & $has $_ 'hasRecap' }).Count
+        notes = @($list | Where-Object { & $has $_ 'hasNotes' }).Count
+        links = @($list | Where-Object { $_.PSObject.Properties['link'] -and "$($_.link)" -match '^(?i)https://' }).Count
+        pick = $pick
+    }
+}
+
+function New-MeetingNotesPrompt([string]$Title, [string]$Start) {
+    'From the transcript, the Copilot recap or the meeting notes of my Teams meeting "' + $Title + '"' + $(if ($Start) { ' (started ' + $Start + ')' } else { '' }) + ', write structured meeting notes for my personal wiki. ' +
+    'Answer only with one JSON object and no other text: {"found": true or false, "date": "yyyy-mm-dd", "attendees": ["names"], "summary": "3 to 5 sentences", "decisions": ["each decision in one sentence"], ' +
+    '"actions": [{"text": "the action", "owner": "a name or empty", "due": "yyyy-mm-dd or empty"}], "basedOn": "transcript, recap, notes or empty", "source": "the address of the recap or notes, or empty"}. ' +
+    'A summary only: never copy the transcript. If you cannot read it, answer {"found": false, "attendees": [], "decisions": [], "actions": []}.'
+}
+
+function Test-MeetingNotesReply {
+    <# @{ valid; found; attendees; decisions; actions; owners; dues; basedOn; source } (counts and
+       yes/no) from a reply to New-MeetingNotesPrompt. Pure. #>
+    param([AllowEmptyString()][string]$Text)
+    $j = Get-JsonFromReply $Text
+    $valid = Test-JsonShape $j $script:MeetingNotesKeys
+    $acts = @(if ($valid) { @($j.actions) | Where-Object { $_ -is [pscustomobject] } })
+    [pscustomobject]@{
+        valid = $valid; found = $valid -and "$($j.found)" -eq 'True'
+        attendees = $(if ($valid) { @(@($j.attendees) | Where-Object { $_ }).Count } else { 0 })
+        decisions = $(if ($valid) { @(@($j.decisions) | Where-Object { $_ }).Count } else { 0 })
+        actions = $acts.Count
+        owners = @($acts | Where-Object { $_.PSObject.Properties['owner'] -and "$($_.owner)".Trim() }).Count
+        dues = @($acts | Where-Object { $_.PSObject.Properties['due'] -and "$($_.due)" -match '^\d{4}-\d{2}-\d{2}$' }).Count
+        basedOn = $(if ($valid -and $j.PSObject.Properties['basedOn'] -and "$($j.basedOn)" -match '^(?i)(transcript|recap|notes)$') { "$($j.basedOn)".ToLowerInvariant() } else { '' })
+        source = [bool]($valid -and $j.PSObject.Properties['source'] -and "$($j.source)" -match '^(?i)https://')
+    }
+}
+
+function Invoke-P10 {
+    param([Parameter(Mandatory)]$Ctx, [Parameter(Mandatory)]$Bridge)
+    $r = Send-KitPrompt -Bridge $Bridge -Text (New-MeetingListPrompt) -WorkIq 'on' -TimeoutSec 240
+    if (-not $r.ok) { Add-ValidationResult $Ctx 'V5' 'FAIL' 'P10 meetings list' "no answer ($($r.result)); $($r.ms) ms"; return }
+    $l = Test-MeetingListReply $r.text
+    $status = if ($l.valid -and $l.count) { 'OK' } else { 'WARN' }
+    $hint = if (-not $l.valid) { 'The reply was not in the fixed JSON shape.' } elseif (-not $l.count) { "No meetings came back: none in the last $script:MeetingDays days, or Copilot cannot see your meetings on this tenant." } else { '' }
+    Add-ValidationResult $Ctx 'V5' $status 'P10 meetings list' "$($l.count) meetings in the last $script:MeetingDays days; with a transcript $($l.transcript), a recap $($l.recap), notes $($l.notes), a link $($l.links); JSON valid $(Format-YesNo $l.valid); reply $($r.text.Length) chars; $($r.ms) ms; Work IQ $($r.workIq)" $hint
+    if (-not $l.pick -and $l.rich) { Add-ValidationResult $Ctx 'V5' 'WARN' 'P10 meeting notes' "$($l.rich) meeting(s) with a transcript, recap or notes came back without a title, so none could be asked about" 'Run the probe again; Copilot left the title out of its list.'; return }
+    if (-not $l.pick) { Add-ValidationResult $Ctx 'V5' 'SKIP' 'P10 meeting notes' 'no meeting with a transcript, recap or notes in the list'; return }
+    $n = Send-KitPrompt -Bridge $Bridge -Text (New-MeetingNotesPrompt $l.pick.title $l.pick.start) -WorkIq 'on' -TimeoutSec 300
+    if (-not $n.ok) { Add-ValidationResult $Ctx 'V5' 'FAIL' 'P10 meeting notes' "no answer ($($n.result)); $($n.ms) ms"; return }
+    $c = Test-MeetingNotesReply $n.text
+    $ok = $c.found -and ($c.decisions -or $c.actions)
+    $hint2 = if (-not $c.valid) { 'The reply was not in the fixed JSON shape.' } elseif (-not $c.found) { 'Copilot listed the meeting but could not read its transcript, recap or notes.' } else { '' }
+    Add-ValidationResult $Ctx 'V5' $(if ($ok) { 'OK' } else { 'WARN' }) 'P10 meeting notes' "read $(Format-YesNo $c.found) (based on $(if ($c.basedOn) { $c.basedOn } else { '?' })); $($c.attendees) attendees, $($c.decisions) decisions, $($c.actions) actions ($($c.owners) with an owner, $($c.dues) with a due date); source link $(Format-YesNo $c.source); JSON valid $(Format-YesNo $c.valid); reply $($n.text.Length) chars; $($n.ms) ms" $hint2
+}
+
+# The probes of this stage, in the order they run (-Probe names some of them).
+$script:Probes = @('P3', 'P4', 'P7', 'P8', 'P10')
+
+function Get-GroundingProbes { , @($script:Probes) }
+
+function Invoke-StageGrounding {
+    param([Parameter(Mandatory)]$Ctx)
+    # -Probe P10 (Run Meeting Probe.cmd): only the named probes; all when none are named. A name
+    # that is no probe is a FAIL line that lists the probes, before Copilot is opened: a typing
+    # mistake must never end as a V5 without a result line (code review 2026-11-15).
+    $only = @(@(Get-KitFlag $Ctx 'Probes' @()) | ForEach-Object { "$_".Trim().ToUpperInvariant() } | Where-Object { $_ } | Select-Object -Unique)
+    $unknown = @($only | Where-Object { $script:Probes -notcontains $_ })
+    # Only its count goes into the log: what was typed is not the kit's text.
+    if ($unknown.Count) { Add-ValidationResult $Ctx 'V5' 'FAIL' 'Probe' "$($unknown.Count) name(s) given with -Probe are not a probe; the probes are $($script:Probes -join ', ')" 'Run it again with one of these names, for example -Probe P10.' }
+    $run = @($script:Probes | Where-Object { -not $only.Count -or $only -contains $_ })
+    if (-not $run.Count) { return }
+    $b = Connect-KitCopilot -Ctx $Ctx -Stage 'V5'
+    if (-not $b) { Add-ValidationResult $Ctx 'V5' 'SKIP' ($run -join ', ') 'need Copilot (see the line above)'; return }
+    $before = $Ctx.Results.Count   # a generic list: never @() around it (PS 5.1 "Argument types do not match")
+    foreach ($p in $run) {
+        switch ($p) {
+            'P3' { Invoke-P3 $Ctx $b }
+            'P4' { Invoke-P4 $Ctx $b }
+            'P7' { Invoke-P7 $Ctx $b }
+            'P8' { Invoke-P8 $Ctx $b }
+            'P10' { Invoke-P10 $Ctx $b }
+        }
+    }
+    if ($Ctx.Results.Count -eq $before) { Add-ValidationResult $Ctx 'V5' 'FAIL' ($run -join ', ') 'no probe gave a result' }
+}
+
+Export-ModuleMember -Function Invoke-StageGrounding, Get-GroundingProbes, New-MarkerPrompt, Test-MarkerReply, New-LinkPrompt, Test-LinkReply, Get-UrlKind, New-MeetingListPrompt, Test-MeetingListReply, New-MeetingNotesPrompt, Test-MeetingNotesReply

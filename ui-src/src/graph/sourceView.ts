@@ -7,12 +7,13 @@
 import type { GraphModel, GraphSourceArea, GraphTopic } from './model'
 
 /** What the map groups its areas by. Session state (in memory), like the other view state. */
-export type GroupBy = 'topics' | 'sources'
+export type GroupBy = 'topics' | 'sources' | 'tags'
 
 /** The second line of a source area's name: what kind of source it is. */
 const KIND_LINE: Record<GraphSourceArea['kind'], string> = {
   m365: 'Microsoft 365',
   service: 'company service',
+  'other-internal': 'company sites with one or two pages',
   web: 'web site',
   other: 'web sites with one or two pages',
   notes: 'pages without an address',

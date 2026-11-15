@@ -26,6 +26,17 @@ Describe 'ConvertTo-SyncedUrl (pure)' {
         ConvertTo-SyncedUrl -Root $r -Path 'C:\Sync\Other\a.docx' | Should Be ''
         ConvertTo-SyncedUrl -Root $r -Path 'C:\Sync\DocsMore\a.docx' | Should Be ''
     }
+    It 'escapes the library''s own address too, and never twice (code review 2026-11-15)' {
+        $e = [string][char]0xE9   # e with an acute accent; this file stays ASCII
+        $want = 'https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Caf%C3%A9%20plans/Q3%20plans/Budget%20review.docx'
+        $raw = @{ path = 'C:\Sync\Team'; url = "https://contoso.sharepoint.com/sites/Team/Shared Documents/Caf$e plans/" }
+        ConvertTo-SyncedUrl -Root $raw -Path 'C:\Sync\Team\Q3 plans\Budget review.docx' | Should Be $want
+        $escaped = @{ path = 'C:\Sync\Team'; url = 'https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Caf%C3%A9%20plans' }
+        ConvertTo-SyncedUrl -Root $escaped -Path 'C:\Sync\Team\Q3 plans\Budget review.docx' | Should Be $want
+        # A root without a path, and personal OneDrive's root with the account id, stay as they are.
+        ConvertTo-SyncedUrl -Root @{ path = 'C:\Sync\P'; url = 'https://d.docs.live.net/0123456789abcdef/' } -Path 'C:\Sync\P\a b.txt' | Should Be 'https://d.docs.live.net/0123456789abcdef/a%20b.txt'
+        ConvertTo-SyncedUrl -Root @{ path = 'C:\Sync\P'; url = 'https://contoso.sharepoint.com' } -Path 'C:\Sync\P\a.txt' | Should Be 'https://contoso.sharepoint.com/a.txt'
+    }
 }
 
 Describe 'Resolve-SyncRootUrl (pure)' {

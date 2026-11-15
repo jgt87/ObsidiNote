@@ -13,6 +13,8 @@ export interface FindRequest {
   sourceId: string
   pageId?: string
   query?: string
+  /** Show the result in the List (a section opened from the side bar), not on the map. */
+  list?: boolean
 }
 
 export interface SwitcherRow {
@@ -22,7 +24,7 @@ export interface SwitcherRow {
   label: string
   /** Muted context: where the page sits, or how many pages a topic holds. */
   context: string
-  /** "Topic", "Hub", "Archived" or ''. */
+  /** "Topic", "Most linked", "Archived" or ''. */
   tag: string
 }
 
@@ -46,7 +48,7 @@ export function rowFor(index: GraphIndex, item: FindItem): SwitcherRow | null {
     key: `p-${p.id}`,
     label: p.title,
     context: [where, p.bucket || p.kind].filter(Boolean).join(' · '),
-    tag: p.archived ? 'Archived' : p.isHub ? 'Hub' : '',
+    tag: p.archived ? 'Archived' : p.isHub ? 'Most linked' : '',
   }
 }
 

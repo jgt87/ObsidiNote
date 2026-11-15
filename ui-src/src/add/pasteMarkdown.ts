@@ -8,6 +8,8 @@
 // "[text](url)" for http(s)/mailto only, "> quote", fenced code, pipe tables with a separator row.
 // Literal Markdown characters in the text are escaped with "\" (MarkdownLines restores them).
 
+import { loneLink } from '../model/links'
+
 export interface PasteNode {
   nodeType: number
   nodeName: string
@@ -383,5 +385,9 @@ export function markdownForPaste(html: string, parse: (html: string) => PasteNod
   const root = parse(html)
   if (!root || !hasStructure(root)) return null
   const md = htmlToMarkdown(root)
+  // One link and nothing else (a link copied from the browser): its address, so it is added as
+  // that address's link page, not as a text that holds a link.
+  const only = md ? loneLink(md) : null
+  if (only) return only
   return md && looksLikeMarkdown(md) ? md : null
 }

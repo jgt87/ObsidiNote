@@ -42,8 +42,12 @@ export interface GraphPage {
   title: string
   /** Topic ids; the first is the primary topic (where the dot is drawn). May be empty. */
   topicIds: string[]
-  /** The page's section = its type bucket, e.g. "Notes", "Web links", "Meetings". */
+  /** The page's type bucket, e.g. "Notes", "Web links", "Journal" (never the rollover or the year). */
   bucket: string
+  /** The page's own section path as OneNote has it: "Notes 2", "Journal/2026", "Group/Section". */
+  section: string
+  /** Tags set by hand, in normal form (tags.ts); never set by Copilot. */
+  tags: string[]
   /** Copilot's type, e.g. "concept", "link-web", "meeting"; free text for connected notebooks. */
   kind: string
   /** Distinct linked pages, either direction (weights.ts, derived from the edges). */
@@ -94,6 +98,10 @@ export interface GraphSource {
   name: string
   /** Connected notebooks (and vaults other than the active one) are read only. */
   readOnly: boolean
+  /** Why (GET /api/graph): 'lease' = the active vault, but another ObsidiNote is its writer;
+   *  'not-active' = a vault that is not the active one; 'notebook' = a connected notebook;
+   *  '' = it can be changed, or a server older than the field. Wording: readOnly.ts. */
+  readOnlyReason: '' | 'lease' | 'not-active' | 'notebook'
 }
 
 export interface GraphModel {
@@ -112,9 +120,11 @@ export interface GraphModel {
 export interface GraphSourceArea {
   id: string
   name: string
-  kind: 'm365' | 'service' | 'web' | 'other' | 'notes'
+  kind: 'm365' | 'service' | 'other-internal' | 'web' | 'other' | 'notes'
   pageCount: number
 }
+
+const READ_ONLY_REASONS = new Set(['lease', 'not-active', 'notebook'])
 
 /** Id of the synthetic area for pages without a topic. */
 export const UNFILED_ID = '__unfiled'
@@ -150,6 +160,7 @@ export function normalizeGraph(raw: unknown): GraphModel {
     id: str(src.id),
     name: str(src.name),
     readOnly: src.readOnly === true,
+    readOnlyReason: src.readOnly === true && READ_ONLY_REASONS.has(src.readOnlyReason as string) ? (src.readOnlyReason as GraphSource['readOnlyReason']) : '',
   }
   const topicIds = new Set<string>()
   const topics: GraphTopic[] = []
@@ -173,6 +184,8 @@ export function normalizeGraph(raw: unknown): GraphModel {
       title: str(p.title, '(untitled)'),
       topicIds: asList(p.topicIds as string[]).map((x) => str(x)).filter((x) => topicIds.has(x)),
       bucket: str(p.bucket),
+      section: str(p.section),
+      tags: [...new Set(asList(p.tags as string[]).map((x) => str(x).trim().toLowerCase()).filter(Boolean))],
       kind: str(p.kind),
       // Set from the edges below (applyLinkWeights): one definition of size and hubs.
       links: 0,
@@ -215,7 +228,7 @@ export function normalizeGraph(raw: unknown): GraphModel {
   return types.length ? { source, topics, pages, edges, types, sources } : { source, topics, pages, edges, sources }
 }
 
-const SOURCE_KINDS = new Set<GraphSourceArea['kind']>(['m365', 'service', 'web', 'other', 'notes'])
+const SOURCE_KINDS = new Set<GraphSourceArea['kind']>(['m365', 'service', 'other-internal', 'web', 'other', 'notes'])
 
 /** The sources list, repaired: one entry per id, counts from the pages, and every page's sourceId in
  *  it (a page without one, or with an unknown one, goes to the notes area). */

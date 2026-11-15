@@ -111,7 +111,10 @@ function New-ServerState {
        to ('' when it followed no update), for GET /api/whats-new. #>
     param([Parameter(Mandatory)][string]$AppRoot, [int]$Port, [int]$CdpPort = 9334, [bool]$CopilotSkipped = $false,
         $FakeStatus = $null, [string]$FakeHierarchyXml = '', $Copilot = $null, $Vault = $null, $Lease = $null, [string]$SessionId = '',
-        $Model = $null, $TestAdapter = $null, $TestCopilot = $null, [string]$UpdatedTo = '', $TestConnect = $null, $VaultSettings = $null)
+        $Model = $null, $TestAdapter = $null, $TestCopilot = $null, [string]$UpdatedTo = '', $TestConnect = $null, $VaultSettings = $null,
+        # VaultDetail: the start's Vault status line when it opened no vault (GET /api/status says why).
+        # SettingsUnreadable: the vault's stored settings could not be read (GET /api/settings says so).
+        [string]$VaultDetail = '', [bool]$SettingsUnreadable = $false)
     $h = [hashtable]::Synchronized(@{})
     $h.AppRoot = $AppRoot; $h.Port = $Port; $h.CdpPort = $CdpPort; $h.CopilotSkipped = $CopilotSkipped
     $h.FakeStatus = $FakeStatus; $h.FakeHierarchyXml = $FakeHierarchyXml
@@ -125,6 +128,10 @@ function New-ServerState {
     $h.Lock = New-Object object
     $h.Id = [guid]::NewGuid().ToString('N')
     $h.Stop = $false
+    # 'shutdown' once POST /api/shutdown asked this server to end (a new start on this PC takes over).
+    $h.StopReason = ''
+    $h.VaultDetail = $VaultDetail
+    $h.SettingsUnreadable = $SettingsUnreadable
     $h
 }
 
@@ -233,6 +240,30 @@ function Get-ActiveVaultItem($State, $Data) {
 
 function Get-LeaseMode($State) { if ($State.Vault -and $State.Lease -and (Test-WriterLease $State.Lease)) { 'writer' } elseif ($State.Vault) { 'readonly' } else { 'none' } }
 
+function Get-VaultModeInfo($State) {
+    <# Why the active vault is read only, for GET /api/status (pure, from the same lease record the
+       start and the renewal keep): @{ mode; reason; since; detail }.
+       reason: '' as the writer; this-pc = the lease is held by another session of this computer;
+       other-pc = by another computer, by a lease without a machine mark (an older version), or this
+       session's own lease could not be renewed; not-opened = no vault is open (mode none), with the
+       start's Vault line as detail. since: when the holder took the lease (ISO, UTC), '' unknown. #>
+    $mode = Get-LeaseMode $State
+    $r = [ordered]@{ mode = $mode; reason = ''; since = ''; detail = '' }
+    if ($mode -eq 'none') { $r.reason = 'not-opened'; $r.detail = [string]$State.VaultDetail; return $r }
+    if ($mode -eq 'writer') { return $r }
+    $l = $State.Lease
+    # Get-JsonProp reads a hashtable (the record) or an object alike, and gives the default for a
+    # record made before these fields existed.
+    $here = [bool](Get-JsonProp $l 'holderHere' $false)
+    $r.reason = if ($here) { 'this-pc' } else { 'other-pc' }
+    $holder = [string](Get-JsonProp $l 'holder' '')
+    $acq = Get-JsonProp $l 'acquired' $null
+    if ($holder -and $holder -ne [string](Get-JsonProp $l 'sessionId' '') -and $acq -is [datetime] -and $acq -gt [datetime]::MinValue) {
+        $r.since = ([datetime]$acq).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
+    }
+    $r
+}
+
 function Get-VaultListId($Vault) { if ($Vault.rootKind -eq 'notebook') { [string]$Vault.notebookId } else { [string]$Vault.rootId } }
 
 function ConvertTo-NotebookListing {
@@ -299,13 +330,14 @@ function Get-ServerStatus($State) {
     $name = ''
     if ($State.Vault) { $name = [string]$State.Vault.name }
     elseif ($one -ne 'none') { $a = @((Read-NotebookData $State 'list').notebooks | Where-Object { $_.active }) | Select-Object -First 1; if ($a) { $name = $a.name } }
+    $why = Get-VaultModeInfo $State
     [pscustomobject]@{
         app     = 'ObsidiNote'
         version = (Get-AppVersionText $State.AppRoot)
         uiPort  = [int]$State.Port
         oneNote = [pscustomobject]@{ state = $one; running = ($one -ne 'none'); notebookOpen = [bool]$name; notebook = $(if ($name) { $name } else { 'ObsidiNote' }) }
         copilot = [pscustomobject]@{ state = (Get-CopilotState $State); port = [int]$State.CdpPort; ready = (Test-CopilotReady $State) }
-        vault   = [pscustomobject]@{ name = $name; vaultId = $(if ($State.Vault) { [string]$State.Vault.vaultId } else { '' }); mode = (Get-LeaseMode $State) }
+        vault   = [pscustomobject]@{ name = $name; vaultId = $(if ($State.Vault) { [string]$State.Vault.vaultId } else { '' }); mode = $why.mode; reason = $why.reason; since = $why.since; detail = $why.detail }
     }
 }
 
@@ -338,6 +370,7 @@ function Switch-ServerVault($State, $Vault, $Data) {
         if ($State.Vault -and $State.Lease) { $null = Close-VaultSession -Adapter $ad -Vault $State.Vault -Lease $State.Lease }
         $o = Open-VaultSession -Adapter $ad -Vault $Vault -SessionId $State.SessionId -Vaults $Data.vaults -LocalSettings (Get-LocalVaultSettings $State)
         $State.Vault = $o.vault; $State.Lease = $o.lease; $State.VaultSettings = $o.settings
+        $State.SettingsUnreadable = [bool]($o.settingsResult -and $o.settingsResult.status -eq 'unreadable')
         $script:Model = $o.model; $script:ModelKey = "$($State.Id)|$($o.vault.vaultId)"
     } finally { [Threading.Monitor]::Exit($State.Lock) }
     Reset-AskState
@@ -394,10 +427,24 @@ function Get-ServerLinkRules($State) {
        with them, so both agree on internal vs web. #>
     $loc = if ($State.Vault) { [string]$State.Vault.location } else { '' }
     $set = $State.VaultSettings
-    @{
-        InternalHosts = @(if ($set -and $set.Contains('internalHosts')) { @($set['internalHosts']) | ForEach-Object { "$_" } | Where-Object { $_ } } else { @() })
-        CompanyNames  = @(Get-CompanyNames -Locations @($loc, (Get-NotebookRecord -AppRoot $State.AppRoot)))
+    # Get-LinkRules (lib/NotebookStructure.psm1) is the one place the rules are put together; the
+    # start's upgrade store in obsidinote.ps1 calls it with the same values.
+    Get-LinkRules -InternalHosts @(if ($set -and $set.Contains('internalHosts')) { @($set['internalHosts']) } else { @() }) -Locations @($loc, (Get-NotebookRecord -AppRoot $State.AppRoot))
+}
+
+function Get-SourceLinkRules($State, $Adapter, $Vault = $null, $Notebooks = @(), $Notebook = $null) {
+    <# The link rules of the source a graph SHOWS when it is not the active vault (code review
+       2026-11-15: it was grouped with the active vault's rules). Another vault: its own
+       "internalHosts" setting (read only from its state page) and the company names of its own
+       location and its notebook's. A connected notebook has no settings: the fixed host rules plus
+       the company names of its own location. Nothing of the active vault is mixed in, so a source
+       kept on this PC only (no SharePoint or OneDrive address) has no company names. #>
+    if ($Vault) {
+        $nb = @($Notebooks | Where-Object { $_.id -eq $Vault.notebookId }) | Select-Object -First 1
+        $hosts = @((Read-VaultSettings -Adapter $Adapter -IndexSectionId ([string]$Vault.indexSectionId))['internalHosts'])
+        return (Get-LinkRules -InternalHosts $hosts -Locations @([string]$Vault.location, $(if ($nb) { [string]$nb.location } else { '' })))
     }
+    Get-LinkRules -Locations @($(if ($Notebook) { [string]$Notebook.location } else { '' }))
 }
 
 function New-ServerStore($State, $Use) {
@@ -531,8 +578,15 @@ function Read-JsonBody([string]$Body) {
     <# The request body as an object; throws on anything that is not a JSON object. #>
     $b = $null
     try { $b = $Body | ConvertFrom-Json } catch { throw 'The request is not JSON.' }
-    if (-not $b -or $b -isnot [pscustomobject]) { throw 'The request is not a JSON object.' }
+    if (-not (Test-JsonObject $b)) { throw 'The request is not a JSON object.' }
     $b
+}
+
+function Test-JsonObject($Value) {
+    <# True only for a JSON object from ConvertFrom-Json. The full type name on purpose:
+       [pscustomobject] is PSObject, which a bare number, text, true or a list is too once it came
+       out of a cmdlet, so `-is [pscustomobject]` let them through as objects (code review 2026-11-15). #>
+    $null -ne $Value -and $Value -is [System.Management.Automation.PSCustomObject]
 }
 
 function Get-BodyValue($Body, [string]$Name, $Default = '') { if ($Body.PSObject.Properties[$Name] -and $null -ne $Body.$Name) { $Body.$Name } else { $Default } }
@@ -697,10 +751,10 @@ function Get-GraphRoute($State, [string]$Query) {
         if ($State.Vault -and $v.vaultId -eq $State.Vault.vaultId) {
             $u = Use-ActiveVault $State
             if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
-            $m = ConvertTo-GraphModel -Model $u.model -Source @{ kind = 'vault'; id = $v.vaultId; name = $v.name; readOnly = ((Get-LeaseMode $State) -ne 'writer') } -LinkRules (Get-ServerLinkRules $State)
+            $m = ConvertTo-GraphModel -Model $u.model -Source @{ kind = 'vault'; id = $v.vaultId; name = $v.name; readOnly = ((Get-LeaseMode $State) -ne 'writer'); readOnlyReason = 'lease' } -LinkRules (Get-ServerLinkRules $State)
         } else {
             $model = Read-IndexModel -Adapter $d.adapter -IndexSectionId $v.indexSectionId -VaultId $v.vaultId -RootId $v.rootId
-            $m = ConvertTo-GraphModel -Model $model -Source @{ kind = 'vault'; id = $v.vaultId; name = $v.name; readOnly = $true } -LinkRules (Get-ServerLinkRules $State)
+            $m = ConvertTo-GraphModel -Model $model -Source @{ kind = 'vault'; id = $v.vaultId; name = $v.name; readOnly = $true; readOnlyReason = 'not-active' } -LinkRules (Get-SourceLinkRules $State $d.adapter $v $d.notebooks)
         }
         $m['edgesComplete'] = $true
         # The page types and their sections, for the page window's Edit (a type stays in its section).
@@ -711,7 +765,7 @@ function Get-GraphRoute($State, [string]$Query) {
     $nb = @($d.notebooks | Where-Object { $_.id -eq $nid }) | Select-Object -First 1
     if (-not $nb) { return @{ status = 404; body = @{ error = 'That notebook is not open in OneNote.' } } }
     $c = Get-ForeignGraphModel $State $d.adapter $nb $d.vaults
-    $m = ConvertTo-GraphModel -Model $c.model -Source @{ kind = 'notebook'; id = $nb.id; name = $nb.name; readOnly = $true } -LinkRules (Get-ServerLinkRules $State)
+    $m = ConvertTo-GraphModel -Model $c.model -Source @{ kind = 'notebook'; id = $nb.id; name = $nb.name; readOnly = $true; readOnlyReason = 'notebook' } -LinkRules (Get-SourceLinkRules $State $d.adapter $null $d.notebooks $nb)
     $m['edgesComplete'] = [bool]$c.done
     @{ status = 200; body = $m }
 }
@@ -796,12 +850,15 @@ function Invoke-SubmitRoute($State, [string]$Body) {
     $action = "$(Get-BodyValue $b 'action' '')"
     $route = Get-SubmitRoute -Text $text -Mode $mode -Action $action
     if ($route.ContainsKey('error')) { return @{ status = 400; body = @{ error = $route.error } } }
-    # Same rule as /api/page/edit: null = typed (''), text must be a known id (Test-OriginId).
-    $origin = Get-BodyValue $b 'origin' ''
-    if ($null -eq $origin) { $origin = '' }
-    if ($origin -isnot [string]) { return @{ status = 400; body = @{ error = 'origin must be text.' } } }
-    $origin = $origin.Trim()
-    if (-not (Test-OriginId $origin)) { return @{ status = 400; body = @{ error = 'Unknown origin.' } } }
+    # origin: where an added text came from. One check for Add, Ingest and Edit (Resolve-OriginId in
+    # lib/NotebookStructure.psm1: null = typed, text must be a known id). An Ask has no origin: it
+    # ignores the field and is never refused for it.
+    $origin = ''
+    if ($route.intent -eq 'add') {
+        $o = Resolve-OriginId (Get-BodyValue $b 'origin' $null)
+        if (-not $o.ok) { return @{ status = 400; body = @{ error = $o.error } } }
+        $origin = $o.origin
+    }
     # fileUrl: a dropped file's OneDrive/SharePoint address (POST /api/file/locate); https only.
     $fileUrl = "$(Get-BodyValue $b 'fileUrl' '')"
     if ($fileUrl -and ($fileUrl -notmatch '^(?i)https://[^\s]+$' -or $fileUrl.Length -gt 2000)) { return @{ status = 400; body = @{ error = 'fileUrl must be an https address.' } } }
@@ -828,14 +885,33 @@ function Invoke-SubmitRoute($State, [string]$Body) {
 }
 
 function Invoke-UndoRoute($State, [string]$Body) {
-    <# POST /api/add/undo {undo}: the Add's page to OneNote's Deleted Pages, its backlinks rewritten. #>
+    <# POST /api/add/undo {undo[, vault]}: the Add's page to OneNote's Deleted Pages, its backlinks
+       rewritten and the links other pages have to it taken out. 409 when vault is another vault's id. #>
     try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
-    $undo = Get-BodyValue $b 'undo' $null
-    if (-not $undo -or $undo -isnot [pscustomobject]) { return @{ status = 400; body = @{ error = 'undo must be the Add result''s undo record.' } } }
+    # The property itself, not Get-BodyValue: a function's output unrolls a list of one, so
+    # {"undo":[{...}]} would arrive as the object inside it.
+    # (and not `$undo = if ...`, which unrolls it the same way).
+    $undo = $null
+    if ($b.PSObject.Properties['undo']) { $undo = $b.PSObject.Properties['undo'].Value }
+    if ($undo -is [array] -or -not (Test-JsonObject $undo)) { return @{ status = 400; body = @{ error = 'undo must be the Add result''s undo record.' } } }
+    if (Test-OtherVault $State $b) { return (Get-OtherVaultAnswer) }
     $u = Use-ActiveVault $State
     if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
     @{ status = 200; body = (Undo-AddRequest -Store (New-ServerStore $State $u) -Undo $undo) }
 }
+
+# History and "Waiting for Copilot" can still show another vault's items after a switch (the list
+# carries its vault's id, GET /api/activity): Undo, Remove and "Check for the answer" send it back as
+# `vault`, and an item of a vault that is not the active one is refused before anything is read or
+# written (code review 2026-11-15). Optional, like `vault` on /api/link/add and /api/page/edit.
+$script:OtherVaultItem = 'This item belongs to another vault; open that vault to change it.'
+
+function Test-OtherVault($State, $Body) {
+    $vault = "$(Get-BodyValue $Body 'vault' '')"
+    [bool]($vault -and (-not $State.Vault -or $vault -ne [string]$State.Vault.vaultId))
+}
+
+function Get-OtherVaultAnswer { @{ status = 409; body = @{ error = $script:OtherVaultItem } } }
 
 function Test-PageIdText([string]$Id) {
     <# A plausible OneNote page id ({...}{n}{Bn}); the store then checks that it is an Intake item. #>
@@ -849,6 +925,7 @@ function Invoke-AddFetchRoute($State, [string]$Body) {
     try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
     $id = "$(Get-BodyValue $b 'inboxId' '')"
     if (-not (Test-PageIdText $id)) { return @{ status = 400; body = @{ error = 'inboxId must be the Intake item''s page id.' } } }
+    if (Test-OtherVault $State $b) { $a = Get-OtherVaultAnswer; $a.body['intent'] = 'add'; return $a }
     if (-not (Test-CopilotReady $State)) { return (Get-CopilotMissing 'add') }
     $u = Use-ActiveVault $State
     if (-not $u.ok) { return @{ status = $u.status; body = @{ intent = 'add'; error = $u.error } } }
@@ -915,7 +992,7 @@ function Invoke-PageEditRoute($State, [string]$Body) {
         if ($null -ne $v -and $v -isnot [string]) { return @{ status = 400; body = @{ error = "$k must be text." } } }
         $ch[$k] = [string]$v
     }
-    foreach ($k in 'topics', 'aliases') {
+    foreach ($k in 'topics', 'aliases', 'tags') {
         if (-not $b.PSObject.Properties[$k]) { continue }
         $v = @($b.$k | Where-Object { $null -ne $_ })
         if (@($v | Where-Object { $_ -isnot [string] }).Count) { return @{ status = 400; body = @{ error = "$k must be a list of text." } } }
@@ -923,7 +1000,7 @@ function Invoke-PageEditRoute($State, [string]$Body) {
     }
     if ($b.PSObject.Properties['links']) {
         $ls = @($b.links | Where-Object { $null -ne $_ })
-        if (@($ls | Where-Object { $_ -isnot [pscustomobject] -or -not (Test-ObsnId "$($_.target)") }).Count) { return @{ status = 400; body = @{ error = 'links must be a list of {target, strength, why} with ObsidiNote page ids.' } } }
+        if (@($ls | Where-Object { -not (Test-JsonObject $_) -or -not $_.PSObject.Properties['target'] -or -not (Test-ObsnId "$($_.target)") }).Count) { return @{ status = 400; body = @{ error = 'links must be a list of {target, strength, why} with ObsidiNote page ids.' } } }
         $ch.links = @($ls | ForEach-Object { @{ target = "$($_.target)"; strength = $(if ($_.PSObject.Properties['strength']) { [int]$_.strength } else { 1 }); why = $(if ($_.PSObject.Properties['why']) { "$($_.why)" } else { '' }) } })
     }
     $u = Use-ActiveVault $State
@@ -934,13 +1011,65 @@ function Invoke-PageEditRoute($State, [string]$Body) {
     @{ status = 200; body = $r }
 }
 
+function Read-TextList($Body, [string]$Name) {
+    <# A list-of-text field of a request body: @{ ok; list; error }. Absent or null = an empty list;
+       a text, a number or a list holding anything but text is refused. #>
+    if (-not $Body.PSObject.Properties[$Name] -or $null -eq $Body.$Name) { return @{ ok = $true; list = @(); error = '' } }
+    $v = $Body.$Name
+    if ($v -isnot [array] -or @($v | Where-Object { $_ -isnot [string] }).Count) { return @{ ok = $false; list = @(); error = "$Name must be a list of text." } }
+    @{ ok = $true; list = @($v); error = '' }
+}
+
+function Invoke-PagesTagRoute($State, [string]$Body) {
+    <# POST /api/pages/tag {ids, add, remove[, vault]}: the person tags pages of the active vault
+       (lib/Ingest.psm1 Set-PageTags; no Copilot). 200 {changed, pages: [{id, tags}], warnings};
+       400 an invalid tag, no ids, more than 200, nothing to add or remove; 404 an id that is not a
+       page of the vault (nothing written); 409 another vault's item or no writer lease. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $lists = @{}
+    foreach ($k in 'ids', 'add', 'remove') {
+        $l = Read-TextList $b $k
+        if (-not $l.ok) { return @{ status = 400; body = @{ error = $l.error } } }
+        $lists[$k] = @($l.list)
+    }
+    if (-not $lists.ids.Count) { return @{ status = 400; body = @{ error = 'Choose at least one page.' } } }
+    if ($lists.ids.Count -gt 200) { return @{ status = 400; body = @{ error = 'At most 200 pages at a time.' } } }
+    if (@($lists.ids | Where-Object { -not (Test-ObsnId $_) }).Count) { return @{ status = 400; body = @{ error = 'ids must be ObsidiNote page ids.' } } }
+    if (Test-OtherVault $State $b) { return (Get-OtherVaultAnswer) }
+    $u = Use-ActiveVault $State
+    if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
+    $r = Set-PageTags -Store (New-ServerStore $State $u) -Ids ([string[]]$lists.ids) -Add $lists.add -Remove $lists.remove
+    $code = switch ($r.status) { 'tagged' { 200 } 'refused' { 409 } 'not-found' { 404 } 'invalid' { 400 } default { 500 } }
+    if ($code -ne 200) { return @{ status = $code; body = @{ error = $r.message; status = $r.status } } }
+    @{ status = 200; body = [ordered]@{ changed = [int]$r.changed; pages = [object[]]@($r.pages); warnings = [object[]]@($r.warnings) } }
+}
+
+function Invoke-TagRenameRoute($State, [string]$Body) {
+    <# POST /api/tags/rename {from, to[, vault]}: every page of the active vault that has the tag
+       `from` gets `to` in its place (no duplicate); to = '' removes it (lib/Ingest.psm1 Rename-Tag).
+       200 {changed, warnings}; 400 invalid; 409 another vault's item or no writer lease. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $from = Get-BodyValue $b 'from' ''; $to = Get-BodyValue $b 'to' ''
+    if ($from -isnot [string] -or $to -isnot [string]) { return @{ status = 400; body = @{ error = 'from and to must be text.' } } }
+    if (Test-OtherVault $State $b) { return (Get-OtherVaultAnswer) }
+    $u = Use-ActiveVault $State
+    if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
+    $r = Rename-Tag -Store (New-ServerStore $State $u) -From $from -To $to
+    $code = switch ($r.status) { 'renamed' { 200 } 'refused' { 409 } 'invalid' { 400 } default { 500 } }
+    if ($code -ne 200) { return @{ status = $code; body = @{ error = $r.message; status = $r.status } } }
+    @{ status = 200; body = [ordered]@{ changed = [int]$r.changed; warnings = [object[]]@($r.warnings) } }
+}
+
 function Get-SettingsRoute($State) {
     <# GET /api/settings: the active vault's settings (from OneNote, checked at the start or the vault
        switch; defaults without a vault) and whether this ObsidiNote may change them. #>
     $set = [ordered]@{}
     foreach ($k in $State.VaultSettings.Keys) { $set[$k] = $State.VaultSettings[$k] }
     if ($set.Contains('internalHosts')) { $set['internalHosts'] = [object[]]@($set['internalHosts'] | Where-Object { $_ }) }
-    @{ status = 200; body = [ordered]@{ settings = $set; canChange = [bool]($State.Vault -and (Get-LeaseMode $State) -eq 'writer') } }
+    # Stored settings that cannot be read are never written over (Set-VaultSetting refuses with this
+    # same sentence), so the window is told beforehand: canChange false, with the reason.
+    $bad = [bool]($State.Vault -and $State.SettingsUnreadable)
+    @{ status = 200; body = [ordered]@{ settings = $set; canChange = [bool]($State.Vault -and (Get-LeaseMode $State) -eq 'writer' -and -not $bad); message = $(if ($bad) { Get-UnreadableSettingsMessage } else { '' }) } }
 }
 
 function Set-SettingsRoute($State, [string]$Body) {
@@ -967,13 +1096,14 @@ function Get-ActivityRoute($State) {
     $u = Use-ActiveVault $State
     if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
     $v = $State.Vault
-    $tree = ConvertFrom-ObsnHierarchy -Xml ($u.adapter.GetHierarchy([string]$v.rootId, 4)) -RootId ([string]$v.rootId)
-    $intake = Get-ObsnIntakeSection
-    $pages = @(foreach ($sec in @($tree.sections)) { if ($sec.full -eq $intake) { @($sec.pages) } })
+    # Only the Intake section is read (its id, then its pages), never the whole vault at page scope.
+    $pages = @(Read-ObsnIntakePages -Adapter $u.adapter -RootId ([string]$v.rootId))
     $index = @{}
     foreach ($p in @($u.model.pages.Values)) { $index[[string]$p.key] = @{ title = [string]$p.title; type = [string]$p.type } }
     $items = Get-ActivityList -Pages $pages -Index $index   # returns , @(...): assign as is
-    @{ status = 200; body = [ordered]@{ items = @($items); canChange = ((Get-LeaseMode $State) -eq 'writer') } }
+    # vaultId: the vault these items belong to; the window sends it back as `vault` with Undo, Remove
+    # and "Check for the answer", so an item listed before a vault switch is never applied to another.
+    @{ status = 200; body = [ordered]@{ items = @($items); canChange = ((Get-LeaseMode $State) -eq 'writer'); vaultId = [string]$v.vaultId } }
 }
 
 function Invoke-IntakeRemoveRoute($State, [string]$Body) {
@@ -983,6 +1113,7 @@ function Invoke-IntakeRemoveRoute($State, [string]$Body) {
     try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
     $id = "$(Get-BodyValue $b 'inboxId' '')"
     if (-not (Test-PageIdText $id)) { return @{ status = 400; body = @{ error = 'inboxId must be the Intake item''s page id.' } } }
+    if (Test-OtherVault $State $b) { return (Get-OtherVaultAnswer) }
     $u = Use-ActiveVault $State
     if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
     if ((Get-LeaseMode $State) -ne 'writer') { return @{ status = 409; body = @{ error = 'This ObsidiNote is read only; the window that holds the vault can remove it.' } } }
@@ -1048,6 +1179,12 @@ function Invoke-ApiRoute {
         'POST /api/intake/remove' { return (Invoke-IntakeRemoveRoute $State $Body) }
         'POST /api/file/locate' { return (Invoke-FileLocateRoute $State $Body) }
         'POST /api/settings' { return (Set-SettingsRoute $State $Body) }
+        'POST /api/pages/tag' { return (Invoke-PagesTagRoute $State $Body) }
+        'POST /api/tags/rename' { return (Invoke-TagRenameRoute $State $Body) }
+        # A new start on this PC asks this one to end (lib/Startup.psm1 Invoke-ReplaceRunning). The
+        # answer is sent first; `stop` then ends the request loop (Invoke-ServerRequest), and
+        # obsidinote.ps1's finally gives the writer lease back and disconnects, as on Ctrl+C.
+        'POST /api/shutdown' { return @{ status = 200; body = @{ stopping = $true }; stop = $true } }
     }
     @{ status = 404; body = @{ error = 'Not found.' } }
 }
@@ -1110,6 +1247,8 @@ function Invoke-ServerRequest($Ctx, $State, $AllowList) {
     }
     $a = Invoke-ApiRoute -Method $req.HttpMethod -Path $path -Body $body -State $State -Query $query
     if ($a.ContainsKey('file') -and $a.file) { return Send-Download $Ctx $a.file }
+    # POST /api/shutdown: the flag first, so the loop ends even when the client is gone already.
+    if ($a.ContainsKey('stop') -and $a.stop) { $State.StopReason = 'shutdown'; $State.Stop = $true }
     Send-Json $Ctx $a.body $a.status
 }
 

@@ -32,7 +32,6 @@ export function ConfirmReplaceDialog({
   return (
     <dialog
       ref={ref}
-      className="add-dialog"
       aria-labelledby="add-confirm-title"
       onCancel={(e) => {
         e.preventDefault()

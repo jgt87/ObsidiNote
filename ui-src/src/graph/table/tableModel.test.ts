@@ -61,7 +61,7 @@ describe('buildRows', () => {
     const [p1, , p3, p4] = buildRows(index, null)
     expect(p1.topicNames).toEqual(['Security', 'Reading'])
     expect(p1.topicPaths).toEqual(['Security', 'Reading'])
-    expect(p3.type).toBe('link-web')
+    expect(p3.type).toBe('web link') // the stored "link-web" in the interface's words
     expect(p3.site).toBe('www.example.org')
     expect(p4.type).toBe('Sources') // no kind: the bucket
     expect(Number.isNaN(p4.time)).toBe(true)
@@ -96,7 +96,7 @@ describe('sorting', () => {
     expect(ids(sortRows(rows, { key: 'topics', dir: 'asc' }))).toEqual(['p4', 'p2', 'p1', 'p3', 'p6', 'p5'])
   })
   it('type sorts by name', () => {
-    expect(ids(sortRows(rows, { key: 'type', dir: 'asc' }))).toEqual(['p2', 'p3', 'p6', 'p5', 'p1', 'p4'])
+    expect(ids(sortRows(rows, { key: 'type', dir: 'asc' }))).toEqual(['p2', 'p6', 'p5', 'p1', 'p4', 'p3'])
   })
   it('is stable: the input order never changes the result', () => {
     const reversed = [...rows].reverse()
@@ -117,7 +117,7 @@ describe('grouping', () => {
     expect(groups.map((g) => g.rows.length)).toEqual([1, 2, 1, 2])
   })
   it('type and site: by name, empty last', () => {
-    expect(groupRows(rows, 'type', areas).map((g) => g.name)).toEqual(['concept', 'link-web', 'note', 'Sources'])
+    expect(groupRows(rows, 'type', areas).map((g) => g.name)).toEqual(['concept', 'note', 'Sources', 'web link'])
     expect(groupRows(rows, 'site', areas).map((g) => g.name)).toEqual(['docs.example.net', 'www.example.org', 'No site'])
   })
   it('year: newest first, no date last', () => {

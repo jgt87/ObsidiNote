@@ -31,7 +31,7 @@ function hub(m: GraphModel): GraphModel {
 describe('switcher rows', () => {
   it('describes topics and pages', () => {
     expect(rowFor(index, { kind: 'topic', id: 't2' })).toMatchObject({ label: 'Networking', context: 'Security · 1 page', tag: 'Topic' })
-    expect(rowFor(index, { kind: 'page', id: 'p1' })).toMatchObject({ label: 'Zero-trust networking', context: 'Security / Networking · Notes', tag: 'Hub' })
+    expect(rowFor(index, { kind: 'page', id: 'p1' })).toMatchObject({ label: 'Zero-trust networking', context: 'Security / Networking · Notes', tag: 'Most linked' })
     expect(rowFor(index, { kind: 'page', id: 'p2' })?.tag).toBe('Archived')
     expect(rowFor(index, { kind: 'page', id: 'p3' })?.context).toBe('Unfiled · Notes')
     expect(rowFor(index, { kind: 'page', id: 'nope' })).toBeNull()

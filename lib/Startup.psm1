@@ -68,4 +68,86 @@ function Get-CopilotFailureHint {
     'Start ObsidiNote again. If it fails again, send the last 30 lines of %LOCALAPPDATA%\ObsidiNote\logs\obsidinote.log (they hold no content). Without Copilot: start with -NoCopilot.'
 }
 
-Export-ModuleMember -Function Format-AppVersion, Get-UpdateStatus, Get-RelaunchArguments, Get-OneNoteStatus, Get-CopilotFailureHint
+function Get-LeftoverStarts {
+    <# The other ObsidiNote starts on this computer (pure): powershell.exe processes whose command
+       line holds THIS script's full path, never by a bare word or number, and never this process or
+       one of its parents (after an update the old version waits as the parent of the new one).
+       $Processes: @(@{ ProcessId; ParentProcessId; Name; CommandLine }) of every process. #>
+    param([object[]]$Processes = @(), [Parameter(Mandatory)][string]$ScriptPath, [Parameter(Mandatory)][int]$SelfId)
+    # The matches go out on the pipeline: wrap the call in @().
+    if ($ScriptPath.Length -lt 8 -or -not [IO.Path]::IsPathRooted($ScriptPath)) { return }
+    $byId = @{}
+    foreach ($p in @($Processes | Where-Object { $_ })) { $byId[[int]$p.ProcessId] = $p }
+    $mine = @{ $SelfId = $true }
+    $at = $SelfId
+    for ($i = 0; $i -lt 64 -and $byId.ContainsKey($at); $i++) {
+        $at = [int]$byId[$at].ParentProcessId
+        if ($at -le 0 -or $mine.ContainsKey($at)) { break }
+        $mine[$at] = $true
+    }
+    $Processes | Where-Object {
+        $_ -and "$($_.Name)" -eq 'powershell.exe' -and -not $mine.ContainsKey([int]$_.ProcessId) -and
+        "$($_.CommandLine)".IndexOf($ScriptPath, [StringComparison]::OrdinalIgnoreCase) -ge 0
+    }
+}
+
+function Invoke-ReplaceRunning {
+    <# A new start replaces the ObsidiNote that is running on this computer (operator, 2026-11-15).
+       When one answers on the port: ask it to stop (POST /api/shutdown; it gives its writer lease
+       back and disconnects, as on Ctrl+C) and wait until the port is silent. When it does not stop
+       (an older version has no such route, or it hangs): stop the leftover starts of this script
+       (Get-LeftoverStarts; the process only, so ObsidiNote's Edge stays for the new start to use).
+       Everything outside is injected, so this is tested without processes or sockets:
+         $TestRunning { } -> $true while an ObsidiNote answers GET /api/status on the port
+         $RequestStop { }  -> posts /api/shutdown (may throw)
+         $GetProcesses { } -> every process as @{ ProcessId; ParentProcessId; Name; CommandLine }
+         $StopProcess { param($ProcessId) }
+         $Wait { param($Milliseconds) }
+       Returns @{ found (one answered); replaced; stopped (processes stopped); noOtherHere (no other
+       start of this script is left on this computer: the lease take-over may be used); status
+       ('' = no line | OK | WARN); detail; hint }. Never throws. #>
+    param(
+        [Parameter(Mandatory)][string]$ScriptPath, [Parameter(Mandatory)][int]$SelfId,
+        [Parameter(Mandatory)][scriptblock]$TestRunning, [Parameter(Mandatory)][scriptblock]$RequestStop,
+        [Parameter(Mandatory)][scriptblock]$GetProcesses, [Parameter(Mandatory)][scriptblock]$StopProcess,
+        [scriptblock]$Wait = { param($Milliseconds) Start-Sleep -Milliseconds $Milliseconds }, [int]$WaitSec = 10, [int]$StepMs = 250
+    )
+    $r = @{ found = $false; replaced = $false; stopped = 0; noOtherHere = $false; status = ''; detail = ''; hint = '' }
+    $answers = { try { [bool](& $TestRunning) } catch { $false } }
+    $silent = { param([int]$Sec) for ($i = 0; $i -lt [Math]::Ceiling($Sec * 1000 / $StepMs); $i++) { if (-not (& $answers)) { return $true }; & $Wait $StepMs }; -not (& $answers) }
+    # @{ ok; list }: ok false when the process list could not be read (then nothing is assumed).
+    $left = { try { @{ ok = $true; list = @(Get-LeftoverStarts -Processes @(& $GetProcesses) -ScriptPath $ScriptPath -SelfId $SelfId) } } catch { @{ ok = $false; list = @() } } }
+    $why = ''
+    $r.found = [bool](& $answers)
+    if ($r.found) {
+        try { $null = & $RequestStop } catch { $why = 'it did not take the request to stop' }
+        if (& $silent $WaitSec) { $r.replaced = $true }
+        else {
+            if (-not $why) { $why = "it still answers after $WaitSec seconds" }
+            $l = & $left
+            foreach ($p in @($l.list)) { try { & $StopProcess ([int]$p.ProcessId); $r.stopped++ } catch { } }
+            if ($r.stopped -and (& $silent 3)) { $r.replaced = $true }
+        }
+    }
+    $l = & $left
+    $r.noOtherHere = [bool]($l.ok -and -not @($l.list).Count -and -not ($r.found -and -not $r.replaced))
+    if ($r.replaced) {
+        $r.status = 'OK'
+        $r.detail = 'replaced the ObsidiNote that was running' + $(if ($r.stopped) { ' (it did not stop by itself, so its process was ended)' } else { '' })
+    } elseif ($r.found) {
+        $r.status = 'WARN'
+        $r.detail = "an earlier ObsidiNote did not stop: $why" + $(if (-not $r.stopped) { ', and its process was not found' } else { '' })
+        $r.hint = 'Close the other ObsidiNote console window, then start ObsidiNote again.'
+    } elseif (-not $l.ok) {
+        $r.status = 'WARN'
+        $r.detail = 'could not check whether another ObsidiNote runs on this PC (the process list could not be read)'
+        $r.hint = 'A vault that an earlier run on this PC left open stays read only for up to 2 minutes.'
+    } elseif (-not $r.noOtherHere) {
+        $r.status = 'WARN'
+        $r.detail = 'an earlier ObsidiNote start is still running on this PC (it does not answer yet)'
+        $r.hint = 'It keeps the vault until it ends; this start is read only until then. Close the other ObsidiNote console window to take over.'
+    }
+    $r
+}
+
+Export-ModuleMember -Function Get-LeftoverStarts, Invoke-ReplaceRunning, Format-AppVersion, Get-UpdateStatus, Get-RelaunchArguments, Get-OneNoteStatus, Get-CopilotFailureHint

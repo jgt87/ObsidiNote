@@ -21,9 +21,14 @@ export const ALL_LABELS_UP_TO = 60
 /** Zoomed in this far past "fit", every page in view is named. */
 export const ALL_LABELS_ZOOM = 1.8
 
-/** Which pages get a name: all of them on a small or zoomed-in map, else the hubs. */
-export function labelMode(visiblePages: number, k: number, fitK: number, hubsOnly: boolean): 'all' | 'hubs' {
-  if (hubsOnly) return 'hubs'
+/** Which pages get a name at rest: all of them on a small or zoomed-in map, else the most linked
+ *  ones. With "Labels: hubs only" on: none. The operator's "hubs" are the topic areas, whose bold
+ *  names always show; a page's name then shows only while the pointer or the keyboard is on it
+ *  (operator, 2026-11-15: "only the hubs labels visible, in the bold text ... hide any labels of
+ *  the topics within that blob unless hovered"). Until then the switch kept the names of the most
+ *  linked pages, which the code calls hub pages: one word, two meanings. */
+export function labelMode(visiblePages: number, k: number, fitK: number, hubsOnly: boolean): 'all' | 'hubs' | 'none' {
+  if (hubsOnly) return 'none'
   return visiblePages <= ALL_LABELS_UP_TO || k >= fitK * ALL_LABELS_ZOOM ? 'all' : 'hubs'
 }
 
@@ -49,6 +54,26 @@ export function fitViewport(b: Bounds, w: number, h: number, bottom = 0): Viewpo
 }
 
 /** Zoom by `factor` keeping the world point under screen (sx, sy) in place. */
+/** How far the stretched picture of a running zoom may be enlarged before the map is drawn again,
+ *  and the least time between two such redraws. On a very large map a redraw costs more, so it is
+ *  allowed to stretch further. */
+export const SHARP_AT = 1.15
+export const SHARP_AT_LARGE = 1.5
+export const SHARP_LARGE_FROM = 600
+export const SHARP_EVERY_MS = 60
+
+/**
+ * Whether a running zoom must draw the map again now. While the wheel keeps turning, the map is
+ * moved as one stretched picture of its last drawing (cheap); it was only drawn again once the
+ * wheel rested, so a long zoom-in showed circles and letters as coarse pixels (operator,
+ * 2026-11-15: "while scrolling in on a topic, the circle becomes pixelated"). `ratio` = the zoom
+ * asked for against the zoom of the last drawing. Zooming out only shrinks the picture, which
+ * stays sharp, so it waits for the rest as before.
+ */
+export function needsSharp(ratio: number, msSinceDrawn: number, dots: number): boolean {
+  return ratio >= (dots >= SHARP_LARGE_FROM ? SHARP_AT_LARGE : SHARP_AT) && msSinceDrawn >= SHARP_EVERY_MS
+}
+
 export function zoomAt(v: Viewport, factor: number, sx: number, sy: number, minK: number, maxK = MAX_ZOOM): Viewport {
   const k = Math.min(maxK, Math.max(minK, v.k * factor))
   const wx = v.x + sx / v.k
@@ -142,7 +167,6 @@ export interface AreaLabelInput {
   y: number
   r: number
   name: string
-  sub: string
 }
 
 export interface AreaLabelPlace {
@@ -153,23 +177,20 @@ export interface AreaLabelPlace {
   /** Always centred on its own area (operator, 2026-11-14); kept as a field for the CSS hook. */
   at: 'center'
   rect: Rect
-  /** The "N pages · subjects" line fits (dropped when even the name alone had to squeeze in). */
-  withSub: boolean
   /** The name as drawn: shortened with "…" when the full name is wider than its area. */
   text: string
 }
 
-/** Estimated size of a topic name (graph.css .kg-alabel: 14px bold name, 11px line under it). */
-export function areaLabelSize(name: string, sub: string, withSub: boolean): { w: number; h: number } {
-  const w = Math.max(name.length * 14 * 0.62, withSub ? Math.min(260, sub.length * 11 * 0.56) : 0) + 16
-  return { w, h: withSub ? 36 : 22 }
-}
+import { areaLabelSize, shortenToWidth } from './labelSize'
+export { areaLabelSize, shortenToWidth }
 
 /**
  * Each topic name centred on its own area (operator, 2026-11-14: names above or below an area sat
  * in the gaps where the topic lines run; centred, a name never meets a line, and the stage hides it
- * while the pointer is over its area so it never blocks the pages). With the "N pages · subjects"
- * line when that fits inside the area, else the name alone; a name wider than its area is shortened
+ * while the pointer is over its area so it never blocks the pages). The name alone (review
+ * 2026-11-14: the "N pages · subjects" line under it lay on the area's dots and links; the layout
+ * keeps the name's own room free of dots, labelSize.ts labelSlot, and the counts and subjects are
+ * in the List, the quick switcher and the page window's Topic tab); a name wider than its area is shortened
  * with "…" (code review 2026-11-14: a long SharePoint site name on a one-page area covered its
  * neighbours). On an area too small for even a few letters, a name that would still cover another
  * area or a bigger area's name is left out (larger areas keep theirs first); the area's pages and
@@ -177,12 +198,10 @@ export function areaLabelSize(name: string, sub: string, withSub: boolean): { w:
  */
 export function placeAreaLabels(areas: AreaLabelInput[]): AreaLabelPlace[] {
   const placed = areas.map((a) => {
-    const full = areaLabelSize(a.name, a.sub, true)
-    const withSub = full.h <= a.r && full.w <= a.r * 1.7
     const text = shortenToWidth(a.name, a.r * 1.8)
-    const { w, h } = withSub ? full : areaLabelSize(text, a.sub, false)
+    const { w, h } = areaLabelSize(text)
     const top = a.y - h / 2
-    return { id: a.id, x: a.x, top, at: 'center' as const, rect: [a.x - w / 2, top, a.x + w / 2, top + h] as Rect, withSub, text: withSub ? a.name : text }
+    return { id: a.id, x: a.x, top, at: 'center' as const, rect: [a.x - w / 2, top, a.x + w / 2, top + h] as Rect, text }
   })
   const byId = new Map(areas.map((a) => [a.id, a]))
   const order = [...placed].sort((p, q) => byId.get(q.id)!.r - byId.get(p.id)!.r)
@@ -190,19 +209,13 @@ export function placeAreaLabels(areas: AreaLabelInput[]): AreaLabelPlace[] {
   const keptRects: Rect[] = []
   for (const p of order) {
     const onOther = areas.some((o) => o.id !== p.id && rectHitsCircle(p.rect, o))
-    if (onOther || keptRects.some((k) => overlaps(p.rect, k))) continue
+    if (!p.text || onOther || keptRects.some((k) => overlaps(p.rect, k))) continue
     kept.add(p.id)
     keptRects.push(p.rect)
   }
   return placed.filter((p) => kept.has(p.id))
 }
 
-/** A name cut to fit `maxW` screen px (areaLabelSize's estimate), with "…"; at least 3 letters. */
-export function shortenToWidth(name: string, maxW: number): string {
-  if (areaLabelSize(name, '', false).w <= maxW) return name
-  const chars = Math.max(4, Math.floor((maxW - 16) / (14 * 0.62)))
-  return chars >= name.length ? name : name.slice(0, chars - 1).trimEnd() + '…'
-}
 
 function rectHitsCircle(r: Rect, c: { x: number; y: number; r: number }): boolean {
   const nx = Math.max(r[0], Math.min(c.x, r[2]))

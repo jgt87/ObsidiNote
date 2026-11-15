@@ -15,3 +15,31 @@ jobs:
           Install-Module Pester -RequiredVersion 3.4.0 -Force -SkipPublisherCheck -Scope CurrentUser
           Import-Module Pester -RequiredVersion 3.4.0
           ./tools/run-tests.ps1
+  # The interface (ui-src): until 2026-11-15 nothing here ran its typecheck, its tests or its build,
+  # so a green run said nothing about it (code review 2026-11-15).
+  ui:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ui-src
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui-src/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      # ui/ is committed and shipped: it must be what this source builds.
+      - name: The committed ui/ matches a fresh build
+        shell: bash
+        run: |
+          cd ..
+          if [ -n "$(git status --porcelain -- ui)" ]; then
+            echo "ui/ differs from a fresh build of ui-src: run npm run build and commit ui/."
+            git status --porcelain -- ui
+            exit 1
+          fi

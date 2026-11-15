@@ -19,9 +19,18 @@ export function originOfPaste(html: string | null | undefined): string | null {
   return 'web'
 }
 
-/** The part of a paste remembered to tell later whether it is still in the box (first line, trimmed). */
+/** The lines a paste is remembered by. */
+const MARK_LINES = 5
+const MARK_MIN = 12
+
+/** The part of a paste remembered to tell later whether it is still in the box: up to five of its
+ *  lines (the first 60 characters of each), so fixing a typo or cutting the greeting in one line
+ *  does not lose where the text came from. A paste with no line of 12 characters or more has no
+ *  mark ('' = it stays until the box is emptied): a mark like "Hi" matched any text typed over it
+ *  (code review 2026-11-15). */
 export function pasteMark(pasted: string): string {
-  return (pasted.trim().split('\n')[0] ?? '').trim().slice(0, 60)
+  const lines = pasted.split('\n').map((l) => l.trim().slice(0, 60)).filter((l) => l.length >= MARK_MIN)
+  return [...new Set(lines)].slice(0, MARK_LINES).join('\n')
 }
 
 /**
@@ -30,5 +39,5 @@ export function pasteMark(pasted: string): string {
  * text). An empty mark (typed, or the choice set by hand) always keeps it.
  */
 export function originStillApplies(text: string, mark: string): boolean {
-  return !mark || text.includes(mark)
+  return !mark || mark.split('\n').some((line) => text.includes(line))
 }

@@ -23,11 +23,12 @@ Import-Module (Join-Path $PSScriptRoot 'LinkCapture.psm1')
 Import-Module (Join-Path $PSScriptRoot 'MarkdownLines.psm1')
 Import-Module (Join-Path $PSScriptRoot 'NotebookStructure.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Log.psm1')
+Import-Module (Join-Path $PSScriptRoot 'PageMeta.psm1')   # ConvertTo-TagList: the one tag normal form
 
 $script:StoreContract = @(
     'AssertWritable', 'VaultName', 'GetIndex', 'TypeList', 'BucketForType', 'LinkBucket', 'NormalizeUrl',
     'FindPageByUrl', 'NewId', 'CreateInboxItem', 'SetInboxStatus', 'SetInboxWaiting', 'ReadInboxItem', 'CreatePage', 'ReadPage', 'UpdatePage',
-    'SetLinkedFrom', 'DeletePage', 'IndexAddPage', 'IndexUpdatePage', 'IndexRemovePage'
+    'SetLinkedFrom', 'DeletePage', 'IndexAddPage', 'IndexUpdatePage', 'IndexRemovePage', 'RewriteBodyLinks'
 )
 
 function New-RequestRef {
@@ -377,9 +378,13 @@ function Invoke-AddRequest {
     try {
         if ($url) { $r = Invoke-LinkAdd -Url $url -Store $Store -Ask $Ask -Options $Options -Result $r -Resume $Resume }
         else {
-            # Where the text came from (the "From:" choice; '' = typed): only a known id is kept.
-            $origin = Get-LkString $Request 'origin'
-            if (-not (Test-OriginId $origin)) { $origin = '' }
+            # Where the text came from (the "From:" choice; '' = typed): the same check as the server
+            # and Edit (Resolve-OriginId); an unknown id is refused before anything is written. Only
+            # an item that already waits in the Intake (-Resume: its origin was checked when it was
+            # added) is filed as typed when its stored origin is not a known id any more.
+            $oc = Resolve-OriginId (Get-LkProp $Request 'origin' $null)
+            if (-not $oc.ok -and -not $Resume) { $r.message = "Nothing was added: $($oc.error)"; return (Complete-AddResult $r $sw) }
+            $origin = $oc.origin
             $r = Invoke-TextAdd -Text $text -Mode $mode -Store $Store -Ask $Ask -Options $Options -Result $r -Resume $Resume -Origin $origin
         }
     } catch {
@@ -677,9 +682,61 @@ function Receive-AddAnswer {
     $add
 }
 
+function Remove-InboundLinks {
+    <# After a page left the vault (Undo): every page in $Sources (@(@{ id }) from
+       Get-IncomingSources) loses its link to $TargetId, in its own obsn.links Meta (the truth) and
+       in its index record, so no edge to a page that is gone stays behind (AGENTS.md, Archive and
+       delete). Only the Meta is written: no outline, never the body or "Your notes".
+       Returns @{ count (pages changed); warnings }. Never throws. #>
+    param($Store, $Index, [string]$TargetId, [object[]]$Sources = @())
+    $pages = Get-IndexPageMap $Index
+    $count = 0; $warn = @()
+    foreach ($s in @($Sources | Where-Object { $_ })) {
+        $sid = [string]$s['id']
+        if (-not $sid -or $sid -eq $TargetId -or -not $pages.ContainsKey($sid)) { continue }
+        $rec = $pages[$sid]
+        try {
+            $pageId = Get-LkString $rec 'pageId'
+            if (-not $pageId) { throw 'it has no OneNote page' }
+            $links = Get-OwnLinks -Store $Store -Rec $rec -PageId $pageId   # returns , @(...): assign as is
+            $keep = @($links | Where-Object { $_['target'] -ne $TargetId })
+            if ($keep.Count -ne @($links).Count) { Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = @{ links = $keep }; Outlines = @(); Title = $null } | Out-Null }
+            Invoke-Store $Store 'IndexUpdatePage' @{ Page = @{ id = $sid; links = $keep } } | Out-Null
+            $count++
+        } catch { $warn += "Page $sid still links to the removed page: $($_.Exception.Message)" }
+    }
+    @{ count = $count; warnings = $warn }
+}
+
+function Update-DeletedAnchors {
+    <# After a page left the vault (Undo): in the ObsidiNote-owned body outline of every page in
+       $Sources (the pages that linked to it), a link to it becomes the plain text
+       "(deleted: <title>)" (the store's RewriteBodyLinks: role body only, never "Your notes" or an
+       outline without a role). Returns @{ count (pages whose body changed); warnings }. Never throws. #>
+    param($Store, $Index, [string]$TargetId, [string]$TargetLink, [string]$Title, [object[]]$Sources = @())
+    $count = 0; $warn = @()
+    if (-not $TargetLink) { return @{ count = 0; warnings = @() } }
+    $pages = Get-IndexPageMap $Index
+    $text = "(deleted: $(if ($Title) { $Title } else { 'page' }))"
+    foreach ($s in @($Sources | Where-Object { $_ })) {
+        $sid = [string]$s['id']
+        if (-not $sid -or $sid -eq $TargetId -or -not $pages.ContainsKey($sid)) { continue }
+        $pageId = Get-LkString $pages[$sid] 'pageId'
+        if (-not $pageId) { continue }
+        try {
+            $x = Invoke-Store $Store 'RewriteBodyLinks' @{ PageId = $pageId; TargetLink = $TargetLink; Text = $text }
+            if ([int](Get-LkProp $x 'count' 0) -gt 0) { $count++ }
+        } catch { $warn += "Page $sid still shows a link to the removed page in its text: $($_.Exception.Message)" }
+    }
+    @{ count = $count; warnings = $warn }
+}
+
 function Undo-AddRequest {
     <# Undo of an Add: the created page goes to OneNote's Deleted Pages (never a permanent delete),
-       leaves the index, and the "Linked from" lists of its targets are rewritten without it.
+       leaves the index, the "Linked from" lists of its targets are rewritten without it, the
+       pages that link to it lose that link (Remove-InboundLinks; result field unlinked), and a link
+       to it in such a page's own body outline becomes "(deleted: <title>)" (Update-DeletedAnchors;
+       result field rewritten = pages whose body changed).
        $Undo: the result's undo record @{ id; pageId; targets }. Returns a JSON-ready result. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Store, [Parameter(Mandatory)]$Undo)
@@ -687,7 +744,7 @@ function Undo-AddRequest {
     $id = Get-LkString $Undo 'id'
     $pageId = Get-LkString $Undo 'pageId'
     $targets = @(@(Get-LkProp $Undo 'targets' @()) | Where-Object { $_ } | ForEach-Object { [string]$_ })
-    $r = [ordered]@{ status = 'failed'; message = ''; id = $id; backlinks = 0; warnings = @(); ms = 0 }
+    $r = [ordered]@{ status = 'failed'; message = ''; id = $id; backlinks = 0; unlinked = 0; rewritten = 0; warnings = @(); ms = 0 }
     try {
         Invoke-Store $Store 'AssertWritable' | Out-Null
         $idx = Invoke-Store $Store 'GetIndex'
@@ -698,12 +755,21 @@ function Undo-AddRequest {
         if ($recPage -and $recPage -ne $pageId) { throw "page $id does not match the page that was added" }
         # Undo from History sends only the id: the pages it links to come from its index record.
         if (-not $targets.Count) { $targets = @(@(Get-LkProp $rec 'links' @()) | Where-Object { $_ } | ForEach-Object { [string](Get-LkProp $_ 'target' (Get-LkProp $_ 't' '')) } | Where-Object { $_ }) }
+        # The pages that link TO this page (Undo is offered from History long after the Add, so
+        # later pages and "Link it" may point at it): taken from the index before the page leaves it.
+        $inbound = Get-IncomingSources -Index $idx -TargetId $id -ExcludeId $id
         Invoke-Store $Store 'DeletePage' @{ PageId = $pageId } | Out-Null
         try { Invoke-Store $Store 'IndexRemovePage' @{ Id = $id } | Out-Null }
         catch { $r.warnings = @($r.warnings) + "The index still lists the page; the next start removes it ($($_.Exception.Message))." }
         $bl = Update-Backlinks -Store $Store -Index $idx -Targets $targets -ExcludeId $id
         $r.backlinks = $bl.count
         $r.warnings = @($r.warnings) + @($bl.warnings)
+        $un = Remove-InboundLinks -Store $Store -Index $idx -TargetId $id -Sources @($inbound)
+        $r.unlinked = $un.count
+        $r.warnings = @($r.warnings) + @($un.warnings)
+        $rw = Update-DeletedAnchors -Store $Store -Index $idx -TargetId $id -TargetLink (Get-LkString $rec 'link') -Title (Get-LkString $rec 'title') -Sources @($inbound)
+        $r.rewritten = $rw.count
+        $r.warnings = @($r.warnings) + @($rw.warnings)
         $r.status = 'undone'
         $r.message = "Undone. The page is in OneNote's Deleted Pages for 60 days."
     } catch {
@@ -1057,7 +1123,7 @@ function Update-LinkItStrength {
 
 # ---------------------------------------------------------------------------- edit a page (user, 2026-11-13)
 
-$script:EditFields = @('title', 'type', 'topics', 'aliases', 'summary', 'url', 'links', 'origin')
+$script:EditFields = @('title', 'type', 'topics', 'aliases', 'summary', 'url', 'links', 'origin', 'tags')
 
 function Test-EditText([string]$Text, [int]$Max) { $Text.Length -le $Max -and $Text -notmatch '[\x00-\x08\x0b\x0c\x0e-\x1f]' }
 
@@ -1091,6 +1157,12 @@ function Get-EditPlan {
         $al = @(@($Ask.aliases) | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ } | Select-Object -Unique)
         if ($al.Count -gt 20 -or @($al | Where-Object { -not (Test-EditText $_ 120) }).Count) { return (& $fail 'At most 20 aliases of up to 120 characters.') }
         if (($al -join '|') -ne (@(Get-LkProp $Rec 'aliases' @()) -join '|')) { $ch.aliases = $al }
+    }
+    if ($Ask.ContainsKey('tags')) {
+        # Set by hand only; the one normal form (ConvertTo-TagList). An invalid tag refuses the edit.
+        $tc = ConvertTo-TagList -Tags @($Ask.tags | Where-Object { $null -ne $_ })
+        if (-not $tc.ok) { return (& $fail $tc.error) }
+        if ((@($tc.tags) -join '|') -cne (@(Get-LkProp $Rec 'tags' @()) -join '|')) { $ch.tags = @($tc.tags) }
     }
     if ($Ask.ContainsKey('summary')) {
         $s = ([string]$Ask.summary).Trim()
@@ -1137,8 +1209,9 @@ function Get-EditPlan {
     if ($Ask.ContainsKey('origin')) {
         # Where the page came from ('' = typed in ObsidiNote); also for pages added before it was
         # recorded (operator, 2026-11-14). A link page's place comes from its address instead.
-        $o = ([string]$Ask.origin).Trim()
-        if (-not (Test-OriginId $o)) { return (& $fail 'Unknown origin.') }
+        $oc = Resolve-OriginId $Ask.origin   # the one check, as for Add
+        if (-not $oc.ok) { return (& $fail $oc.error) }
+        $o = $oc.origin
         $urlAfter = if ($ch.ContainsKey('url')) { [string]$ch.url } else { Get-LkString $Rec 'url' }   # judged on the result of this edit
         if ($urlAfter -and $o) { return (& $fail 'A link page''s source is its address.') }
         if ($o -ne (Get-LkString $Rec 'origin')) { $ch.origin = $o }
@@ -1189,13 +1262,14 @@ function Invoke-PageEditWrite {
     $pg = Invoke-Store $Store 'ReadPage' @{ PageId = $pageId }
     $metaLinks = @(Get-LkProp (Get-LkProp $pg 'meta' @{}) 'links' @())
     if ($metaLinks.Count) { $rec = @{} + $rec; $rec['links'] = $metaLinks }
+    if ($Ask.ContainsKey('tags')) { $rec = @{} + $rec; $rec['tags'] = @(Get-OwnTags -Rec $rec -Page $pg) }
     $plan = Get-EditPlan -Store $Store -Rec $rec -Pages $pages -Ask $Ask
     if (-not $plan.ok) { $r.status = 'invalid'; $r.message = $plan.message; return $r }
     $ch = $plan.changes
     $r.changed = @($ch.Keys | Where-Object { $_ -ne 'host' } | Sort-Object)
     if (-not $r.changed.Count) { $r.status = 'unchanged'; $r.message = 'Nothing changed.'; return $r }
 
-    $meta = @{}; foreach ($k in 'type', 'topics', 'aliases', 'summary', 'url', 'host', 'links', 'origin') { if ($ch.ContainsKey($k)) { $meta[$k] = $ch[$k] } }
+    $meta = @{}; foreach ($k in 'type', 'topics', 'aliases', 'summary', 'url', 'host', 'links', 'origin', 'tags') { if ($ch.ContainsKey($k)) { $meta[$k] = $ch[$k] } }
     Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = $meta; Outlines = @(); Title = $(if ($ch.ContainsKey('title')) { $ch.title } else { $null }) } | Out-Null
     $ix = @{ id = $Id }; foreach ($k in @($meta.Keys)) { $ix[$k] = $meta[$k] }
     if ($ch.ContainsKey('title')) { $ix.title = $ch.title }
@@ -1217,4 +1291,138 @@ function Invoke-PageEditWrite {
     $r
 }
 
-Export-ModuleMember -Function Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle, Add-PageLink, Test-PagesLinked, Edit-Page, Test-WeakLinkIt, Update-LinkItStrength
+# ---------------------------------------------------------------------------- tags (set by hand, 2026-11-15)
+# Tags live in the page's own obsn.tags Meta (the truth), its properties outline ("tags: a, b") and
+# its index record. Only the person sets them: Add and link Update never read or write the field, and
+# the store merges an update into the page's Meta, so a Copilot step keeps them. A page that never
+# had a tag has no Meta: no upgrade step is needed (a missing value means no tags).
+
+function Get-OwnTags {
+    <# A page's own tags: its obsn.tags Meta when the page was read ($Page from the store's ReadPage;
+       the page wins), else the index record's. Returns the list on the pipeline; wrap in @(). #>
+    param($Rec, $Page)
+    $meta = Get-LkProp $Page 'meta' $null
+    $src = if ($meta -is [hashtable] -and $meta.ContainsKey('tags')) { @($meta['tags']) } else { @(Get-LkProp $Rec 'tags' @()) }
+    @($src | Where-Object { $_ } | ForEach-Object { [string]$_ })
+}
+
+function Write-TagPlan {
+    <# Writes a tag plan: @(@{ id; pageId; tags; write (the page's Meta differs); mirror (only the
+       index record differs) }). The page first (Meta + properties outline through UpdatePage, never
+       the body or "Your notes"), then the index records, in one Index write when the store can.
+       Returns @{ changed (pages written); warnings }. #>
+    param($Store, [object[]]$Plan = @())
+    $changed = 0; $warn = @(); $ix = @()
+    foreach ($p in @($Plan)) {
+        if (-not $p.write -and -not $p.mirror) { continue }
+        if ($p.write) {
+            try { Invoke-Store $Store 'UpdatePage' @{ PageId = $p.pageId; Meta = @{ tags = @($p.tags) }; Outlines = @(); Title = $null } | Out-Null; $changed++ }
+            catch { $warn += "Page $($p.id) was not changed: $($_.Exception.Message)"; continue }
+        }
+        $ix += @{ id = $p.id; tags = @($p.tags) }
+    }
+    if ($ix.Count) {
+        try {
+            if ((Get-LkProp $Store 'IndexUpdatePages' $null) -is [scriptblock]) { Invoke-Store $Store 'IndexUpdatePages' @{ Pages = $ix } | Out-Null }
+            else { foreach ($i in $ix) { Invoke-Store $Store 'IndexUpdatePage' @{ Page = $i } | Out-Null } }
+        } catch { $warn += "The index was not updated; the next start reads the pages again ($($_.Exception.Message))." }
+    }
+    @{ changed = $changed; warnings = $warn }
+}
+
+function Set-PageTags {
+    <# The person tags pages of the active vault (POST /api/pages/tag): every page in $Ids gets the
+       tags in $Add and loses the ones in $Remove. Everything is checked before anything is written:
+       an invalid tag, an unknown page or a page that would pass 12 tags writes nothing. No Copilot.
+       Returns @{ status = tagged | invalid | refused | not-found | failed; message; changed (pages
+       changed); pages = @(@{ id; tags }) for every listed page; warnings; ms }. Never throws. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Store, [string[]]$Ids = @(), [object[]]$Add = @(), [object[]]$Remove = @())
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $r = [ordered]@{ status = 'failed'; message = ''; changed = 0; pages = @(); warnings = @(); ms = 0 }
+    try { $r = Invoke-PageTagWrite -Store $Store -Ids $Ids -Add $Add -Remove $Remove -Result $r }
+    catch { $r.status = 'failed'; $r.message = "The tags were not changed: $($_.Exception.Message)" }
+    $r.ms = [int]$sw.ElapsedMilliseconds
+    Write-AppLog info ingest 'Tagging finished' @{ status = $r.status; pages = @($r.pages).Count; changed = $r.changed; ms = $r.ms }
+    $r
+}
+
+function Invoke-PageTagWrite {
+    param($Store, [string[]]$Ids, [object[]]$Add, [object[]]$Remove, $Result)
+    $r = $Result
+    $bad = { param($m) $r.status = 'invalid'; $r.message = $m; $r }
+    $want = @($Ids | Where-Object { $_ } | Select-Object -Unique)
+    if (-not $want.Count) { return (& $bad 'Choose at least one page.') }
+    if ($want.Count -gt 200) { return (& $bad 'At most 200 pages at a time.') }
+    $a = ConvertTo-TagList -Tags @($Add)
+    if (-not $a.ok) { return (& $bad $a.error) }
+    $rm = ConvertTo-TagList -Tags @($Remove) -Max ([int]::MaxValue)
+    if (-not $rm.ok) { return (& $bad $rm.error) }
+    if (-not @($a.tags).Count -and -not @($rm.tags).Count) { return (& $bad 'Nothing to add or remove.') }
+    try { Invoke-Store $Store 'AssertWritable' | Out-Null } catch { $r.status = 'refused'; $r.message = "Nothing was changed: $($_.Exception.Message)"; return $r }
+    $pages = Get-IndexPageMap (Invoke-Store $Store 'GetIndex')
+    foreach ($id in $want) { if (-not $pages.ContainsKey($id)) { $r.status = 'not-found'; $r.message = "Page $id is not in this vault's index."; return $r } }
+    $plan = New-Object System.Collections.Generic.List[object]
+    foreach ($id in $want) {
+        $rec = $pages[$id]
+        $pageId = Get-LkString $rec 'pageId'
+        if (-not $pageId) { throw "page $id has no OneNote page" }
+        $own = @(Get-OwnTags -Rec $rec -Page (Invoke-Store $Store 'ReadPage' @{ PageId = $pageId }))
+        $new = @($own | Where-Object { @($rm.tags) -notcontains $_ }) + @($a.tags | Where-Object { $own -notcontains $_ -or @($rm.tags) -contains $_ })
+        $n = ConvertTo-TagList -Tags $new
+        if (-not $n.ok) { return (& $bad "$($n.error) '$(Get-LkString $rec 'title')' would have more.") }
+        $recTags = @(Get-LkProp $rec 'tags' @()) -join '|'
+        $plan.Add(@{ id = $id; pageId = $pageId; tags = @($n.tags); write = ((@($n.tags) -join '|') -cne ($own -join '|')); mirror = ((@($n.tags) -join '|') -cne $recTags) })
+    }
+    $plan = @($plan.ToArray())
+    $w = Write-TagPlan -Store $Store -Plan $plan
+    $r.changed = $w.changed
+    $r.warnings = @($w.warnings)
+    $r.pages = @($plan | ForEach-Object { [ordered]@{ id = $_.id; tags = [string[]]@($_.tags) } })
+    $r.status = 'tagged'
+    $r.message = "Tags changed on $($w.changed) page$(if ($w.changed -ne 1) { 's' })."
+    $r
+}
+
+function Rename-Tag {
+    <# The person renames a tag across the active vault (POST /api/tags/rename): every page that has
+       $From gets $To in its place (no duplicate when it already has $To); $To = '' removes the tag
+       from every page. Pages are found through the index; each page's own Meta is what is changed.
+       Returns @{ status = renamed | invalid | refused | failed; message; changed; warnings; ms }. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Store, [AllowEmptyString()][string]$From = '', [AllowEmptyString()][string]$To = '')
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $r = [ordered]@{ status = 'failed'; message = ''; changed = 0; warnings = @(); ms = 0 }
+    try {
+        $f = ConvertTo-TagList -Tags @($From)
+        $t = if ($To.Trim()) { ConvertTo-TagList -Tags @($To) } else { @{ ok = $true; tags = @(); error = '' } }
+        if (-not $f.ok) { $r.status = 'invalid'; $r.message = $f.error }
+        elseif (-not $t.ok) { $r.status = 'invalid'; $r.message = $t.error }
+        else {
+            $ok = $true
+            try { Invoke-Store $Store 'AssertWritable' | Out-Null } catch { $ok = $false; $r.status = 'refused'; $r.message = "Nothing was changed: $($_.Exception.Message)" }
+            if ($ok) {
+                $old = [string]$f.tags[0]; $new = if (@($t.tags).Count) { [string]$t.tags[0] } else { '' }
+                $plan = @(if ($old -cne $new) {
+                    foreach ($rec in @((Get-IndexPageMap (Invoke-Store $Store 'GetIndex')).Values)) {
+                        if (@(Get-LkProp $rec 'tags' @()) -cnotcontains $old) { continue }
+                        $pageId = Get-LkString $rec 'pageId'
+                        if (-not $pageId) { continue }
+                        $own = @(Get-OwnTags -Rec $rec -Page (Invoke-Store $Store 'ReadPage' @{ PageId = $pageId }))
+                        $next = @(foreach ($x in $own) { if ($x -cne $old) { $x } elseif ($new -and $own -cnotcontains $new) { $new } })
+                        @{ id = (Get-LkString $rec 'id'); pageId = $pageId; tags = $next; write = (($next -join '|') -cne ($own -join '|')); mirror = $true }
+                    }
+                })
+                $w = Write-TagPlan -Store $Store -Plan $plan
+                $r.changed = $w.changed; $r.warnings = @($w.warnings)
+                $r.status = 'renamed'
+                $r.message = if ($new) { "Renamed on $($w.changed) page$(if ($w.changed -ne 1) { 's' })." } else { "Removed from $($w.changed) page$(if ($w.changed -ne 1) { 's' })." }
+            }
+        }
+    } catch { $r.status = 'failed'; $r.message = "The tag was not changed: $($_.Exception.Message)" }
+    $r.ms = [int]$sw.ElapsedMilliseconds
+    Write-AppLog info ingest 'Tag rename finished' @{ status = $r.status; changed = $r.changed; ms = $r.ms }
+    $r
+}
+
+Export-ModuleMember -Function Set-PageTags, Rename-Tag, Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle, Add-PageLink, Test-PagesLinked, Edit-Page, Test-WeakLinkIt, Update-LinkItStrength

@@ -3,11 +3,13 @@ import { markdownForPaste, type PasteNode } from '../add/pasteMarkdown'
 import { originOfPaste, originStillApplies, pasteMark } from '../add/pasteOrigin'
 import { MAX_FILE_BYTES, readFileText } from '../add/fileText'
 import { locateFile, type LocateResult } from '../api'
+import { loneLink } from '../model/links'
 import { ORIGINS, TYPED_LABEL } from '../model/origins'
 import type { Intent, Mode } from '../api'
 import { useIntent } from '../hooks/useIntent'
 import { intentLine, primaryLabel } from '../model/intentWording'
 import { isSendKey, modeForKey } from '../model/keys'
+import type { SendBlock } from '../model/attention'
 import type { AddTarget } from '../model/notebooks'
 import { AddIcon, AskIcon, FileIcon, InfoIcon, WarnIcon } from './icons'
 import { ModeSwitch } from './ModeSwitch'
@@ -33,6 +35,10 @@ interface Props {
   children?: ReactNode
   /** Bumped to empty the box after a result was filed ("Done"). */
   clearKey?: number
+  /** Why a send cannot work right now; shown in place of the intent line. */
+  block?: SendBlock | null
+  /** The control that can fix it ("Connect Copilot again"), next to that line. */
+  connect?: ReactNode
 }
 
 /** The pasted HTML as an inert document (DOMParser runs no scripts and loads no images). */
@@ -53,32 +59,63 @@ function insertAtCursor(box: HTMLTextAreaElement, text: string, setText: (t: str
 /** The one input: Auto/Add/Ask, the live intent line, and the primary button that follows it.
  *  The text lives in memory only (never in storage): it is the person's content.
  *  addTarget: set while a read-only notebook is shown (an Add still goes to the active vault). */
-export function Composer({ addTarget, onSend, busy, prefill, note, children, clearKey = 0 }: Props) {
+export function Composer({ addTarget, onSend, busy, prefill, note, children, clearKey = 0, block = null, connect = null }: Props) {
   const [text, setText] = useState('')
   const [mode, setMode] = useState<Mode>('auto')
   const area = useRef<HTMLTextAreaElement>(null)
-  const { result, error } = useIntent(text, mode)
+  // Counts what the box has moved on from (a send, an emptied box, a newer file): a file read or
+  // lookup that answers later belongs to an older count and is dropped (code review 2026-11-15).
+  const fileRun = useRef(0)
+  // One link and nothing else, also as "[title](address)", is that address: read and sent as a link.
+  const onlyLink = loneLink(text)
+  const sendText = onlyLink ?? text
+  const { result, error } = useIntent(sendText, mode)
   const line = intentLine(result, addTarget)
   const empty = !text.trim()
   // Where the text came from: set from a paste (add/pasteOrigin.ts), changeable, '' = typed. A link
   // alone needs none (its address says where it lives), and an Ask files nothing.
   const [origin, setOrigin] = useState('')
   // The pasted text the origin was read from; once it has been in the box and is gone again, so is
-  // the origin. "seen" waits for the paste to land (the text changes after the paste event).
-  const markRef = useRef({ mark: '', seen: false })
-  const setMark = (mark: string) => {
-    markRef.current = { mark, seen: false }
+  // the origin, and it comes back with the text (Ctrl+Z). "seen" waits for the paste to land (the
+  // text changes after the paste event); "from" is the origin that belongs to the mark.
+  const markRef = useRef({ mark: '', seen: false, from: '', lost: false })
+  const setMark = (mark: string, from = '') => {
+    markRef.current = { mark, seen: false, from, lost: false }
   }
-  const loneLink = /^https?:\/\/\S+$/i.test(text.trim())
-  const showFrom = !empty && !loneLink && mode !== 'ask' && result?.intent !== 'ask'
+  const showFrom = !empty && !onlyLink && mode !== 'ask' && result?.intent !== 'ask'
   useEffect(() => {
     const m = markRef.current
-    if (m.mark && originStillApplies(text, m.mark)) m.seen = true
-    if (empty || (m.seen && !originStillApplies(text, m.mark))) {
+    const still = originStillApplies(text, m.mark)
+    if (empty) {
       setOrigin('')
       setMark('')
+    } else if (m.mark && still) {
+      m.seen = true
+      if (m.lost) {
+        m.lost = false
+        setOrigin(m.from)
+      }
+    } else if (m.seen && !still && !m.lost) {
+      m.lost = true
+      setOrigin('')
     }
   }, [empty, text])
+
+  // A file let go beside the box must not make the browser open it in place of the app (the app
+  // window has no Back, and everything in memory would be gone): outside the box a drop does nothing.
+  useEffect(() => {
+    const stop = (e: DragEvent) => {
+      if (!e.dataTransfer || ![...e.dataTransfer.types].includes('Files')) return
+      e.preventDefault()
+      if (!(e.target instanceof Element && e.target.closest('.composer'))) e.dataTransfer.dropEffect = 'none'
+    }
+    window.addEventListener('dragover', stop)
+    window.addEventListener('drop', stop)
+    return () => {
+      window.removeEventListener('dragover', stop)
+      window.removeEventListener('drop', stop)
+    }
+  }, [])
 
   // Ctrl+1 = Add, Ctrl+2 = Ask, anywhere on the page while this view is open.
   useEffect(() => {
@@ -104,8 +141,10 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
 
   useEffect(() => {
     if (clearKey) {
+      fileRun.current++
       setText('')
       setFileNote(null)
+      setFileUrl(null)
     }
   }, [clearKey])
 
@@ -125,12 +164,14 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
   const picker = useRef<HTMLInputElement>(null)
   async function takeFile(file: File | undefined) {
     if (!file || busy) return
+    const run = ++fileRun.current
     if (file.size > MAX_FILE_BYTES) {
       setFileNote({ text: 'This file is larger than 10 MB. Paste the part you want to keep instead.', error: true })
       return
     }
     setFileNote({ text: `Reading ${file.name}…`, error: false })
     const r = await readFileText(file.name, file.type, new Uint8Array(await file.arrayBuffer()))
+    if (run !== fileRun.current) return
     if (!r.ok) {
       setFileNote({ text: r.message, error: true })
       return
@@ -138,7 +179,7 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
     setText(r.text)
     setMode('add') // a file is something to keep, never a question
     setOrigin('file')
-    setMark(pasteMark(r.text))
+    setMark(pasteMark(r.text), 'file')
     setFileUrl(null)
     const cut = r.message ? ` ${r.message}` : ''
     setFileNote({ text: `${file.name} is in the box.${cut} Looking for it in OneDrive…`, error: false })
@@ -151,6 +192,8 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
     } catch {
       found = null
     }
+    // The box was sent or emptied, or another file came, while the lookup ran: this answer is late.
+    if (run !== fileRun.current) return
     if (found?.status === 'found' && found.url) {
       setFileUrl({ url: found.url, text: r.text })
       setFileNote({ text: `${file.name} is in your OneDrive or SharePoint: the page keeps its link.${cut} Check the text, then press Add.`, error: false })
@@ -159,16 +202,19 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
       setFileNote({ text: `${file.name} is in the box${why}.${cut} Check it, then press Add.`, error: false })
     }
   }
-  // The address of the dropped file, while its text is still what is in the box.
+  // The address of the dropped file, for as long as the box still holds that file's text: the
+  // "From" choice is "File" while it does (the mark above), so trimming a paragraph or fixing a
+  // typo keeps the link (code review 2026-11-15: any edit dropped it without a word).
   const [fileUrl, setFileUrl] = useState<{ url: string; text: string } | null>(null)
-  const liveFileUrl = fileUrl && fileUrl.text === text ? fileUrl.url : ''
+  const liveFileUrl = fileUrl && origin === 'file' && !empty ? fileUrl.url : ''
 
   // Ask's options (what Ask reads) only when the text will be asked (operator, 2026-11-14).
   const asking = mode === 'ask' || (mode === 'auto' && result?.intent === 'ask')
 
   function send() {
-    if (empty || busy) return
-    onSend(text, mode, result?.intent ?? null, showFrom ? origin : '', liveFileUrl)
+    if (empty || busy || block?.disableSend) return
+    fileRun.current++
+    onSend(sendText, mode, result?.intent ?? null, showFrom ? origin : '', liveFileUrl)
   }
 
   // Paste from a web page, Word or a mail: its structure (headings, lists, tables, bold, links)
@@ -180,7 +226,7 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
     const plain = e.clipboardData.getData('text/plain')
     if (from) {
       setOrigin(from)
-      setMark(pasteMark(plain))
+      setMark(pasteMark(plain), from)
     }
     if (Date.now() - plainPasteAt.current < 1000) {
       plainPasteAt.current = 0
@@ -188,7 +234,7 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
     }
     const md = markdownForPaste(html, parseHtml)
     if (md == null) return
-    if (from) setMark(pasteMark(md))
+    if (from) setMark(pasteMark(md), from)
     e.preventDefault()
     insertAtCursor(e.currentTarget, md, setText)
   }
@@ -247,6 +293,7 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
             <span><kbd>Ctrl</kbd> <kbd>2</kbd></span><span>Ask</span>
             <span><kbd>Enter</kbd></span><span>Send</span>
             <span><kbd>Shift</kbd> <kbd>Enter</kbd></span><span>New line</span>
+            <span><kbd>Ctrl</kbd> <kbd>K</kbd></span><span>Find a page or topic</span>
           </div>
         </div>
         {/* The drop's keyboard and touch path: the same reading, from a file picker. */}
@@ -288,6 +335,11 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
         autoFocus
         spellCheck
       />
+      {fileUrl && !liveFileUrl && !empty && (
+        <p className="composer__file-note" role="status">
+          The file's link is no longer kept: the text in the box is not the file's any more. Choose "File" under From to keep it.
+        </p>
+      )}
       {fileNote && (
         <p className={fileNote.error ? 'composer__file-note composer__file-note--error' : 'composer__file-note'} role={fileNote.error ? 'alert' : 'status'}>
           {fileNote.error && <WarnIcon />}
@@ -311,6 +363,17 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
         </div>
       )}
       {note}
+      {/* Copilot off or ObsidiNote gone: said on its own line. The reading of the text and its
+          "Add instead / Ask instead" stay, since Send still works while only Copilot is reported
+          off (code review 2026-11-15: the warning had replaced them). */}
+      {block && (
+        <p className="composer__intent composer__block" role="status" data-block="">
+          <WarnIcon />
+          <span>
+            <b>{block.text}</b> {connect}
+          </span>
+        </p>
+      )}
       <div className="composer__bottom">
         <p className="composer__intent" role="status">
           <LineIcon />
@@ -333,7 +396,7 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
             )}
           </span>
         </p>
-        <button type="button" className="btn btn--primary composer__send" onClick={send} disabled={empty || busy} aria-busy={busy}>
+        <button type="button" className="btn btn--primary composer__send" onClick={send} disabled={empty || busy || Boolean(block?.disableSend)} aria-busy={busy}>
           {busy ? 'Working…' : primaryLabel(result)}
         </button>
       </div>

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import iconUrl from '../../../assets/icon.svg'
 import type { NotebooksState, NotebookState } from '../hooks/useServerData'
 import type { AttentionNote } from '../model/attention'
@@ -23,10 +24,15 @@ interface Props {
   onRetryCopilot: () => Promise<string>
   /** Opens Settings (kept in the vault in OneNote); none without an active vault. */
   onSettings?: () => void
+  /** Opens the List of the shown notebook on one section's pages (a search query). */
+  onOpenSection?: (query: string) => void
 }
 
-export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp, onRetryCopilot, onSettings }: Props) {
+export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp, onRetryCopilot, onSettings, onOpenSection }: Props) {
   const nb = notebook.data
+  // In a narrow window the side bar is a bar at the top; its section list is folded there until
+  // asked for, so the Add box stays on the first screen (review 2026-11-14). Wide: always shown.
+  const [sectionsOpen, setSectionsOpen] = useState(false)
   const canSetUp = Boolean(nb?.notebook?.canSetUp && nb.notebook.id === notebooks.shownId)
   return (
     <nav className="rail" aria-label="Main">
@@ -62,12 +68,17 @@ export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp, on
       <NotebookSwitcher notebooks={notebooks} onNewVault={onNewVault} onSetUp={canSetUp ? onSetUp : null} />
 
       <section className="rail__notebook" aria-labelledby="rail-sections">
-        <h2 id="rail-sections" className="rail__label">
-          Sections{nb?.notebook ? ` of ${nb.notebook.name}` : ''}
-        </h2>
-        <div className="rail__scroll">
+        <div className="rail__sections-head">
+          <h2 id="rail-sections" className="rail__label">
+            Sections{nb?.notebook ? ` of ${nb.notebook.name}` : ''}
+          </h2>
+          <button type="button" className="link-btn rail__fold" aria-expanded={sectionsOpen} aria-controls="rail-section-list" onClick={() => setSectionsOpen(!sectionsOpen)}>
+            {sectionsOpen ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        <div id="rail-section-list" className="rail__scroll" data-open={sectionsOpen}>
           {nb?.available ? (
-            <SectionTree nodes={nb.sections} />
+            <SectionTree nodes={nb.sections} onOpen={onOpenSection} vault={Boolean(nb.notebook?.vault)} />
           ) : (
             // The reason is in the attention note below (from /api/status); no need to say it twice.
             <p className="rail__muted">{notebook.loading && !nb ? 'Reading the notebook...' : 'No sections to show.'}</p>

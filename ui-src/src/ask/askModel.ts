@@ -1,4 +1,4 @@
-import type { AskParagraph, AskPath, AskProgressStep, AskResult, AskSource, AskStep } from './types'
+import type { AskParagraph, AskPath, AskResult, AskSource, AskStep } from './types'
 
 /** Windows PowerShell can hand a one-item or empty list over as an object or null. */
 export function list<T>(value: T[] | T | null | undefined): T[] {
@@ -47,11 +47,6 @@ export function normalizeAskResult(raw: AskResult): AskResult {
   }
 }
 
-export const PROGRESS_LABELS: Record<AskProgressStep, string> = {
-  1: 'Finding branches...',
-  2: 'Choosing pages...',
-  3: 'Writing the answer...',
-}
 
 /** The anchor id of a source row, the target of its citation chips. */
 export function sourceAnchor(conversationId: string, turn: number, n: number): string {

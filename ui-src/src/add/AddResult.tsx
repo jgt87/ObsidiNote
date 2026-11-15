@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { Notice } from '../components/Notice'
 import { webUrl } from '../model/links'
 import { ConfirmReplaceDialog, type ReplaceDecision } from './ConfirmReplaceDialog'
 import { chipLabel, formatOneNotePath, formatSeconds, formatTopicPath, placementParts, resultHeading } from './format'
@@ -44,6 +46,15 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
   const isUpdate = r.status === 'updated' || r.status === 'unchanged' || r.status === 'kept' || r.status === 'could-not-update' || r.status === 'needs-confirmation'
   const written = r.status === 'added' || r.status === 'updated' || r.status === 'unchanged' || r.status === 'kept'
   const waiting = isWaitingStatus(r.status)
+  // Undo sends the page to OneNote's Deleted Pages: it asks first, as in History (AGENTS.md: delete always asks).
+  const [askUndo, setAskUndo] = useState(false)
+  const relatedPages = r.related.map((p, i) => (
+    <span key={p.id}>
+      {i > 0 && ', '}
+      {p.link ? <a className="add-a" href={p.link}>{p.title}</a> : p.title}
+    </span>
+  ))
+  const related = r.related.length > 0 && r.status !== 'failed' ? <p className="add-text add-related">Related pages you already had: {relatedPages}</p> : null
 
   return (
     <div className="add-result">
@@ -57,27 +68,61 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
         )}
       </div>
 
-      {r.status === 'failed' && (
-        <section className="add-card add-card--alert" role="alert">
-          <p className="add-label">Not added</p>
-          <p className="add-text">{r.message}</p>
-          {r.inbox?.status === 'failed' && <p className="add-muted">The item is kept in your Intake with this reason, so nothing is lost.</p>}
-          {r.related.length > 0 && (
-            <p className="add-text">
-              Already there:{' '}
-              {r.related.map((p, i) => (
-                <span key={p.id}>
-                  {i > 0 && ', '}
-                  {p.link ? <a className="add-a" href={p.link}>{p.title}</a> : p.title}
-                </span>
-              ))}
-            </p>
+      {/* design (review 2026-11-14): the actions sit right under the heading, so "glance, accept,
+          leave" needs no scroll. None is primary: the box's Send above is the view's one primary
+          button (code review 2026-11-15: Send and Done were both). */}
+      {r.status !== 'ask-instead' && !waiting && (
+        <div className="add-actions">
+          {askUndo ? (
+            <>
+              <span className="add-text">Undo this page? It goes to OneNote's Deleted Pages.</span>
+              <button type="button" className="btn" onClick={() => setAskUndo(false)} disabled={busy}>
+                Keep
+              </button>
+              <button type="button" className="btn btn--danger" onClick={a.onUndo} disabled={busy}>
+                Undo
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="btn" onClick={a.onDone} disabled={busy}>
+                Done
+              </button>
+              {r.status === 'added' && a.onEditLinks && (
+                <button type="button" className="btn" onClick={a.onEditLinks} disabled={busy}>
+                  Edit links
+                </button>
+              )}
+              {r.status === 'added' && a.onMoveInIndex && (
+                <button type="button" className="btn" onClick={a.onMoveInIndex} disabled={busy}>
+                  Move in index
+                </button>
+              )}
+              {r.kind === 'link' && r.page && r.status !== 'needs-confirmation' && a.onUpdateLink && (
+                <button type="button" className="btn" onClick={a.onUpdateLink} disabled={busy}>
+                  Update
+                </button>
+              )}
+              {r.status === 'added' && r.undo && a.onUndo && (
+                <button type="button" className="btn" onClick={() => setAskUndo(true)} disabled={busy}>
+                  Undo
+                </button>
+              )}
+            </>
           )}
-        </section>
+        </div>
+      )}
+
+      {r.status === 'failed' && (
+        <Notice error title="Not added">
+          <p>{r.message}</p>
+          {r.inbox?.status === 'failed' && <p className="add-muted">The item is kept in your Intake with this reason, so nothing is lost.</p>}
+          {r.related.length > 0 && <p>Already there: {relatedPages}</p>}
+        </Notice>
       )}
 
       {isWaitingStatus(r.status) && (
-        <WaitingCard status={r.status} message={r.message} busy={busy} onCheck={r.inboxId ? a.onCheckAnswer : undefined} />
+        <WaitingCard status={r.status} message={r.message} busy={busy} onCheck={r.inboxId ? a.onCheckAnswer : undefined} onDone={a.onDone} />
       )}
 
       {r.status === 'ask-instead' && (
@@ -89,33 +134,19 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
             </button>
           )}
           {a.onAsk && (
-            <button type="button" className="btn btn--primary" onClick={a.onAsk} disabled={busy}>
+            <button type="button" className="btn" onClick={a.onAsk} disabled={busy}>
               Ask it
             </button>
           )}
         </section>
       )}
 
-      {r.text && r.status !== 'ask-instead' && (
-        <section className="add-card">
-          <p className="add-label">{r.kind === 'link' ? 'The link' : 'What you added'}</p>
-          {r.kind === 'link' && webUrl(r.text) ? (
-            <p className="add-text add-text--pre">
-              <a className="add-a" href={webUrl(r.text)} target="_blank" rel="noopener noreferrer">
-                {r.text.trim()}
-              </a>
-            </p>
-          ) : (
-            <p className="add-text add-text--pre">{r.text}</p>
-          )}
-          {r.kind === 'link' && r.update?.new && r.status === 'added' && <p className="add-text add-summary">{r.update.new.summary}</p>}
-        </section>
-      )}
-
+      {(r.text && r.status !== 'ask-instead') || (r.page && r.status !== 'failed') ? (
+        <section className="add-card add-card--parts">
       {r.page && r.status !== 'failed' && (
-        <section className="add-card" aria-labelledby="add-placed-heading">
+        <div aria-labelledby="add-placed-heading" role="group">
           <h2 id="add-placed-heading" className="add-label">
-            {r.page.unfiled ? 'Placed in the central index (Unfiled until it gets a topic)' : 'Placed in the central index'}
+            {r.page.unfiled ? 'Filed under Unfiled, until it gets a topic' : 'Filed under'}
           </h2>
           <div className="add-path">
             {placementParts(r.page).map((part, i, all) =>
@@ -149,8 +180,25 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
               ))}
             </ul>
           )}
-        </section>
+        </div>
       )}
+      {r.text && r.status !== 'ask-instead' && (
+        <div>
+          <p className="add-label">{r.kind === 'link' ? 'The link' : 'What you added'}</p>
+          {r.kind === 'link' && webUrl(r.text) ? (
+            <p className="add-text add-text--pre">
+              <a className="add-a" href={webUrl(r.text)} target="_blank" rel="noopener noreferrer">
+                {r.text.trim()}
+              </a>
+            </p>
+          ) : (
+            <p className="add-text add-text--pre">{r.text}</p>
+          )}
+          {r.kind === 'link' && r.update?.new && r.status === 'added' && <p className="add-text add-summary">{r.update.new.summary}</p>}
+        </div>
+      )}
+        </section>
+      ) : null}
 
       {isUpdate && r.update && <LinkUpdateView update={r.update} status={r.status} />}
       {r.status === 'could-not-update' && (
@@ -163,58 +211,16 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
         <LinksCard links={r.links} backlinks={r.backlinks} title={r.status === 'updated' ? 'New links' : 'Links'} />
       )}
 
-      {r.warnings.length > 0 && (
-        <section className="add-card" aria-label="Notes">
-          <ul className="add-warnings">
-            {r.warnings.map((w, i) => (
-              <li key={i} className="add-muted">
-                {w}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      {related}
 
-      {r.status !== 'ask-instead' && (
-        <section className="add-card add-actions">
-          <div className="add-actions__text add-text">
-            {r.related.length > 0 && r.status !== 'failed' && (
-              <>
-                Related pages you already had:{' '}
-                {r.related.map((p, i) => (
-                  <span key={p.id}>
-                    {i > 0 && ', '}
-                    {p.link ? <a className="add-a" href={p.link}>{p.title}</a> : p.title}
-                  </span>
-                ))}
-              </>
-            )}
-          </div>
-          {r.status === 'added' && a.onEditLinks && (
-            <button type="button" className="btn" onClick={a.onEditLinks} disabled={busy}>
-              Edit links
-            </button>
-          )}
-          {r.status === 'added' && a.onMoveInIndex && (
-            <button type="button" className="btn" onClick={a.onMoveInIndex} disabled={busy}>
-              Move in index
-            </button>
-          )}
-          {r.kind === 'link' && r.page && r.status !== 'needs-confirmation' && a.onUpdateLink && (
-            <button type="button" className="btn" onClick={a.onUpdateLink} disabled={busy}>
-              Update
-            </button>
-          )}
-          {r.status === 'added' && r.undo && a.onUndo && (
-            <button type="button" className="btn" onClick={a.onUndo} disabled={busy}>
-              Undo
-            </button>
-          )}
-          {/* design: while the item waits, "Check for the answer" is the view's one primary button. */}
-          <button type="button" className={waiting && r.inboxId && a.onCheckAnswer ? 'btn' : 'btn btn--primary'} onClick={a.onDone} disabled={busy}>
-            Done
-          </button>
-        </section>
+      {r.warnings.length > 0 && (
+        <ul className="add-warnings" aria-label="Notes">
+          {r.warnings.map((w, i) => (
+            <li key={i} className="add-muted">
+              {w}
+            </li>
+          ))}
+        </ul>
       )}
 
       {r.status === 'needs-confirmation' && r.confirm && a.onDecide && (

@@ -2,6 +2,7 @@
 // pointer (.kg-card and its children have pointer-events: none), so it cannot steal the hover.
 
 import { formatDate } from './format'
+import { pageTypeLabel } from '../model/format'
 import { indexPath, type GraphIndex } from './graphIndex'
 import type { DotLayout } from './layout'
 import { primaryTopic, type GraphPage } from './model'
@@ -39,7 +40,7 @@ export function HoverCard({ index, page, dot, view, stage, near = [], focusKey }
       <div className="kg-card__title">{page.title}</div>
       {page.summary && <div className="kg-card__summary">{page.summary}</div>}
       <div className="kg-card__meta">
-        {out} {out === 1 ? 'link' : 'links'} · {back} {back === 1 ? 'backlink' : 'backlinks'} · {page.isHub ? 'hub page' : page.kind || 'page'}
+        {out} {out === 1 ? 'link' : 'links'} · {back} {back === 1 ? 'backlink' : 'backlinks'} · {page.isHub ? 'most linked page' : pageTypeLabel(page.kind) || 'page'}
         {added ? ` · ${added}` : ''}
         {page.readOnly ? ' · read only' : ''}
       </div>

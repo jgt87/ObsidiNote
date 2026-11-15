@@ -10,10 +10,14 @@ import { ExportButton } from '../export/ExportButton'
 import { exportSourceOf } from '../export/exportApi'
 import type { PageEditRequest } from './editModel'
 import { formatDate, plural } from './format'
+import { pageTypeLabel } from '../model/format'
 import { indexPath, type GraphIndex } from './graphIndex'
 import { primaryTopic, type GraphEdge, type GraphPage } from './model'
 import { canGoBack, canGoForward, currentPage, goBack, goForward, startHistory, visit, type PageHistory } from './history'
 import { PageEditForm } from './PageEditForm'
+import { readOnlyWhy } from './readOnly'
+import { tagCounts } from './tags'
+import { TagsRow } from './TagsRow'
 import { stepLinked } from './view'
 
 export interface PageActions {
@@ -24,6 +28,9 @@ export interface PageActions {
   /** "link it" on a mention: turn the mention into a link (from -> to). A promise keeps the button
    *  busy until it settles; its rejection's message shows in the dialog. */
   onLinkMention?: (from: GraphPage, to: GraphPage) => void | Promise<unknown>
+  /** Adds and removes hand-set tags on pages of the active vault; resolves once the map shows it.
+   *  Read-only sources get none. */
+  onTagPages?: (ids: string[], add: string[], remove: string[]) => Promise<unknown>
 }
 
 interface Props extends PageActions {
@@ -35,6 +42,8 @@ interface Props extends PageActions {
   onClose: () => void
   /** "Focus on this page": the map shows only this page and its linked pages. */
   onFocusPage?: (id: string) => void
+  /** A tag was pressed: show every page that has it. */
+  onPickTag?: (tag: string) => void
 }
 
 type Tab = 'page' | 'topic' | 'neighbourhood'
@@ -50,7 +59,7 @@ function Bars({ s }: { s: number }) {
   )
 }
 
-export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFocusPage, onAsk, onEditPage, onLinkMention }: Props) {
+export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFocusPage, onPickTag, onAsk, onEditPage, onLinkMention, onTagPages }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [tab, setTab] = useState<Tab>('page')
   // Edit form open for this page (closes when another page is shown).
@@ -88,6 +97,7 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
   const back = index.in.get(page.id) ?? []
   const mentions = (index.mentions.get(page.id) ?? []).filter((e) => e.from === page.id || e.to === page.id)
   const ro = page.readOnly
+  const why = ro ? readOnlyWhy(index.model.source) : ''
   const title = (id: string) => index.pageById.get(id)?.title ?? id
   const where = (id: string) => {
     const p = index.pageById.get(id)
@@ -121,19 +131,18 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
     step(e.key === 'ArrowRight' ? 1 : -1)
   }
 
-  const open = (id: string) => (
-    <button type="button" className="kg-linkbtn kg-row__sub" onClick={() => go(id)} aria-label={`Open ${title(id)}`}>
-      open
+  // design (review 2026-11-14): the page's name and its line under it are the button that opens it;
+  // the old target was a 27x17px "open" at the far end of the row.
+  const rowMain = (id: string, sub?: string) => (
+    <button type="button" className="kg-rowbtn" onClick={() => go(id)}>
+      <span className="kg-rowbtn__title">{title(id)}</span>
+      {sub && <span className="kg-row__sub">{sub}</span>}
     </button>
   )
   const linkRow = (e: GraphEdge, other: string, withBars: boolean) => (
     <li key={`${e.from}>${e.to}`} className="kg-row">
       {withBars ? <Bars s={e.strength} /> : <div className="kg-row__sub" aria-hidden="true">—</div>}
-      <div>
-        {title(other)}
-        <div className="kg-row__sub">{[where(other), e.reason].filter(Boolean).join(' · ')}</div>
-      </div>
-      {open(other)}
+      {rowMain(other, [where(other), e.reason].filter(Boolean).join(' · '))}
     </li>
   )
   const none = (text: string) => <li className="kg-row__none">{text}</li>
@@ -168,7 +177,8 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
           <div className="kg-dlg__meta">
             <span>
               {[
-                page.isHub ? 'hub page' : page.kind,
+                // "hub" is the operator's word for a topic area (2026-11-15): never used for a page here.
+                page.isHub ? 'most linked page' : pageTypeLabel(page.kind),
                 page.bucket,
                 formatDate(page.modified) && `changed ${formatDate(page.modified)}`,
                 plural(out.length, 'link'),
@@ -178,7 +188,7 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
                 .join(' · ')}
             </span>
             {ro && (
-              <span className="kg-readonly">
+              <span className="kg-readonly" title={why}>
                 <LockIcon /> read only
               </span>
             )}
@@ -238,8 +248,17 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
             <div>
               <p className="kg-lbl">Summary</p>
               <p className="kg-summary">{page.summary || 'No summary yet.'}</p>
+              <p className="kg-lbl">Tags</p>
+              <TagsRow
+                key={page.id}
+                tags={page.tags}
+                all={tagCounts(index.model.pages)}
+                onChange={onTagPages && !ro ? (add, remove) => onTagPages([page.id], add, remove) : undefined}
+                label={`Add a tag to ${page.title}`}
+                onPick={onPickTag}
+              />
               <p className="kg-lbl">Page content</p>
-              <p className="kg-note">The page text stays in OneNote. Open it there to read or edit it, or export a copy as Markdown.</p>
+              <p className="kg-note">The page text stays in OneNote: open it there to read or edit it, or export a copy as Markdown.</p>
               {page.topicIds.length > 1 && (
                 <>
                   <p className="kg-lbl">Also under</p>
@@ -266,13 +285,8 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
                       return (
                         <li key={`${e.from}>${e.to}`} className="kg-row">
                           <div className="kg-row__sub" aria-hidden="true">—</div>
-                          <div>
-                            {title(other)}
-                            <div className="kg-row__sub">{where(other)}</div>
-                          </div>
-                          {ro || !onLinkMention ? (
-                            open(other)
-                          ) : (
+                          {rowMain(other, where(other))}
+                          {ro || !onLinkMention ? null : (
                             <button
                               type="button"
                               className="kg-linkbtn kg-row__sub"
@@ -336,8 +350,7 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
                   ? topicPages.slice(0, 60).map((id) => (
                       <li key={id} className="kg-row">
                         <div className="kg-row__sub">{index.pageById.get(id)!.links}</div>
-                        <div>{title(id)}</div>
-                        {open(id)}
+                        {rowMain(id)}
                       </li>
                     ))
                   : none('No other pages here.')}
@@ -355,13 +368,7 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
                 ? neighbours.map((id) => (
                     <li key={id} className="kg-row">
                       <Bars s={index.strengthBetween.get(id < page.id ? `${id}|${page.id}` : `${page.id}|${id}`) ?? 1} />
-                      <div>
-                        {title(id)}
-                        <div className="kg-row__sub">
-                          {where(id)} · {plural(index.neighbours.get(id)?.length ?? 0, 'linked page')}
-                        </div>
-                      </div>
-                      {open(id)}
+                      {rowMain(id, `${where(id)} · ${plural(index.neighbours.get(id)?.length ?? 0, 'linked page')}`)}
                     </li>
                   ))
                 : none('No linked pages yet.')}
@@ -375,8 +382,10 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
       <footer className="kg-dlg__foot">
         {/* A link page opens its own address first; OneNote is the second choice (operator, 2026-11-13:
             use OneNote as little as possible as the interface). */}
+        {/* design: one primary per view. While the Edit form is open its Save is the primary, so the
+            footer's goes quiet. */}
         {page.url && (
-          <a className="btn btn--primary" href={page.url} target="_blank" rel="noopener noreferrer" title={page.url}>
+          <a className={editing ? 'btn' : 'btn btn--primary'} href={page.url} target="_blank" rel="noopener noreferrer" title={page.url}>
             Open link
           </a>
         )}
@@ -387,17 +396,24 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
             </a>
           )
         ) : page.onenoteUrl ? (
-          <a className="btn btn--primary" href={page.onenoteUrl}>
+          <a className={editing ? 'btn' : 'btn btn--primary'} href={page.onenoteUrl}>
             Open in OneNote
           </a>
         ) : (
-          <button type="button" className="btn btn--primary" disabled>
+          <button type="button" className={editing ? 'btn' : 'btn btn--primary'} disabled>
             Open in OneNote
           </button>
         )}
         <button type="button" className="btn" onClick={() => onAsk?.(page)} disabled={!onAsk}>
           Ask about this
         </button>
+        {ro && (
+          // Shown, not hidden: a missing button gave no hint that pages can be edited at all, or why
+          // not here. Focusable, so the reason is reachable by keyboard; it does nothing.
+          <button type="button" className="btn" aria-disabled="true" aria-describedby="kg-dlg-why" title={why}>
+            Edit
+          </button>
+        )}
         {onEditPage && !ro && (
           <button
             type="button"
@@ -411,11 +427,13 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
             Edit
           </button>
         )}
-        <ExportButton request={{ scope: 'page', page: page.id, ...src }} label="Export as Markdown" />
+        {/* The two that leave the page (a file, the map) sit apart at the right, quiet. */}
+        <span className="kg-dlg__side">
+        <ExportButton request={{ scope: 'page', page: page.id, ...src }} label="Export as Markdown" className="btn btn--ghost" />
         {onFocusPage && (
           <button
             type="button"
-            className="btn"
+            className="btn btn--ghost"
             title="Show only this page and its linked pages"
             onClick={() => {
               onFocusPage(page.id)
@@ -424,6 +442,12 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
           >
             Focus on this page
           </button>
+        )}
+        </span>
+        {ro && (
+          <span id="kg-dlg-why" className="kg-dlg__why">
+            {why}
+          </span>
         )}
         <span className="kg-dlg__keys">
           Esc closes{pos ? ' · ← → previous or next linked page' : ''}

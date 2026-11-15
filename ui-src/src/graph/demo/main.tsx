@@ -24,7 +24,7 @@ const state = q.get('state') ?? ''
 const bench = q.get('bench') === '1'
 if (q.get('theme')) document.documentElement.dataset.theme = q.get('theme')!
 
-const model = syntheticGraph({ pages: state === 'empty' ? 0 : pages, topics, seed, readOnly })
+let model = syntheticGraph({ pages: state === 'empty' ? 0 : pages, topics, seed, readOnly })
 
 function Demo() {
   const [log, setLog] = useState('')
@@ -56,6 +56,12 @@ function Demo() {
             setTimeout(() => (q.get('link') === 'fail' ? reject(new Error('Read only: another ObsidiNote is writing in this vault.')) : (setLog(`Link it: ${a.title} → ${b.title}`), resolve())), q.get('link') === 'slow' ? 60_000 : 400),
           )
         }
+        onTagPages={async (ids, add, remove) => {
+          // Never the real route in the demo: the tags change in the demo's own model. ?tag=fail shows the error.
+          if (q.get('tag') === 'fail') throw new Error('Read only: another ObsidiNote is writing in this vault.')
+          model = { ...model, pages: model.pages.map((p) => (ids.includes(p.id) ? { ...p, tags: [...p.tags.filter((t) => !remove.includes(t)), ...add.filter((t) => !p.tags.includes(t))] } : p)) }
+          setLog(`Tag ${ids.length} page(s): +[${add.join(', ')}] -[${remove.join(', ')}]`)
+        }}
         onAdd={() => setLog('Add')}
         request={find}
         onRequestDone={() => setFind(null)}

@@ -8,7 +8,7 @@ const e = (from: string, to: string, strength: Strength = 1, kind: 'link' | 'men
 const ids = (n: number) => Array.from({ length: n }, (_, i) => `p${i + 1}`)
 function page(id: string): GraphPage {
   return {
-    id, title: id, topicIds: [], bucket: 'Notes', kind: 'note', links: 0, linkedFrom: 0, weight: 0, isHub: false, unlinked: true, sourceId: 'obsidinote', origin: '',
+    id, title: id, topicIds: [], bucket: 'Notes', section: 'Notes', tags: [], kind: 'note', links: 0, linkedFrom: 0, weight: 0, isHub: false, unlinked: true, sourceId: 'obsidinote', origin: '',
     summary: '', onenoteUrl: '', modified: '', readOnly: false, aliases: [], site: '', archived: false, url: '',
   }
 }

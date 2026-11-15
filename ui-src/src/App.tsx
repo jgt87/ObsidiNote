@@ -10,7 +10,7 @@ import { Rail } from './components/Rail'
 import { fetchGraph, GraphView } from './graph'
 import { useHomeFlow } from './hooks/useHomeFlow'
 import { useNotebook, useNotebooks, useStatus } from './hooks/useServerData'
-import { attentionNotes } from './model/attention'
+import { attentionNotes, sendBlock } from './model/attention'
 import { askAboutText } from './model/handoff'
 import { addTargetFor, askSourceChoices, graphRefFor } from './model/notebooks'
 import { viewFromHash, VIEWS, type View } from './model/views'
@@ -89,12 +89,19 @@ export function App() {
     setFindRequest({ sourceId: entry.vault && entry.vaultId ? entry.vaultId : entry.id, pageId })
     goto('graph')
   }
+  // A section picked in the side bar: the shown notebook's List, searched on that section.
+  const openSection = (query: string) => {
+    if (!shown) return
+    setGraphFocus([])
+    setFindRequest({ sourceId: shown.vault && shown.vaultId ? shown.vaultId : shown.id, query, list: true })
+    goto('graph')
+  }
   // The waiting list and History read the Intake again after a vault switch or a finished send.
-  const activityKey = `${notebooks.activeId ?? ''}|${home.flow.kind}|${home.clearKey}`
+  const activityKey = `${notebooks.activeId ?? ''}|${home.flow.kind}|${home.clearKey}|${home.changes}`
 
   return (
     <div className="shell">
-      <Rail view={view} notebooks={notebooks} notebook={notebook} notes={attentionNotes(status, serverDown)} onNewVault={() => setNewVaultOpen(true)} onSetUp={() => setSetUpOpen(true)} onRetryCopilot={retryCopilot} onSettings={notebooks.activeId ? () => setSettingsOpen(true) : undefined} />
+      <Rail view={view} notebooks={notebooks} notebook={notebook} notes={attentionNotes(status, serverDown)} onNewVault={() => setNewVaultOpen(true)} onSetUp={() => setSetUpOpen(true)} onRetryCopilot={retryCopilot} onSettings={notebooks.activeId ? () => setSettingsOpen(true) : undefined} onOpenSection={openSection} />
       <main className="main">
         {notice && (
           <p className="home-notice app-notice" role="status">
@@ -115,6 +122,8 @@ export function App() {
             activityKey={activityKey}
             onOpenRecent={(id) => openPage(shown, id)}
             onOpenActive={(id) => openPage(activeEntry, id)}
+            block={sendBlock(status, serverDown)}
+            onRetryCopilot={retryCopilot}
           />
         )}
         {view === 'graph' && (
@@ -151,6 +160,7 @@ export function App() {
             setChoices((c) => ({ ...c, includeArchived: s.askIncludeArchived }))
             setGraphReload((n) => n + 1)
           }}
+          onTagsChanged={() => setGraphReload((n) => n + 1)}
         />
       )}
       {newVaultOpen && (

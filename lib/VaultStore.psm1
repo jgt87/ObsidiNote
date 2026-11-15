@@ -62,6 +62,7 @@ function ConvertTo-IngestPage {
         link = $Page.link; summary = $Page.summary; aliases = @($Page.aliases); topics = @($Page.topics); status = $Page.status
         links = @(@($Page.links) | ForEach-Object { @{ target = [string]$_.target; strength = [int]$_.strength; why = [string]$_.why } })
         url = $Page.url; origin = $(if ($Page.ContainsKey('origin')) { [string]$Page.origin } else { '' })
+        tags = @(if ($Page.ContainsKey('tags')) { @($Page.tags) | Where-Object { $_ } | ForEach-Object { [string]$_ } })
     }
 }
 
@@ -218,10 +219,9 @@ function Invoke-VsReadInboxItem {
        root (never another section, notebook or the recycle bin). Returns @{ pageId; title; status;
        kind; text; ref; requestKind; waitingSince; chatUrl }; throws for anything else. #>
     param([hashtable]$Ctx, [string]$PageId)
-    $tree = ConvertFrom-ObsnHierarchy -Xml ($Ctx.Adapter.GetHierarchy($Ctx.Vault.rootId, 4)) -RootId $Ctx.Vault.rootId
-    $intake = Get-ObsnIntakeSection
-    $sec = @($tree.sections | Where-Object { $_.full -eq $intake }) | Select-Object -First 1
-    if (-not $sec -or -not @($sec.pages | Where-Object { $_.id -eq $PageId }).Count) { throw 'not an Intake item' }
+    # Only the Intake section is read, never the whole vault at page scope (every page's Meta).
+    $items = @(Read-ObsnIntakePages -Adapter $Ctx.Adapter -RootId ([string]$Ctx.Vault.rootId))
+    if (-not @($items | Where-Object { $_.id -eq $PageId }).Count) { throw 'not an Intake item' }
     $xml = $Ctx.Adapter.GetPageContent($PageId)
     $meta = (ConvertFrom-ObsnPageXml -Xml $xml).meta
     $t = ConvertFrom-ObsnPageText -Xml $xml
@@ -263,7 +263,7 @@ function Invoke-VsUpdatePage {
     $m = if ($Meta) { $Meta } else { @{} }
     $rec = Get-VsPageRecord $m
     $outs = @(foreach ($o in @($Outlines)) { if ($o) { @{ role = [string]$o['role']; lines = (ConvertTo-OutlineLines -Lines @($o['lines'])) } } })
-    if (@('topics', 'aliases', 'url', 'status', 'type' | Where-Object { $rec.ContainsKey($_) }).Count) {
+    if (@('topics', 'aliases', 'tags', 'url', 'status', 'type' | Where-Object { $rec.ContainsKey($_) }).Count) {
         $cur = Invoke-VsReadPage -Ctx $Ctx -PageId $PageId
         $merged = $cur.meta
         foreach ($k in $rec.Keys) { $merged[$k] = $rec[$k] }
@@ -295,14 +295,37 @@ function Invoke-VsDeletePage {
     }
 }
 
+function Invoke-VsRewriteBodyLinks {
+    <# A page left the vault (Undo): on page $PageId, links to it ($TargetLink, its onenote: link) in
+       ObsidiNote's own body outline become the plain text $Text ("(deleted: <title>)"). Only an
+       outline with obsn.role = body is changed (Convert-ObsnBodyLinks); never "Your notes", never an
+       outline without a role. Through the guarded adapter, under the lease. Returns @{ count }. #>
+    param([hashtable]$Ctx, [string]$PageId, [string]$TargetLink, [string]$Text)
+    Assert-VsWritable $Ctx
+    if (-not $TargetLink) { return @{ count = 0 } }
+    $r = Convert-ObsnBodyLinks -Xml ($Ctx.Adapter.GetPageContent($PageId)) -TargetLink $TargetLink -Text $Text
+    if ($r.count) { $Ctx.Adapter.UpdatePageContent($r.xml) }
+    @{ count = [int]$r.count }
+}
+
+function Invoke-VsIndexUpdatePages {
+    <# Several index records changed at once (tags on many pages): the model is updated per page, the
+       completeness check and the Index pages run once. #>
+    param([hashtable]$Ctx, [object[]]$Pages)
+    Assert-VsWritable $Ctx
+    $topics = @()
+    foreach ($p in @($Pages | Where-Object { $_ })) { $topics += @(Invoke-VsIndexAddPage -Ctx $Ctx -Page $p -Defer) }
+    $null = Update-VsIndex -Ctx $Ctx -Topics @($topics | Select-Object -Unique)
+}
+
 function Invoke-VsIndexAddPage {
-    param([hashtable]$Ctx, [hashtable]$Page, [switch]$Replace)
+    param([hashtable]$Ctx, [hashtable]$Page, [switch]$Replace, [switch]$Defer)
     Assert-VsWritable $Ctx
     $id = [string]$Page['id']
     $old = if ($Ctx.Model.pages.Contains($id)) { $Ctx.Model.pages[$id] } else { $null }
     $rec = @{}
     if ($old) { foreach ($k in @($old.Keys)) { $rec[$k] = $old[$k] } }
-    foreach ($k in 'id', 'title', 'type', 'summary', 'topics', 'aliases', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'link', 'section', 'origin') { if ($Page.ContainsKey($k)) { $rec[$k] = $Page[$k] } }
+    foreach ($k in 'id', 'title', 'type', 'summary', 'topics', 'aliases', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'link', 'section', 'origin', 'tags') { if ($Page.ContainsKey($k)) { $rec[$k] = $Page[$k] } }
     if ($Page.ContainsKey('pageId') -and $Page['pageId']) { $rec.oneNoteId = [string]$Page['pageId'] }
     $rec.key = $id
     if ($rec.ContainsKey('section') -and $rec.section) { $b = Get-BucketOfSection ([string]$rec.section); $rec.bucket = $(if ($b) { $b } else { [string]$Page['bucket'] }) } elseif ($Page.ContainsKey('bucket')) { $rec.bucket = $Page['bucket'] }
@@ -311,6 +334,7 @@ function Invoke-VsIndexAddPage {
     $rec.links = @(@($rec.links) | Where-Object { $_ } | ForEach-Object { @{ target = [string](Get-JsonProp $_ 'target' ''); strength = [int](Get-JsonProp $_ 'strength' 1); why = [string](Get-JsonProp $_ 'why' '') } })
     $null = Add-IndexPage -Model $Ctx.Model -Page $rec
     $topics = @($rec.topics) + $(if ($old) { @($old.topics) } else { @() })
+    if ($Defer) { return $topics }   # Invoke-VsIndexUpdatePages writes the Index pages once
     $null = Update-VsIndex -Ctx $Ctx -Topics $topics
 }
 
@@ -393,6 +417,8 @@ function Invoke-VaultStoreCall {
         'IndexAddPage' { return (Invoke-VsIndexAddPage -Ctx $Ctx @Arguments) }
         'IndexUpdatePage' { return (Invoke-VsIndexAddPage -Ctx $Ctx @Arguments) }
         'IndexRemovePage' { return (Invoke-VsIndexRemovePage -Ctx $Ctx @Arguments) }
+        'RewriteBodyLinks' { return (Invoke-VsRewriteBodyLinks -Ctx $Ctx @Arguments) }
+        'IndexUpdatePages' { return (Invoke-VsIndexUpdatePages -Ctx $Ctx @Arguments) }
         'MovePage' { return (Invoke-VsMovePage -Ctx $Ctx @Arguments) }
         'Model' { return $Ctx.Model }
     }
@@ -432,6 +458,9 @@ function New-VaultStore {
         IndexAddPage    = { param([hashtable]$Page) & $call $ctx 'IndexAddPage' @{ Page = $Page } }.GetNewClosure()
         IndexUpdatePage = { param([hashtable]$Page) & $call $ctx 'IndexUpdatePage' @{ Page = $Page } }.GetNewClosure()
         IndexRemovePage = { param([string]$Id) & $call $ctx 'IndexRemovePage' @{ Id = $Id } }.GetNewClosure()
+        RewriteBodyLinks = { param([string]$PageId, [string]$TargetLink, [string]$Text) & $call $ctx 'RewriteBodyLinks' @{ PageId = $PageId; TargetLink = $TargetLink; Text = $Text } }.GetNewClosure()
+        # Optional (Ingest falls back to IndexUpdatePage per page): many records, one Index write.
+        IndexUpdatePages = { param([object[]]$Pages) & $call $ctx 'IndexUpdatePages' @{ Pages = $Pages } }.GetNewClosure()
         # Upgrade steps (lib/Upgrade.psm1), not part of Ingest's contract.
         MovePage        = { param([string]$Id, [string]$Bucket, [string]$Type) & $call $ctx 'MovePage' @{ Id = $Id; Bucket = $Bucket; Type = $Type } }.GetNewClosure()
         Model           = { & $call $ctx 'Model' }.GetNewClosure()

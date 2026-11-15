@@ -3,12 +3,14 @@
 // Sorting, grouping and counting are pure (table/tableModel.ts); this file holds the view state
 // (in memory only) and renders.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { exportSourceOf } from '../export/exportApi'
 import { plural } from './format'
 import type { GraphIndex } from './graphIndex'
 import type { GraphLayout } from './layout'
 import { COLUMN_COUNT, TableGroupRows } from './table/TableGroupRows'
+import { tagCounts } from './tags'
+import { TagsRow } from './TagsRow'
 import {
   ariaSort,
   buildTable,
@@ -27,12 +29,16 @@ interface Props {
   layout: GraphLayout
   matches: string[] | null
   onOpen: (id: string) => void
+  /** Adds and removes tags on pages; with it the rows get a tick box and ticked rows a tag bar
+   *  (a read-only source has none). */
+  onTagPages?: (ids: string[], add: string[], remove: string[]) => Promise<unknown>
 }
 
 const COLUMNS: { key: SortKey; label: string; className?: string }[] = [
   { key: 'title', label: 'Page', className: 'kg-tbl__c-page' },
   { key: 'type', label: 'Type', className: 'kg-tbl__c-type' },
   { key: 'topics', label: 'Topics', className: 'kg-tbl__c-topics' },
+  { key: 'tags', label: 'Tags', className: 'kg-tbl__c-tags' },
   { key: 'site', label: 'Site', className: 'kg-tbl__c-site' },
   { key: 'links', label: 'Links', className: 'kg-tbl__c-links num' },
   { key: 'modified', label: 'Changed', className: 'kg-tbl__c-changed' },
@@ -47,7 +53,25 @@ function SortArrow({ dir }: { dir: 'ascending' | 'descending' | undefined }) {
   )
 }
 
-export function GraphList({ index, layout, matches, onOpen }: Props) {
+export function GraphList({ index, layout, matches, onOpen, onTagPages }: Props) {
+  // Ticked rows, to tag several pages at once (session state). Ids that left the model are dropped.
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    setSelected((s) => {
+      const kept = [...s].filter((id) => index.pageById.has(id))
+      return kept.length === s.size ? s : new Set(kept)
+    })
+  }, [index])
+  const allTags = useMemo(() => tagCounts(index.model.pages), [index])
+  // The tags any ticked page has: shown as chips, a chip's x takes that tag off all ticked pages.
+  const selectedTags = useMemo(() => [...new Set([...selected].flatMap((id) => index.pageById.get(id)?.tags ?? []))].sort(), [selected, index])
+  const onSelect = (id: string, on: boolean) =>
+    setSelected((s) => {
+      const next = new Set(s)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
   const [groupBy, setGroupBy] = useState<GroupBy>('topic')
   const [sort, setSort] = useState<TableSort | null>(null)
   // Folding and "Show more", keyed "<groupBy>:<group key>"; only what the person changed.
@@ -82,6 +106,17 @@ export function GraphList({ index, layout, matches, onOpen }: Props) {
           </button>
         )}
       </div>
+      {onTagPages && selected.size > 0 && (
+        <div className="kg-tbl__sel" role="group" aria-label="Selected pages">
+          <span className="kg-tbl__sel-count" role="status">
+            {plural(selected.size, 'page')} selected
+          </span>
+          <TagsRow tags={selectedTags} all={allTags} onChange={(add, remove) => onTagPages([...selected], add, remove)} label="Add a tag to the selected pages" />
+          <button type="button" className="btn btn--sm btn--ghost" onClick={() => setSelected(new Set())}>
+            Clear selection
+          </button>
+        </div>
+      )}
       <div className="kg-tbl__scroll">
         <table className="kg-tbl__table">
           <caption className="kg-sr">All pages of {index.model.source.name || 'this source'}. Column headers sort the table.</caption>
@@ -127,6 +162,8 @@ export function GraphList({ index, layout, matches, onOpen }: Props) {
                   onToggle={() => setFolded((f) => ({ ...f, [k]: open }))}
                   onMore={() => setLimits((l) => ({ ...l, [k]: (l[k] ?? ROW_BUDGET) + ROW_BUDGET }))}
                   onOpen={onOpen}
+                  selected={selected}
+                  onSelect={onTagPages ? onSelect : undefined}
                 />
               )
             })

@@ -132,6 +132,60 @@ Describe 'Set-VaultSetting' {
     }
 }
 
+Describe 'Stored settings that cannot be read are left alone (code review 2026-11-15)' {
+    $w = New-SyntheticVault
+    $sid = $w.open.vault.indexSectionId
+    $cases = @(
+        @{ name = 'cut-off JSON'; value = '{"graphView":"sources","internalHosts":["wiki.example.inv' },
+        @{ name = 'a list instead of an object'; value = '["sources"]' },
+        @{ name = 'a bare text'; value = '"sources"' },
+        @{ name = 'a bare number'; value = '5' }
+    )
+    It 'tells a readable value from one that is not' {
+        Test-SettingsValueReadable '' | Should Be $true
+        Test-SettingsValueReadable '  ' | Should Be $true
+        Test-SettingsValueReadable '{"graphView":"sources"}' | Should Be $true
+        foreach ($c in $cases) { Test-SettingsValueReadable $c.value | Should Be $false }
+    }
+    foreach ($c in $cases) {
+        It "the start writes no defaults over $($c.name), warns, and uses the defaults in memory" {
+            Set-StoredSettings $w $c.value
+            $writes = $w.f.Writes.Count
+            $r = Sync-VaultSettings -Adapter $w.a -IndexSectionId $sid -Writer $true -Local @{ internalHosts = @('other.example.invalid') }
+            $r.status | Should Be 'unreadable'
+            Get-StoredSettings $w | Should Be $c.value
+            $w.f.Writes.Count | Should Be $writes
+            $r.effective.graphView | Should Be 'topics'
+            @($r.effective.internalHosts).Count | Should Be 0
+            $line = Format-VaultSettingsStatus $r
+            $line.status | Should Be 'WARN'
+            $line.detail | Should Match 'could not be read and were left as they are'
+        }
+        It "Set-VaultSetting refuses to rewrite $($c.name)" {
+            Set-StoredSettings $w $c.value
+            $writes = $w.f.Writes.Count
+            { Set-VaultSetting -Adapter $w.a -IndexSectionId $sid -Key 'relatedCount' -Value 5 } | Should Throw 'could not be read, so nothing was changed'
+            Get-StoredSettings $w | Should Be $c.value
+            $w.f.Writes.Count | Should Be $writes
+        }
+    }
+    It 'opening the vault (start or switch) leaves it alone too' {
+        Set-StoredSettings $w '{"graphView":'
+        $o = Open-VaultSession -Adapter $w.a -Vault $w.vaults[0] -SessionId 'session-one' -Vaults $w.vaults
+        $o.settingsResult.status | Should Be 'unreadable'
+        Get-StoredSettings $w | Should Be '{"graphView":'
+        $o.settings.relatedCount | Should Be 3
+    }
+    It 'reads another vault''s values without writing (Read-VaultSettings)' {
+        Set-StoredSettings $w '{"internalHosts":["wiki.example.invalid"]}'
+        $writes = $w.f.Writes.Count
+        (@((Read-VaultSettings -Adapter $w.a -IndexSectionId $sid).internalHosts) -join ',') | Should Be 'wiki.example.invalid'
+        Set-StoredSettings $w '{"internalHosts":'
+        @((Read-VaultSettings -Adapter $w.a -IndexSectionId $sid).internalHosts).Count | Should Be 0
+        $w.f.Writes.Count | Should Be $writes
+    }
+}
+
 Describe 'The interface''s copy of the settings' {
     It 'matches tests/fixtures/vault-settings.json' {
         $want = Get-Content -Raw (Join-Path $here 'fixtures\vault-settings.json') | ConvertFrom-Json

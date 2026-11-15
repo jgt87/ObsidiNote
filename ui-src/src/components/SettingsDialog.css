@@ -14,6 +14,12 @@
 .st__num-field { width: 72px; box-sizing: border-box; text-align: right; font-variant-numeric: tabular-nums; }
 .st__num-field[aria-invalid="true"] { border-color: var(--danger); }
 .st__select { box-sizing: border-box; }
+/* Tags: one row per tag (name | pages | actions), dividers between rows. */
+.st__tags { list-style: none; margin: 0; padding: 0; }
+.st__tag { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-2) 0; border-top: 1px solid var(--border); }
+.st__tag:first-child { border-top: 0; }
+.st__tag-name { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; font-size: var(--text-body); }
+.st__tag-input { flex: 1 1 140px; min-width: 0; height: var(--control-h-sm); }
 /* A problem reads as one: soft fill, strong text and an icon, never colour alone (rules/ui.md). */
 .st__num-error {
   flex-basis: 100%; display: inline-flex; align-items: center; gap: var(--space-2);

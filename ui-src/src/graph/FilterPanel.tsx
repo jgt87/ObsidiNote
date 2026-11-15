@@ -24,7 +24,7 @@ function toggle(set: Set<string>, key: string): Set<string> {
 
 /** Number of choices made in the panel (the button shows it). */
 function choiceCount(f: GraphFilter): number {
-  return f.types.size + f.topics.size + (f.unlinkedOnly ? 1 : 0) + (f.showArchived ? 1 : 0)
+  return f.types.size + f.topics.size + f.tags.size + (f.unlinkedOnly ? 1 : 0) + (f.showArchived ? 1 : 0)
 }
 
 export function FilterButton({ index, filter, onChange }: PanelProps) {
@@ -113,6 +113,14 @@ export function FilterButton({ index, filter, onChange }: PanelProps) {
               : <p className="kg-fp__none">No topics yet.</p>}
           </div>
         </fieldset>
+        {options.tags.length > 0 && (
+          <fieldset className="kg-fp__set">
+            <legend>Tag</legend>
+            <div className="kg-fp__list">
+              {options.tags.map((t) => box(`tag:${t.name}`, t.name, t.count, filter.tags.has(t.name), () => onChange({ ...filter, tags: toggle(filter.tags, t.name) })))}
+            </div>
+          </fieldset>
+        )}
         <div className="kg-fp__set">
           {box('unlinked', 'Only pages without links', null, filter.unlinkedOnly, () => onChange({ ...filter, unlinkedOnly: !filter.unlinkedOnly }))}
           {box('archived', 'Show archived', archived, filter.showArchived, () => onChange({ ...filter, showArchived: !filter.showArchived }))}
@@ -141,6 +149,7 @@ export function FilterSummary({ index, filter, onChange, shown }: SummaryProps) 
   const parts: string[] = []
   if (filter.types.size) parts.push(`type: ${[...filter.types].join(', ')}`)
   if (filter.topics.size) parts.push(`topic: ${[...filter.topics].map(topicName).join(', ')}`)
+  if (filter.tags.size) parts.push(`tag: ${[...filter.tags].join(', ')}`)
   if (filter.unlinkedOnly) parts.push('without links')
   if (filter.showArchived) parts.push('archived shown')
   const focusPage = filter.focus ? index.pageById.get(filter.focus.id) : undefined
@@ -155,9 +164,9 @@ export function FilterSummary({ index, filter, onChange, shown }: SummaryProps) 
           <span>
             Around <b>{focusPage.title}</b>
           </span>
-          <span className="kg-seg" role="group" aria-label="Link steps">
+          <span className="seg seg--sm" role="group" aria-label="Link steps">
             {([1, 2] as const).map((d) => (
-              <button key={d} type="button" className="btn btn--sm" aria-pressed={filter.focus!.depth === d} onClick={() => setDepth(d)}>
+              <button key={d} type="button" className="seg__btn" aria-pressed={filter.focus!.depth === d} onClick={() => setDepth(d)}>
                 {d === 1 ? '1 step' : '2 steps'}
               </button>
             ))}

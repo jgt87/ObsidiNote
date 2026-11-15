@@ -65,7 +65,7 @@ function Invoke-WithKnownParams {
 }
 
 function Add-SkipAll($Ctx, [string]$Why) {
-    foreach ($n in 'Vaults', 'Index completeness', 'Upgrade plan', 'Vault settings', 'Knowledge graph', 'Markdown export', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
+    foreach ($n in 'Vaults', 'Index completeness', 'Upgrade plan', 'Vault settings', 'Knowledge graph', 'Markdown export', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Undo of a linked page', 'Tags', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
 }
 
 function Add-VaultResults($Ctx, $Adapter) {
@@ -343,6 +343,101 @@ function Invoke-DevLinkIt($Ctx, $Adapter, $Dev) {
     }
 }
 
+function New-DevStore($Ctx, $Adapter, $Dev, [string]$Name, [string]$NeedsCommand) {
+    <# The dev vault's store for a write step without Copilot, or $null with the SKIP/FAIL line written. #>
+    $miss = @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names $script:Needs.add)
+    if ($miss.Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' $Name "not in this version yet ($($miss -join ', ') missing)"; return $null }
+    Import-AppModules $Ctx.AppRoot $script:Needs.add
+    $builder = Find-KitCommand $script:StoreBuilders
+    if (-not $builder -or -not (Get-Command $NeedsCommand -ErrorAction SilentlyContinue)) { Add-ValidationResult $Ctx 'V6' 'SKIP' $Name 'not in this version yet'; return $null }
+    $lease = $Dev.lease
+    $getLease = { $lease }.GetNewClosure()   # made here, not inside Measure-KitStep's block (see Invoke-DevLinkIt)
+    $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = $getLease; AppRoot = $Ctx.AppRoot } }
+    if (-not $s.ok -or -not $Dev.model) { Add-ValidationResult $Ctx 'V6' 'FAIL' $Name "the store could not be made: $(if ($s.ok) { 'no index model' } else { $s.error })"; return $null }
+    $s.value
+}
+
+function Invoke-DevUndoLinked($Ctx, $Adapter, $Dev) {
+    <# Undo of a page that another page links to (lib/Ingest.psm1 Undo-AddRequest): two synthetic
+       pages, the first with a link to the second in its Meta and as a link in its own text. After
+       Undo of the second, the first has no link to it left (Meta) and its text says "(deleted: ...)"
+       in place of the link. Then the first goes back out too. No Copilot. Counts and statuses only. #>
+    $name = 'Undo of a linked page'
+    $store = New-DevStore $Ctx $Adapter $Dev $name 'Undo-AddRequest'
+    if (-not $store) { return }
+    if ((Get-IngestStoreContract) -notcontains 'RewriteBodyLinks') { Add-ValidationResult $Ctx 'V6' 'SKIP' $name 'not in this version yet'; return }
+    $a = $null; $b = $null
+    try {
+        $mk = Measure-KitStep {
+            $t = New-DevLinkPage $store 'Validation undo target'
+            $link = [string]$Dev.model.pages[$t.id].link
+            $i = [string](& $store.NewId)
+            $line = @{ parts = @(@{ text = 'Synthetic page of the validation kit, see '; href = '' }, @{ text = 'the target'; href = $link }) }
+            $page = @{ id = $i; type = 'note'; bucket = (& $store.BucketForType -Type 'note'); title = 'Validation undo linker'; summary = 'Synthetic page of the validation kit.'; topics = @(); aliases = @(); links = @(@{ target = $t.id; strength = 2; why = 'validation kit' }); status = ''; outlines = @(@{ role = 'body'; lines = @($line) }) }
+            $cp = & $store.CreatePage -Page $page
+            $page.pageId = [string]$cp['pageId']; $page.link = [string]$cp['link']; $page.section = [string]$cp['section']
+            $null = & $store.IndexAddPage -Page $page
+            @{ target = $t; linker = @{ id = $i; pageId = $page.pageId } }
+        }
+        if (-not $mk.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' $name "the two test pages could not be made: $($mk.error)"; return }
+        $a = $mk.value.linker; $b = $mk.value.target
+        $u = Measure-KitStep { Undo-AddRequest -Store $store -Undo @{ id = $b.id; pageId = $b.pageId; targets = @() } }
+        $st = "$(Get-KitProp $u.value 'status' 'error')"
+        if ($st -eq 'undone') { $b = $null }
+        $pg = Measure-KitStep { & $store.ReadPage -PageId $a.pageId }
+        $left = -1; $says = $false
+        if ($pg.ok) {
+            $left = @(@($pg.value.meta['links']) | Where-Object { $_ -and $_['target'] -eq $mk.value.target.id }).Count
+            $body = @($pg.value.outlines | Where-Object { $_.role -eq 'body' }) | Select-Object -First 1
+            $says = [bool]($body -and "$($body.text)" -match '\(deleted: ')
+        }
+        $ok = $u.ok -and $st -eq 'undone' -and $left -eq 0 -and $says
+        Add-ValidationResult $Ctx 'V6' $(if ($ok) { 'OK' } else { 'FAIL' }) $name "status $st; unlinked $(Get-KitProp $u.value 'unlinked' 0); text rewritten on $(Get-KitProp $u.value 'rewritten' 0) page(s); links left in the linking page: $left; its text says deleted: $says; $($u.ms) ms"
+    } finally {
+        $done = 0; $tried = 0
+        foreach ($rec in @($a, $b | Where-Object { $_ })) {
+            $tried++
+            $x = Measure-KitStep { Undo-AddRequest -Store $store -Undo @{ id = $rec.id; pageId = $rec.pageId; targets = @() } }
+            if ($x.ok -and "$(Get-KitProp $x.value 'status' '')" -eq 'undone') { $done++ }
+        }
+        if ($tried) { Add-ValidationResult $Ctx 'V6' $(if ($done -eq $tried) { 'OK' } else { 'WARN' }) "$name (undo)" "$done of $tried test pages back out (OneNote's Deleted Pages)" }
+    }
+}
+
+function Invoke-DevTags($Ctx, $Adapter, $Dev) {
+    <# Tags, set by hand (lib/Ingest.psm1 Set-PageTags, Rename-Tag): a synthetic page gets a tag, the
+       page is read back, the tag is renamed, then removed; then the page goes back out. No Copilot.
+       The log holds counts and yes/no only, never a tag's text. #>
+    $name = 'Tags'
+    $store = New-DevStore $Ctx $Adapter $Dev $name 'Set-PageTags'
+    if (-not $store) { return }
+    $p = $null
+    try {
+        $mk = Measure-KitStep { New-DevLinkPage $store 'Validation tag page' }
+        if (-not $mk.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' $name "the test page could not be made: $($mk.error)"; return }
+        $p = $mk.value
+        $first = 'validation kit tag'; $second = 'validation kit tag 2'
+        $read = { @(@((& $store.ReadPage -PageId $p.pageId).meta['tags']) | Where-Object { $_ }) }
+        $t1 = Measure-KitStep { Set-PageTags -Store $store -Ids @($p.id) -Add @($first) }
+        $on = @(& $read)
+        $ok1 = $t1.ok -and "$(Get-KitProp $t1.value 'status' '')" -eq 'tagged' -and $on.Count -eq 1 -and $on[0] -eq $first
+        Add-ValidationResult $Ctx 'V6' $(if ($ok1) { 'OK' } else { 'FAIL' }) $name "status $(Get-KitProp $t1.value 'status' 'error'); pages changed $(Get-KitProp $t1.value 'changed' 0); tags read back from the page: $($on.Count); $($t1.ms) ms"
+        $t2 = Measure-KitStep { Rename-Tag -Store $store -From $first -To $second }
+        $on = @(& $read)
+        $ok2 = $t2.ok -and "$(Get-KitProp $t2.value 'status' '')" -eq 'renamed' -and $on.Count -eq 1 -and $on[0] -eq $second
+        Add-ValidationResult $Ctx 'V6' $(if ($ok2) { 'OK' } else { 'FAIL' }) "$name (rename)" "status $(Get-KitProp $t2.value 'status' 'error'); pages changed $(Get-KitProp $t2.value 'changed' 0); the page has the new name: $([bool]($on.Count -eq 1 -and $on[0] -eq $second)); $($t2.ms) ms"
+        $t3 = Measure-KitStep { Set-PageTags -Store $store -Ids @($p.id) -Remove @($second) }
+        $on = @(& $read)
+        $ok3 = $t3.ok -and "$(Get-KitProp $t3.value 'status' '')" -eq 'tagged' -and $on.Count -eq 0
+        Add-ValidationResult $Ctx 'V6' $(if ($ok3) { 'OK' } else { 'FAIL' }) "$name (remove)" "status $(Get-KitProp $t3.value 'status' 'error'); tags left on the page: $($on.Count); $($t3.ms) ms"
+    } finally {
+        if ($p) {
+            $x = Measure-KitStep { Undo-AddRequest -Store $store -Undo @{ id = $p.id; pageId = $p.pageId; targets = @() } }
+            Add-ValidationResult $Ctx 'V6' $(if ($x.ok -and "$(Get-KitProp $x.value 'status' '')" -eq 'undone') { 'OK' } else { 'WARN' }) "$name (undo)" "status $(Get-KitProp $x.value 'status' 'error') (OneNote's Deleted Pages)"
+        }
+    }
+}
+
 function Invoke-DevUpgrade($Ctx, $Adapter, $Dev) {
     <# The upgrade's page move (lib/Upgrade.psm1, lib/VaultStore.psm1 MovePage; probes/p9-move.ps1):
        a synthetic link page with a company-tenant address, filed under Web links as an older version
@@ -394,7 +489,8 @@ function Add-UpgradePlanResults($Ctx, [object[]]$Vaults, $Adapter) {
         $nb = if ($x.PSObject.Properties['kitAlias']) { $x.kitAlias } else { 'a vault' }
         $r = Measure-KitStep {
             $m = Read-IndexModel -Adapter $Adapter -IndexSectionId $x.indexSectionId -VaultId "$($x.vaultId)" -RootId $x.rootId
-            $names = @(Get-CompanyNames -Locations @([string](Get-KitProp $x 'location' '')))
+            # The one place the link rules are put together (lib/NotebookStructure.psm1), as the start does.
+            $names = @((Get-LinkRules -Locations @([string](Get-KitProp $x 'location' ''))).CompanyNames)
             , @(Get-UpgradePlan -Model $m -CompanyNames $names)
         }
         if (-not $r.ok) { Add-ValidationResult $Ctx 'V6' 'WARN' "Upgrade plan of $nb" $r.error; continue }
@@ -444,7 +540,7 @@ function Invoke-DevAsk($Ctx, $Adapter, $Dev, $Bridge) {
 
 function Invoke-DevVaultChecks($Ctx, $Adapter) {
     if (-not (Get-KitFlag $Ctx 'WriteTest')) {
-        foreach ($n in 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n 'write tests not run' 'Add -WriteTest; they write only into the notebook ObsidiNote-Validation.' }
+        foreach ($n in 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Undo of a linked page', 'Tags', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n 'write tests not run' 'Add -WriteTest; they write only into the notebook ObsidiNote-Validation.' }
         return
     }
     $dev = $null
@@ -456,6 +552,8 @@ function Invoke-DevVaultChecks($Ctx, $Adapter) {
         Invoke-DevAdd $Ctx $Adapter $dev $bridge
         Invoke-DevAnswerCheck $Ctx $Adapter $dev $bridge
         Invoke-DevLinkIt $Ctx $Adapter $dev
+        Invoke-DevUndoLinked $Ctx $Adapter $dev
+        Invoke-DevTags $Ctx $Adapter $dev
         Invoke-DevUpgrade $Ctx $Adapter $dev
         Invoke-DevAsk $Ctx $Adapter $dev $bridge
     } catch { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Dev vault' $_.Exception.Message }

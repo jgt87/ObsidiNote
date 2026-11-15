@@ -1,19 +1,19 @@
 /* The Ask answer (mock-up: AskAnswer). Colours, type and controls come from src/styles/tokens.css;
    purple only for the focus ring and links on hover. */
 .ask { display: flex; flex-direction: column; gap: var(--space-5); }
-.ask .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-5) var(--space-6); }
+.ask .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-5); } /* 16px all round, as the Add cards and the box (one text edge) */
 .ask a { color: var(--ink); }
 @media (hover: hover) { .ask a:hover { color: var(--accent); } }
 
 .ask-question { margin: var(--space-2) 0 0; font-size: var(--text-heading); font-weight: 600; }
 .ask-label { margin: 0 0 var(--space-3); font-size: var(--text-meta); font-weight: 600; color: var(--muted); }
 .ask-muted { color: var(--muted); font-size: var(--text-meta); }
-.ask-paragraph { margin: 0 0 var(--space-3); font-size: var(--text-control); line-height: 1.5; }
+/* The answer is what the person came for: the largest running text on the screen, at a readable measure. */
+.ask-paragraph { margin: 0 0 var(--space-3); font-size: var(--text-title); line-height: 1.5; max-width: 72ch; }
 .ask-answer__meta { margin: var(--space-3) 0 0; }
 
-.ask-path__steps { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-5); align-items: center; margin: 0; padding: 0; list-style: none; }
+.ask-path__steps { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-5); align-items: center; margin: var(--space-4) 0 0; padding: 0; list-style: none; }
 .ask-path__item { display: flex; align-items: center; gap: var(--space-5); }
-.ask-path__summary { margin: var(--space-3) 0 0; }
 .ask-step { display: inline-flex; align-items: center; gap: var(--space-3); font-size: var(--text-body); }
 .ask-step__n {
   display: inline-flex; flex: none; align-items: center; justify-content: center;
@@ -50,22 +50,13 @@
 .ask-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
 .ask-actions__note { margin-left: auto; }
 
-.ask-progress { display: flex; flex-direction: column; gap: var(--space-3); margin: 0 0 var(--space-3); padding: 0; list-style: none; }
-.ask-progress__item { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-body); }
-.ask-progress__item--next { color: var(--muted); }
-.ask-progress__item--now { font-weight: 600; }
-.ask-progress__item--now .ask-step__n { border-color: var(--accent); animation: ask-pulse 1.2s ease-in-out infinite; }
-@keyframes ask-pulse { 50% { opacity: 0.45; } }
-
 @media (max-width: 760px) {
-  .ask .card { padding: var(--space-4) var(--space-5); }
   .ask-actions__note { margin-left: 0; flex-basis: 100%; }
 }
 
 /* What the answer was made from (2026-11-14): the line above it, sentences per source, and the pages
    read but not cited, folded by default. */
 .ask-combined { margin: calc(-1 * var(--space-2)) 0 var(--space-3); }
-.ask-src__used { font-size: var(--text-meta); }
 .ask-unused__summary { cursor: pointer; margin: 0; }
 .ask-unused__list { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-body); }
 .ask-unused__row { min-width: 0; overflow-wrap: anywhere; }

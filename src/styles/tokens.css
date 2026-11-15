@@ -157,12 +157,57 @@ code, kbd, .mono { font-family: var(--font-mono); }
 .btn--icon { width: var(--control-h); padding: 0; }
 .btn[aria-pressed="true"], .btn[data-active="true"] { background: var(--accent-soft); color: var(--ink); }
 .btn svg { width: 16px; height: 16px; flex: none; }
+a.btn { text-decoration: none; } /* a link styled as a button is a button: no underline */
+
+/* ---------- either/or and on/off ---------- */
+/* design (review 2026-11-14): ONE look per kind of choice. Either/or (mode, theme, Topics/Sources,
+   Graph/List) is this segmented control: a sunken track, the chosen segment raised with the accent.
+   On/off is a .btn with aria-pressed and a .toggle-mark box that shows a check when on. Tabs keep
+   their underline, the menu its soft fill. */
+.seg { display: inline-flex; gap: var(--space-1); padding: var(--space-1); border-radius: var(--radius); background: var(--active); }
+.seg__btn {
+  box-sizing: border-box; height: var(--control-h-sm); padding: 0 var(--space-4);
+  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink);
+  font: inherit; font-size: var(--text-body); cursor: pointer;
+  transition: background-color var(--dur-fast) ease-out;
+}
+@media (hover: hover) { .seg__btn:hover:not([aria-pressed="true"]):not([aria-checked="true"]) { background: var(--hover); } }
+.seg__btn[aria-pressed="true"], .seg__btn[aria-checked="true"] {
+  background: var(--surface); color: var(--accent); font-weight: 600; box-shadow: inset 0 0 0 1px var(--accent);
+}
+/* In a bar of small controls: the track has no padding, so the control is as tall as its neighbours. */
+.seg--sm { padding: 0; gap: 0; }
+.seg--sm .seg__btn { font-size: var(--text-meta); padding: 0 var(--space-3); }
+.btn .toggle-mark { width: 12px; height: 12px; }
+
+/* ---------- notice ---------- */
+/* One message box for the whole interface (review 2026-11-14: errors looked like any other card).
+   An error = icon + soft fill + strong edge + what to do next; never colour alone. */
+.notice {
+  display: flex; align-items: flex-start; gap: var(--space-3); margin: 0;
+  padding: var(--space-4) var(--space-5); box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--surface); color: var(--ink); font-size: var(--text-body);
+}
+.notice > svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
+.notice__body { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.notice__body p { margin: 0; }
+.notice__body p + p { margin-top: var(--space-2); }
+.notice__title { font-weight: 600; }
+.notice__actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-4); }
+.notice--error { background: var(--danger-soft); border-color: var(--border-strong); }
+.notice__elapsed { font-weight: 400; color: var(--muted); }
+/* Busy: a 14px ring that is already turning when it appears. With reduced motion it stands still
+   (the global rule below) and the text beside it carries the state. */
+.spinner { width: 14px; height: 14px; flex: none; box-sizing: border-box; margin-top: 2px; border: 2px solid var(--border-strong);
+  border-top-color: transparent; border-radius: 50%; animation: spinner-turn 0.9s linear infinite; }
+@keyframes spinner-turn { to { transform: rotate(360deg); } }
 
 @media (pointer: coarse) {
   .btn { min-height: var(--touch-target); }
   .btn--icon { min-width: var(--touch-target); }
-  /* iOS zooms the page when a focused field is under 16px. */
-  .field, select.field, textarea { font-size: max(16px, 1em); }
+  /* Every other control reaches the same height, so a row of controls stays one height. */
+  .field, select.field, .seg__btn { min-height: var(--touch-target); }
 }
 
 /* ---------- inputs ---------- */
@@ -171,6 +216,11 @@ code, kbd, .mono { font-family: var(--font-mono); }
   border: 1px solid var(--border-strong); border-radius: var(--radius);
   background: var(--surface); color: var(--ink); font: inherit;
 }
+/* Touch: a focused field under 16px makes iOS zoom the page. This rule comes after the field rule
+   (whose `font: inherit` would win otherwise) and names the element, so a component's own
+   font-size on a field does not undo it. Found by the shared rendered check [input-zoom],
+   2026-11-14: written before the field rule, it had never applied. */
+@media (pointer: coarse) { input.field, select.field, textarea.field, textarea { font-size: max(16px, 1em); } }
 .field:focus-visible { border-color: var(--ring); } /* keeps the global 2px ring; a soft halo is not a ring (docs/17 §8) */
 input[type="number"].field { text-align: right; font-variant-numeric: tabular-nums; }
 input[type="range"], input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }

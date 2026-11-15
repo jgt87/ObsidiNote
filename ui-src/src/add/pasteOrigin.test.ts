@@ -38,6 +38,15 @@ describe('the From choice follows the pasted text (code review 2026-11-14)', () 
   it('always applies without a mark (chosen by hand)', () => {
     expect(originStillApplies('anything', '')).toBe(true)
   })
+  it('keeps the choice when one line of the paste is edited, as long as another is still there', () => {
+    const mark = pasteMark('Hi team, the release moves to Friday.\nPlease update the plan before Thursday noon.\nThanks')
+    expect(originStillApplies('The release moves to Friday.\nPlease update the plan before Thursday noon.', mark)).toBe(true)
+    expect(originStillApplies('Something else entirely, typed over it', mark)).toBe(false)
+  })
+  it('gives a short paste no mark, so it never matches text typed over it', () => {
+    expect(pasteMark('Hi')).toBe('')
+    expect(pasteMark('-\nok')).toBe('')
+  })
 })
 
 describe('the origin list', () => {

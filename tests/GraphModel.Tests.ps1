@@ -127,7 +127,71 @@ Describe 'ConvertTo-GraphModel: sources' {
         $c1 = @($g2.pages | Where-Object { $_.id -eq 'c1' })[0].sourceId
         $c1 | Should Be 'internal'
         $s = @($g2.sources | Where-Object { $_.id -eq 'internal' })[0]
-        "$($s.name):$($s.kind)" | Should Be 'Other company sites:service'
+        # Its own kind (not 'service'): a rest group, listed after the company services.
+        "$($s.id):$($s.name):$($s.kind)" | Should Be 'internal:Other company sites:other-internal'
+        (@($g2.sources | ForEach-Object { $_.kind }) -join ',') | Should Be 'm365,other-internal,web,other,notes'
+    }
+}
+
+Describe 'ConvertTo-GraphModel: section, bucket and kind per page (tests/fixtures/graph-pages.json)' {
+    # The fixture is what the server really sends: the interface tests read the same file.
+    $fx = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $here 'fixtures\graph-pages.json')))
+    $want = @($fx.pages)
+    function Add-FixtureSection($F, [string]$RootId, [string]$Full) {
+        $parts = $Full.Split('/')
+        $parent = $RootId
+        for ($i = 0; $i -lt $parts.Count - 1; $i++) {
+            $g = @($F.Nodes[$parent].children | Where-Object { $F.Nodes[$_].kind -eq 'SectionGroup' -and $F.Nodes[$_].name -eq $parts[$i] }) | Select-Object -First 1
+            $parent = if ($g) { $g } else { $F.AddGroup($parent, $parts[$i]) }
+        }
+        $F.AddSection($parent, $parts[-1])
+    }
+    $f = New-FakeOneNote
+    $vault = $f.AddNotebook('Fixture vault')
+    foreach ($p in @($want | Where-Object { $_.source -eq 'vault' })) {
+        $null = $f.AddPage((Add-FixtureSection $f $vault $p.section), "Page $($p.id)", $(if (@($p.tags).Count) { @{ 'obsn.id' = $p.id; 'obsn.type' = $p.kind; 'obsn.tags' = (ConvertTo-Json -InputObject @($p.tags) -Compress) } } else { @{ 'obsn.id' = $p.id; 'obsn.type' = $p.kind } }), 1, '')
+    }
+    $other = $f.AddNotebook('Fixture notebook')
+    foreach ($p in @($want | Where-Object { $_.source -eq 'notebook' })) { $null = $f.AddPage((Add-FixtureSection $f $other $p.section), "Page $($p.id)", @{}, 1, '') }
+    $gv = ConvertTo-GraphModel -Model (Read-VaultScan -Adapter $f -RootId $vault -VaultId 'v1') -Source @{ kind = 'vault'; id = 'v1'; name = 'Fixture vault'; readOnly = $false }
+    $gn = ConvertTo-GraphModel -Model (Get-NotebookModel -Adapter $f -NotebookId $other -NoLinks -Vaults @()) -Source @{ kind = 'notebook'; id = $other; name = 'Fixture notebook'; readOnly = $true }
+    It 'covers the cases the interface relies on' {
+        foreach ($s in 'Notes', 'Notes 2', 'Journal/2026', 'Journal/2025', 'Web links', 'Archive/Notes', 'Group/Section', '00 Admin') { (@($want | ForEach-Object { $_.section }) -contains $s) | Should Be $true }
+        @($gv.pages).Count | Should Be @($want | Where-Object { $_.source -eq 'vault' }).Count
+        @($gn.pages).Count | Should Be @($want | Where-Object { $_.source -eq 'notebook' }).Count
+    }
+    foreach ($p in $want) {
+        It "sends $($p.source) section '$($p.section)' as bucket '$($p.bucket)', kind '$($p.kind)'" {
+            # A vault page is found by its id; a notebook page (its id is OneNote's) by its section.
+            $got = if ($p.source -eq 'vault') { @($gv.pages | Where-Object { $_.id -eq $p.id })[0] } else { @($gn.pages | Where-Object { $_.section -eq $p.section })[0] }
+            $got | Should Not BeNullOrEmpty
+            "$($got.section)|$($got.bucket)|$($got.kind)" | Should Be "$($p.section)|$($p.bucket)|$($p.kind)"
+            # tags: as JSON, so a list of one and an empty list are checked as lists.
+            (ConvertTo-Json -InputObject $got.tags -Compress) | Should Be (ConvertTo-Json -InputObject @($p.tags) -Compress)
+        }
+    }
+    It 'sends the tags of the shown source with their page counts, sorted by name, as a list' {
+        $jv = ConvertTo-Json -InputObject $gv -Depth 12 -Compress
+        $jn = ConvertTo-Json -InputObject $gn -Depth 12 -Compress
+        (@(($jv | ConvertFrom-Json).tags | ForEach-Object { "$($_.name):$($_.count)" }) -join ';') | Should Be (@($fx.vaultTags | ForEach-Object { "$($_.name):$($_.count)" }) -join ';')
+        @($fx.notebookTags).Count | Should Be 0
+        $jn | Should Match '"tags":\[\]\}$'
+        $jv | Should Match '"tags":\[\{"name":"follow up","count":1\},'
+    }
+    It 'says why a read-only source cannot be changed (readOnlyReason)' {
+        $gv.source.readOnlyReason | Should Be ''
+        $gn.source.readOnlyReason | Should Be 'notebook'
+        $m0 = New-IndexModel -Kind 'vault' -VaultId 'v1'
+        (ConvertTo-GraphModel -Model $m0 -Source @{ kind = 'vault'; id = 'v1'; name = 'S'; readOnly = $true; readOnlyReason = 'lease' }).source.readOnlyReason | Should Be 'lease'
+        (ConvertTo-GraphModel -Model $m0 -Source @{ kind = 'vault'; id = 'v1'; name = 'S'; readOnly = $true }).source.readOnlyReason | Should Be 'not-active'
+        (ConvertTo-GraphModel -Model $m0 -Source @{ kind = 'vault'; id = 'v1'; name = 'S'; readOnly = $false; readOnlyReason = 'lease' }).source.readOnlyReason | Should Be ''
+    }
+    It 'sends an empty section when the model has none' {
+        $m = New-IndexModel -Kind 'vault' -VaultId 'v1'
+        $null = Add-IndexPage -Model $m -Page @{ id = 'p1'; title = 'No section'; oneNoteId = '{A}' }
+        $g0 = ConvertTo-GraphModel -Model $m -Source @{ kind = 'vault'; id = 'v1'; name = 'S'; readOnly = $false }
+        $g0.pages[0].section | Should Be ''
+        (ConvertTo-Json -InputObject $g0 -Depth 12 -Compress) | Should Match '"section":""'
     }
 }
 

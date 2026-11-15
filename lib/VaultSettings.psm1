@@ -67,13 +67,42 @@ function ConvertFrom-SettingsValue {
     $t = [ordered]@{}
     if (-not $Value) { return $t }
     try { $o = ConvertFrom-Json -InputObject $Value } catch { return $t }
-    if ($o -isnot [pscustomobject]) { return $t }
+    # The full type name: [pscustomobject] is PSObject, which a bare number, text or list can be too.
+    if ($o -isnot [System.Management.Automation.PSCustomObject]) { return $t }
     foreach ($p in $o.PSObject.Properties) {
         $v = $p.Value
         if ($v -is [array]) { $v = @($v) }
         $t[$p.Name] = $v
     }
     $t
+}
+
+function Test-SettingsValueReadable {
+    <# False when a stored value holds something that is not a JSON object (cut-off JSON, a list, a
+       bare text or number): such a value is never treated as "no settings yet" and never written
+       over (code review 2026-11-15). True for nothing stored and for an object. Pure. #>
+    param([AllowEmptyString()][AllowNull()][string]$Value)
+    if (-not "$Value".Trim()) { return $true }
+    try { $o = ConvertFrom-Json -InputObject $Value } catch { return $false }
+    # The full type name: [pscustomobject] is PSObject, which a bare number or text can be too.
+    $o -is [System.Management.Automation.PSCustomObject]
+}
+
+$script:Unreadable = 'the settings stored in this vault could not be read'
+# The one sentence for a refused change and for GET /api/settings (canChange false, message).
+$script:UnreadableRefusal = 'The settings stored in this vault could not be read, so nothing was changed. They are left as they are in OneNote (the ObsidiNote page in 00 Index); the defaults are used until they are repaired.'
+function Get-UnreadableSettingsMessage { $script:UnreadableRefusal }
+
+function Read-VaultSettings {
+    <# The values to use of any open vault, read only (the graph of a vault that is not the active
+       one): a valid stored value, else the default; the defaults when nothing can be read. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)][string]$IndexSectionId)
+    try {
+        $st = Get-VaultState -Adapter $Adapter -IndexSectionId $IndexSectionId
+        if ($st) { return (Get-VaultSettingsPlan -Stored (ConvertFrom-SettingsValue ([string]$st.meta[$script:SettingsMeta]))).effective }
+    } catch { }
+    Get-VaultSettingDefaults
 }
 
 function Get-VaultSettingsPlan {
@@ -116,13 +145,16 @@ function ConvertTo-SettingsValue {
 function Sync-VaultSettings {
     <# The start's check (and a vault switch's): reads obsn.settings from the state page, adds every
        missing key with its default (as the writer), never changes an existing value. Returns
-       @{ status (added|none|readonly|failed); added; invalid; effective; message }. Never throws. #>
+       @{ status (added|none|readonly|unreadable|failed); added; invalid; effective; message }.
+       unreadable: something is stored that is not a settings object; it is left exactly as it is
+       (nothing is written) and the defaults are used in memory. Never throws. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)][string]$IndexSectionId, [bool]$Writer, [hashtable]$Local = @{})
     $r = @{ status = 'none'; added = @(); invalid = @(); effective = (Get-VaultSettingDefaults); message = '' }
     try {
         $st = Get-VaultState -Adapter $Adapter -IndexSectionId $IndexSectionId
         if (-not $st) { $r.status = 'failed'; $r.message = 'No state page in this vault.'; return $r }
+        if (-not (Test-SettingsValueReadable ([string]$st.meta[$script:SettingsMeta]))) { $r.status = 'unreadable'; $r.message = $script:Unreadable; return $r }
         $plan = Get-VaultSettingsPlan -Stored (ConvertFrom-SettingsValue ([string]$st.meta[$script:SettingsMeta])) -Local $Local
         $r.effective = $plan.effective; $r.invalid = $plan.invalid; $r.added = $plan.added
         if (-not $plan.added.Count) { return $r }
@@ -152,6 +184,10 @@ function Set-VaultSetting {
     }
     $st = Get-VaultState -Adapter $Adapter -IndexSectionId $IndexSectionId
     if (-not $st) { throw 'No state page in this vault.' }
+    # Never rewrite everything over a value that cannot be read: the other settings would be lost.
+    if (-not (Test-SettingsValueReadable ([string]$st.meta[$script:SettingsMeta]))) {
+        throw $script:UnreadableRefusal
+    }
     $plan = Get-VaultSettingsPlan -Stored (ConvertFrom-SettingsValue ([string]$st.meta[$script:SettingsMeta]))
     $plan.stored[$Key] = $Value
     Write-ObsnPage -Adapter $Adapter -PageId $st.statePageId -Meta ([ordered]@{ $script:SettingsMeta = (ConvertTo-SettingsValue $plan.stored) })
@@ -166,10 +202,11 @@ function Format-VaultSettingsStatus {
     switch ($Result.status) {
         'added' { return @{ status = 'OK'; detail = "settings added to the vault in OneNote with their defaults: $names"; hint = '' } }
         'readonly' { return @{ status = 'WARN'; detail = "settings missing in OneNote ($names); defaults used, not saved: this ObsidiNote is read only"; hint = 'The writer adds them at its next start.' } }
+        'unreadable' { return @{ status = 'WARN'; detail = "$($script:Unreadable) and were left as they are; the defaults are used for this session"; hint = 'Nothing was changed in OneNote. Settings cannot be saved in the window until the stored value is repaired.' } }
         'failed' { return @{ status = 'WARN'; detail = "settings not checked: $($Result.message)"; hint = 'Defaults are used for this session.' } }
     }
     if (@($Result.invalid).Count) { return @{ status = 'WARN'; detail = "settings with a value ObsidiNote cannot use: $($Result.invalid -join ', ') (kept in OneNote; defaults used)"; hint = '' } }
     $null
 }
 
-Export-ModuleMember -Function Get-VaultSettingDefaults, Test-VaultSettingValue, ConvertFrom-SettingsValue, Get-VaultSettingsPlan, ConvertTo-SettingsValue, Sync-VaultSettings, Set-VaultSetting, Format-VaultSettingsStatus
+Export-ModuleMember -Function Get-UnreadableSettingsMessage, Get-VaultSettingDefaults, Test-VaultSettingValue, ConvertFrom-SettingsValue, Test-SettingsValueReadable, Read-VaultSettings, Get-VaultSettingsPlan, ConvertTo-SettingsValue, Sync-VaultSettings, Set-VaultSetting, Format-VaultSettingsStatus

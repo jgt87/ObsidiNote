@@ -8,7 +8,7 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File validation\Run-Validation.ps1 [-Stage V1,V2,...]
 #     [-WriteTest] [-NoCopilot] [-NoPrompt] [-TestPort <n>] [-ProbeBasePath <OneDrive Documents URL>]
-#     [-PublicUrl <url>] [-SharePointUrl <url>] [-OneDriveUrl <url>] [-OutDir <folder>]
+#     [-PublicUrl <url>] [-SharePointUrl <url>] [-OneDriveUrl <url>] [-OutDir <folder>] [-Probe P10]
 [CmdletBinding()]
 param(
     [string[]]$Stage = @(),       # V1..V6, e.g. -Stage V1,V3; all stages when left out
@@ -20,7 +20,8 @@ param(
     [string]$PublicUrl = '',      # P8's public address (default: a public documentation page)
     [string]$SharePointUrl = '',  # P7 without the question (not logged)
     [string]$OneDriveUrl = '',    # P7 without the question (not logged)
-    [string]$OutDir = ''          # where the log goes (default: the Desktop)
+    [string]$OutDir = '',         # where the log goes (default: the Desktop)
+    [string[]]$Probe = @()        # V5 only these probes, e.g. -Probe P10 (Run Meeting Probe.cmd); all when left out
 )
 $ErrorActionPreference = 'Stop'
 # Windows PowerShell's own module paths: started from PowerShell 7, 5.1 would load 7's modules.
@@ -44,12 +45,17 @@ if (Test-Path -LiteralPath $logPath) { [IO.File]::Delete($logPath) }
 $flags = @{
     WriteTest = [bool]$WriteTest; NoCopilot = [bool]$NoCopilot; NoPrompt = [bool]$NoPrompt
     TestPort = $TestPort; ProbeBasePath = $ProbeBasePath; PublicUrl = $PublicUrl; SharePointUrl = $SharePointUrl; OneDriveUrl = $OneDriveUrl
+    Probes = @($Probe | ForEach-Object { "$_".Split(',') } | ForEach-Object { $_.Trim().ToUpperInvariant() } | Where-Object { $_ })
 }
 $ctx = New-ValidationContext -AppRoot $appRoot -LogPath $logPath -Stages $stages -Flags $flags
 $appVersion = Get-AppVersionFromRoot $appRoot
 foreach ($l in (Get-ValidationHeader -Ctx $ctx -AppVersion $appVersion)) { Write-ValidationLine $ctx $l }
 if ($PSVersionTable.PSEdition -ne 'Desktop') {
     Write-ValidationLine $ctx 'Note: run this kit with Windows PowerShell 5.1 (Run Validation.cmd does that); OneNote COM does not work from PowerShell 7.' 'Yellow'
+}
+# -Probe only narrows stage V5 (an unknown name fails there, with the list of probes).
+if (@($flags.Probes).Count -and $stages -notcontains 'V5') {
+    Write-ValidationLine $ctx 'Note: -Probe names probes of stage V5, which is not in this run; it has no effect.' 'Yellow'
 }
 
 $runners = @{

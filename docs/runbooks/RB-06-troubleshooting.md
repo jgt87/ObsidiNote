@@ -48,6 +48,10 @@ and send it with the kit's Desktop files.
   again.
 - Kit `[FAIL] ObsidiNote-Probe  could not open or create`: open a OneDrive notebook in OneNote, or
   run with `-ProbeBasePath` and your OneDrive Documents address.
+- Kit `[FAIL] Probe  ... not a probe; the probes are P3, P4, P7, P8, P10`: the name after `-Probe`
+  was mistyped. Run it again with one of the listed names (for example `-Probe P10`).
+- Kit `[WARN] P10 meeting notes  ... came back without a title`: Copilot left the meeting's title
+  out of its list, so the kit could not ask about it. Run `Run Meeting Probe.cmd` again.
 
 ## Collect the app log
 

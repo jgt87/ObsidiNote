@@ -377,7 +377,117 @@ Describe 'V5 Grounding probes' {
         Invoke-StageGrounding -Ctx $c
         @($c.Results | Where-Object { $_.name -eq 'P7 SharePoint page' })[0].status | Should Be 'WARN'
         @($c.Results | Where-Object { $_.name -eq 'P7 OneDrive document' })[0].status | Should Be 'SKIP'
-        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Times 2 -Exactly -Scope It
+        # P8 twice, and P10's meeting list once (its reply has no meetings, so no second question)
+        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Times 3 -Exactly -Scope It
+    }
+}
+
+Describe 'V5 P10 meetings (operator, 2026-11-14)' {
+    $list = '{"meetings":[{"title":"Fabrikam merger steering","start":"2026-11-13 10:00","attendees":6,"hasTranscript":true,"hasRecap":true,"hasNotes":false,"link":"https://contoso.sharepoint.com/recap/1"},{"title":"Coffee with Ada","start":"2026-11-12 09:00","attendees":2,"hasTranscript":false,"hasRecap":false,"hasNotes":false,"link":""}],"searched":["Teams"]}'
+    $notes = '{"found":true,"date":"2026-11-13","attendees":["Ada Lovelace","Grace Hopper"],"summary":"Secret merger talk.","decisions":["Buy Fabrikam for 12M"],"actions":[{"text":"Draft term sheet","owner":"Ada Lovelace","due":"2026-11-20"},{"text":"Call the bank","owner":"","due":""}],"basedOn":"transcript","source":"https://contoso.sharepoint.com/recap/1"}'
+    It 'counts meetings and what Copilot can read of them; picks the newest one that has something' {
+        $l = Test-MeetingListReply $list
+        "$($l.valid)|$($l.count)|$($l.transcript)|$($l.recap)|$($l.notes)|$($l.links)" | Should Be 'True|2|1|1|0|1'
+        $l.pick.title | Should Be 'Fabrikam merger steering'
+        (Test-MeetingListReply '{"meetings":[],"searched":[]}').pick | Should Be $null
+        (Test-MeetingListReply 'I cannot see your meetings.').valid | Should Be $false
+    }
+    It 'counts the parts of the structured notes' {
+        $n = Test-MeetingNotesReply $notes
+        "$($n.found)|$($n.attendees)|$($n.decisions)|$($n.actions)|$($n.owners)|$($n.dues)|$($n.basedOn)|$($n.source)" | Should Be 'True|2|1|2|1|1|transcript|True'
+        (Test-MeetingNotesReply '{"found":false,"attendees":[],"decisions":[],"actions":[]}').found | Should Be $false
+    }
+    It 'asks the second question about the picked meeting and logs counts only: no title, name, link or text' {
+        $d = New-TestDir
+        $log = Join-Path $d 'p10.txt'
+        Mock Connect-KitCopilot -ModuleName StageGrounding { [pscustomobject]@{ Port = 9334 } }
+        Mock Get-KitOneNote -ModuleName StageGrounding { $null }
+        # Pester 3.4: a Mock runs in the module's scope and cannot see this Describe's variables.
+        $global:ObsnP10List = $list; $global:ObsnP10Notes = $notes
+        Mock Send-KitPrompt -ModuleName StageGrounding {
+            $t = if ($Text -like 'List my Teams meetings*') { $global:ObsnP10List } elseif ($Text -like 'From the transcript*') { $global:ObsnP10Notes } else { '{}' }
+            [pscustomobject]@{ ok = $true; result = 'Success'; ms = 900; error = ''; workIq = 'on'; text = $t }
+        }
+        $c = New-TestCtx -LogPath $log -Flags @{ NoPrompt = $true }
+        Invoke-StageGrounding -Ctx $c
+        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Scope It -ParameterFilter { $Text -like '*"Fabrikam merger steering"*' } -Times 1 -Exactly
+        $text = [IO.File]::ReadAllText($log)
+        $text | Should Not Match 'Fabrikam|Ada|Grace|Lovelace|contoso|recap/1|term sheet|bank|12M|Secret'
+        @($c.Results | Where-Object { $_.name -eq 'P10 meetings list' })[0].status | Should Be 'OK'
+        @($c.Results | Where-Object { $_.name -eq 'P10 meeting notes' })[0].status | Should Be 'OK'
+        $text | Should Match '2 meetings in the last 7 days; with a transcript 1, a recap 1, notes 0, a link 1'
+        $text | Should Match '2 attendees, 1 decisions, 2 actions \(1 with an owner, 1 with a due date\); source link yes'
+        Remove-Item $d -Recurse -Force
+        Remove-Variable -Name ObsnP10List, ObsnP10Notes -Scope Global
+    }
+    It 'runs only P10 with -Probe P10 (Run Meeting Probe.cmd)' {
+        Mock Connect-KitCopilot -ModuleName StageGrounding { [pscustomobject]@{ Port = 9334 } }
+        Mock Get-KitOneNote -ModuleName StageGrounding { $null }
+        Mock Send-KitPrompt -ModuleName StageGrounding { [pscustomobject]@{ ok = $true; result = 'Success'; ms = 1; error = ''; workIq = 'on'; text = '{"meetings":[],"searched":[]}' } }
+        $c = New-TestCtx -Flags @{ NoPrompt = $true; Probes = @('P10') }
+        Invoke-StageGrounding -Ctx $c
+        (@($c.Results | ForEach-Object { $_.name }) -join ',') | Should Be 'P10 meetings list,P10 meeting notes'
+        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Times 1 -Exactly -Scope It
+    }
+    It 'picks no meeting without a title, and never throws on a list item without one (code review 2026-11-15)' {
+        # the newest meeting with something has no "title" at all; the next one's is empty; the third has one
+        $l = Test-MeetingListReply '{"meetings":[{"start":"2026-11-13 10:00","hasTranscript":true},{"title":"  ","hasRecap":true},{"title":"Fabrikam merger steering","hasNotes":true}]}'
+        "$($l.valid)|$($l.count)|$($l.rich)|$($l.pick.title)" | Should Be 'True|3|3|Fabrikam merger steering'
+        $none = Test-MeetingListReply '{"meetings":[{"start":"2026-11-13 10:00","hasTranscript":true},{"title":"","hasRecap":true}]}'
+        "$($none.valid)|$($none.count)|$($none.rich)" | Should Be 'True|2|2'
+        $none.pick | Should Be $null
+    }
+    It 'gives a WARN line, not a stopped stage, when the meeting to ask about has no title' {
+        Mock Connect-KitCopilot -ModuleName StageGrounding { [pscustomobject]@{ Port = 9334 } }
+        Mock Get-KitOneNote -ModuleName StageGrounding { $null }
+        Mock Send-KitPrompt -ModuleName StageGrounding { [pscustomobject]@{ ok = $true; result = 'Success'; ms = 1; error = ''; workIq = 'on'; text = '{"meetings":[{"start":"2026-11-13 10:00","hasTranscript":true}],"searched":["Teams"]}' } }
+        $c = New-TestCtx -Flags @{ NoPrompt = $true; Probes = @('P10') }
+        { Invoke-StageGrounding -Ctx $c } | Should Not Throw
+        (@($c.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'P10 meetings list=OK,P10 meeting notes=WARN'
+        $c.Results[1].detail | Should Match 'without a title'
+        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Times 1 -Exactly -Scope It
+    }
+}
+
+Describe 'V5 -Probe: a name that is no probe (code review 2026-11-15)' {
+    It 'lists the probes of the stage' {
+        ((Get-GroundingProbes) -join ',') | Should Be 'P3,P4,P7,P8,P10'
+    }
+    It 'fails with a line that names the probes, and never opens Copilot for it' {
+        Mock Connect-KitCopilot -ModuleName StageGrounding { [pscustomobject]@{ Port = 9334 } }
+        Mock Send-KitPrompt -ModuleName StageGrounding { [pscustomobject]@{ ok = $true; result = 'Success'; ms = 1; error = ''; workIq = 'on'; text = '{}' } }
+        $d = New-TestDir
+        $log = Join-Path $d 'probe.txt'
+        $c = New-TestCtx -LogPath $log -Flags @{ NoPrompt = $true; Probes = @('P1O', 'MEETINGS') }
+        Invoke-StageGrounding -Ctx $c
+        $c.Results.Count | Should Be 1
+        $r = $c.Results[0]
+        "$($r.stage)|$($r.status)|$($r.name)" | Should Be 'V5|FAIL|Probe'
+        $r.detail | Should Match '2 name\(s\) given with -Probe are not a probe; the probes are P3, P4, P7, P8, P10'
+        # what was typed is not written to the log
+        [IO.File]::ReadAllText($log) | Should Not Match 'P1O|MEETINGS'
+        Assert-MockCalled Connect-KitCopilot -ModuleName StageGrounding -Times 0 -Exactly -Scope It
+        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Times 0 -Exactly -Scope It
+        (Get-ValidationSummary $c).result | Should Be 'FAIL'
+        Remove-Item $d -Recurse -Force
+    }
+    It 'still runs the probes it knows next to the wrong name, in any letter case' {
+        Mock Connect-KitCopilot -ModuleName StageGrounding { [pscustomobject]@{ Port = 9334 } }
+        Mock Get-KitOneNote -ModuleName StageGrounding { $null }
+        Mock Send-KitPrompt -ModuleName StageGrounding { [pscustomobject]@{ ok = $true; result = 'Success'; ms = 1; error = ''; workIq = 'on'; text = '{"meetings":[],"searched":[]}' } }
+        $c = New-TestCtx -Flags @{ NoPrompt = $true; Probes = @('p10', 'P99') }
+        Invoke-StageGrounding -Ctx $c
+        (@($c.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'Probe=FAIL,P10 meetings list=WARN,P10 meeting notes=SKIP'
+    }
+    It 'a V5 run never ends without a result line' {
+        Mock Connect-KitCopilot -ModuleName StageGrounding { [pscustomobject]@{ Port = 9334 } }
+        Mock Get-KitOneNote -ModuleName StageGrounding { $null }
+        Mock Send-KitPrompt -ModuleName StageGrounding { [pscustomobject]@{ ok = $true; result = 'Success'; ms = 1; error = ''; workIq = 'on'; text = '{"meetings":[],"searched":[]}' } }
+        foreach ($p in '', 'P3', 'P4', 'P7', 'P8', 'P10', 'nope', 'P3;P4;P7;P8;P10', 'nope;P99') {
+            $c = New-TestCtx -Flags @{ NoPrompt = $true; Probes = @($p.Split(';') | Where-Object { $_ }) }
+            Invoke-StageGrounding -Ctx $c
+            "$p $($c.Results.Count -gt 0)" | Should Be "$p True"
+        }
     }
 }
 
@@ -395,8 +505,10 @@ Describe 'V6 skips what is not in this version yet' {
         $null = New-Item -ItemType Directory -Force -Path (Join-Path $d 'lib')
         $c = New-TestCtx -AppRoot $d -Flags @{ WriteTest = $true }
         Invoke-StageVault -Ctx $c
-        $c.Results.Count | Should Be 12
-        @($c.Results | Where-Object { $_.status -eq 'SKIP' -and $_.detail -match '^not in this version yet' }).Count | Should Be 12
+        $c.Results.Count | Should Be 14
+        @($c.Results | Where-Object { $_.status -eq 'SKIP' -and $_.detail -match '^not in this version yet' }).Count | Should Be 14
+        @($c.Results | Where-Object { $_.name -eq 'Undo of a linked page' }).Count | Should Be 1
+        @($c.Results | Where-Object { $_.name -eq 'Tags' }).Count | Should Be 1
         @($c.Results | Where-Object { $_.name -eq 'Vault settings' }).Count | Should Be 1
         @($c.Results | Where-Object { $_.name -eq 'Link it' }).Count | Should Be 1
         @($c.Results | Where-Object { $_.name -eq 'Upgrade plan' }).Count | Should Be 1
@@ -428,6 +540,51 @@ Describe 'V6 "Link it" in the dev vault (in-memory OneNote, no Copilot)' {
     }
     It 'logs statuses and timings only, no page titles' {
         (@($c.Results | ForEach-Object { "$($_.detail)" }) -join ' ') | Should Not Match 'Validation link'
+    }
+}
+
+Describe 'V6 "Undo of a linked page" and "Tags" in the dev vault (in-memory OneNote, no Copilot)' {
+    foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'Linker', 'LinkCapture', 'Ingest') { Import-Module (Join-Path $root "lib\$m.psm1") -Global }
+    . (Join-Path $here 'SyntheticVault.ps1')
+    $w = New-SyntheticVault
+    $dev = [pscustomobject]@{ vault = $w.open.vault; lease = $w.open.lease; model = $w.open.model }
+    $before = @($w.open.model.pages.Keys | Sort-Object) -join ','
+    $c = New-TestCtx -Flags @{ WriteTest = $true }
+    & (Get-Module StageVault) { param($c, $a, $d) Invoke-DevUndoLinked $c $a $d } $c $w.a $dev
+    It 'undoes a page another page links to: no link left in that page''s Meta, its text says deleted' {
+        $bad = @($c.Results | Where-Object { $_.status -ne 'OK' } | ForEach-Object { "$($_.name): $($_.status) $($_.detail)" })
+        ($bad -join '; ') | Should Be ''
+        (@($c.Results | ForEach-Object { $_.name }) -join ',') | Should Be 'Undo of a linked page,Undo of a linked page (undo)'
+        $c.Results[0].detail | Should Match '^status undone; unlinked 1; text rewritten on 1 page\(s\); links left in the linking page: 0; its text says deleted: True'
+        (@($w.open.model.pages.Keys | Sort-Object) -join ',') | Should Be $before
+        (Find-FakePage $w.f 'Validation undo linker') | Should BeNullOrEmpty
+    }
+    $t = New-TestCtx -Flags @{ WriteTest = $true }
+    & (Get-Module StageVault) { param($c, $a, $d) Invoke-DevTags $c $a $d } $t $w.a $dev
+    It 'tags a synthetic page, reads it back, renames the tag, removes it, and takes the page back out' {
+        $bad = @($t.Results | Where-Object { $_.status -ne 'OK' } | ForEach-Object { "$($_.name): $($_.status) $($_.detail)" })
+        ($bad -join '; ') | Should Be ''
+        (@($t.Results | ForEach-Object { $_.name }) -join ',') | Should Be 'Tags,Tags (rename),Tags (remove),Tags (undo)'
+        (@($w.open.model.pages.Keys | Sort-Object) -join ',') | Should Be $before
+    }
+    It 'logs counts and statuses only: no page title, no tag text' {
+        $lines = @(foreach ($x in $c.Results) { "$($x.name) $($x.detail)" }) + @(foreach ($x in $t.Results) { "$($x.name) $($x.detail)" })
+        $lines.Count | Should Be 6
+        $all = $lines -join ' '
+        $all | Should Not Match 'Validation (undo|tag)'
+        $all | Should Not Match 'validation kit tag'
+        $all | Should Not Match 'p\d'
+    }
+    It 'lists both in the read-only plan (no -WriteTest)' {
+        $r = New-TestCtx
+        & (Get-Module StageVault) { param($c, $a) Invoke-DevVaultChecks $c $a } $r $w.a
+        (@($r.Results | ForEach-Object { $_.name }) -join ',') | Should Be 'Dev vault,Add and Undo,Check for the answer,Link it,Undo of a linked page,Tags,Upgrade move,Ask'
+        @($r.Results | Where-Object { $_.status -ne 'SKIP' }).Count | Should Be 0
+    }
+    It 'takes the company names for the upgrade plan from Get-LinkRules' {
+        $src = [IO.File]::ReadAllText((Join-Path $root 'validation\lib\StageVault.psm1'))
+        $src | Should Not Match 'Get-CompanyNames'
+        $src | Should Match 'Get-LinkRules -Locations'
     }
 }
 
@@ -478,14 +635,49 @@ Describe 'The kit on disk' {
         @($hits | Where-Object { $_ -notlike 'ValidationCore.psm1:*' }).Count | Should Be 0
         @($hits | Where-Object { $_ -like 'ValidationCore.psm1:*' }).Count | Should Be 2
     }
-    It 'Run Validation.cmd is one ( ) block that ends with exit /b, with CRLF line endings' {
-        $f = Join-Path $kit 'Run Validation.cmd'
-        $lines = @([IO.File]::ReadAllLines($f) | Where-Object { $_.Trim() })
-        $code = @($lines | Where-Object { $_.Trim() -notmatch '^(@echo off|rem\b)' })
-        $code[0].Trim() | Should Be '('
-        $code[-1].Trim() | Should Be ')'
-        $code[-2].Trim() | Should Be 'exit /b'
-        ([IO.File]::ReadAllText($f) -match "[^`r]`n") | Should Be $false
+    It 'every .cmd of the kit is one ( ) block that ends with exit /b, with CRLF line endings' {
+        $cmds = @(Get-ChildItem -LiteralPath $kit -Filter *.cmd -File)
+        (@($cmds | ForEach-Object { $_.Name }) -contains 'Run Meeting Probe.cmd') | Should Be $true
+        foreach ($c in $cmds) {
+            $f = $c.FullName
+            $lines = @([IO.File]::ReadAllLines($f) | Where-Object { $_.Trim() })
+            $code = @($lines | Where-Object { $_.Trim() -notmatch '^(@echo off|rem\b)' })
+            "$($c.Name): $($code[0].Trim()) .. $($code[-2].Trim()) $($code[-1].Trim())" | Should Be "$($c.Name): ( .. exit /b )"
+            "$($c.Name): $([IO.File]::ReadAllText($f) -match "[^`r]`n")" | Should Be "$($c.Name): False"
+        }
+    }
+    It 'Run Meeting Probe.cmd runs only the meetings probe, asking nothing' {
+        $t = [IO.File]::ReadAllText((Join-Path $kit 'Run Meeting Probe.cmd'))
+        $t | Should Match '-Stage V5 -Probe P10 -NoPrompt'
+    }
+    # Docs in step (code review 2026-11-15: -Probe and Run Meeting Probe.cmd shipped without a word
+    # in AGENTS.md, the README or RB-03). What the kit offers is read from the kit itself.
+    $tokens = $null; $errs = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $kit 'Run-Validation.ps1'), [ref]$tokens, [ref]$errs)
+    $params = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+    $cmdNames = @(Get-ChildItem -LiteralPath $kit -Filter *.cmd -File | ForEach-Object { $_.Name })
+    $agents = [IO.File]::ReadAllText((Join-Path $root 'AGENTS.md'))
+    $people = (@([IO.File]::ReadAllText((Join-Path $root 'README.md'))) + @(Get-ChildItem -LiteralPath (Join-Path $root 'docs\runbooks') -Filter *.md | ForEach-Object { [IO.File]::ReadAllText($_.FullName) })) -join "`n"
+    $missingIn = {
+        param([string]$Text)
+        @(@($params | Where-Object { $Text -notmatch ('(?<![\w-])-' + [regex]::Escape($_) + '\b') } | ForEach-Object { "-$_" }) + @($cmdNames | Where-Object { $Text.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -lt 0 }))
+    }
+    It 'finds the kit''s parameters and launchers to check' {
+        ($params -contains 'Probe') | Should Be $true
+        ($params.Count -ge 11) | Should Be $true
+        ($cmdNames -contains 'Run Meeting Probe.cmd') | Should Be $true
+    }
+    It 'the README or a runbook names every parameter of Run-Validation.ps1 and every .cmd of the kit' {
+        ((& $missingIn $people) -join ', ') | Should Be ''
+    }
+    It 'AGENTS.md names every parameter of Run-Validation.ps1 and every .cmd of the kit' {
+        ((& $missingIn $agents) -join ', ') | Should Be ''
+    }
+    It 'the stage table and the options of RB-03 know P10 and -Probe' {
+        $rb = [IO.File]::ReadAllText((Join-Path $root 'docs\runbooks\RB-03-run-validation.md'))
+        $rb | Should Match '\| V5 Grounding \| Probes P3, P4, P7, P8 and P10'
+        $rb | Should Match '\| `-Probe P10` \|'
+        $rb | Should Match 'Run Meeting Probe\.cmd'
     }
     It 'ships in the release (validation is not a development folder)' {
         $src = [IO.File]::ReadAllText((Join-Path $root 'tools\build-release.ps1'))

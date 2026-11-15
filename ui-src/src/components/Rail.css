@@ -64,7 +64,11 @@ nav.rail > .rail__footer { margin-top: auto; }
 }
 /* The one part of the side bar that scrolls: it takes the room left between top and footer. */
 .rail__notebook { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-.rail__notebook > .rail__label { flex: none; }
+.rail__notebook > .rail__label, .rail__sections-head { flex: none; }
+.rail__sections-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); padding-right: var(--space-3); }
+.rail__sections-head .rail__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* "Show / Hide" exists only where the list is folded: the narrow layout below. */
+.rail__fold { display: none; flex: none; font-size: var(--text-meta); }
 .rail__scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 
 .switcher { display: flex; flex-direction: column; gap: var(--space-2); padding: 0 var(--space-3); }
@@ -124,6 +128,8 @@ nav.rail > .rail__footer { margin-top: auto; }
   text-align: left;
 }
 .tree__toggle { cursor: pointer; }
+/* A section the graph does not hold (Index, Intake, Archive): text, not a control. */
+.tree__row--plain { color: var(--muted); }
 @media (hover: hover) { .tree__toggle:hover { background: var(--hover); } }
 .tree__toggle:focus-visible { outline-offset: -2px; }
 .tree__chev { display: inline-flex; width: 16px; height: 16px; flex: none; color: var(--muted); transition: transform var(--dur-fast) ease-out; }
@@ -138,8 +144,42 @@ nav.rail > .rail__footer { margin-top: auto; }
   .rail__notebook, .rail__scroll { flex: none; overflow-y: visible; }
 }
 
+@media (pointer: coarse) {
+  .rail__link, .tree__row { min-height: var(--touch-target); }
+}
+
+/* A narrow window (a phone, or half a screen next to mail): the side bar becomes a compact bar at
+   the top, so the Add box is on the first screen (review 2026-11-14: the whole side bar, 1040px of
+   it, stood above the box). Name and theme on one row, the menu in a row, notebook and New vault on
+   one row, the sections folded behind Show. */
 @media (max-width: 760px) {
-  .rail { position: static; width: 100%; height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid var(--border); }
+  .rail { position: relative; width: 100%; height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid var(--border);
+    padding: var(--space-4) var(--space-5); }
+  nav.rail > * + * { margin-top: var(--space-3); padding-top: 0; border-top: 0; }
+  .rail__brand { min-height: 32px; padding: 0; }
+  .rail__nav { flex-direction: row; flex-wrap: wrap; gap: var(--space-2); }
+  .rail__link { padding: 0 var(--space-3); }
+  .rail__link--btn { width: auto; }
+  .switcher { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-2) var(--space-3); padding: 0; }
+  .switcher > .rail__label, .switcher > .switcher__note, .switcher > .rail__muted { grid-column: 1 / -1; }
+  /* Select and New vault share a row; the note about the vault comes under them. */
+  .switcher__select { order: 1; }
+  .switcher__new { order: 2; width: auto; align-self: auto; }
+  .switcher > .switcher__note, .switcher > .rail__muted { order: 3; }
   .rail__notebook, .rail__scroll { flex: none; overflow-y: visible; }
-  nav.rail > .rail__footer { margin-top: var(--space-5); }
+  .rail__sections-head { padding: 0; }
+  .rail__sections-head .rail__label { padding: 0; margin: 0; }
+  .rail__fold { display: inline; }
+  .rail__scroll[data-open="false"] { display: none; }
+  nav.rail > .rail__footer { margin-top: 0; }
+  .rail__footer:not(:has(.rail__notes)) { display: contents; }
+  .rail__footer { gap: var(--space-3); }
+  .rail__notes { margin-top: var(--space-3); }
+  .rail__vault { display: none; }
+  /* The theme switch goes up beside the name: still always in view, and out of the bar's height. */
+  .rail__theme { position: absolute; top: var(--space-4); right: var(--space-5); width: 176px; padding-top: 0; border-top: 0; }
+}
+@media (max-width: 760px) and (pointer: coarse) {
+  .rail__brand { min-height: 48px; }
+  .rail__theme { width: 200px; }
 }

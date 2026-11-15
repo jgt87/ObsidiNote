@@ -5,6 +5,63 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Validation kit, stage V5: probe P10 checks whether Copilot can list your recent Teams meetings and turn one with a transcript, recap or notes into structured meeting notes (attendees, decisions, actions with owner and due date). Read only; the log holds counts only. It decides whether ObsidiNote gets an "Add a meeting" step (runbook RB-04). Double-click **Run Meeting Probe.cmd** in the `validation` folder to run only this probe (`-Probe P10`).
+- **Tags**, set by hand, to group pages that nothing else relates. Add or remove them in the page window, or tick several rows in the List and tag them together; existing tags are offered while you type. The map's Topics/Sources switch has a third choice, **Tags**: one area per tag, holding only the tagged pages, with a chip per tag to choose which tags are shown. In the Topics and Sources views, pick a tag above the map and its pages light up wherever they are, joined into one group by thin dashed lines; `tag:name` works in the search and in Ctrl+K, and the Filter panel has a Tag group. Rename a tag, merge two, or take one off every page under Settings. Copilot never sets or changes tags. Up to 12 per page; they are kept on the page in OneNote and in the index and go into the Markdown export. Existing pages need no change (a page without tags has none, so there is no upgrade step).
+
+### Changed
+- A new start of ObsidiNote replaces one that is still running on this PC, and takes over the vault at once when the earlier run on this PC did not give it back. The earlier one is asked to stop and hands the vault over; if it does not, it is closed. After a PC was switched off mid-run, the next start on that PC can write straight away instead of waiting up to two minutes. A vault that an ObsidiNote on another PC is writing in is never taken.
+- A page that cannot be changed says why: the side bar and the page window name the reason (another PC is writing since a given time, an earlier run on this PC, not the active vault, a connected notebook), and **Edit** shows disabled with that reason instead of being absent.
+- A most linked page is called that ("most linked"), no longer "hub": "hub" only means an area of the map.
+- In a narrow window (half a screen, or a phone) the side bar is now a short bar at the top: name and theme, the menu, the notebook, and the section list behind **Show**. The Add box is on the first screen again.
+- Ask shows the answer first, in larger text, with **Ask a follow-up**, **Save answer as a page** and **Show on map** right under it. The sources follow; how the answer was found is one folded line at the end.
+- The Add result shows **Done**, **Update** and **Undo** right under its heading, and one card with where the page was filed and what you added. Links show the three strongest, with **Show all** for the rest. **Undo** asks first, as in History.
+- While Copilot works, Add and Ask show one line with the time waited instead of steps that never moved.
+- Messages about something that went wrong look like it (a warning icon, a tinted box) and say what to do next: **Try again** after an Ask that failed, **Connect Copilot again** when Copilot was the reason. When Copilot is not connected or ObsidiNote is not running, the box itself says so.
+- A section in the side bar opens the List with that section's pages.
+- In the page window a linked page opens by clicking its name or its line (the small "open" link is gone); **Export as Markdown** and **Focus on this page** sit apart on the right.
+- On the map a topic name no longer lies on its own pages: the dots keep clear of it. The line with the page count and subjects is no longer drawn on the map (it is in the List and in the page window's Topic tab).
+- Topics/Sources and Graph/List look like the Auto/Add/Ask switch; Links, Mentions and Labels show a check box, so a choice between two and an on/off switch no longer look the same.
+- The List names page types as the rest of the window does ("web link", not "link-web").
+- Links to your personal OneDrive are filed under Internal links, the same place the Sources view shows them. Pages filed under Web links before are moved at the next start (upgrade step link-bucket).
+- In the Sources view, "Other company sites" is its own kind of area.
+- After an Add, **Done**, **Update** and **Undo** are plain buttons: **Send** stays the one highlighted button of the page.
+- The search on the knowledge graph shows its "x" whenever it holds text, not only while the pointer is over it.
+- **Labels: hubs only** on the map now does what it says: only the bold topic names stay, and a page shows its name while you point at it. Before, it also kept the names of the most linked pages.
+- The shortcut card of the box lists Ctrl+K (find a page or topic).
+
+### Fixed
+- Undo now also tidies the text of pages that linked to the removed page: where the link was, the page says "(deleted: title)". Your own notes on a page are never changed.
+- Settings: when the settings stored in a vault cannot be read, the Settings window says so and does not offer to save, instead of failing on Save.
+- A request that is not a proper form (a bare number, text or list) is refused instead of being half-accepted.
+- Undo, Remove and "Check for the answer" in History are refused when the item belongs to another vault than the one that is open, instead of being applied to the wrong vault. History also empties at once when you switch vault.
+- Undo from History now also takes out the links other pages had to the removed page, so the map no longer shows a line to a page that is gone. (A link in another page's own text still points at the removed page.)
+- When the settings stored in a vault cannot be read, ObsidiNote leaves them exactly as they are, says so at the start and uses the defaults for that session; it no longer writes the defaults over them.
+- A file dropped from a synchronised SharePoint library whose name contains a space or an accented letter now gets a working address.
+- Editing the text of a dropped OneDrive or SharePoint file no longer drops its link without a word; the link is kept while the box still holds that file's text, and the box says so when it is not.
+- A file let go beside the box no longer makes the window open that file in place of ObsidiNote.
+- A file lookup that answers after the box was sent or emptied no longer writes its note over the box.
+- "Try again" after a failed follow-up question repeats that follow-up, in the same conversation.
+- A section in the side bar opens its own pages: sections in a group (Journal by year) and second sections ("Notes 2") opened an empty list.
+- The "From" choice survives an edit of the pasted text's first line, and comes back with the text after an undo.
+- "Waiting for Copilot" is read again after "Check for the answer" and after an Update that has to wait.
+- When Copilot is reported off, the box keeps its reading of your text and the "Add instead / Ask instead" link beside the warning.
+- On a map of a few hundred pages or more, a topic name no longer lies on its own pages (the room kept for it follows the zoom the map is fitted to).
+- The "Link steps" choice of a focused page looks like the other either/or controls again.
+- The History list and removing an Intake item read only the Intake section, not the whole vault, so they are quicker in a large vault.
+- The upgrade's status line at the start counts the pages that were really changed.
+- The map of another vault or a connected notebook groups its link pages by that vault's own internal sites and company name, not the active vault's.
+- A question is never refused because of the "From" choice.
+- Validation kit: a meeting without a title no longer stops the meetings probe; a mistyped `-Probe` name gives a line that lists the probes.
+- A link copied from the browser and pasted in the box is taken as a link again. Edge's "Copy link" pastes a titled link ("[title](address)"), which was read as "a link and other text": it was not added as that address's link page, and "From" said "Web page" for a SharePoint address.
+- Zooming in on the map with the wheel keeps the circles and names sharp while you scroll; they used to turn to coarse pixels until the wheel rested.
+- The knowledge graph no longer makes the whole page scroll by a few pixels.
+- The page no longer shifts sideways when it becomes long enough to scroll.
+- On a touch screen every control is at least 44 px high (the menu, tabs, the mode and theme switches, the search box and the List's headers were smaller).
+- "Waiting for Copilot" is no longer written in the accent colour, and a list of waiting items no longer shows a row of purple buttons.
+- On a phone, tapping a field no longer zooms the page: fields are 16 px on a touch screen (the rule for it was written in a place where it never applied).
+- A failed connection to ObsidiNote reads "ObsidiNote did not answer..." instead of the browser's "Failed to fetch".
+
 ## [v0.8.4] - 2026-11-14
 
 ### Added

@@ -1,0 +1,19 @@
+{
+  "about": "What GET /api/graph sends per page for section, bucket, kind and tags (lib/GraphModel.psm1). Invented data. tests/GraphModel.Tests.ps1 builds these pages in the in-memory OneNote (source vault: a page with obsn.id, obsn.type = kind and obsn.tags = tags in that section of a vault; source notebook: a plain page in that section of a connected notebook) and asserts the produced values equal this file (a vault page is matched by its id; a notebook page's real id is n:<OneNote id>, so it is matched by its section and the ids here are placeholders); the interface tests read the same file. section = the page's section path under the vault or notebook root; bucket = the fixed bucket of an ObsidiNote section (rollover and year folded in, every Archive section is Archive), or the section path itself for a section ObsidiNote does not own; kind = the page type, '' for a page that is not ObsidiNote's; tags = the page's hand-set tags, always a list ([] when none, also for one tag and for a page that is not ObsidiNote's). vaultTags / notebookTags = the model's own tags list for that source: every tag with its page count, sorted by name (ordinal), [] when no page has a tag.",
+  "pages": [
+    { "id": "p101", "source": "vault", "section": "Notes", "bucket": "Notes", "kind": "concept", "tags": ["licensing", "follow up"] },
+    { "id": "p102", "source": "vault", "section": "Notes 2", "bucket": "Notes", "kind": "howto", "tags": ["licensing"] },
+    { "id": "p103", "source": "vault", "section": "Journal/2026", "bucket": "Journal", "kind": "log", "tags": [] },
+    { "id": "p104", "source": "vault", "section": "Journal/2025", "bucket": "Journal", "kind": "log", "tags": [] },
+    { "id": "p105", "source": "vault", "section": "Web links", "bucket": "Web links", "kind": "link-web", "tags": [] },
+    { "id": "p106", "source": "vault", "section": "Archive/Notes", "bucket": "Archive", "kind": "note", "tags": ["key ref"] },
+    { "id": "n:group-section", "source": "notebook", "section": "Group/Section", "bucket": "Group/Section", "kind": "", "tags": [] },
+    { "id": "n:00-admin", "source": "notebook", "section": "00 Admin", "bucket": "00 Admin", "kind": "", "tags": [] }
+  ],
+  "vaultTags": [
+    { "name": "follow up", "count": 1 },
+    { "name": "key ref", "count": 1 },
+    { "name": "licensing", "count": 2 }
+  ],
+  "notebookTags": []
+}

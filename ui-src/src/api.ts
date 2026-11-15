@@ -79,7 +79,11 @@ export interface AppStatus {
   uiPort: number
   oneNote: { state: OneNoteState; running: boolean; notebookOpen: boolean; notebook: string }
   copilot: { state: CopilotState; port: number; ready?: boolean }
-  vault?: { name: string; vaultId: string; mode: VaultMode }
+  /** reason (when mode is not writer): 'other-pc' = an ObsidiNote on another PC holds the writer
+   *  lease; 'this-pc' = an earlier run on this PC still holds it; 'not-opened' = the start could not
+   *  open a vault. since = when the holder took the lease (ISO, '' unknown); detail = the start's
+   *  line for 'not-opened'. Older servers send name, vaultId and mode only. */
+  vault?: { name: string; vaultId: string; mode: VaultMode; reason?: string; since?: string; detail?: string }
 }
 
 /** What POST /api/submit answers: an Add result or an Ask result, told apart by intent. */
@@ -116,8 +120,22 @@ export class ApiError extends Error {
   }
 }
 
+/** What the person reads when the local server does not answer at all. */
+export const NO_ANSWER = 'ObsidiNote did not answer. Check that it is still running: its console window must stay open.'
+
+/** fetch, with a failed connection as a sentence (the browser's own "Failed to fetch" tells the
+ *  person nothing; review 2026-11-14). A cancelled call stays a cancelled call. */
+export async function request(path: string, init: RequestInit = {}): Promise<Response> {
+  try {
+    return await fetch(path, init)
+  } catch (e) {
+    if ((e as { name?: string } | null)?.name === 'AbortError') throw e
+    throw new ApiError(NO_ANSWER, 0)
+  }
+}
+
 async function call<T>(path: string, init: RequestInit = {}, okStatuses: number[] = [200]): Promise<T> {
-  const res = await fetch(path, { ...init, headers: { ...HEADERS, ...(init.headers ?? {}) }, cache: 'no-store' })
+  const res = await request(path, { ...init, headers: { ...HEADERS, ...(init.headers ?? {}) }, cache: 'no-store' })
   const body: unknown = await res.json().catch(() => null)
   if (!okStatuses.includes(res.status)) {
     const msg = body && typeof body === 'object' && 'error' in body ? String((body as { error: unknown }).error) : `The server answered ${res.status}.`
@@ -191,18 +209,20 @@ export interface SettingsAnswer {
   settings: VaultSettings
   /** False in a read-only window or without a vault: the settings are shown, not changed. */
   canChange: boolean
+  /** Why nothing can be saved, when the server says so (stored settings that cannot be read). */
+  message: string
 }
 
 /** The active vault's settings, kept in OneNote (GET /api/settings). */
 export async function getSettings(): Promise<SettingsAnswer> {
-  const r = await call<{ settings: unknown; canChange: unknown }>('/api/settings')
-  return { settings: normalizeSettings(r.settings), canChange: r.canChange === true }
+  const r = await call<{ settings: unknown; canChange: unknown; message?: unknown }>('/api/settings')
+  return { settings: normalizeSettings(r.settings), canChange: r.canChange === true, message: typeof r.message === 'string' ? r.message : '' }
 }
 
 /** Changes one vault setting in OneNote; the answer is the settings as they are now. */
 export async function saveSetting<K extends keyof VaultSettings>(key: K, value: VaultSettings[K]): Promise<SettingsAnswer> {
   const r = await call<{ settings: unknown; canChange: unknown }>('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) })
-  return { settings: normalizeSettings(r.settings), canChange: r.canChange === true }
+  return { settings: normalizeSettings(r.settings), canChange: r.canChange === true, message: '' }
 }
 
 function postJson(text: string, mode: Mode, signal?: AbortSignal): RequestInit {

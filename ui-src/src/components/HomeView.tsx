@@ -1,10 +1,14 @@
+import { useState } from 'react'
 import { AddResult } from '../add/AddResult'
 import { AskView } from '../ask/AskStates'
 import type { NotebookState } from '../hooks/useServerData'
 import type { useHomeFlow } from '../hooks/useHomeFlow'
 import type { AddTarget } from '../model/notebooks'
 import { AskOptions, type AskChoices } from './AskOptions'
+import { isWaitingStatus } from '../add/waiting'
+import type { SendBlock } from '../model/attention'
 import { Composer } from './Composer'
+import { Notice } from './Notice'
 import { RecentList } from './RecentList'
 import { WhatsNew } from './WhatsNew'
 import { WaitingList } from '../activity/WaitingList'
@@ -14,7 +18,7 @@ type Home = ReturnType<typeof useHomeFlow>
 
 /** Add or ask: the box, Ask's options, then the result of the last send (Add result, Ask answer or
  *  a notice), or the recently changed pages while nothing was sent. */
-export function HomeView({ home, addTarget, notebook, choices, onChoices, sourceOptions, activityKey, onOpenRecent, onOpenActive }: {
+export function HomeView({ home, addTarget, notebook, choices, onChoices, sourceOptions, activityKey, onOpenRecent, onOpenActive, block, onRetryCopilot }: {
   home: Home
   addTarget: AddTarget | null
   notebook: NotebookState
@@ -26,6 +30,10 @@ export function HomeView({ home, addTarget, notebook, choices, onChoices, source
   /** Opens a page of the shown notebook / of the active vault in the page window. */
   onOpenRecent: (pageId: string) => void
   onOpenActive: (pageId: string) => void
+  /** Why a send cannot work right now (Copilot off, ObsidiNote gone), shown in the box itself. */
+  block?: SendBlock | null
+  /** Tries to connect Copilot again; '' when it worked, else what the person should know. */
+  onRetryCopilot?: () => Promise<string>
 }) {
   const { flow } = home
   const note = home.followUp ? (
@@ -36,36 +44,63 @@ export function HomeView({ home, addTarget, notebook, choices, onChoices, source
       </button>
     </p>
   ) : null
+  const connect = onRetryCopilot ? <ConnectCopilot onRetry={onRetryCopilot} /> : null
+  // The item of the result on screen is not listed a second time under it.
+  const shownWaiting = flow.kind === 'add' && isWaitingStatus(flow.result.status) ? flow.result.inboxId ?? '' : ''
   return (
     <div className="page">
       <h1 className="page__title">Add something, or ask your wiki</h1>
       <WhatsNew />
-      <Composer addTarget={addTarget} onSend={home.send} busy={home.busy} prefill={home.prefill} note={note} clearKey={home.clearKey}>
+      <Composer addTarget={addTarget} onSend={home.send} busy={home.busy} prefill={home.prefill} note={note} clearKey={home.clearKey} block={block} connect={block?.retry ? connect : null}>
         <AskOptions choices={choices} options={sourceOptions} onChange={onChoices} />
       </Composer>
-      <FlowArea home={home} />
+      <FlowArea home={home} connect={connect} />
       {/* Items still waiting for Copilot stay reachable after their Add result is gone. */}
-      <WaitingList refreshKey={activityKey} onOpen={onOpenActive} />
+      <WaitingList refreshKey={activityKey} onOpen={onOpenActive} hideId={shownWaiting} />
       {flow.kind === 'idle' && <RecentList notebook={notebook} onOpen={onOpenRecent} />}
     </div>
   )
 }
 
-function FlowArea({ home }: { home: Home }) {
+/** "Connect Copilot again": one try (POST /api/copilot/reconnect), then what came of it. */
+function ConnectCopilot({ onRetry }: { onRetry: () => Promise<string> }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const run = async () => {
+    setBusy(true)
+    setMsg('')
+    try {
+      setMsg((await onRetry()) || 'Copilot is connected. Send it again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <button type="button" className="btn btn--sm" disabled={busy} aria-busy={busy} onClick={() => void run()}>
+        {busy ? 'Connecting…' : 'Connect Copilot again'}
+      </button>
+      {msg && <span role="status">{msg}</span>}
+    </>
+  )
+}
+
+function FlowArea({ home, connect }: { home: Home; connect: React.JSX.Element | null }) {
   const { flow } = home
   if (flow.kind === 'idle') return null
   if (flow.kind === 'notice') {
     return (
-      <p className={flow.error ? 'home-notice home-notice--error' : 'home-notice'} role={flow.error ? 'alert' : 'status'}>
-        {flow.text}
-      </p>
+      <Notice error={flow.error} actions={flow.copilot ? connect : undefined}>
+        <p>{flow.text}</p>
+      </Notice>
     )
   }
   if (flow.kind === 'adding') {
+    // design: one honest line with the time waited; the three steps are not reported one by one.
     return (
-      <p className="home-notice" role="status" aria-busy="true">
-        Adding: Intake, Copilot, then OneNote. This takes a little while.
-      </p>
+      <Notice busy title="Adding">
+        <p>Copilot reads it and proposes topics and links, then the page is written to OneNote. If Copilot is slow, the item waits here and in History; nothing is lost.</p>
+      </Notice>
     )
   }
   if (flow.kind === 'add') {
@@ -86,7 +121,9 @@ function FlowArea({ home }: { home: Home }) {
     )
   }
   const view = flow.view
-  if (view.kind !== 'result') return <AskView state={view} onSaveOpenQuestion={() => undefined} onFollowUp={() => undefined} onSavePage={() => undefined} onShowOnMap={() => undefined} />
+  if (view.kind !== 'result') {
+    return <AskView state={view} onRetry={home.retryAsk} connect={connect} onSaveOpenQuestion={() => undefined} onFollowUp={() => undefined} onSavePage={() => undefined} onShowOnMap={() => undefined} />
+  }
   const a = home.askActions(view.result)
   return <AskView state={view} {...a} />
 }

@@ -13,7 +13,8 @@ import { indexPath, type GraphIndex } from './graphIndex'
 import { HoverCard } from './HoverCard'
 import { bundleEdges, edgePath, onePerPair, restingBundles, type BundleLayout, type DotLayout, type GraphLayout } from './layout'
 import { primaryTopic, type GraphEdge } from './model'
-import { FIT_BOTTOM, fitViewport, labelMode, lineMode, MIN_ZOOM_FACTOR, nextInDirection, pan, placeAreaLabels, placeLabels, toScreen, zoomAt, type Direction, type LabelBox, type Viewport } from './view'
+import { joinLines } from './tags'
+import { FIT_BOTTOM, fitViewport, labelMode, lineMode, MIN_ZOOM_FACTOR, needsSharp, nextInDirection, pan, placeAreaLabels, placeLabels, toScreen, zoomAt, type Direction, type LabelBox, type Viewport } from './view'
 
 export interface Filters {
   links: boolean
@@ -45,7 +46,9 @@ interface Props {
   /** "Focus on this page" (F on the focused dot). */
   onFocusPage?: (id: string) => void
   /** What an area stands for, for the legend: a topic, or a source (the Sources view). */
-  areaWord?: 'topic' | 'source'
+  areaWord?: 'topic' | 'source' | 'tag'
+  /** The pages of a picked tag: joined into one group by thin dashed lines (tags.ts joinLines). */
+  joinIds?: string[] | null
 }
 
 type BaseProps = { layout: GraphLayout; links: boolean; mentions: boolean; shown: Set<string> | null; bundles: BundleLayout[] }
@@ -95,7 +98,7 @@ function dotClass(d: DotLayout, extra = ''): string {
 
 const KEY_DIR: Record<string, Direction> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }
 
-export function GraphStage({ index, layout, filters, matches, active, onActive, onOpen, stageRef, label, shown = null, onFocusPage, areaWord = 'topic' }: Props) {
+export function GraphStage({ index, layout, filters, matches, active, onActive, onOpen, stageRef, label, shown = null, onFocusPage, areaWord = 'topic', joinIds = null }: Props) {
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
   const [view, setView] = useState<Viewport | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -109,6 +112,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   // composited); the real viewport is committed when the gesture settles.
   const live = useRef<Viewport | null>(null)
   const timer = useRef(0)
+  const drawnAt = useRef(0)
 
   // Stage size.
   useLayoutEffect(() => {
@@ -137,6 +141,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
     if (!next) return
     live.current = null
     flushSync(() => setView(next))
+    drawnAt.current = performance.now()
     if (layerRef.current) layerRef.current.style.transform = ''
     stageRef.current?.removeAttribute('data-moving')
   }, [stageRef])
@@ -144,6 +149,12 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
     (next: Viewport, settle: number) => {
       live.current = next
       const base = viewRef.current
+      // A zoom-in that has stretched the last drawing far enough is drawn again at once, so the
+      // circles and names stay sharp while the wheel keeps turning (view.ts needsSharp).
+      if (needsSharp(next.k / base.k, performance.now() - drawnAt.current, layout.dots.length)) {
+        commit()
+        return
+      }
       const tx = (base.x - next.x) * next.k
       const ty = (base.y - next.y) * next.k
       if (layerRef.current) layerRef.current.style.transform = `translate(${tx}px, ${ty}px) scale(${next.k / base.k})`
@@ -151,7 +162,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
       window.clearTimeout(timer.current)
       timer.current = window.setTimeout(commit, settle)
     },
-    [commit, stageRef],
+    [commit, stageRef, layout.dots.length],
   )
   useEffect(() => () => window.clearTimeout(timer.current), [])
 
@@ -348,11 +359,22 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   }, [index, layout, activeDot, filters.links, filters.mentions, isShown])
 
   const sharp: DotLayout[] = useMemo(() => {
-    const ids = activeDot ? [...near] : matches ? matches.filter(isShown).slice(0, 400) : []
+    // The pages of a picked tag stay lit while one page is pointed at: they are the group shown.
+    const tagged = joinIds ? joinIds.filter(isShown) : []
+    const ids = activeDot ? [...new Set([...near, ...tagged])] : matches ? matches.filter(isShown).slice(0, 400) : []
     return ids.map((id) => layout.dotById.get(id)).filter((d): d is DotLayout => !!d && d.id !== activeDot?.id)
-  }, [activeDot, near, matches, layout, isShown])
+  }, [activeDot, near, matches, layout, isShown, joinIds])
+  const taggedSet = useMemo(() => new Set(joinIds ?? []), [joinIds])
 
   const dim = !!activeDot || !!matches
+  // A picked tag: its visible pages joined by a few short lines, so pages in different areas read
+  // as one group (never a line per pair).
+  const tagLines = useMemo(() => {
+    if (!joinIds) return []
+    const dots = joinIds.filter(isShown).map((id) => layout.dotById.get(id)).filter((d): d is DotLayout => !!d)
+    const byId = new Map(dots.map((d) => [d.id, d]))
+    return joinLines(dots.map((d) => ({ id: d.id, x: d.x, y: d.y }))).map(([a, b]) => [byId.get(a)!, byId.get(b)!] as const)
+  }, [joinIds, layout, isShown])
 
   // ---------- labels ----------
   // Topic names first, each where it touches no other topic (placeAreaLabels); page names then
@@ -363,10 +385,9 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
       .filter((a) => !shown || a.pageIds.some(isShown))
       .map((a) => {
         const [x, y] = toScreen(v, a.x, a.y)
-        return { id: a.id, x, y, r: a.r * v.k, name: a.name, sub: a.sub }
+        return { id: a.id, x, y, r: a.r * v.k, name: a.name }
       }),
   )
-  const areaById = new Map(layout.areas.map((a) => [a.id, a]))
   // A topic's name gives way while the pointer is over its area, or one of its pages is focused,
   // so it never covers the pages (operator, 2026-11-14).
   const hiddenAreas = new Set([hoverArea, activeDot?.area].filter((x): x is string => !!x))
@@ -379,14 +400,16 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   }
   if (activeDot) {
     addLabel(activeDot, 'kg-plabel kg-plabel--on')
-    for (const d of sharp) if (!filters.hubsOnly || d.hub) addLabel(d, d.hub ? 'kg-plabel kg-plabel--hub' : 'kg-plabel')
+    // "Labels: hubs only": the page pointed at, and nothing around it.
+    if (!filters.hubsOnly) for (const d of sharp) addLabel(d, d.hub ? 'kg-plabel kg-plabel--hub' : 'kg-plabel')
   } else if (matches) {
     for (const d of sharp.slice(0, 40)) addLabel(d, d.hub ? 'kg-plabel kg-plabel--hub' : 'kg-plabel')
   } else {
-    // A small map, or one zoomed in, names every page (hubs first); otherwise hubs only (labelMode).
-    const all = labelMode(shown ? shown.size : layout.dots.length, v.k, fit.k, filters.hubsOnly) === 'all'
-    for (const d of layout.dots) if (d.hub && isShown(d.id)) addLabel(d, 'kg-plabel kg-plabel--hub')
-    if (all) for (const d of layout.dots) if (!d.hub && isShown(d.id)) addLabel(d, 'kg-plabel')
+    // A small map, or one zoomed in, names every page (most linked first); a larger one the most
+    // linked only; with "Labels: hubs only" no page at rest, only the topic names (labelMode).
+    const mode = labelMode(shown ? shown.size : layout.dots.length, v.k, fit.k, filters.hubsOnly)
+    if (mode !== 'none') for (const d of layout.dots) if (d.hub && isShown(d.id)) addLabel(d, 'kg-plabel kg-plabel--hub')
+    if (mode === 'all') for (const d of layout.dots) if (!d.hub && isShown(d.id)) addLabel(d, 'kg-plabel')
   }
   const labels = placeLabels(
     candidates,
@@ -445,11 +468,14 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
             <BaseLayer layout={layout} links={filters.links} mentions={filters.mentions} shown={shown} bundles={resting} />
           </g>
           <g className="kg-focus">
+            {tagLines.map(([a, b]) => (
+              <line key={`${a.id}|${b.id}`} className="kg-tagline" x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
+            ))}
             {focusEdges.map(({ e, d }, i) => (
               <path key={i} d={d} className={e.kind === 'mention' ? 'kg-edge kg-edge--mention' : `kg-edge kg-s${e.strength}`} />
             ))}
             {sharp.map((d) => (
-              <circle key={d.id} data-id={d.id} className={dotClass(d, activeDot ? ' kg-dot--near' : '')} cx={d.x} cy={d.y} r={d.r} />
+              <circle key={d.id} data-id={d.id} className={dotClass(d, (taggedSet.has(d.id) ? ' kg-dot--tag' : '') + (activeDot ? ' kg-dot--near' : ''))} cx={d.x} cy={d.y} r={d.r} />
             ))}
             {activeDot && (
               <>
@@ -462,15 +488,11 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
       </svg>
 
       <div className="kg-labels" aria-hidden="true">
-        {areaLabels.map((l) => {
-          const a = areaById.get(l.id)!
-          return (
-            <div key={l.id} className="kg-alabel" data-dim={dim} data-at={l.at} data-hidden={hiddenAreas.has(l.id)} style={{ left: l.x, top: l.top }}>
-              <b>{l.text}</b>
-              {l.withSub && <span>{a.sub}</span>}
-            </div>
-          )
-        })}
+        {areaLabels.map((l) => (
+          <div key={l.id} className="kg-alabel" data-dim={dim} data-at={l.at} data-hidden={hiddenAreas.has(l.id)} style={{ left: l.x, top: l.top }}>
+            <b>{l.text}</b>
+          </div>
+        ))}
         {labels.map((l) => (
           <div key={l.id} className={l.cls} style={{ left: l.x, top: l.y }}>
             {l.text}

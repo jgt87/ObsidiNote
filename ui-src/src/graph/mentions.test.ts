@@ -4,13 +4,13 @@ import type { GraphEdge, GraphModel, GraphPage } from './model'
 
 function page(id: string, title: string, extra: Partial<GraphPage> = {}): GraphPage {
   return {
-    id, title, topicIds: [], bucket: 'Notes', kind: 'note', links: 0, linkedFrom: 0, weight: 0, isHub: false, sourceId: 'obsidinote', origin: '', unlinked: true, summary: '',
+    id, title, topicIds: [], bucket: 'Notes', section: 'Notes', tags: [], kind: 'note', links: 0, linkedFrom: 0, weight: 0, isHub: false, sourceId: 'obsidinote', origin: '', unlinked: true, summary: '',
     onenoteUrl: '', modified: '', readOnly: false, aliases: [], site: '', archived: false, url: '', ...extra,
   }
 }
 
 function model(pages: GraphPage[], edges: GraphEdge[] = []): GraphModel {
-  return { source: { kind: 'vault', id: 'v', name: 'V', readOnly: false }, topics: [], pages, edges }
+  return { source: { kind: 'vault', id: 'v', name: 'V', readOnly: false, readOnlyReason: '' }, topics: [], pages, edges }
 }
 
 const pairs = (es: GraphEdge[]) => es.map((e) => `${e.from}>${e.to}`).sort()

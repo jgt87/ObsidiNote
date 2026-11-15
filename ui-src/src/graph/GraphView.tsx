@@ -2,7 +2,7 @@
 // The merge renders <GraphView load={() => fetchGraph({ vault })} ... /> for the Map nav entry.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { addLink, editPage } from './graphApi'
+import { addLink, editPage, tagPages } from './graphApi'
 import { KnowledgeGraph, type KnowledgeGraphProps } from './KnowledgeGraph'
 import { mentionBetween, withMentions } from './mentions'
 import type { GraphModel } from './model'
@@ -20,7 +20,7 @@ export interface GraphViewProps extends Omit<KnowledgeGraphProps, 'model'> {
   onAdd?: () => void
 }
 
-export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, ...rest }: GraphViewProps) {
+export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, onTagPages, ...rest }: GraphViewProps) {
   const [state, setState] = useState<State>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
   const loaded = state.status === 'ready' ? state.model : null
@@ -61,6 +61,20 @@ export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, .
       })
     }
   }, [onEditPage, writable, refresh])
+
+  // Tags: write, then read the map again in place (a handler given from outside, the demo's, is
+  // followed by the same re-read).
+  const tagPagesFn = useMemo<PageActions['onTagPages']>(() => {
+    if (!model || !writable) return undefined
+    const vault = model.source.id
+    return async (ids, add, remove) => {
+      if (onTagPages) await onTagPages(ids, add, remove)
+      else await tagPages({ ids, add, remove, vault })
+      await refresh().catch(() => {
+        throw new Error('The tags were saved, but the map could not be read again. Reload the map to see them.')
+      })
+    }
+  }, [onTagPages, model, writable, refresh])
 
   useEffect(() => {
     const ctl = new AbortController()
@@ -111,7 +125,7 @@ export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, .
       </div>
     )
   }
-  return <KnowledgeGraph model={model} onLinkMention={linkMention} onEditPage={editPageFn} {...rest} />
+  return <KnowledgeGraph model={model} onLinkMention={linkMention} onEditPage={editPageFn} onTagPages={tagPagesFn} {...rest} />
 }
 
 /** Loading: the title and one line of text, nothing drawn on the map. design: no placeholder areas;

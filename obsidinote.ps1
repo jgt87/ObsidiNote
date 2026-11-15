@@ -90,6 +90,25 @@ if (@($checks | Where-Object { $_.status -eq 'FAIL' }).Count) {
 # ("notebook" in config\obsidinote.local.json), so OneNote starts with that notebook open; the
 # record is filled in once the notebook is found.
 [Console]::Error.WriteLine('Starting')
+# --- 2b. The ObsidiNote that is running on this PC ---------------------------------------------------
+# A new start replaces it (operator, 2026-11-15): it is asked to stop (POST /api/shutdown: it gives
+# its writer lease back, as on Ctrl+C); when it does not, the leftover starts of THIS script are
+# stopped (lib/Startup.psm1 Invoke-ReplaceRunning). Before the vault opens, so this start becomes
+# the writer; $noOtherHere then lets it take a lease this PC left behind (never another PC's).
+$noOtherHere = $false
+try {
+    Import-Module (Join-Path $PSScriptRoot 'lib\AppConfig.psm1') -Force
+    $oldPort = Get-UiPort -AppRoot $PSScriptRoot
+    $oldUrl = "http://127.0.0.1:$oldPort"
+    $apiHeader = @{ 'X-ObsidiNote' = '1' }
+    $rep = Invoke-ReplaceRunning -ScriptPath $PSCommandPath -SelfId $PID `
+        -TestRunning { try { "$((Invoke-RestMethod "$oldUrl/api/status" -Headers $apiHeader -TimeoutSec 3).app)" -eq 'ObsidiNote' } catch { $false } } `
+        -RequestStop { Invoke-RestMethod "$oldUrl/api/shutdown" -Method Post -Headers $apiHeader -ContentType 'application/json' -Body '{}' -TimeoutSec 5 } `
+        -GetProcesses { Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, Name, CommandLine } `
+        -StopProcess { param($ProcessId) Stop-Process -Id $ProcessId -Force -ErrorAction Stop }
+    $noOtherHere = [bool]$rep.noOtherHere
+    if ($rep.status) { Write-Status -ToError $rep.status 'Earlier start' $rep.detail -Hint $rep.hint }
+} catch { Write-Status -ToError 'WARN' 'Earlier start' "not checked: $($_.Exception.Message)" }
 if (-not $NoOneNote) {
     Import-Module (Join-Path $PSScriptRoot 'lib\AppConfig.psm1') -Force
     Import-Module (Join-Path $PSScriptRoot 'lib\OneNoteHost.psm1') -Force
@@ -118,6 +137,8 @@ if (-not $NoOneNote) {
 # vault's writer lease (or runs read only while another ObsidiNote writes there), brings the fixed
 # structure up to date and checks the index against the notebook (missing pages go to Unfiled).
 $mainAdapter = $null; $vaultOpen = $null
+# The Vault line's detail when no vault was opened, for the window (GET /api/status, vault.detail).
+$vaultDetail = ''
 Import-Module (Join-Path $PSScriptRoot 'lib\WriterLease.psm1') -Force
 $sessionId = New-WriterSessionId
 if (-not $NoOneNote) {
@@ -135,7 +156,7 @@ if (-not $NoOneNote) {
             # Vault settings live in OneNote (lib/VaultSettings.psm1); a local "internalHosts" fills
             # the OneNote key once when it is missing, never over an existing value.
             $localSet = @{ internalHosts = @(@(Get-AppSetting -Key 'internalHosts' -Default @() -AppRoot $PSScriptRoot) | ForEach-Object { "$_" } | Where-Object { $_ }) }
-            $vaultOpen = Open-VaultSession -Adapter $mainAdapter -Vault $pick.vault -SessionId $sessionId -Vaults $vaults -LocalSettings $localSet
+            $vaultOpen = Open-VaultSession -Adapter $mainAdapter -Vault $pick.vault -SessionId $sessionId -Vaults $vaults -LocalSettings $localSet -NoOtherHere:$noOtherHere
             try {
                 if ("$(Get-AppSetting -Key 'vaultId' -Default '' -AppRoot $PSScriptRoot)" -ne $vaultOpen.vault.vaultId) { Set-LocalAppValue $PSScriptRoot 'vaultId' $vaultOpen.vault.vaultId }
             } catch { }
@@ -143,6 +164,7 @@ if (-not $NoOneNote) {
         $vs = Format-VaultStatus -Open $vaultOpen -Why $pick.why -VaultCount $vaults.Count
     } catch { $vs = Format-VaultStatus -Open $null -Problem $_.Exception.Message }
     Write-Status -ToError $vs.status 'Vault' $vs.detail -Hint $vs.hint
+    if (-not $vaultOpen) { $vaultDetail = [string]$vs.detail }
     if ($vaultOpen) {
         $ss = Format-VaultSettingsStatus $vaultOpen.settingsResult
         if ($ss) { Write-Status -ToError $ss.status 'Settings' $ss.detail -Hint $ss.hint }
@@ -155,9 +177,9 @@ if (-not $NoOneNote) {
             Import-Module (Join-Path $PSScriptRoot 'lib\VaultStore.psm1') -Force
             Import-Module (Join-Path $PSScriptRoot 'lib\Upgrade.psm1') -Force
             $upLease = $vaultOpen.lease
-            $upHosts = @(@($vaultOpen.settings.internalHosts) | Where-Object { $_ })
-            $upNames = @(Get-CompanyNames -Locations @([string]$vaultOpen.vault.location, (Get-NotebookRecord -AppRoot $PSScriptRoot)))
-            $upStore = New-VaultStore -Adapter $mainAdapter -Vault $vaultOpen.vault -Model $vaultOpen.model -GetLease { $upLease }.GetNewClosure() -InternalHosts $upHosts -CompanyNames $upNames
+            # The same link rules as the server's store and graph (Get-ServerLinkRules): one function.
+            $upRules = Get-LinkRules -InternalHosts @($vaultOpen.settings.internalHosts) -Locations @([string]$vaultOpen.vault.location, (Get-NotebookRecord -AppRoot $PSScriptRoot))
+            $upStore = New-VaultStore -Adapter $mainAdapter -Vault $vaultOpen.vault -Model $vaultOpen.model -GetLease { $upLease }.GetNewClosure() -InternalHosts $upRules.InternalHosts -CompanyNames $upRules.CompanyNames
             $up = Format-UpgradeStatus (Invoke-VaultUpgrade -Store $upStore)
             if ($up) { Write-Status -ToError $up.status 'Upgrade' $up.detail -Hint $up.hint }
         } catch { Write-Status -ToError 'WARN' 'Upgrade' "not run: $($_.Exception.Message)" }
@@ -227,7 +249,7 @@ try {
     $vRec = $null; $lRec = $null; $model = $null
     $vSet = $null
     if ($vaultOpen) { $vRec = $vaultOpen.vault; $lRec = $vaultOpen.lease; $model = $vaultOpen.model; $vSet = $vaultOpen.settings }
-    $state = New-ServerState -AppRoot $PSScriptRoot -Port $uiPort -CdpPort ([int]$cs.cdpPort) -CopilotSkipped ([bool]$NoCopilot) -Copilot $copilot -Vault $vRec -Lease $lRec -SessionId $sessionId -Model $model -UpdatedTo $updatedTo -VaultSettings $vSet
+    $state = New-ServerState -AppRoot $PSScriptRoot -Port $uiPort -CdpPort ([int]$cs.cdpPort) -CopilotSkipped ([bool]$NoCopilot) -Copilot $copilot -Vault $vRec -Lease $lRec -SessionId $sessionId -Model $model -UpdatedTo $updatedTo -VaultSettings $vSet -VaultDetail $vaultDetail -SettingsUnreadable ([bool]($vaultOpen -and $vaultOpen.settingsResult.status -eq 'unreadable'))
     $server = Start-UiServer -Port $uiPort -UiDir (Join-Path $PSScriptRoot 'ui') -State $state
 } catch {
     $why = $_.Exception.Message
@@ -279,7 +301,9 @@ try {
             }
         } finally { [Threading.Monitor]::Exit($state.Lock) }
     }
-    Write-Status -ToError 'WARN' 'ObsidiNote' 'the interface''s server stopped' -Hint 'Start ObsidiNote again.'
+    # POST /api/shutdown: a new start on this PC took over (it waits for this one to end).
+    if ($state.StopReason -eq 'shutdown') { Write-Status -ToError 'OK' 'ObsidiNote' 'stopping: a new ObsidiNote start takes over' }
+    else { Write-Status -ToError 'WARN' 'ObsidiNote' 'the interface''s server stopped' -Hint 'Start ObsidiNote again.' }
 } finally {
     Stop-UiServer $server
     Close-ObsidiVaultLease $state

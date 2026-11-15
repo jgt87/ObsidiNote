@@ -164,6 +164,13 @@ Consequences:
 - **Concurrency.** A single writer is enforced by a lease Meta tag on the `ObsidiNote` page
   (session id + expiry, renewed while running). There is no lock file on disk. A second
   instance starts read-only.
+  On one PC there is one ObsidiNote (operator, 2026-11-15): a new start asks the one that is
+  running to stop (`POST /api/shutdown`; it gives the lease back) and, when it does not, ends the
+  leftover start of the same script. The lease also carries a machine mark (`m`: 12 hex characters
+  of a hash of the computer name, never the name). A lease that is not expired, carries THIS
+  computer's mark and belongs to another session is taken over only by a start that has just
+  established that no other ObsidiNote runs here. A lease with another mark, or an old one without
+  a mark, is never taken before it expires: between computers the lease stays the only arbiter.
 - **Rebuildable index.** Each content page carries its own `obsn.*` Meta (source of truth for
   its topics and links). The Index pages are a mirror for fast loading, and a "rebuild index"
   scan regenerates them from the pages. When they disagree, the page wins.

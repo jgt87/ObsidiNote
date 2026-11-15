@@ -1,4 +1,6 @@
 /* Layout of the app shell. Colours, type and controls come from src/styles/tokens.css. */
+/* The gutter is always there, so content does not jump when a page gets long enough to scroll. */
+html { scrollbar-gutter: stable; }
 body { margin: 0; background: var(--sunken); }
 
 .shell { display: flex; min-height: 100dvh; overflow-x: clip; }
@@ -7,6 +9,12 @@ body { margin: 0; background: var(--sunken); }
 .page__title { margin: 0 0 var(--space-2); font-size: var(--text-heading); font-weight: 600; }
 
 .app-notice { max-width: 880px; margin: 0 auto var(--space-5); box-sizing: border-box; }
+
+/* The knowledge graph takes the window's height: its map or table grows into the room the header
+   rows leave (a fixed "100dvh - 112px" made the page scroll as soon as a row wrapped or a filter
+   line showed; review 2026-11-14). */
+.main > .kg { min-height: calc(100dvh - 2 * var(--space-7)); }
+.main > .kg > .kg-stage, .main > .kg > .kg-tbl { flex: 1 1 0; height: auto; }
 
 .icon { width: 16px; height: 16px; flex: none; }
 
@@ -25,4 +33,5 @@ body { margin: 0; background: var(--sunken); }
 @media (max-width: 760px) {
   .shell { flex-direction: column; }
   .main { padding: var(--space-5) var(--space-5); }
+  .main > .kg { min-height: calc(100dvh - 2 * var(--space-5)); }
 }

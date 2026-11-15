@@ -55,7 +55,11 @@ const answered: AskResult = {
 describe('AskView', () => {
   it('renders the path, the answer with citation chips, the sources and the actions', () => {
     const html = renderToStaticMarkup(<AskView state={{ kind: 'result', result: answered }} {...actions} />)
-    expect(html).toContain('Path through the central index')
+    expect(html).toContain('How it was found')
+    // The answer comes first, its actions right under it; the sources and the path explain it below.
+    expect(html.indexOf('aria-label="Answer"')).toBeLessThan(html.indexOf('Ask a follow-up'))
+    expect(html.indexOf('Ask a follow-up')).toBeLessThan(html.indexOf('aria-label="Sources"'))
+    expect(html.indexOf('aria-label="Sources"')).toBeLessThan(html.indexOf('How it was found'))
     expect(html).toContain('Copilot picked 1 of 6 top-level branches')
     expect(html).toContain('href="#ask-c1-1-src-1"')
     expect(html).toContain('id="ask-c1-1-src-1"')
@@ -117,11 +121,21 @@ describe('AskView', () => {
     expect(html).not.toContain('Save answer as a page')
   })
 
-  it('renders the progress state with the running step marked', () => {
-    const html = renderToStaticMarkup(<AskView state={{ kind: 'progress', question: 'q', step: 2 }} {...actions} />)
-    expect(html).toContain('Finding branches...')
-    expect(html).toContain('aria-current="step"')
-    expect(html).toMatch(/aria-current="step"[^>]*>.*Choosing pages\.\.\./)
-    expect(html).toContain('Writing the answer...')
+  it('renders the progress state as one busy line, without steps it cannot know', () => {
+    const html = renderToStaticMarkup(<AskView state={{ kind: 'progress', question: 'q', step: 1 }} {...actions} />)
+    expect(html).toContain('Reading your wiki')
+    expect(html).toContain('aria-busy="true"')
+    expect(html).not.toContain('aria-current="step"')
+    const follow = renderToStaticMarkup(<AskView state={{ kind: 'progress', question: 'q', step: 3 }} {...actions} />)
+    expect(follow).toContain('Writing the answer from the same pages')
+  })
+  it('renders an error as an alert with a way forward', () => {
+    const html = renderToStaticMarkup(<AskView state={{ kind: 'error', question: 'q', message: 'Copilot is not connected.', copilot: true }} {...actions} onRetry={() => undefined} connect={<button type="button">Connect Copilot again</button>} />)
+    expect(html).toContain('role="alert"')
+    expect(html).toContain('Not answered')
+    expect(html).toContain('>Try again</button>')
+    expect(html).toContain('Connect Copilot again')
+    const plain = renderToStaticMarkup(<AskView state={{ kind: 'error', question: 'q', message: 'x' }} {...actions} onRetry={() => undefined} connect={<button type="button">Connect Copilot again</button>} />)
+    expect(plain).not.toContain('Connect Copilot again')
   })
 })

@@ -48,9 +48,25 @@ function ConvertTo-SyncedUrl {
     if (-not $Path.StartsWith($base, [StringComparison]::OrdinalIgnoreCase)) { return '' }
     $rel = $Path.Substring($base.Length)
     $parts = @($rel.Split('\') | Where-Object { $_ } | ForEach-Object { [Uri]::EscapeDataString($_) })
-    $u = [string]$Root.url
+    $u = ConvertTo-EscapedRootUrl ([string]$Root.url)
     if (-not $u.EndsWith('/')) { $u += '/' }
     $u + ($parts -join '/')
+}
+
+function ConvertTo-EscapedRootUrl {
+    <# A synced folder's address with every path part escaped once: OneDrive records a library as
+       typed ("https://contoso.sharepoint.com/sites/Team/Shared Documents/"), and an address with a
+       space is refused as a link (code review 2026-11-15). A part that is escaped already ("%20")
+       is decoded first, so it is never escaped twice. Scheme and host stay as they are. Pure. #>
+    param([AllowEmptyString()][string]$Url = '')
+    $m = [regex]::Match($Url, '^(?i)(https?://[^/?#]*)([^?#]*)(.*)$')
+    if (-not $m.Success) { return $Url }
+    $path = (@($m.Groups[2].Value.Split('/') | ForEach-Object {
+        $seg = $_
+        try { $seg = [Uri]::UnescapeDataString($seg) } catch { }
+        [Uri]::EscapeDataString($seg)
+    }) -join '/')
+    $m.Groups[1].Value + $path + $m.Groups[3].Value
 }
 
 function Find-SyncedFile {
@@ -66,7 +82,7 @@ function Find-SyncedFile {
     if (-not @($Roots).Count) { return @{ status = 'no-sync'; url = ''; ms = [int]$sw.ElapsedMilliseconds } }
     # Each hit keeps the synced folder it was found in and its path relative to it, built while
     # walking; never cut out of FullName afterwards: Windows can hand back the long form of a short
-    # 8.3 root (CI's C:\Users\RUNNER~1), so a prefix comparison fails (2026-11-14, lessons).
+    # 8.3 root (a CI runner's RUNNER~1 profile folder), so a prefix comparison fails (2026-11-14, lessons).
     $hits = New-Object System.Collections.Generic.List[object]
     $want = $ModifiedUtc.ToUniversalTime()
     $folders = 0

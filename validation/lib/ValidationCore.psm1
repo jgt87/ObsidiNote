@@ -12,7 +12,7 @@ $script:KitVersion = '1.0.0'
 $script:StageOrder = @('V1', 'V2', 'V3', 'V4', 'V5', 'V6')
 $script:StageTitles = @{
     V1 = 'This computer'; V2 = 'OneNote'; V3 = 'Copilot'; V4 = 'ObsidiNote window'
-    V5 = 'Grounding probes (P3, P4, P7, P8)'; V6 = 'Vaults, index, Add, Ask, knowledge graph'
+    V5 = 'Grounding probes (P3, P4, P7, P8, P10)'; V6 = 'Vaults, index, Add, Ask, knowledge graph'
 }
 # The only notebook names that may appear in the log. The kit writes only into the first two.
 $script:ProbeNotebook = 'ObsidiNote-Probe'

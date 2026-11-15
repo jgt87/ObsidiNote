@@ -24,7 +24,7 @@ function Invoke-Add([string]$Reply, $Vault, [string]$Mode = 'add', [string]$Text
 
 Describe 'Store contract' {
     It 'lists the adapter functions Add needs and finds missing ones' {
-        (Get-IngestStoreContract).Count | Should Be 21
+        (Get-IngestStoreContract).Count | Should Be 22   # + RewriteBodyLinks (Undo, 2026-11-15)
         $v = New-FakeVault
         (Get-MissingStoreFunctions $v.store).Count | Should Be 0
         $v.store.Remove('SetLinkedFrom')
@@ -402,15 +402,33 @@ Describe 'Receive-AddAnswer: check for the answer' {
 }
 
 Describe 'Where the text came from (origin, the "From:" choice)' {
-    It 'writes a known origin on the new page, and drops an unknown one' {
+    It 'writes a known origin on the new page; an unknown one is refused before anything is written (one check, as the server and Edit)' {
         $v = New-FakeVault
         $c = New-FakeCopilot @((Get-GoodReply))
-        $null = Invoke-AddRequest -Request @{ text = $script:Text; mode = 'add'; origin = 'outlook' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+        $null = Invoke-AddRequest -Request @{ text = $script:Text; mode = 'add'; origin = ' outlook ' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
         $v.st.created['{NEW-p101}']['origin'] | Should Be 'outlook'
-        $v2 = New-FakeVault
-        $c2 = New-FakeCopilot @((Get-GoodReply))
-        $null = Invoke-AddRequest -Request @{ text = $script:Text; mode = 'add'; origin = 'myspace' } -Store $v2.store -Ask $c2.ask -Options @{ Now = $script:Now }
-        $v2.st.created['{NEW-p101}']['origin'] | Should Be ''
+        foreach ($bad in 'myspace', 5) {
+            $v2 = New-FakeVault
+            $c2 = New-FakeCopilot @((Get-GoodReply))
+            $r2 = Invoke-AddRequest -Request @{ text = $script:Text; mode = 'add'; origin = $bad } -Store $v2.store -Ask $c2.ask -Options @{ Now = $script:Now }
+            $r2.status | Should Be 'failed'
+            $r2.message | Should Match '^Nothing was added: (Unknown origin\.|origin must be text\.)$'
+            $v2.st.created.Count | Should Be 0
+            $v2.st.inbox.Count | Should Be 0
+            $c2.q.prompts.Count | Should Be 0
+        }
+        # No origin at all (or null) is "typed".
+        $v3 = New-FakeVault
+        $null = Invoke-AddRequest -Request @{ text = $script:Text; mode = 'add'; origin = $null } -Store $v3.store -Ask (New-FakeCopilot @((Get-GoodReply))).ask -Options @{ Now = $script:Now }
+        $v3.st.created['{NEW-p101}']['origin'] | Should Be ''
+    }
+    It 'files a waiting item as typed when its stored origin is not a known id any more' {
+        $v = New-FakeVault
+        $w = Invoke-AddRequest -Request @{ text = $script:Text; mode = 'add'; origin = 'teams' } -Store $v.store -Ask (Get-PendingAsk) -Options @{ Now = $script:Now }
+        $v.st.inbox['{IN0}'].origin = 'myspace'
+        $r = Receive-AddAnswer -Store $v.store -Ask (New-FakeCopilot @()).ask -ReadChat (New-ChatReader (Add-Ref (Get-GoodReply) $w.ref)).read -InboxId $w.inboxId -Options @{ Now = $script:Now }
+        $r.status | Should Be 'added'
+        $v.st.created['{NEW-p101}']['origin'] | Should Be ''
     }
     It 'keeps it on a waiting Intake item and files the page with it after "Check for the answer"' {
         $v = New-FakeVault
@@ -435,6 +453,34 @@ Describe 'Undo-AddRequest' {
         (@($v.st.linkedFrom['p1']) | ForEach-Object { $_['id'] }) -join ',' | Should Be 'p3'
         @($v.st.linkedFrom['p2']).Count | Should Be 0
         $u.backlinks | Should Be 3
+    }
+    It 'takes the links other pages have to the undone page out of their Meta and index records (History, code review 2026-11-15)' {
+        # p3 links to p1 (and nothing else); p7 links to p4 only. Undo p1 long after it was added.
+        $v = New-FakeVault
+        $u = Undo-AddRequest -Store $v.store -Undo @{ id = 'p1' }
+        $u.status | Should Be 'undone'
+        $u.unlinked | Should Be 1
+        $up = @($v.st.updates | Where-Object { $_['pageId'] -eq '{P3}' })
+        $up.Count | Should Be 1
+        @($up[0]['meta']['links']).Count | Should Be 0
+        @($up[0]['outlines']).Count | Should Be 0
+        $ix = @($v.st.indexOps | Where-Object { $_['op'] -eq 'update' -and $_['page']['id'] -eq 'p3' })
+        $ix.Count | Should Be 1
+        @($ix[0]['page']['links']).Count | Should Be 0
+        # pages that do not link to it are not touched
+        @($v.st.updates | Where-Object { $_['pageId'] -ne '{P3}' }).Count | Should Be 0
+    }
+    It 'keeps a page''s other links, and reports a page it could not change' {
+        $v = New-FakeVault
+        $v.st.content['{P3}'] = @{ meta = @{ links = @(@{ target = 'p1'; strength = 2; why = 'replaced by' }, @{ target = 'p4'; strength = 1; why = 'needs' }) }; outlines = @() }
+        $u = Undo-AddRequest -Store $v.store -Undo @{ id = 'p1' }
+        (@(@($v.st.updates | Where-Object { $_['pageId'] -eq '{P3}' })[0]['meta']['links'] | ForEach-Object { $_['target'] }) -join ',') | Should Be 'p4'
+        $v2 = New-FakeVault
+        $v2.st.fail['UpdatePage'] = 'OneNote refused'
+        $u2 = Undo-AddRequest -Store $v2.store -Undo @{ id = 'p1' }
+        $u2.status | Should Be 'undone'
+        $u2.unlinked | Should Be 0
+        (@($u2.warnings) -join ' ') | Should Match 'Page p3 still links to the removed page'
     }
     It 'refuses a page that is not in the index, and a page id that does not match' {
         $v = New-FakeVault
@@ -476,8 +522,9 @@ Describe 'Add writes no files' {
     }
     It 'logs only ids, counts, states and timings' {
         $lines = @(Select-String -Path (Join-Path $here '..\lib\Ingest.psm1') -Pattern 'Write-AppLog' | ForEach-Object { $_.Line })
-        # Add finished, Undo finished, Link it finished, Page edit finished (ids, field names and counts only).
-        $lines.Count | Should Be 5
+        # Add finished, Undo finished, Link it finished, Page edit finished, Tagging finished, Tag rename
+        # finished (ids, field names and counts only; never a tag's text).
+        $lines.Count | Should Be 7
         foreach ($l in $lines) { $l | Should Not Match '(?i)\$(text|title|message|prompt|reply|url|anchor|summary)\b|\.(text|title|message|url)\b' }
     }
 }

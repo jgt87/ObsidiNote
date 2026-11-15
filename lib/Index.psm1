@@ -51,8 +51,9 @@ function Add-IndexTopic {
 
 function New-PageRecord {
     param([hashtable]$From = @{})
-    $r = @{ key = ''; id = ''; title = ''; type = ''; bucket = ''; section = ''; oneNoteId = ''; link = ''; summary = ''; topics = @(); aliases = @(); status = ''; url = ''; host = ''; kind = ''; summarizedAt = ''; archivedFrom = ''; links = @(); updated = ''; owner = 'obsn'; level = 1; parent = ''; origin = '' }
+    $r = @{ key = ''; id = ''; title = ''; type = ''; bucket = ''; section = ''; oneNoteId = ''; link = ''; summary = ''; topics = @(); aliases = @(); status = ''; url = ''; host = ''; kind = ''; summarizedAt = ''; archivedFrom = ''; links = @(); updated = ''; owner = 'obsn'; level = 1; parent = ''; origin = ''; tags = @() }
     foreach ($k in @($From.Keys)) { $r[$k] = $From[$k] }
+    $r.tags = @(@($r.tags) | Where-Object { $_ } | ForEach-Object { [string]$_ })
     $r.topics = @(@($r.topics) | Where-Object { $_ } | ForEach-Object { ConvertTo-TopicPath ([string]$_) } | Where-Object { $_ })
     $r.aliases = @(@($r.aliases) | Where-Object { $_ })
     $r.links = @(@($r.links) | Where-Object { $_ })
@@ -95,7 +96,7 @@ function Test-PageUnfiled { param([hashtable]$Page) (-not @($Page.topics).Count)
 
 # ---------------------------------------------------------------- compact entries (index Meta)
 
-$script:EntryMap = [ordered]@{ id = 'i'; title = 't'; oneNoteId = 'o'; link = 'k'; bucket = 'b'; section = 'c'; type = 'y'; topics = 'p'; summary = 's'; status = 'st'; url = 'u'; host = 'h'; kind = 'kd'; summarizedAt = 'sa'; archivedFrom = 'af'; aliases = 'a'; links = 'l'; updated = 'm'; owner = 'w'; origin = 'or' }
+$script:EntryMap = [ordered]@{ id = 'i'; title = 't'; oneNoteId = 'o'; link = 'k'; bucket = 'b'; section = 'c'; type = 'y'; topics = 'p'; summary = 's'; status = 'st'; url = 'u'; host = 'h'; kind = 'kd'; summarizedAt = 'sa'; archivedFrom = 'af'; aliases = 'a'; links = 'l'; updated = 'm'; owner = 'w'; origin = 'or'; tags = 'g' }
 
 function ConvertTo-IndexEntry {
     param([Parameter(Mandatory)][hashtable]$Page)
@@ -103,7 +104,7 @@ function ConvertTo-IndexEntry {
     foreach ($k in $script:EntryMap.Keys) {
         $v = $Page[$k]
         if ($k -eq 'links') { $v = @(@($v) | ForEach-Object { [ordered]@{ t = $_.target; s = [int]$_.strength; w = [string]$_.why } }); if (-not $v.Count) { continue } }
-        elseif ($k -eq 'topics' -or $k -eq 'aliases') { $v = @($v); if (-not $v.Count) { continue } }
+        elseif ($k -eq 'topics' -or $k -eq 'aliases' -or $k -eq 'tags') { $v = @($v | Where-Object { $_ }); if (-not $v.Count) { continue } }
         elseif ($k -eq 'owner') { if ($v -eq 'obsn') { continue } }
         elseif (-not $v) { continue }
         $o[$script:EntryMap[$k]] = $v
@@ -118,7 +119,7 @@ function ConvertFrom-IndexEntry {
         $v = Get-JsonProp $Entry $script:EntryMap[$k] $null
         if ($null -eq $v) { continue }
         if ($k -eq 'links') { $h[$k] = @(@($v) | ForEach-Object { @{ target = [string](Get-JsonProp $_ 't' ''); strength = [int](Get-JsonProp $_ 's' 1); why = [string](Get-JsonProp $_ 'w' '') } }) }
-        elseif ($k -eq 'topics' -or $k -eq 'aliases') { $h[$k] = @(@($v) | ForEach-Object { [string]$_ }) }
+        elseif ($k -eq 'topics' -or $k -eq 'aliases' -or $k -eq 'tags') { $h[$k] =@(@($v) | ForEach-Object { [string]$_ }) }
         else { $h[$k] = [string]$v }
     }
     $h

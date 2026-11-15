@@ -24,7 +24,11 @@ $script:TypeBucket = [ordered]@{
 $script:MaxPagesPerSection = 500
 
 # Microsoft 365 hosts that make a link "internal". '*.x' matches x and any subdomain of x.
-$script:InternalHostRules = @('*.sharepoint.com', 'teams.microsoft.com', 'teams.cloud.microsoft', '*.loop.cloud.microsoft', 'loop.microsoft.com', '*.office.com', 'm365.cloud.microsoft')
+# Personal OneDrive ('*.docs.live.net', 'onedrive.live.com') is the person's own files, not a public
+# page: internal, as Get-LinkSource already calls it OneDrive (code review 2026-11-15; pages filed
+# under Web links before are moved by lib/Upgrade.psm1 link-bucket at the next start).
+$script:PersonalOneDriveRules = @('*.docs.live.net', 'onedrive.live.com')
+$script:InternalHostRules = @('*.sharepoint.com', 'teams.microsoft.com', 'teams.cloud.microsoft', '*.loop.cloud.microsoft', 'loop.microsoft.com', '*.office.com', 'm365.cloud.microsoft') + $script:PersonalOneDriveRules
 # Company data in a SaaS tenant is internal too (user, 2026-11-13: "Workday where a timesheet can be
 # hosted, or internal vacancies are published"). These hosts are a company's own tenant whenever
 # there is a subdomain (wd3.myworkday.com/<company>/..., <company>.service-now.com); the vendor's
@@ -203,7 +207,7 @@ function Test-CompanyHost {
 
 function Get-LinkBucket {
     <# 'Internal links' for company data, 'Web links' for public pages. Fixed rules, no model, in order:
-       1. Microsoft 365 hosts (SharePoint incl. OneDrive -my, Teams, Loop, office.com, m365.cloud.microsoft)
+       1. Microsoft 365 hosts (SharePoint incl. OneDrive -my, personal OneDrive, Teams, Loop, office.com, m365.cloud.microsoft)
           and the hosts in $InternalHosts (exact host, '*.domain' or '.domain'): internal.
        2. Public by nature (job boards, public site hosting): web.
        3. A SaaS host that is a company tenant (Workday, ServiceNow, Atlassian, Okta, ...): internal.
@@ -214,6 +218,14 @@ function Get-LinkBucket {
     param([Parameter(Mandatory)][string]$Url, [string[]]$InternalHosts = @(), [string[]]$CompanyNames = @())
     $h = Get-UrlHost $Url
     if (-not $h) { return 'Web links' }
+    Get-HostLinkBucket -HostName $h -InternalHosts $InternalHosts -CompanyNames $CompanyNames
+}
+
+function Get-HostLinkBucket {
+    <# Get-LinkBucket's rules for a host that is parsed already (Get-LinkSource has it: one parse per
+       page, not two). Pure. #>
+    param([Parameter(Mandatory)][string]$HostName, [string[]]$InternalHosts = @(), [string[]]$CompanyNames = @())
+    $h = $HostName
     foreach ($r in @($script:InternalHostRules + @($InternalHosts | Where-Object { $_ }))) {
         if (Test-HostRule -HostName $h -Rule $r) { return 'Internal links' }
     }
@@ -265,6 +277,35 @@ function Test-OriginId {
     (-not $Origin) -or [bool](Get-OriginSource $Origin)
 }
 
+function Resolve-OriginId {
+    <# The one check of an origin that comes in from outside (POST /api/submit for an Add, Add in
+       lib/Ingest.psm1, Edit's "From" field): nothing ($null) or '' = typed in ObsidiNote; text is
+       trimmed and must be an id of the origin list; anything else is refused, never guessed.
+       Returns @{ ok; origin; error }. Pure. #>
+    param($Origin = $null)
+    if ($null -eq $Origin) { return @{ ok = $true; origin = ''; error = '' } }
+    if ($Origin -isnot [string]) { return @{ ok = $false; origin = ''; error = 'origin must be text.' } }
+    $o = $Origin.Trim()
+    if (-not $o) { return @{ ok = $true; origin = ''; error = '' } }
+    $src = Get-OriginSource $o
+    if (-not $src) { return @{ ok = $false; origin = ''; error = 'Unknown origin.' } }
+    # The list's own spelling of the id ('Teams' is stored as 'teams').
+    @{ ok = $true; origin = [string]$src.id; error = '' }
+}
+
+function Get-LinkRules {
+    <# The link rules of one vault or notebook, the one place they are put together (the start's
+       upgrade store in obsidinote.ps1 and the server's store and graph): @{ InternalHosts;
+       CompanyNames }. $InternalHosts: its "internalHosts" setting (lib/VaultSettings.psm1);
+       $Locations: addresses it owns (its notebook's location, the notebook record), from which the
+       company's tenant names come (Get-CompanyNames; never stored). Pure. #>
+    param([object[]]$InternalHosts = @(), [object[]]$Locations = @())
+    @{
+        InternalHosts = @(@($InternalHosts) | ForEach-Object { "$_" } | Where-Object { $_ })
+        CompanyNames  = @(Get-CompanyNames -Locations @(@($Locations) | ForEach-Object { "$_" } | Where-Object { $_ }))
+    }
+}
+
 function Get-LinkSource {
     <# Where a link page's address lives, for the Sources view: @{ id; name; kind }. Fixed rules on the
        host (and a SharePoint site's path), no model:
@@ -282,7 +323,7 @@ function Get-LinkSource {
     if (-not $h) { return $null }
     if ($h -match '-my\.sharepoint\.com$') { return @{ id = 'onedrive'; name = 'OneDrive'; kind = 'm365' } }
     # Personal OneDrive (a dropped file's address from its synced folder, 2026-11-14).
-    foreach ($r in '*.docs.live.net', 'onedrive.live.com') { if (Test-HostRule -HostName $h -Rule $r) { return @{ id = 'onedrive'; name = 'OneDrive'; kind = 'm365' } } }
+    foreach ($r in $script:PersonalOneDriveRules) { if (Test-HostRule -HostName $h -Rule $r) { return @{ id = 'onedrive'; name = 'OneDrive'; kind = 'm365' } } }
     if (Test-HostRule -HostName $h -Rule '*.sharepoint.com') {
         $m = [regex]::Match($p.path, '^/(?i:sites|teams)/([^/]+)')
         if ($m.Success) {
@@ -301,7 +342,7 @@ function Get-LinkSource {
         }
     }
     $site = $h -replace '^www\.', ''
-    if ((Get-LinkBucket -Url $Url -InternalHosts $InternalHosts -CompanyNames $CompanyNames) -eq 'Internal links') {
+    if ((Get-HostLinkBucket -HostName $h -InternalHosts $InternalHosts -CompanyNames $CompanyNames) -eq 'Internal links') {
         return @{ id = "internal/$site"; name = $site; kind = 'service' }
     }
     @{ id = "web/$site"; name = $site; kind = 'web' }
@@ -335,6 +376,41 @@ function ConvertFrom-ObsnHierarchy {
     return $res
 }
 
+function Get-SectionNodePages {
+    <# The pages of one one:Section node: an ArrayList of @{ id; title; level; updated; section; meta },
+       recycle-bin pages left out. $Full: the section's path under its root. Pure. #>
+    param($Node, [string]$Full)
+    $pages = New-Object System.Collections.ArrayList
+    foreach ($p in @($Node.ChildNodes)) {
+        if ($p.NodeType -ne 'Element' -or $p.LocalName -ne 'Page') { continue }
+        if ($p.GetAttribute('isInRecycleBin') -eq 'true') { continue }
+        $meta = @{}
+        foreach ($m in @($p.ChildNodes)) { if ($m.NodeType -eq 'Element' -and $m.LocalName -eq 'Meta') { $meta[$m.GetAttribute('name')] = $m.GetAttribute('content') } }
+        $lvl = 1; [void][int]::TryParse($p.GetAttribute('pageLevel'), [ref]$lvl)
+        $null = $pages.Add(@{ id = $p.GetAttribute('ID'); title = $p.GetAttribute('name'); level = $lvl; updated = $p.GetAttribute('lastModifiedTime'); section = $Full; meta = $meta })
+    }
+    , $pages
+}
+
+function Read-ObsnIntakePages {
+    <# The pages of the vault's own '01 Intake' section (directly in the vault root $RootId), in the
+       shape of ConvertFrom-ObsnHierarchy's pages. Two small reads instead of the whole vault at page
+       scope (every page's Meta, index entries included): the root's sections, then that one section's
+       pages. Empty when the vault has no Intake section. Read only. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)][string]$RootId)
+    $tree = ConvertFrom-ObsnHierarchy -Xml ($Adapter.GetHierarchy($RootId, 3)) -RootId $RootId
+    $sec = $null
+    if ($tree) { $sec = @($tree.sections | Where-Object { $_.full -eq $script:IntakeSection }) | Select-Object -First 1 }
+    if (-not $sec) { return }
+    [xml]$doc = $Adapter.GetHierarchy([string]$sec.id, 4)
+    $node = $doc.DocumentElement
+    if ($node.LocalName -ne 'Section' -or $node.GetAttribute('ID') -ne [string]$sec.id) { return }
+    $list = Get-SectionNodePages -Node $node -Full $script:IntakeSection   # returns , $list: assign as is
+    # Plain pipeline output (one page after the other): callers wrap the call in @().
+    foreach ($p in $list) { $p }
+}
+
 function Add-HierarchyChildren {
     param($Node, [string]$Prefix, [hashtable]$Result)
     foreach ($c in @($Node.ChildNodes)) {
@@ -348,15 +424,7 @@ function Add-HierarchyChildren {
             $null = $Result.groups.Add(@{ id = $c.GetAttribute('ID'); name = $c.GetAttribute('name'); full = $full })
             Add-HierarchyChildren -Node $c -Prefix $full -Result $Result
         } elseif ($c.LocalName -eq 'Section') {
-            $pages = New-Object System.Collections.ArrayList
-            foreach ($p in @($c.ChildNodes)) {
-                if ($p.NodeType -ne 'Element' -or $p.LocalName -ne 'Page') { continue }
-                if ($p.GetAttribute('isInRecycleBin') -eq 'true') { continue }
-                $meta = @{}
-                foreach ($m in @($p.ChildNodes)) { if ($m.NodeType -eq 'Element' -and $m.LocalName -eq 'Meta') { $meta[$m.GetAttribute('name')] = $m.GetAttribute('content') } }
-                $lvl = 1; [void][int]::TryParse($p.GetAttribute('pageLevel'), [ref]$lvl)
-                $null = $pages.Add(@{ id = $p.GetAttribute('ID'); title = $p.GetAttribute('name'); level = $lvl; updated = $p.GetAttribute('lastModifiedTime'); section = $full; meta = $meta })
-            }
+            $pages = Get-SectionNodePages -Node $c -Full $full
             $grp = if ($Prefix) { $Prefix } else { '' }
             $null = $Result.sections.Add(@{ id = $c.GetAttribute('ID'); name = $c.GetAttribute('name'); full = $full; group = $grp; locked = ($c.GetAttribute('locked') -eq 'true'); pages = $pages })
         }
@@ -460,4 +528,4 @@ function Resolve-ObsnSection {
     $Adapter.OpenHierarchy("$($parts[1]).one", $gid, 3)
 }
 
-Export-ModuleMember -Function Get-ObsnFixedSections, Get-ObsnIntakeSection, Get-LegacyIntakeSection,Get-ObsnBuckets, Get-ObsnTypes, Get-BucketForType, Get-TargetSection, Get-ArchiveSectionName, Get-BucketOfSection, Test-ObsnOwnedSection, Get-UrlHost, ConvertTo-NormalizedUrl, Get-LinkBucket, Get-LinkSource, Get-OriginList, Get-OriginSource, Test-OriginId, Get-CompanyNames, ConvertFrom-ObsnHierarchy, Get-StructurePlan, Get-NotebookBasePath, Install-ObsnStructure, Resolve-ObsnSection
+Export-ModuleMember -Function Get-ObsnFixedSections, Get-ObsnIntakeSection, Get-LegacyIntakeSection,Get-ObsnBuckets, Get-ObsnTypes, Get-BucketForType, Get-TargetSection, Get-ArchiveSectionName, Get-BucketOfSection, Test-ObsnOwnedSection, Get-UrlHost, ConvertTo-NormalizedUrl, Get-LinkBucket, Get-LinkSource, Get-OriginList, Get-OriginSource, Test-OriginId, Resolve-OriginId, Get-LinkRules, Get-CompanyNames, ConvertFrom-ObsnHierarchy, Read-ObsnIntakePages, Get-StructurePlan, Get-NotebookBasePath, Install-ObsnStructure, Resolve-ObsnSection

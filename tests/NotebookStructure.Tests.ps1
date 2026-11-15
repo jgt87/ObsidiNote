@@ -166,3 +166,39 @@ Describe 'Hierarchy parsing' {
         { Get-NotebookBasePath -NotebooksXml "<?xml version=""1.0""?><one:Notebooks $ns/>" } | Should Throw
     }
 }
+
+Describe 'Link rules and origin: one place each (code review 2026-11-15)' {
+    It 'Get-LinkRules puts a vault''s rules together from its setting and the addresses it owns' {
+        $r = Get-LinkRules -InternalHosts @('wiki.example.invalid', '', $null) -Locations @('https://contoso-my.sharepoint.com/personal/x/Documents/V/', '', 'onenote:https://contoso.sharepoint.com/sites/a/x.one', 'C:\nb\L')
+        (@($r.InternalHosts) -join ',') | Should Be 'wiki.example.invalid'
+        (@($r.CompanyNames) -join ',') | Should Be 'contoso'
+        $none = Get-LinkRules
+        "$(@($none.InternalHosts).Count):$(@($none.CompanyNames).Count)" | Should Be '0:0'
+    }
+    It 'the start and the server both use it and neither works the company names out itself' {
+        # The commands a file calls (comments and strings left out by the tokenizer).
+        $calls = { param($file) $err = $null; @([Management.Automation.PSParser]::Tokenize([IO.File]::ReadAllText($file), [ref]$err) | Where-Object { $_.Type -eq 'Command' } | ForEach-Object { $_.Content }) }
+        foreach ($f in 'obsidinote.ps1', 'lib\Server.psm1') {
+            $c = & $calls (Join-Path $root $f)
+            "$f $($c -contains 'Get-LinkRules') $($c -contains 'Get-CompanyNames')" | Should Be "$f True False"
+        }
+    }
+    It 'Resolve-OriginId is the one check: nothing is typed, text is trimmed, anything else is refused' {
+        foreach ($v in $null, '', '  ') { $o = Resolve-OriginId $v; "$($o.ok):$($o.origin)" | Should Be 'True:' }
+        $o = Resolve-OriginId ' Teams '
+        "$($o.ok):$($o.origin)" | Should BeExactly 'True:teams'   # stored as the list's own id (tests/fixtures/origins.json)
+        (Resolve-OriginId ' teams ').origin | Should Be 'teams'
+        (Resolve-OriginId 'slack').error | Should Be 'Unknown origin.'
+        foreach ($v in 5, $true, @('teams')) { (Resolve-OriginId $v).error | Should Be 'origin must be text.' }
+        foreach ($id in @(Get-OriginList | ForEach-Object { $_.id })) { (Resolve-OriginId $id).ok | Should Be $true }
+    }
+    It 'no other module checks an origin by itself' {
+        $lib = Join-Path $root 'lib'
+        $hits = @(Get-ChildItem -LiteralPath $lib -Filter '*.psm1' | Where-Object { $_.Name -ne 'NotebookStructure.psm1' } | Where-Object { [IO.File]::ReadAllText($_.FullName) -match 'Test-OriginId' } | ForEach-Object { $_.Name })
+        ($hits -join ',') | Should Be ''
+    }
+    It 'personal OneDrive is filed as internal (the same place the Sources view shows it)' {
+        Get-LinkBucket -Url 'https://d.docs.live.net/0123456789abcdef/Documents/a.docx' | Should Be 'Internal links'
+        Get-LinkBucket -Url 'https://onedrive.live.com/edit?id=1' | Should Be 'Internal links'
+    }
+}

@@ -1,4 +1,4 @@
-# RB-04 Grounding probes P3, P4, P7 and P8
+# RB-04 Grounding probes P3, P4, P7, P8 and P10
 
 These probes check what Microsoft 365 Copilot can read for ObsidiNote, with Work IQ (your
 Microsoft 365 data) switched on. They run in stage V5 of the kit. They decide how ObsidiNote makes
@@ -10,6 +10,7 @@ link summaries, and whether Copilot's own search over OneNote is of any use.
 | P4 | The same for a Loop page (optional) | Found |
 | P7 | Can Copilot summarize a SharePoint page and a OneDrive document you can open, in ObsidiNote's fixed shape? | "summary made yes", "access ok", "JSON valid yes" |
 | P8 | The same for a public web page, with Work IQ off and on | "summary made yes", "JSON valid yes" |
+| P10 | Can Copilot list your Teams meetings of the last 7 days, and turn the newest one with a transcript, recap or notes into structured notes (attendees, decisions, actions with owner and due date)? Decides whether ObsidiNote gets an "Add a meeting" step. | "P10 meetings list" with meetings > 0, and "P10 meeting notes" with "read yes" and decisions or actions > 0 |
 
 ## Why the addresses are not logged
 
@@ -49,8 +50,20 @@ took. The same holds for the markers, the prompts and Copilot's answers.
      - `P3 OneNote grounding  marker age 0.0 h: found no ...` as `[INFO]` is normal right away.
      - `P7 SharePoint page` and `P7 OneDrive document` with `summary made yes; access ok; JSON valid yes`.
      - `P8 web, Work IQ off` and `P8 web, Work IQ on` lines.
+     - `P10 meetings list  N meetings in the last 7 days; with a transcript ..., a recap ..., notes
+       ..., a link ...` and `P10 meeting notes  read yes (based on transcript|recap|notes); N
+       attendees, N decisions, N actions (...)`. Best right after a week with a few Teams meetings
+       that had transcription, a Copilot recap or Facilitator notes. The log has counts only: no
+       meeting titles, names or text.
    - If not, send this: the two newest Desktop files. A `[WARN]` with "access no-access" means
      Copilot could not open the address; say whether you can open it in your normal browser.
+     For P10, also say (no titles) whether you had meetings with transcription or a recap in the
+     last 7 days, and whether Copilot in Teams shows their recap to you.
+
+   - P10 alone, at any time (for example after a week with Teams meetings that had transcription,
+     a Copilot recap or Facilitator notes): double-click **Run Meeting Probe.cmd** in
+     `%LOCALAPPDATA%\Programs\ObsidiNote\validation`. It asks nothing and writes nothing; it shows
+     the two `P10` lines and puts the log on your Desktop.
 
 5. Each prompt takes 20 to 60 seconds. Copilot may show the prompts in ObsidiNote's Edge window;
    that is expected. Do not type in that window while the kit runs.

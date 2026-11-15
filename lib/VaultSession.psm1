@@ -56,7 +56,11 @@ function ConvertTo-LeaseRecord {
     <# The plain record of a lease (Request-WriterLease result); $null stays $null. #>
     param($Lease)
     if (-not $Lease) { return $null }
+    # acquired: when the holder took the lease (UTC); holderHere: it is held by another session of
+    # this computer (the window says "this PC's earlier run" instead of "another PC").
+    $g = { param($n, $d) if ($Lease -is [hashtable]) { if ($Lease.ContainsKey($n)) { $Lease[$n] } else { $d } } elseif ($Lease.PSObject.Properties[$n]) { $Lease.$n } else { $d } }
     @{ mode = [string]$Lease.mode; sessionId = [string]$Lease.sessionId; holder = [string]$Lease.holder; expires = [datetime]$Lease.expires
+        acquired = [datetime](& $g 'acquired' ([datetime]::MinValue)); holderHere = [bool](& $g 'holderHere' $false)
         statePageId = [string]$Lease.statePageId; indexSectionId = [string]$Lease.indexSectionId }
 }
 
@@ -82,9 +86,12 @@ function Open-VaultSession {
        never changed; $LocalSettings fills a missing key once). Returns @{ vault (record); lease
        (record); model; missing (count); mode; written; settings (the values to use); settingsResult }. #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)]$Vault, [Parameter(Mandatory)][string]$SessionId, [object[]]$Vaults = $null, [int]$TtlSec = $script:LeaseTtlSec, [hashtable]$LocalSettings = @{})
+    param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)]$Vault, [Parameter(Mandatory)][string]$SessionId, [object[]]$Vaults = $null, [int]$TtlSec = $script:LeaseTtlSec, [hashtable]$LocalSettings = @{},
+        # Only the start passes it, after it replaced the ObsidiNote that was running here: a lease this
+        # computer left behind is then taken at once (Get-LeaseDecision), never another computer's.
+        [switch]$NoOtherHere)
     Set-OneNoteWriteRoot -Adapter $Adapter -RootId $Vault.rootId
-    $lease = Request-WriterLease -Adapter $Adapter -IndexSectionId $Vault.indexSectionId -SessionId $SessionId -TtlSec $TtlSec
+    $lease = Request-WriterLease -Adapter $Adapter -IndexSectionId $Vault.indexSectionId -SessionId $SessionId -TtlSec $TtlSec -NoOtherHere:$NoOtherHere
     if ($lease.mode -eq 'writer') {
         $list = if ($null -ne $Vaults) { $Vaults } else { @($Vault) }
         $null = Open-ObsidiVault -Adapter $Adapter -RootId $Vault.rootId -Vaults $list
@@ -138,7 +145,8 @@ function Format-VaultStatus {
     $done = if ($Open.missing) { "$($Open.missing) page$(if ($many) { 's were' } else { ' was' }) missing from the index$(if ($Open.mode -eq 'writer') { $(if ($many) { ' and are now in the index (on Unfiled when they have no topic)' } else { ' and is now in the index (on Unfiled when it has no topic)' }) } else { '' })" } else { 'index complete' }
     if ($Open.mode -ne 'writer') {
         $until = ([datetime]$Open.lease.expires).ToLocalTime().ToString('HH:mm')
-        return @{ status = 'WARN'; detail = "$($Open.vault.name): read only, another ObsidiNote is writing in this vault (until $until at the latest); $pages pages, $topics topics; $done"; hint = 'Close the other ObsidiNote to add here; this one takes over when its lease ends.' }
+        $who = if ($Open.lease.holderHere) { 'an earlier ObsidiNote on this PC still holds this vault' } else { 'another ObsidiNote is writing in this vault' }
+        return @{ status = 'WARN'; detail = "$($Open.vault.name): read only, $who (until $until at the latest); $pages pages, $topics topics; $done"; hint = 'Close the other ObsidiNote to add here; this one takes over when its lease ends.' }
     }
     @{ status = 'OK'; detail = "$($Open.vault.name) ($pages pages, $topics topics); $done; this ObsidiNote is the writer"; hint = '' }
 }

@@ -1,8 +1,72 @@
 import { describe, expect, it } from 'vitest'
 import { buildIndex } from './graphIndex'
-import { AREA_GAP, BUNDLE_SPREAD, bundleEdges, controlPoint, crossesAreas, edgePath, layoutGraph, onePerPair, packAreas, packOrder, RESTING_BUNDLES, restingBundles, spreadEnds, topicOrder } from './layout'
+import { AREA_GAP, BUNDLE_SPREAD, bundleEdges, controlPoint, crossesAreas, edgePath, layoutGraph, layoutStats, nominalFit, onePerPair, packAreas, packOrder, RESTING_BUNDLES, restingBundles, spreadEnds, topicOrder } from './layout'
+import { areaLabelSize, shortenToWidth } from './labelSize'
 import { normalizeGraph, UNFILED_ID, type GraphModel } from './model'
 import { syntheticGraph } from './synthetic'
+
+/** Dots whose circle reaches into the room kept for their area's name (AreaLayout.slot). */
+function dotsUnderNames(model: GraphModel): string[] {
+  const layout = layoutGraph(model)
+  const areaById = new Map(layout.areas.map((a) => [a.id, a]))
+  return layout.dots
+    .filter((d) => {
+      const a = areaById.get(d.area)!
+      return Math.abs(d.x - a.x) < a.slot.hw + d.r && Math.abs(d.y - a.y) < a.slot.hh + d.r
+    })
+    .map((d) => `${d.id} in ${areaById.get(d.area)!.name}`)
+}
+
+describe('topic names: the middle of an area stays free of dots', () => {
+  // review 2026-11-14: each name covered 1 to 5 dots of its own area, and the only dot of a
+  // one-page area sat right under the letters.
+  it('puts no dot under a topic name, from one page to a thousand', () => {
+    for (const opts of [{ pages: 100, topics: 6 }, { pages: 1, topics: 1 }, { pages: 3, topics: 6 }, { pages: 40, topics: 12, seed: 5 }, { pages: 400, topics: 2, seed: 11 }, { pages: 1000, topics: 18, seed: 3 }]) {
+      expect(dotsUnderNames(syntheticGraph(opts)), JSON.stringify(opts)).toEqual([])
+    }
+  })
+  it('holds for a long name on a one-page area (a SharePoint site in the Sources view)', () => {
+    const m = syntheticGraph({ pages: 2, topics: 2 })
+    m.topics[0].name = 'SharePoint: Platform engineering and operations'
+    expect(dotsUnderNames(m)).toEqual([])
+  })
+  it('keeps the room as wide as the name, capped by the area', () => {
+    const layout = layoutGraph(syntheticGraph({ pages: 100, topics: 6 }))
+    for (const a of layout.areas) {
+      expect(a.slot.hh).toBe(11)
+      expect(a.slot.hw * 2).toBeLessThanOrEqual(a.r * 1.8)
+      expect(a.slot.hw).toBeGreaterThan(10)
+    }
+  })
+
+  // code review 2026-11-15: the test above measures in layout units, which is the screen only at
+  // zoom 1. A map of a few hundred pages is fitted zoomed out; the name keeps its screen size and
+  // lay on its dots again (4 at 300 pages, over 200 at 600). This one measures on the screen, at
+  // the zoom the map is fitted to, with the name as it is drawn (shortened to its area).
+  it('puts no dot under a name ON SCREEN at the fitted zoom, from 100 to 1000 pages', () => {
+    const aspect = 1.45
+    for (const opts of [{ pages: 100, topics: 6 }, { pages: 300, topics: 15 }, { pages: 600, topics: 25 }, { pages: 1000, topics: 18, seed: 3 }]) {
+      const layout = layoutGraph(syntheticGraph(opts), { aspect })
+      const k = nominalFit(layout.bounds, aspect)
+      const areaById = new Map(layout.areas.map((a) => [a.id, a]))
+      const under = layout.dots.filter((d) => {
+        const a = areaById.get(d.area)!
+        const text = shortenToWidth(a.name, a.r * k * 1.8)
+        if (!text) return false // too small for a name: none is drawn
+        const { w, h } = areaLabelSize(text)
+        return Math.abs(d.x - a.x) * k < w / 2 + d.r * k && Math.abs(d.y - a.y) * k < h / 2 + d.r * k
+      })
+      expect(under.map((d) => `${d.id} in ${areaById.get(d.area)!.name}`), `${JSON.stringify(opts)} fitted at ${k.toFixed(2)}`).toEqual([])
+    }
+  })
+  it('lays a small map out once: the name room only grows when the map is fitted zoomed out', () => {
+    const small = layoutGraph(syntheticGraph({ pages: 100, topics: 6 }))
+    expect(nominalFit(small.bounds, 1.45)).toBeGreaterThanOrEqual(0.97)
+    for (const a of small.areas) expect(a.slot.hh).toBe(11)
+    const big = layoutGraph(syntheticGraph({ pages: 600, topics: 25 }))
+    for (const a of big.areas) expect(a.slot.hh).toBeGreaterThan(11)
+  })
+})
 
 function checkInvariants(model: GraphModel) {
   const layout = layoutGraph(model)
@@ -350,12 +414,20 @@ describe('packAreas speed (code review 2026-11-14)', () => {
         links[i][j] = links[j][i] = 1 + (i % 3)
       }
     }
-    const t0 = performance.now()
-    const placed = packAreas(radii, radii.map(() => null), 1.6, AREA_GAP, [], links)
-    const ms = performance.now() - t0
-    expect(placed).toHaveLength(n)
-    // 2026-11-14, dev PC: 229 ms with the linked-pairs list, 857 ms with all pairs per spot (grows
-    // with the 4th power of the area count). A loose bound, so a slow CI runner does not flake.
-    expect(ms).toBeLessThan(2500)
+    const count = (m: number) => {
+      layoutStats.segmentChecks = 0
+      const placed = packAreas(radii.slice(0, m), radii.slice(0, m).map(() => null), 1.6, AREA_GAP, [], links.slice(0, m).map((row) => row.slice(0, m)))
+      expect(placed).toHaveLength(m)
+      return layoutStats.segmentChecks
+    }
+    // Counted work, not milliseconds (code review 2026-11-15: the old bound of 2500 ms against a
+    // measured 229 ms also passed the slow all-pairs version at 857 ms, and a busy machine could
+    // fail it). With the linked-pairs list the checks grow about with the cube of the area count;
+    // with all pairs per spot they grew with the 4th power: doubling the areas must stay well
+    // under 16 times the work.
+    const at100 = count(100)
+    const at200 = count(n)
+    expect(at100).toBeGreaterThan(0)
+    expect(at200 / at100).toBeLessThan(11)
   })
 })

@@ -9,7 +9,7 @@ type Ask = 'undo' | 'remove' | null
 /** One thing ObsidiNote did, with the actions that fit it: Check for the answer (waiting), Remove
  *  (an item that never became a page), Undo (an Add's page), Open (the page it became). Undo and
  *  Remove send a page to OneNote's Deleted Pages, so they ask first (AGENTS.md: delete always asks). */
-export function ActivityRow({ item, canChange, onChanged, onOpen }: { item: ActivityItem; canChange: boolean; onChanged: () => void; onOpen?: (pageId: string) => void }) {
+export function ActivityRow({ item, canChange, vaultId, onChanged, onOpen }: { item: ActivityItem; canChange: boolean; /** The vault the row was read from. */ vaultId: string; onChanged: () => void; onOpen?: (pageId: string) => void }) {
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
   const [ask, setAsk] = useState<Ask>(null)
@@ -22,6 +22,8 @@ export function ActivityRow({ item, canChange, onChanged, onOpen }: { item: Acti
       if (refresh) onChanged()
     } catch (e) {
       setNote(e instanceof Error ? e.message : 'ObsidiNote did not answer.')
+      // The row may be out of date (already filed, already removed): read the list again.
+      if (refresh) onChanged()
     } finally {
       setBusy(false)
       setAsk(null)
@@ -30,14 +32,14 @@ export function ActivityRow({ item, canChange, onChanged, onOpen }: { item: Acti
 
   const check = () =>
     run(async () => {
-      const r = await checkAnswer(item.inboxId)
+      const r = await checkAnswer(item.inboxId, vaultId)
       if (r.status === 'added' || r.status === 'updated') return r.page ? `${r.status === 'added' ? 'Added' : 'Updated'}: ${r.page.title}` : 'Done.'
       return r.message || 'Still waiting. Try again in a few minutes.'
     })
-  const remove = () => run(() => removeIntakeItem(item.inboxId))
+  const remove = () => run(() => removeIntakeItem(item.inboxId, vaultId))
   const undo = () =>
     run(async () => {
-      const r = await undoAdd({ id: item.filedAs, pageId: '', targets: [] })
+      const r = await undoAdd({ id: item.filedAs, pageId: '', targets: [] }, vaultId)
       return r.message || (r.status === 'undone' ? 'Undone.' : 'Undo did not work.')
     })
 
@@ -70,7 +72,8 @@ export function ActivityRow({ item, canChange, onChanged, onOpen }: { item: Acti
         ) : (
           <>
             {item.canCheck && canChange && (
-              <button type="button" className="btn btn--sm btn--primary" disabled={busy} aria-busy={busy} onClick={check}>
+              // design: a row's button is never the primary; a list of waiting items would show a row of them.
+              <button type="button" className="btn btn--sm" disabled={busy} aria-busy={busy} onClick={check}>
                 {busy ? 'Checking…' : 'Check for the answer'}
               </button>
             )}

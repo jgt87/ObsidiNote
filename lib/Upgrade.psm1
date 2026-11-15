@@ -47,7 +47,10 @@ function Invoke-VaultUpgrade {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Store)
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    $r = [ordered]@{ status = 'none'; planned = 0; moved = 0; raised = 0; failed = 0; reason = '' }
+    $r = [ordered]@{ status = 'none'; planned = 0; changed = 0; moved = 0; raised = 0; failed = 0; reason = '' }
+    # Made before the try: when a later step stops the upgrade, the pages already changed and the
+    # failures already collected are still reported (code review 2026-11-15).
+    $failedIds = @{}; $changedIds = @{}
     try {
         $model = & $Store.Model
         $rules = & $Store.LinkRules
@@ -56,17 +59,16 @@ function Invoke-VaultUpgrade {
         if (-not $plan.Count) { return $r }
         try { & $Store.AssertWritable | Out-Null } catch { $r.status = 'skipped'; $r.reason = $_.Exception.Message; return $r }
         $targets = New-Object System.Collections.Generic.List[string]
-        $failedIds = @{}
         foreach ($s in $plan) {
             if ($s.step -eq 'link-strength') {
-                try { if ((Update-LinkItStrength -Store $Store -Id $s.id).changed) { $r.raised++ } }
+                try { if ((Update-LinkItStrength -Store $Store -Id $s.id).changed) { $r.raised++; $changedIds[$s.id] = $true } }
                 catch { $failedIds[$s.id] = $true; Write-AppLog info upgrade 'Link strength failed' @{ step = $s.step; id = $s.id; error = $_.Exception.GetType().Name } }
                 continue
             }
             try {
                 $m = & $Store.MovePage $s.id $s.to $s.type
                 if ($m.moved) {
-                    $r.moved++
+                    $r.moved++; $changedIds[$s.id] = $true
                     foreach ($l in @($model.pages[$s.id].links)) { if ($l -and $l.target -and -not $targets.Contains([string]$l.target)) { $targets.Add([string]$l.target) } }
                 }
             } catch {
@@ -82,12 +84,13 @@ function Invoke-VaultUpgrade {
                 try { & $Store.SetLinkedFrom $t (Get-IncomingSources -Index $idx -TargetId $t) | Out-Null } catch { }
             }
         }
-        $r.failed = $failedIds.Count
-        $r.status = if ($r.failed) { 'partial' } else { 'done' }
+        $r.status = if ($failedIds.Count) { 'partial' } else { 'done' }
     } catch {
-        $r.status = 'partial'; $r.failed++; $r.reason = $_.Exception.Message
+        # Stopped early: not a page's failure, so it is the reason, not one more failed page.
+        $r.status = 'partial'; $r.reason = $_.Exception.Message
     } finally {
-        Write-AppLog info upgrade 'Upgrade finished' @{ status = $r.status; planned = $r.planned; moved = $r.moved; raised = $r.raised; failed = $r.failed; ms = $sw.ElapsedMilliseconds }
+        $r.failed = $failedIds.Count; $r.changed = $changedIds.Count
+        Write-AppLog info upgrade 'Upgrade finished' @{ status = $r.status; planned = $r.planned; changed = $r.changed; moved = $r.moved; raised = $r.raised; failed = $r.failed; ms = $sw.ElapsedMilliseconds }
     }
     $r
 }
@@ -103,7 +106,14 @@ function Format-UpgradeStatus {
     switch ($Result.status) {
         'done' { @{ status = 'OK'; detail = ($done -join '; '); hint = '' } }
         'skipped' { @{ status = 'WARN'; detail = "$($Result.planned) page(s) do not follow the current rules (link section, strength of your own links); not changed, this ObsidiNote is read only"; hint = 'The writer brings them in line at its next start.' } }
-        default { @{ status = 'WARN'; detail = "$([Math]::Max(0, $Result.planned - $Result.failed)) of $($Result.planned) page(s) brought in line; $($Result.failed) could not be changed"; hint = 'They stay as they are and are tried again at the next start. The log has the ids.' } }
+        default {
+            # The pages really changed, never "planned minus failed": a page that was not reached,
+            # or needed nothing after all, is neither.
+            $d = "$([int]$Result.changed) of $($Result.planned) page(s) brought in line"
+            if ($Result.failed) { $d += "; $($Result.failed) could not be changed" }
+            if ($Result.reason) { $d += "; the upgrade stopped early ($($Result.reason))" }
+            @{ status = 'WARN'; detail = $d; hint = 'The others stay as they are and are tried again at the next start. The log has the ids.' }
+        }
     }
 }
 

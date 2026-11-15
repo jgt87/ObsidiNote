@@ -12,7 +12,7 @@ a log to your Desktop that you can send back. It is in the folder
 | V2 OneNote | Your open notebooks: counts of notebooks, section groups, sections and pages, where each notebook lives, which are ObsidiNote vaults, COM speed | No (with `-WriteTest`: yes, only in `ObsidiNote-Probe`) | 5 s (1 min with `-WriteTest`) |
 | V3 Copilot | The Edge profile's account type and single sign-on, then Copilot in ObsidiNote's Edge window: connect, one harmless prompt, the answer checked | No | 1 min |
 | V4 Window | Starts the window's server on a test port (not 8767), calls it, checks that bad requests are refused, stops it | No | 5 s |
-| V5 Grounding | Probes P3, P4, P7, P8: can Copilot find a marker on a OneNote page, and summarize links. See RB-04 | Only with `-WriteTest`: one marker page in `ObsidiNote-Probe` | 3 to 7 min |
+| V5 Grounding | Probes P3, P4, P7, P8 and P10: can Copilot find a marker on a OneNote page, summarize links, and list your Teams meetings and turn one into notes. See RB-04 | Only with `-WriteTest`: one marker page in `ObsidiNote-Probe` | 4 to 12 min (P10 alone, with `Run Meeting Probe.cmd`: 1 to 9 min) |
 | V6 Vaults | Vaults, index completeness, knowledge graph counts, Add and Ask. Shows `[SKIP] not in this version yet` until the version has them. See RB-05 | Only with `-WriteTest`: only in `ObsidiNote-Validation` | 1 to 5 min |
 
 ## Options
@@ -25,6 +25,18 @@ a log to your Desktop that you can send back. It is in the folder
 | `-NoPrompt` | Ask nothing. The steps that need you (P1c by hand, P4, P7) are skipped. |
 | `-ProbeBasePath <address>` | Where to create the test notebooks, when the kit cannot find a OneDrive notebook. Use your OneDrive Documents address. |
 | `-TestPort <n>` | The port for V4 (default 18768). |
+| `-Probe P10` | In stage V5, run only the named probes (`P3`, `P4`, `P7`, `P8`, `P10`; several with commas). Without it, all of them run. A name that is not a probe gives a `[FAIL] Probe` line that lists the probes, and Copilot is not opened for it. |
+| `-PublicUrl <address>` | The public web page P8 summarizes (default: a public documentation page). |
+| `-SharePointUrl <address>`, `-OneDriveUrl <address>` | The addresses for P7, so the kit does not ask for them. They are not written to the log. |
+| `-OutDir <folder>` | Where the two result files go (default: your Desktop). |
+
+The three files to double-click in the `validation` folder:
+
+| File | What it runs |
+|---|---|
+| `Run Validation.cmd` | All stages, read only. |
+| `Run Validation with write tests.cmd` | All stages with `-WriteTest`. |
+| `Run Meeting Probe.cmd` | Only the meetings probe: `-Stage V5 -Probe P10 -NoPrompt`. It asks nothing and writes nothing (RB-04, step 4). |
 
 ## Steps
 
@@ -71,4 +83,5 @@ a log to your Desktop that you can send back. It is in the folder
 
 ## Exit codes (for the curious)
 
-0 = no `[FAIL]` line, 1 = at least one `[FAIL]`, 2 = an unknown stage name was given.
+0 = no `[FAIL]` line, 1 = at least one `[FAIL]` (also for a `-Probe` name that is not a probe),
+2 = an unknown stage name was given.

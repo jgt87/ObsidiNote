@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { splitLinks, webUrl } from './links'
+import { loneLink, splitLinks, webUrl } from './links'
+
+describe('loneLink: a text that is one link and nothing else', () => {
+  it('reads a bare address and a titled Markdown link as that address', () => {
+    expect(loneLink('  https://contoso.sharepoint.com/sites/SupportApp \n')).toBe('https://contoso.sharepoint.com/sites/SupportApp')
+    expect(loneLink('[Support App - Home](https://contoso.sharepoint.com/sites/SupportApp)')).toBe('https://contoso.sharepoint.com/sites/SupportApp')
+    expect(loneLink('[a (b)](https://example.org/wiki/Topic_(area))')).toBe('https://example.org/wiki/Topic_(area)')
+  })
+  it('is null for a link with other text, two links, or a link that is not a web address', () => {
+    expect(loneLink('See [the plan](https://example.org/p) please')).toBeNull()
+    expect(loneLink('[a](https://example.org/a) [b](https://example.org/b)')).toBeNull()
+    expect(loneLink('[note](onenote:#x)')).toBeNull()
+    expect(loneLink('What about https://example.org/a ?')).toBeNull()
+    expect(loneLink('')).toBeNull()
+  })
+})
 
 describe('webUrl', () => {
   it('keeps http(s) addresses only', () => {

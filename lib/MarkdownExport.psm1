@@ -300,7 +300,7 @@ function New-FrontMatter {
     if ($id) { $l.Add("id: $(ConvertTo-YamlString $id)") }
     if ($Page.type) { $l.Add("type: $(ConvertTo-YamlString ([string]$Page.type))") }
     $l.Add("title: $(ConvertTo-YamlString $(if ($Page.title) { [string]$Page.title } else { 'Untitled page' }))")
-    foreach ($f in @(@{ k = 'topics'; v = @($Page.topics) }, @{ k = 'aliases'; v = @($Page.aliases) })) {
+    foreach ($f in @(@{ k = 'topics'; v = @($Page.topics) }, @{ k = 'aliases'; v = @($Page.aliases) }, @{ k = 'tags'; v = @($Page['tags']) })) {
         $vals = @($f.v | Where-Object { $_ })
         if ($vals.Count) { $l.Add("$($f.k):"); foreach ($v in $vals) { $l.Add("  - $(ConvertTo-YamlString ([string]$v))") } }
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerShares, combinedLine, list, normalizeAskResult, notFoundText, pathChips, PROGRESS_LABELS, sentencesPerSource, sharePercent, sourceAnchor } from './askModel'
+import { answerShares, combinedLine, list, normalizeAskResult, notFoundText, pathChips, sentencesPerSource, sharePercent, sourceAnchor } from './askModel'
 import type { AskResult } from './types'
 
 // Invented example data only.
@@ -87,9 +87,6 @@ describe('pathChips', () => {
 })
 
 describe('wording', () => {
-  it('names the three steps', () => {
-    expect([PROGRESS_LABELS[1], PROGRESS_LABELS[2], PROGRESS_LABELS[3]]).toEqual(['Finding branches...', 'Choosing pages...', 'Writing the answer...'])
-  })
   it('explains each not-found reason', () => {
     expect(notFoundText('no-branch')).toMatch(/No branch/)
     expect(notFoundText('no-valid-citations')).toMatch(/not shown/)

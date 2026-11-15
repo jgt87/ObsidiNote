@@ -21,7 +21,7 @@ Import-Module (Join-Path $PSScriptRoot 'NotebookStructure.psm1')
 
 $script:MinWebPages = 3   # a web site with fewer pages joins "Other web sites"
 # Order of the kinds in the sources list (the map packs the strongest linked first anyway).
-$script:SourceKindOrder = @{ m365 = 0; service = 1; web = 2; other = 3; notes = 4 }
+$script:SourceKindOrder = @{ m365 = 0; service = 1; 'other-internal' = 2; web = 3; other = 4; notes = 5 }
 
 function Get-GraphSources {
     <# Per page id its source id, plus the sources list @(@{ id; name; kind; pageCount }). #>
@@ -42,7 +42,8 @@ function Get-GraphSources {
         $count[$s.id] = 1 + [int]$count[$s.id]
     }
     $other = @{ id = 'web'; name = 'Other web sites'; kind = 'other' }
-    $otherInternal = @{ id = 'internal'; name = 'Other company sites'; kind = 'service' }
+    # Its own kind: a rest group of several sites, not one company service (code review 2026-11-15).
+    $otherInternal = @{ id = 'internal'; name = 'Other company sites'; kind = 'other-internal' }
     foreach ($k in @($of.Keys)) {
         $s = $of[$k]
         if ($count[$s.id] -ge $script:MinWebPages) { continue }
@@ -90,6 +91,10 @@ function ConvertTo-GraphModel {
         [ordered]@{
             id = $p.key; title = $(if ($p.title) { $p.title } else { 'Untitled page' })
             topicIds = @(@($p.topics) | Where-Object { $_ -and $Model.topics.Contains($_) })
+            # section: the section path as the index model holds it ('Notes 2', 'Journal/2026',
+            # 'Archive/Notes', a user's 'Group/Section'); bucket folds rollover and year away
+            # (pinned by tests/fixtures/graph-pages.json, which the interface tests read too).
+            section = [string]$p.section
             bucket = $(if ($p.bucket) { $p.bucket } else { $p.section }); kind = $(if ($p.type) { $p.type } else { '' })
             summary = [string]$p.summary; onenoteUrl = $(if ([string]$p.link -match '^(?i)onenote:') { [string]$p.link } else { '' })
             modified = [string]$p.updated; readOnly = $ro; archived = ($p.status -eq 'archived')
@@ -97,11 +102,23 @@ function ConvertTo-GraphModel {
             url = $(if ([string]$p.url -match '^(?i)https?://') { [string]$p.url } else { '' })
             sourceId = [string]$src.of[$p.key]
             origin = [string]$p['origin']
+            # tags: set by hand (obsn.tags); always an array, [] when none.
+            tags = [string[]]@(@($p['tags']) | Where-Object { $_ } | ForEach-Object { [string]$_ })
         }
     })
+    # The tags of the shown source with their page counts, sorted by name (ordinal).
+    $tagCount = @{}
+    foreach ($p in $pages) { foreach ($t in @($p.tags)) { $tagCount[$t] = 1 + [int]$tagCount[$t] } }
+    $tagNames = [string[]]@($tagCount.Keys)
+    [Array]::Sort($tagNames, [StringComparer]::Ordinal)
+    $tags = [object[]]@(foreach ($t in $tagNames) { [ordered]@{ name = $t; count = [int]$tagCount[$t] } })
+    # readOnlyReason: why the shown source cannot be changed here: '' (it can), lease (the active
+    # vault while this window is not its writer), not-active (another vault), notebook (a connected
+    # notebook). The server says which; a read-only source without one is a notebook or another vault.
+    $why = if (-not $ro) { '' } elseif ($Source.ContainsKey('readOnlyReason') -and $Source.readOnlyReason) { [string]$Source.readOnlyReason } elseif ($Source.kind -eq 'notebook') { 'notebook' } else { 'not-active' }
     [ordered]@{
-        source = [ordered]@{ kind = $(if ($Source.kind -eq 'notebook') { 'notebook' } else { 'vault' }); id = [string]$Source.id; name = [string]$Source.name; readOnly = $ro }
-        topics = $topics; pages = $pages; edges = @($edges.ToArray()); sources = @($src.list)
+        source = [ordered]@{ kind = $(if ($Source.kind -eq 'notebook') { 'notebook' } else { 'vault' }); id = [string]$Source.id; name = [string]$Source.name; readOnly = $ro; readOnlyReason = $why }
+        topics = $topics; pages = $pages; edges = @($edges.ToArray()); sources = @($src.list); tags = $tags
     }
 }
 
