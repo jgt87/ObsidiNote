@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { LockIcon } from './icons'
 import './ReadOnlyBanner.css'
 
@@ -8,16 +9,27 @@ import './ReadOnlyBanner.css'
  * the app shell shows it for the active vault; on the knowledge graph the graph shows it for the
  * source it draws. The page window only keeps the line under its disabled Edit.
  */
-export function ReadOnlyBanner({ text, onCheck }: { text: string; onCheck?: () => void }) {
+export function ReadOnlyBanner({ text, onCheck, result = '' }: { text: string; onCheck?: () => Promise<void> | void; result?: string }) {
+  const [busy, setBusy] = useState(false)
+  const check = async () => {
+    if (!onCheck || busy) return
+    setBusy(true)
+    try {
+      await onCheck()
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <div className="notice ro-banner" role="status">
       <LockIcon />
       <div className="notice__body">
         <p>{text}</p>
+        {result && <p className="ro-banner__result">{result}</p>}
       </div>
       {onCheck && (
-        <button type="button" className="btn btn--sm" onClick={onCheck}>
-          Check again
+        <button type="button" className="btn btn--sm" onClick={() => void check()} disabled={busy} aria-busy={busy}>
+          {busy ? 'Checking…' : 'Check again'}
         </button>
       )}
     </div>

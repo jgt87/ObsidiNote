@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getSettings, reconnectCopilot } from './api'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { checkLease, getSettings, reconnectCopilot } from './api'
 import type { AskChoices } from './components/AskOptions'
 import { ActivityView } from './activity/ActivityView'
 import { HomeView } from './components/HomeView'
@@ -10,7 +10,7 @@ import { Rail } from './components/Rail'
 import { fetchGraph, GraphView } from './graph'
 import { useHomeFlow } from './hooks/useHomeFlow'
 import { useNotebook, useNotebooks, useStatus } from './hooks/useServerData'
-import { attentionNotes, sendBlock, vaultNote } from './model/attention'
+import { attentionNotes, leaseCheckNote, sendBlock, vaultNote } from './model/attention'
 import { ReadOnlyBanner } from './components/ReadOnlyBanner'
 import { askAboutText } from './model/handoff'
 import { addTargetFor, askSourceChoices, graphRefFor } from './model/notebooks'
@@ -54,10 +54,30 @@ export function App() {
   const [notice, setNotice] = useState('')
   // Why this window cannot write in its vault ('' when it can); one banner says it.
   const vaultWhy = status && !serverDown ? vaultNote(status) : ''
-  const checkAgain = () => {
-    void refreshStatus()
-    setGraphReload((n) => n + 1)
+  // This window became the writer (the earlier start let go of the vault): read the map again, so
+  // its pages stop showing read only without a click (operator, 2026-11-15).
+  const writerNow = status?.vault?.mode === 'writer'
+  const wasWriter = useRef(writerNow)
+  useEffect(() => {
+    if (writerNow && !wasWriter.current) setGraphReload((n) => n + 1)
+    wasWriter.current = writerNow
+  }, [writerNow])
+  // "Check again": the server tries to take the vault now (it is never taken from a holder that
+  // still renews it), then the status is read again; what it found stays under the note.
+  const [checkResult, setCheckResult] = useState('')
+  const checkAgain = async () => {
+    try {
+      const v = await checkLease()
+      setCheckResult(leaseCheckNote(v))
+      if (v.mode === 'writer') setGraphReload((n) => n + 1)
+    } catch (e) {
+      setCheckResult(e instanceof Error ? `Could not check: ${e.message}` : 'Could not check.')
+    }
+    await refreshStatus()
   }
+  useEffect(() => {
+    if (!vaultWhy) setCheckResult('')
+  }, [vaultWhy])
 
   const goto = (v: View) => { window.location.hash = VIEWS[v].hash }
   const home = useHomeFlow(choices, (ids) => {
@@ -118,7 +138,7 @@ export function App() {
             </button>
           </p>
         )}
-        {vaultWhy && view !== 'graph' && <ReadOnlyBanner text={vaultWhy} onCheck={checkAgain} />}
+        {vaultWhy && view !== 'graph' && <ReadOnlyBanner text={vaultWhy} onCheck={checkAgain} result={checkResult} />}
         {view === 'home' && (
           <HomeView
             home={home}
@@ -143,6 +163,7 @@ export function App() {
             request={findRequest}
             onRequestDone={() => setFindRequest(null)}
             readOnlyNote={vaultWhy}
+            checkResult={checkResult}
             onCheckAgain={checkAgain}
             onAdd={() => goto('home')}
             onAsk={(page) => {

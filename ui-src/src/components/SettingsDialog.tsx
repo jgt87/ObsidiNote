@@ -129,7 +129,7 @@ export function SettingsDialog({ onClose, onSaved, onTagsChanged }: { onClose: (
             Settings
           </h2>
           <p id="st-desc" className="nv__muted">
-            Kept in the vault in OneNote, so every PC that opens it uses the same.{loaded && !canChange ? ` ${why || 'This window is read only.'}` : ''}
+            Kept in the vault in OneNote, so every PC that opens it uses the same.{loaded && !canChange ? ` ${why || 'They cannot be changed from this window for now.'}` : ''}
           </p>
         </div>
         <div className="st__body">

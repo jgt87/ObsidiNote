@@ -58,7 +58,9 @@ export function NotebookSwitcher({ notebooks, onNewVault, onSetUp }: Props) {
         ) : active ? (
           <>
             Active vault{active.location ? ` · ${active.location}` : ''}
-            {notebooks.mode === 'readonly' && ' · read only: another ObsidiNote is writing here'}
+            {/* Why it may be read only is said once, in the banner above the content (ReadOnlyBanner):
+                this line stated a guess as a fact, and named "another ObsidiNote" while starting up. */}
+            {notebooks.mode === 'readonly' && ' · read only for now'}
           </>
         ) : list.some((n) => n.vault) ? (
           'Choose the vault to work in.'

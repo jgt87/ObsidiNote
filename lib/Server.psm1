@@ -258,9 +258,13 @@ function Get-VaultModeInfo($State) {
        reason: '' as the writer; this-pc = the lease is held by another session of this computer;
        other-pc = by another computer, by a lease without a machine mark (an older version), or this
        session's own lease could not be renewed; not-opened = no vault is open (mode none), with the
-       start's Vault line as detail. since: when the holder took the lease (ISO, UTC), '' unknown. #>
+       start's Vault line as detail. since: when the holder took the lease (ISO, UTC), '' unknown.
+       until: when the holder's lease runs out unless it is renewed (ISO, UTC); renewed: when the
+       holder last renewed it (until minus the lease time). A holder that renews every minute is
+       still running; one that stopped lets this window take over at "until" (operator, 2026-11-15:
+       "Check again" did not clear the note, and the note could not say what it was waiting for). #>
     $mode = Get-LeaseMode $State
-    $r = [ordered]@{ mode = $mode; reason = ''; since = ''; detail = '' }
+    $r = [ordered]@{ mode = $mode; reason = ''; since = ''; until = ''; renewed = ''; detail = '' }
     if ($mode -eq 'none') { $r.reason = 'not-opened'; $r.detail = [string]$State.VaultDetail; return $r }
     if ($mode -eq 'writer') { return $r }
     $l = $State.Lease
@@ -273,7 +277,29 @@ function Get-VaultModeInfo($State) {
     if ($holder -and $holder -ne [string](Get-JsonProp $l 'sessionId' '') -and $acq -is [datetime] -and $acq -gt [datetime]::MinValue) {
         $r.since = ([datetime]$acq).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
     }
+    $exp = Get-JsonProp $l 'expires' $null
+    if ($holder -and $holder -ne [string](Get-JsonProp $l 'sessionId' '') -and $exp -is [datetime] -and $exp -gt [datetime]::MinValue) {
+        $iso = { param($t) ([datetime]$t).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture) }
+        $r.until = & $iso $exp
+        $r.renewed = & $iso (([datetime]$exp).AddSeconds(-(Get-LeaseTimings).ttlSec))
+    }
     $r
+}
+
+function Invoke-LeaseCheckRoute($State) {
+    <# POST /api/vault/check-lease: "Check again" on the read-only note. Tries to take the writer lease
+       now (the same Update-SessionLease the start's renewal runs every minute) instead of waiting
+       for the next renewal, then answers what GET /api/status says about the vault. It only takes
+       a lease that is free or has run out; one another ObsidiNote still renews is never taken. #>
+    if (-not $State.Vault) { return @{ status = 409; body = @{ error = $script:NoVault } } }
+    $d = Get-VaultData $State
+    if (-not $d.adapter) { return @{ status = 503; body = @{ error = $(if ($d.message) { $d.message } else { $script:NotRunning }) } } }
+    [Threading.Monitor]::Enter($State.Lock)
+    try {
+        $State.Lease = Update-SessionLease -Adapter $d.adapter -Vault $State.Vault -SessionId $State.SessionId -Lease $State.Lease
+    } finally { [Threading.Monitor]::Exit($State.Lock) }
+    $why = Get-VaultModeInfo $State
+    @{ status = 200; body = [pscustomobject]@{ name = [string]$State.Vault.name; vaultId = [string]$State.Vault.vaultId; mode = $why.mode; reason = $why.reason; since = $why.since; until = $why.until; renewed = $why.renewed; detail = $why.detail } }
 }
 
 function Get-VaultListId($Vault) { if ($Vault.rootKind -eq 'notebook') { [string]$Vault.notebookId } else { [string]$Vault.rootId } }
@@ -349,7 +375,7 @@ function Get-ServerStatus($State) {
         uiPort  = [int]$State.Port
         oneNote = [pscustomobject]@{ state = $one; running = ($one -ne 'none'); notebookOpen = [bool]$name; notebook = $(if ($name) { $name } else { 'ObsidiNote' }) }
         copilot = [pscustomobject]@{ state = (Get-CopilotState $State); port = [int]$State.CdpPort; ready = (Test-CopilotReady $State) }
-        vault   = [pscustomobject]@{ name = $name; vaultId = $(if ($State.Vault) { [string]$State.Vault.vaultId } else { '' }); mode = $why.mode; reason = $why.reason; since = $why.since; detail = $why.detail }
+        vault   = [pscustomobject]@{ name = $name; vaultId = $(if ($State.Vault) { [string]$State.Vault.vaultId } else { '' }); mode = $why.mode; reason = $why.reason; since = $why.since; until = $why.until; renewed = $why.renewed; detail = $why.detail }
     }
 }
 
@@ -1233,6 +1259,7 @@ function Invoke-ApiRoute {
         # answer is sent first; `stop` then ends the request loop (Invoke-ServerRequest), and
         # obsidinote.ps1's finally gives the writer lease back and disconnects, as on Ctrl+C.
         'POST /api/shutdown' { return @{ status = 200; body = @{ stopping = $true }; stop = $true } }
+        'POST /api/vault/check-lease' { return (Invoke-LeaseCheckRoute $State) }
     }
     @{ status = 404; body = @{ error = 'Not found.' } }
 }

@@ -330,7 +330,7 @@ async function main() {
   {
     const note = await js(`[...document.querySelectorAll('.ro-banner')].map((n) => n.textContent).join(' | ')`)
     const elsewhere = await js(`[...document.querySelectorAll('.rail__note, .kg-readonly')].filter((n) => /read only|another PC/i.test(n.textContent)).length`)
-    expect(/another PC/.test(note) && /Close it there/.test(note) && /Check again/.test(note) && !note.includes(' | ') && elsewhere === 0, `vault held on another PC: the one banner reads "${note}"; other places that say it: ${elsewhere}`)
+    expect(/another PC seems to be writing/.test(note) && /\bmay\b/.test(note) && /If it is closed there/.test(note) && /Check again/.test(note) && !note.includes(' | ') && elsewhere === 0, `vault held on another PC: the one banner reads "${note}"; other places that say it: ${elsewhere}`)
     vaultStatus = null
     await click('Settings'); await wait(900)
     const tags = await js(`document.querySelectorAll('dialog[open] .st__tag').length`)

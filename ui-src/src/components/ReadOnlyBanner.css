@@ -1,3 +1,4 @@
 /* The read-only banner: the shared message box, with its one action kept on the first line. */
 .ro-banner { align-items: center; margin-bottom: var(--space-5); }
-.ro-banner .btn { flex: none; }
+.ro-banner .btn { flex: none; min-width: 112px; } /* "Checking…" keeps the width of "Check again" */
+.ro-banner__result { color: var(--muted); font-size: var(--text-meta); }

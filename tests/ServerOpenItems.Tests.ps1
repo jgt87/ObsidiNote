@@ -52,7 +52,7 @@ Describe 'GET /api/status: read only, with the reason' {
         "$($v.mode)|$($v.reason)|$($v.since)|$($v.detail)" | Should Be 'writer|||'
         $v.name | Should Be 'Synthetic Vault'
         $v.vaultId | Should Be $w.v.vaultId
-        (@($v.PSObject.Properties | ForEach-Object { $_.Name }) -join ',') | Should Be 'name,vaultId,mode,reason,since,detail'
+        (@($v.PSObject.Properties | ForEach-Object { $_.Name }) -join ',') | Should Be 'name,vaultId,mode,reason,since,until,renewed,detail'
     }
     It 'says this-pc with the time when another session of this PC holds the lease' {
         $state.Lease = @{ mode = 'readonly'; sessionId = 'server'; holder = 'earlier'; expires = [datetime]::UtcNow.AddSeconds(90); acquired = $acq; holderHere = $true; statePageId = ''; indexSectionId = '' }
@@ -71,6 +71,15 @@ Describe 'GET /api/status: read only, with the reason' {
         $state.Lease = @{ mode = 'readonly'; sessionId = 'server'; holder = 'server'; expires = [datetime]::UtcNow.AddSeconds(-5); acquired = $acq; holderHere = $false }
         $v = (Invoke-ApiRoute -Method 'GET' -Path '/api/status' -State $state).body.vault
         "$($v.mode)|$($v.reason)|$($v.since)" | Should Be 'readonly|other-pc|'
+    }
+    It 'gives until and renewed for the holder''s lease, and none for this session''s own' {
+        $exp = [datetime]::SpecifyKind([datetime]'2026-11-15T09:02:00', 'Utc')
+        $state.Lease = @{ mode = 'readonly'; sessionId = 'server'; holder = 'earlier'; expires = $exp; acquired = $acq; holderHere = $true; statePageId = ''; indexSectionId = '' }
+        $v = (Invoke-ApiRoute -Method 'GET' -Path '/api/status' -State $state).body.vault
+        "$($v.until)|$($v.renewed)" | Should Be '2026-11-15T09:02:00Z|2026-11-15T09:00:00Z'
+        $state.Lease = @{ mode = 'readonly'; sessionId = 'server'; holder = 'server'; expires = $exp; acquired = $acq; holderHere = $false }
+        $v = (Invoke-ApiRoute -Method 'GET' -Path '/api/status' -State $state).body.vault
+        "$($v.until)|$($v.renewed)" | Should Be '|'
     }
     It 'derives it from the real lease record of a start next to another session of this PC' {
         $w2 = New-SyntheticVault -SessionId 'earlier'
@@ -278,6 +287,43 @@ Describe 'A JSON body that is not an object is refused with 400' {
         (Invoke-ApiRoute -Method 'POST' -Path '/api/intent' -Body '{"text":"https://example.com/a","mode":"auto"}' -State $state).status | Should Be 200
     }
     Remove-Item $app -Recurse -Force
+}
+
+Describe 'POST /api/vault/check-lease: "Check again" tries to take the vault now' {
+    # operator, 2026-11-15: "Check again" only read the status again, so the note stayed until the
+    # next renewal of the lease (every minute) even when nothing held the vault any more.
+    $app = New-TempAppRoot
+    It 'takes the lease at once when the earlier holder gave it back' {
+        $w = New-SyntheticVault -SessionId 'earlier'
+        $item = @($w.vaults | Where-Object { $_.vaultId -eq $w.v.vaultId })[0]
+        $o = Open-VaultSession -Adapter $w.a -Vault $item -SessionId 'later' -Vaults $w.vaults
+        $o.lease.mode | Should Be 'readonly'
+        $s = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'later' -Vault $o.vault -Lease $o.lease -Model $o.model
+        $null = Clear-WriterLease -Adapter $w.a -Lease $w.open.lease
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/vault/check-lease' -State $s
+        $r.status | Should Be 200
+        "$($r.body.mode)|$($r.body.reason)|$($r.body.until)" | Should Be 'writer||'
+        (Invoke-ApiRoute -Method 'GET' -Path '/api/status' -State $s).body.vault.mode | Should Be 'writer'
+    }
+    It 'never takes a lease the holder still has, and says until when it runs and when it was renewed' {
+        $w = New-SyntheticVault -SessionId 'earlier'
+        $item = @($w.vaults | Where-Object { $_.vaultId -eq $w.v.vaultId })[0]
+        $o = Open-VaultSession -Adapter $w.a -Vault $item -SessionId 'later' -Vaults $w.vaults
+        $s = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'later' -Vault $o.vault -Lease $o.lease -Model $o.model
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/vault/check-lease' -State $s
+        $r.status | Should Be 200
+        "$($r.body.mode)|$($r.body.reason)" | Should Be 'readonly|this-pc'
+        $r.body.until | Should Match '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$'
+        $r.body.renewed | Should Match '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$'
+        # The holder still has it: nothing about the vault changed hands.
+        $st = Get-VaultState -Adapter $w.a -IndexSectionId $o.lease.indexSectionId
+        (ConvertFrom-LeaseValue $st.lease).session | Should Be 'earlier'
+    }
+    It 'answers 409 without an open vault' {
+        $f = New-FakeOneNote
+        $s3 = New-ServerState -AppRoot $app -Port 8767 -TestAdapter (New-GuardedOneNote -Inner $f) -SessionId 'server'
+        (Invoke-ApiRoute -Method 'POST' -Path '/api/vault/check-lease' -State $s3).status | Should Be 409
+    }
 }
 
 Describe 'POST /api/shutdown on the live server (test port)' {

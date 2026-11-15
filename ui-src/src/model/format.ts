@@ -9,6 +9,12 @@ function startOfDay(d: Date): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
 }
 
+/** "14:34" (24-hour, local time); '' when unreadable. */
+export function clockTime(iso: string): string {
+  const d = new Date(iso)
+  return !iso || Number.isNaN(d.getTime()) ? '' : time.format(d)
+}
+
 /** "today 14:34", "yesterday", "Mon" (this week), "3 Nov", "3 Nov 2025"; '' when unreadable. */
 export function formatModified(iso: string, now: Date = new Date()): string {
   const d = new Date(iso)

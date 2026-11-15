@@ -36,8 +36,9 @@ export interface KnowledgeGraphProps extends PageActions {
   /** Why the ACTIVE vault is read only in this window, as the app's status has it (who holds it,
    *  since when); shown instead of the general sentence when this graph is that vault's. */
   readOnlyNote?: string
-  /** "Check again" on the read-only banner. */
-  onCheckAgain?: () => void
+  /** "Check again" on the read-only banner, and what it found. */
+  onCheckAgain?: () => Promise<void> | void
+  checkResult?: string
 }
 
 /** Width / height of the stage, in steps of 0.1 (the layout only reruns when the shape really changes). */
@@ -61,7 +62,7 @@ function roundAspect(w: number, h: number): number {
   return Math.min(3, Math.max(0.6, Math.round((w / h) * 10) / 10))
 }
 
-export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode = 'graph', focusIds, request, onRequestDone, readOnlyNote, onCheckAgain, ...actions }: KnowledgeGraphProps) {
+export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode = 'graph', focusIds, request, onRequestDone, readOnlyNote, onCheckAgain, checkResult = '', ...actions }: KnowledgeGraphProps) {
   const index = useMemo(() => buildIndex(model), [model])
   const [mode, setMode] = useState<'graph' | 'list'>(initialMode)
   const stageRef = useRef<HTMLDivElement>(null)
@@ -318,7 +319,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
         </div>
       </div>
       {src.readOnly && (
-        <ReadOnlyBanner text={src.readOnlyReason === 'lease' && readOnlyNote ? readOnlyNote : readOnlyWhy(src)} onCheck={src.readOnlyReason === 'lease' ? onCheckAgain : undefined} />
+        <ReadOnlyBanner text={src.readOnlyReason === 'lease' && readOnlyNote ? readOnlyNote : readOnlyWhy(src)} onCheck={src.readOnlyReason === 'lease' ? onCheckAgain : undefined} result={src.readOnlyReason === 'lease' ? checkResult : ''} />
       )}
       <SearchFilters query={query} onQuery={onQuery} />
       {mode === 'graph' && groupBy === 'tags' && (

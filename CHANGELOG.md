@@ -5,6 +5,12 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.10.2] - 2026-11-15
+
+### Changed
+- **Check again** on the read-only note now tries to take over the vault right away (only when the earlier ObsidiNote has let go of it) and says what it found: that the earlier one still seems to be running and where to close it, or the time by which this window takes over. It used to only read the state again, so the note stayed. The note itself names that time ("usually clears by 10:46").
+- While ObsidiNote starts or takes over a vault, the note above the content says pages **may** show as read only for a moment and that this usually clears by itself, instead of stating it as a fact. When this window becomes the writer, the map is read again, so its pages stop showing read only without a click.
+
 ## [v0.10.1] - 2026-11-15
 
 ### Changed

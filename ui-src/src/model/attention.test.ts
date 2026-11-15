@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AppStatus } from '../api'
-import { attentionNotes, sendBlock, vaultNote } from './attention'
+import { attentionNotes, leaseCheckNote, sendBlock, vaultNote } from './attention'
 
 function status(over: Partial<AppStatus['oneNote']> = {}, copilot: AppStatus['copilot']['state'] = 'connected'): AppStatus {
   return {
@@ -35,6 +35,26 @@ describe('attentionNotes', () => {
   })
 })
 
+describe('leaseCheckNote: what "Check again" found', () => {
+  const now = new Date('2026-11-15T09:00:30Z')
+  const held = (renewed: string, until: string) => ({ name: 'V', vaultId: 'v1', mode: 'readonly' as const, reason: 'this-pc', renewed, until })
+  it('says nothing once this window is the writer (the note goes)', () => {
+    expect(leaseCheckNote({ name: 'V', vaultId: 'v1', mode: 'writer', reason: '' }, now)).toBe('')
+  })
+  it('a holder that renewed within 90 seconds seems to be running: close it, waiting will not help', () => {
+    const text = leaseCheckNote(held('2026-11-15T09:00:00Z', '2026-11-15T09:02:00Z'), now)
+    expect(text).toMatch(/still held.*seems to be still running\. Close its console window on this PC/)
+    expect(text).not.toMatch(/should take over by/)
+  })
+  it('a holder that has not renewed lately runs out: this window takes over by its end time', () => {
+    const text = leaseCheckNote(held('2026-11-15T08:57:00Z', '2026-11-15T08:59:00Z'), now)
+    expect(text).toMatch(/not free yet.*should take over by \d\d:\d\d\./)
+  })
+  it('another PC: close ObsidiNote there', () => {
+    expect(leaseCheckNote({ ...held('2026-11-15T09:00:00Z', '2026-11-15T09:02:00Z'), reason: 'other-pc' }, now)).toMatch(/Close ObsidiNote on that PC/)
+  })
+})
+
 describe('vaultNote: why this window cannot write in its vault', () => {
   const withVault = (vault: AppStatus['vault']): AppStatus => ({ ...status(), vault })
   it('says nothing while this window is the writer, or when the server gives no reason', () => {
@@ -42,9 +62,20 @@ describe('vaultNote: why this window cannot write in its vault', () => {
     expect(vaultNote(withVault({ name: 'V', vaultId: 'v1', mode: 'writer', reason: '' }))).toBe('')
     expect(vaultNote(withVault({ name: 'V', vaultId: 'v1', mode: 'readonly' }))).toBe('')
   })
-  it('names the other PC, this PC and a vault that was not opened, each with what to do', () => {
-    expect(vaultNote(withVault({ name: 'V', vaultId: 'v1', mode: 'readonly', reason: 'other-pc', since: '' }))).toMatch(/another PC.*Close it there/)
-    expect(vaultNote(withVault({ name: 'V', vaultId: 'v1', mode: 'readonly', reason: 'this-pc', since: '' }))).toMatch(/earlier ObsidiNote on this PC/)
+  it('names the other PC, this PC and a vault that was not opened, each with what comes next', () => {
+    expect(vaultNote(withVault({ name: 'V', vaultId: 'v1', mode: 'readonly', reason: 'other-pc', since: '' }))).toMatch(/another PC seems to be writing.*If it is closed there/)
+    expect(vaultNote(withVault({ name: 'V', vaultId: 'v1', mode: 'readonly', reason: 'this-pc', since: '' }))).toMatch(/^Starting up: .*earlier ObsidiNote on this PC\. This usually clears/)
+  })
+  it('names the time it should clear by when the server gives one', () => {
+    expect(vaultNote(withVault({ name: 'V', vaultId: 'v1', mode: 'readonly', reason: 'this-pc', until: '2026-11-15T09:02:00Z' }))).toMatch(/usually clears by \d\d:\d\d\./)
+    expect(vaultNote(withVault({ name: 'V', vaultId: 'v1', mode: 'readonly', reason: 'this-pc' }))).toMatch(/usually clears within about two minutes\./)
+  })
+  it('says what may be the case for a lease, never a verdict (read from a record, not seen)', () => {
+    for (const reason of ['other-pc', 'this-pc'] as const) {
+      const text = vaultNote(withVault({ name: 'V', vaultId: 'v1', mode: 'readonly', reason, since: '' }))
+      expect(text).toMatch(/\bmay\b/)
+      expect(text).not.toMatch(/^Read only:/)
+    }
     expect(vaultNote(withVault({ name: '', vaultId: '', mode: 'none', reason: 'not-opened', detail: 'two vaults are open' }))).toBe('The vault could not be opened: two vaults are open Nothing can be added until it is; start ObsidiNote again after fixing it.')
   })
   it('is listed with the other things that need attention', () => {

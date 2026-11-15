@@ -1,7 +1,8 @@
 // What needs the person's attention, from /api/status. Only problems are listed: a working
 // OneNote or Copilot shows nothing (PRODUCT.md: no "connected" pills). Pure (tests: attention.test.ts).
 import type { AppStatus, CopilotState } from '../api'
-import { formatModified } from './format'
+import { clockTime, formatModified } from './format'
+import type { VaultState } from '../api'
 
 export interface AttentionNote {
   id: string
@@ -21,15 +22,40 @@ const COPILOT: Record<CopilotState, string> = {
 const RETRY: Record<CopilotState, boolean> = { connected: false, skipped: false, 'not-running': true, 'no-tab': true }
 
 /** Why this window cannot write in its vault, and what to do; '' when it can (or the server is too
- *  old to say). operator, 2026-11-15: pages of the main vault showed "read only" with no reason. */
+ *  old to say). operator, 2026-11-15: pages of the main vault showed "read only" with no reason.
+ *  The lease reasons are read from a lease record, not seen happen, and usually pass by themselves
+ *  (a start taking over from the one before), so they say what may be the case and what comes next,
+ *  never a verdict (operator, 2026-11-15: "this currently isn't confirmed so the statement must be
+ *  adjusted to make it probable/possible"). */
 export function vaultNote(status: AppStatus): string {
   const v = status.vault
   if (!v || v.mode === 'writer' || !v.reason) return ''
   const since = v.since ? ` since ${formatModified(v.since)}` : ''
-  if (v.reason === 'other-pc') return `Read only: an ObsidiNote on another PC has been writing in this vault${since}. Close it there; this window takes over within about two minutes.`
-  if (v.reason === 'this-pc') return `Read only: an earlier ObsidiNote on this PC still holds this vault${since}. This window takes over within about two minutes.`
+  const by = v.until && clockTime(v.until) ? `by ${clockTime(v.until)}` : 'within about two minutes'
+  if (v.reason === 'other-pc') return `Pages may show as read only for now: an ObsidiNote on another PC seems to be writing in this vault${since}. If it is closed there, this window takes over ${by}.`
+  if (v.reason === 'this-pc') return `Starting up: pages may show as read only for a moment while this window takes over the vault from an earlier ObsidiNote on this PC. This usually clears ${by}.`
   if (v.reason === 'not-opened') return `The vault could not be opened${v.detail ? `: ${v.detail}` : '.'} Nothing can be added until it is; start ObsidiNote again after fixing it.`
   return ''
+}
+
+/**
+ * What "Check again" found, under the note ('' when this window is the writer now: the note goes).
+ * A holder that renewed its lease within the last 90 seconds is still running (it renews every
+ * minute), so waiting will not help and the person is told where to close it; otherwise the lease
+ * runs out at "until" and this window takes over then (operator, 2026-11-15: "Check again doesn't
+ * seem to clear the message").
+ */
+export function leaseCheckNote(v: VaultState, now: Date = new Date()): string {
+  if (v.mode === 'writer' || !v.reason || v.reason === 'not-opened') return ''
+  const at = clockTime(now.toISOString())
+  const renewed = v.renewed ? new Date(v.renewed) : null
+  const running = renewed && !Number.isNaN(renewed.getTime()) && now.getTime() - renewed.getTime() < 90_000
+  if (running) {
+    const where = v.reason === 'this-pc' ? 'its console window on this PC (titled ObsidiNote)' : 'ObsidiNote on that PC'
+    return `Checked at ${at}: the vault is still held, and its holder renewed it at ${clockTime(v.renewed!)}, so it seems to be still running. Close ${where}; this window then takes over within about two minutes.`
+  }
+  const by = v.until && clockTime(v.until) ? `by ${clockTime(v.until)}` : 'within about two minutes'
+  return `Checked at ${at}: not free yet. Its holder has not renewed it lately, so this window should take over ${by}.`
 }
 
 /** Why a send cannot work right now, for the box itself (review 2026-11-14: the only warning sat

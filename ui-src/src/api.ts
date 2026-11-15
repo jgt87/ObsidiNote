@@ -83,7 +83,7 @@ export interface AppStatus {
    *  lease; 'this-pc' = an earlier run on this PC still holds it; 'not-opened' = the start could not
    *  open a vault. since = when the holder took the lease (ISO, '' unknown); detail = the start's
    *  line for 'not-opened'. Older servers send name, vaultId and mode only. */
-  vault?: { name: string; vaultId: string; mode: VaultMode; reason?: string; since?: string; detail?: string }
+  vault?: VaultState
 }
 
 /** What POST /api/submit answers: an Add result or an Ask result, told apart by intent. */
@@ -156,6 +156,26 @@ function normalizeSections(nodes: SectionNode[] | SectionNode | null | undefined
 
 export function getStatus(): Promise<AppStatus> {
   return call<AppStatus>('/api/status')
+}
+
+/** The active vault as the server sees it (GET /api/status .vault, POST /api/vault/check-lease).
+ *  until: when the holder's lease runs out unless renewed; renewed: when the holder last renewed it
+ *  (both ISO, '' or absent when unknown or from an older server). */
+export interface VaultState {
+  name: string
+  vaultId: string
+  mode: VaultMode
+  reason?: string
+  since?: string
+  until?: string
+  renewed?: string
+  detail?: string
+}
+
+/** "Check again" on the read-only note: the server tries to take the writer lease now (only one that
+ *  is free or has run out) and answers the vault's state. */
+export function checkLease(): Promise<VaultState> {
+  return call<VaultState>('/api/vault/check-lease', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
 }
 
 export interface ReconnectResult {
