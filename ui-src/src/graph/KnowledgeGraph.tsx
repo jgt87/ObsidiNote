@@ -8,6 +8,7 @@ import { plural } from './format'
 import { buildIndex } from './graphIndex'
 import { GraphList } from './GraphList'
 import { GraphStage, type Active, type Filters } from './GraphStage'
+import { focusAfter } from './searchFocus'
 import { layoutGraph } from './layout'
 import type { GraphModel } from './model'
 import { bySource, type GroupBy } from './sourceView'
@@ -155,11 +156,20 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
     return () => window.removeEventListener('keydown', onKey)
   }, [dialog])
 
+  // The result the search box has chosen (the first hit, or the one stepped to with the arrows): the
+  // map's focus goes back to it when the pointer leaves a dot, until the search is cleared
+  // (searchFocus.ts).
+  const [pick, setPick] = useState<string | null>(null)
   const onQuery = (q: string) => {
     setQuery(q)
     const hits = q.trim() ? searchPages(index, q) : []
+    setPick(hits[0] ?? null)
     setActive(hits.length ? { id: hits[0], via: 'keyboard' } : null)
   }
+  const onStageActive = useCallback(
+    (next: Active | null) => setActive(focusAfter(next, query.trim() ? matches : null, pick)),
+    [query, matches, pick],
+  )
   const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && matches?.length) {
       e.preventDefault()
@@ -170,11 +180,15 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
     } else if (e.key === 'ArrowDown' && matches?.length) {
       e.preventDefault()
       const i = active ? matches.indexOf(active.id) : -1
-      setActive({ id: matches[(i + 1) % matches.length], via: 'keyboard' })
+      const id = matches[(i + 1) % matches.length]
+      setPick(id)
+      setActive({ id, via: 'keyboard' })
     } else if (e.key === 'ArrowUp' && matches?.length) {
       e.preventDefault()
       const i = active ? matches.indexOf(active.id) : 0
-      setActive({ id: matches[(i - 1 + matches.length) % matches.length], via: 'keyboard' })
+      const id = matches[(i - 1 + matches.length) % matches.length]
+      setPick(id)
+      setActive({ id, via: 'keyboard' })
     }
   }
 
@@ -376,7 +390,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           shown={allShown ? null : shown}
           matches={matches}
           active={active}
-          onActive={setActive}
+          onActive={onStageActive}
           onOpen={open}
           onFocusPage={focusOn}
           stageRef={stageRef}

@@ -173,15 +173,10 @@
 }
 .kg-toolbar { flex: none; }
 .kg-toolbar .btn { width: var(--control-h-sm); height: var(--control-h-sm); padding: 0; font-size: var(--text-control); }
-.kg-toolbar__sep { width: 1px; height: 18px; background: var(--border); margin: 0 var(--space-3); }
-.kg-hint { color: var(--muted); font-size: var(--text-label); display: inline-flex; gap: var(--space-4); padding-right: var(--space-2); }
 .kg-legend { margin-left: auto; min-width: 0; gap: var(--space-2) var(--space-4); padding: var(--space-2) var(--space-4); color: var(--muted);
   font-size: var(--text-label); flex-wrap: wrap; justify-content: flex-end; }
 .kg-legend__item { display: inline-flex; align-items: center; gap: var(--space-2); }
 .kg-legend svg { width: 22px; height: 12px; flex: none; overflow: visible; }
-/* The hints give way to the legend when both do not fit on one line (2026-11-14: the legend's topic
-   line made it wider). Screen readers still get the help through aria-describedby. */
-@media (max-width: 1500px) { .kg-hint, .kg-toolbar__sep { display: none; } }
 /* The legend needs the stage's width; in a narrow window it would cover the map (clipped at 768px,
    review 2026-11-14). The line weights and dot sizes are also described for screen readers. */
 @media (max-width: 1000px) { .kg-legend { display: none; } }

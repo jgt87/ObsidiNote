@@ -143,12 +143,38 @@ function Invoke-P8 {
 
 # P10 Meetings (operator, 2026-11-14: "In many meetings, Copilot is used to transcribe or use
 # facilitator to create action lists and meeting notes"): can Copilot, with the person's own access,
-# list recent meetings with a transcript, recap or notes, and turn one into structured notes? This
+# list recent meetings with a transcript, recap or notes, and turn them into structured notes? This
 # decides whether ObsidiNote gets an "Add a meeting" step. Read only. Logged: counts and yes/no only,
-# never a meeting title, a name, a link or any text.
+# never a meeting title, a name, a link, a date or any text.
+# A full day (operator, 2026-11-15: "fetch all meeting notes from a full day ... from multiple
+# meetings"): after the list of the last 7 days, the probe asks for every meeting of one day (the
+# day given with -MeetingDay, else the busiest day of that list) and then for the notes of up to
+# $MeetingNotesAsked of them, one question per meeting, as an "Add a day's meetings" step would.
 $script:MeetingListKeys = @('meetings')
 $script:MeetingNotesKeys = @('found', 'attendees', 'decisions', 'actions')
 $script:MeetingDays = 7
+$script:MeetingNotesAsked = 2
+
+function Test-MeetingDayValue([AllowEmptyString()][string]$Day) {
+    <# A -MeetingDay value: a real date written yyyy-mm-dd. Pure. #>
+    $d = [datetime]::MinValue
+    $Day -match '^\d{4}-\d{2}-\d{2}$' -and [datetime]::TryParseExact($Day, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$d)
+}
+
+function New-MeetingDayPrompt([string]$Day) {
+    "List all my Teams meetings on $Day, in the order they started. For each, say whether a transcript, a Copilot recap (intelligent recap) or meeting notes (for example Facilitator or Loop notes) exist that you can read. " +
+    'Answer only with one JSON object and no other text: {"meetings": [{"title": "...", "start": "yyyy-mm-dd hh:mm", "attendees": 0, "hasTranscript": true or false, "hasRecap": true or false, "hasNotes": true or false, "link": "the address of the recap or notes, or empty"}], "searched": ["the sources you were able to use"]}. ' +
+    'If you cannot see my meetings of that day, answer {"meetings": [], "searched": []}.'
+}
+
+function Select-MeetingDay($List) {
+    <# The day of a Test-MeetingListReply result with the most meetings Copilot can read something of
+       (a transcript, recap or notes); the newest on a tie; '' when there is none. Pure. #>
+    $days = @($List.richDays)
+    if (-not $days.Count) { return '' }
+    $best = $days | Group-Object | Sort-Object @{ Expression = 'Count'; Descending = $true }, @{ Expression = 'Name'; Descending = $true } | Select-Object -First 1
+    "$($best.Name)"
+}
 
 function New-MeetingListPrompt([int]$Days = $script:MeetingDays) {
     "List my Teams meetings of the last $Days days, newest first, at most 10. For each, say whether a transcript, a Copilot recap (intelligent recap) or meeting notes (for example Facilitator or Loop notes) exist that you can read. " +
@@ -157,28 +183,37 @@ function New-MeetingListPrompt([int]$Days = $script:MeetingDays) {
 }
 
 function Test-MeetingListReply {
-    <# @{ valid; count; transcript; recap; notes; links; pick } from a reply to New-MeetingListPrompt.
-       pick: the newest meeting with a transcript, recap or notes (@{ title; start }) for the second
-       question, or $null. Only the counts are logged. Pure. #>
-    param([AllowEmptyString()][string]$Text)
+    <# @{ valid; count; transcript; recap; notes; links; pick; picks; richDays; onDay; offDay } from a
+       reply to New-MeetingListPrompt or New-MeetingDayPrompt. picks: the meetings with a transcript,
+       recap or notes that have a title (@{ title; start }), in the reply's order, for the notes
+       questions; pick: the first of them, or $null. richDays: the yyyy-mm-dd of each meeting with
+       something to read (for Select-MeetingDay). With -Day: onDay / offDay count the meetings that
+       started on that day or on another one (a meeting without a start counts as neither), and picks
+       leaves out meetings of another day. Only counts are logged. Pure. #>
+    param([AllowEmptyString()][string]$Text, [string]$Day = '')
     $j = Get-JsonFromReply $Text
     $valid = Test-JsonShape $j $script:MeetingListKeys
     $list = @(if ($valid) { @($j.meetings) | Where-Object { $_ -is [pscustomobject] } })
     $has = { param($m, $k) $m.PSObject.Properties[$k] -and "$($m.$k)" -eq 'True' }
+    $dayOf = { param($m) if ($m.PSObject.Properties['start'] -and "$($m.start)" -match '^(\d{4}-\d{2}-\d{2})') { $Matches[1] } else { '' } }
     $rich = @($list | Where-Object { (& $has $_ 'hasTranscript') -or (& $has $_ 'hasRecap') -or (& $has $_ 'hasNotes') })
-    # The second question names the meeting by its title: only a meeting that came back with one can
+    # The notes question names the meeting by its title: only a meeting that came back with one can
     # be picked (a reply may leave "title" out or empty; reading it unguarded threw under StrictMode
     # and stopped the stage, code review 2026-11-15).
-    $titled = @($rich | Where-Object { $_.PSObject.Properties['title'] -and "$($_.title)".Trim() })
-    $pick = $null
-    if ($titled.Count) { $pick = @{ title = "$($titled[0].title)".Trim(); start = $(if ($titled[0].PSObject.Properties['start']) { "$($titled[0].start)" } else { '' }) } }
+    $titled = @($rich | Where-Object { $_.PSObject.Properties['title'] -and "$($_.title)".Trim() } | Where-Object { -not $Day -or @('', $Day) -contains (& $dayOf $_) })
+    $picks = @($titled | ForEach-Object { @{ title = "$($_.title)".Trim(); start = $(if ($_.PSObject.Properties['start']) { "$($_.start)" } else { '' }) } })
+    $days = @($list | ForEach-Object { & $dayOf $_ })
     [pscustomobject]@{
         valid = $valid; count = $list.Count; rich = $rich.Count
         transcript = @($list | Where-Object { & $has $_ 'hasTranscript' }).Count
         recap = @($list | Where-Object { & $has $_ 'hasRecap' }).Count
         notes = @($list | Where-Object { & $has $_ 'hasNotes' }).Count
         links = @($list | Where-Object { $_.PSObject.Properties['link'] -and "$($_.link)" -match '^(?i)https://' }).Count
-        pick = $pick
+        pick = $(if ($picks.Count) { $picks[0] } else { $null })
+        picks = $picks
+        richDays = @($rich | ForEach-Object { & $dayOf $_ } | Where-Object { $_ })
+        onDay = $(if ($Day) { @($days | Where-Object { $_ -eq $Day }).Count } else { 0 })
+        offDay = $(if ($Day) { @($days | Where-Object { $_ -and $_ -ne $Day }).Count } else { 0 })
     }
 }
 
@@ -190,14 +225,16 @@ function New-MeetingNotesPrompt([string]$Title, [string]$Start) {
 }
 
 function Test-MeetingNotesReply {
-    <# @{ valid; found; attendees; decisions; actions; owners; dues; basedOn; source } (counts and
-       yes/no) from a reply to New-MeetingNotesPrompt. Pure. #>
-    param([AllowEmptyString()][string]$Text)
+    <# @{ valid; found; attendees; decisions; actions; owners; dues; basedOn; source; dateMatch }
+       (counts and yes/no) from a reply to New-MeetingNotesPrompt. dateMatch: the notes' "date" is
+       -Day (a sign Copilot read the meeting of that day, not another one with the same title). Pure. #>
+    param([AllowEmptyString()][string]$Text, [string]$Day = '')
     $j = Get-JsonFromReply $Text
     $valid = Test-JsonShape $j $script:MeetingNotesKeys
     $acts = @(if ($valid) { @($j.actions) | Where-Object { $_ -is [pscustomobject] } })
     [pscustomobject]@{
         valid = $valid; found = $valid -and "$($j.found)" -eq 'True'
+        dateMatch = [bool]($valid -and $Day -and $j.PSObject.Properties['date'] -and "$($j.date)" -eq $Day)
         attendees = $(if ($valid) { @(@($j.attendees) | Where-Object { $_ }).Count } else { 0 })
         decisions = $(if ($valid) { @(@($j.decisions) | Where-Object { $_ }).Count } else { 0 })
         actions = $acts.Count
@@ -216,14 +253,44 @@ function Invoke-P10 {
     $status = if ($l.valid -and $l.count) { 'OK' } else { 'WARN' }
     $hint = if (-not $l.valid) { 'The reply was not in the fixed JSON shape.' } elseif (-not $l.count) { "No meetings came back: none in the last $script:MeetingDays days, or Copilot cannot see your meetings on this tenant." } else { '' }
     Add-ValidationResult $Ctx 'V5' $status 'P10 meetings list' "$($l.count) meetings in the last $script:MeetingDays days; with a transcript $($l.transcript), a recap $($l.recap), notes $($l.notes), a link $($l.links); JSON valid $(Format-YesNo $l.valid); reply $($r.text.Length) chars; $($r.ms) ms; Work IQ $($r.workIq)" $hint
-    if (-not $l.pick -and $l.rich) { Add-ValidationResult $Ctx 'V5' 'WARN' 'P10 meeting notes' "$($l.rich) meeting(s) with a transcript, recap or notes came back without a title, so none could be asked about" 'Run the probe again; Copilot left the title out of its list.'; return }
-    if (-not $l.pick) { Add-ValidationResult $Ctx 'V5' 'SKIP' 'P10 meeting notes' 'no meeting with a transcript, recap or notes in the list'; return }
-    $n = Send-KitPrompt -Bridge $Bridge -Text (New-MeetingNotesPrompt $l.pick.title $l.pick.start) -WorkIq 'on' -TimeoutSec 300
-    if (-not $n.ok) { Add-ValidationResult $Ctx 'V5' 'FAIL' 'P10 meeting notes' "no answer ($($n.result)); $($n.ms) ms"; return }
-    $c = Test-MeetingNotesReply $n.text
-    $ok = $c.found -and ($c.decisions -or $c.actions)
-    $hint2 = if (-not $c.valid) { 'The reply was not in the fixed JSON shape.' } elseif (-not $c.found) { 'Copilot listed the meeting but could not read its transcript, recap or notes.' } else { '' }
-    Add-ValidationResult $Ctx 'V5' $(if ($ok) { 'OK' } else { 'WARN' }) 'P10 meeting notes' "read $(Format-YesNo $c.found) (based on $(if ($c.basedOn) { $c.basedOn } else { '?' })); $($c.attendees) attendees, $($c.decisions) decisions, $($c.actions) actions ($($c.owners) with an owner, $($c.dues) with a due date); source link $(Format-YesNo $c.source); JSON valid $(Format-YesNo $c.valid); reply $($n.text.Length) chars; $($n.ms) ms" $hint2
+    Invoke-P10Day -Ctx $Ctx -Bridge $Bridge -Week $l
+}
+
+function Invoke-P10Day {
+    <# One full day: every meeting of the day, then the notes of up to $MeetingNotesAsked of them, one
+       question each. The day itself is never logged, only how it was chosen. #>
+    param([Parameter(Mandatory)]$Ctx, [Parameter(Mandatory)]$Bridge, [Parameter(Mandatory)]$Week)
+    $given = "$(Get-KitFlag $Ctx 'MeetingDay' '')".Trim()
+    if ($given -and -not (Test-MeetingDayValue $given)) {
+        Add-ValidationResult $Ctx 'V5' 'FAIL' 'P10 day''s meetings' 'the -MeetingDay value is not a date written yyyy-mm-dd' 'Run it again with a date like -MeetingDay 2026-11-12.'
+        return
+    }
+    $day = if ($given) { $given } else { Select-MeetingDay $Week }
+    $how = if ($given) { 'the day given with -MeetingDay' } else { "the busiest day of the last $script:MeetingDays days" }
+    if (-not $day) { Add-ValidationResult $Ctx 'V5' 'SKIP' 'P10 day''s meetings' "no meeting of the last $script:MeetingDays days has a transcript, recap or notes with a date, and no -MeetingDay was given" 'Run it again with -MeetingDay set to a day you had meetings with transcription, a recap or notes.'; return }
+    # How many of that day the week's list had: the list stops at 10, so a busy day may show more here.
+    $inWeek = @($Week.richDays | Where-Object { $_ -eq $day }).Count
+    $r = Send-KitPrompt -Bridge $Bridge -Text (New-MeetingDayPrompt $day) -WorkIq 'on' -TimeoutSec 240
+    if (-not $r.ok) { Add-ValidationResult $Ctx 'V5' 'FAIL' 'P10 day''s meetings' "no answer ($($r.result)); $($r.ms) ms"; return }
+    $d = Test-MeetingListReply $r.text -Day $day
+    $hint = if (-not $d.valid) { 'The reply was not in the fixed JSON shape.' } elseif (-not $d.count) { 'No meetings came back for that day.' } elseif ($d.offDay) { 'Copilot listed meetings of other days too.' } else { '' }
+    Add-ValidationResult $Ctx 'V5' $(if ($d.valid -and $d.onDay -and -not $d.offDay) { 'OK' } else { 'WARN' }) 'P10 day''s meetings' "$($d.count) meetings on $how ($($d.offDay) of another day); with a transcript $($d.transcript), a recap $($d.recap), notes $($d.notes); the week's list had $inWeek of that day with something to read; JSON valid $(Format-YesNo $d.valid); reply $($r.text.Length) chars; $($r.ms) ms" $hint
+    $picks = @($d.picks | Select-Object -First $script:MeetingNotesAsked)
+    if (-not $picks.Count) {
+        $why = if ($d.rich) { "$($d.rich) meeting(s) of that day with a transcript, recap or notes came back without a title, so none could be asked about" } else { 'no meeting of that day has a transcript, recap or notes' }
+        Add-ValidationResult $Ctx 'V5' $(if ($d.rich) { 'WARN' } else { 'SKIP' }) 'P10 meeting notes 1' $why
+        return
+    }
+    for ($i = 0; $i -lt $script:MeetingNotesAsked; $i++) {
+        $name = "P10 meeting notes $($i + 1)"
+        if ($i -ge $picks.Count) { Add-ValidationResult $Ctx 'V5' 'SKIP' $name "only $($picks.Count) meeting(s) of that day with a transcript, recap or notes and a title"; continue }
+        $n = Send-KitPrompt -Bridge $Bridge -Text (New-MeetingNotesPrompt $picks[$i].title $picks[$i].start) -WorkIq 'on' -TimeoutSec 300
+        if (-not $n.ok) { Add-ValidationResult $Ctx 'V5' 'FAIL' $name "no answer ($($n.result)); $($n.ms) ms"; continue }
+        $c = Test-MeetingNotesReply $n.text -Day $day
+        $ok = $c.found -and ($c.decisions -or $c.actions)
+        $hint2 = if (-not $c.valid) { 'The reply was not in the fixed JSON shape.' } elseif (-not $c.found) { 'Copilot listed the meeting but could not read its transcript, recap or notes.' } else { '' }
+        Add-ValidationResult $Ctx 'V5' $(if ($ok) { 'OK' } else { 'WARN' }) $name "read $(Format-YesNo $c.found) (based on $(if ($c.basedOn) { $c.basedOn } else { '?' })); date matches the day $(Format-YesNo $c.dateMatch); $($c.attendees) attendees, $($c.decisions) decisions, $($c.actions) actions ($($c.owners) with an owner, $($c.dues) with a due date); source link $(Format-YesNo $c.source); JSON valid $(Format-YesNo $c.valid); reply $($n.text.Length) chars; $($n.ms) ms" $hint2
+    }
 }
 
 # The probes of this stage, in the order they run (-Probe names some of them).
@@ -257,4 +324,4 @@ function Invoke-StageGrounding {
     if ($Ctx.Results.Count -eq $before) { Add-ValidationResult $Ctx 'V5' 'FAIL' ($run -join ', ') 'no probe gave a result' }
 }
 
-Export-ModuleMember -Function Invoke-StageGrounding, Get-GroundingProbes, New-MarkerPrompt, Test-MarkerReply, New-LinkPrompt, Test-LinkReply, Get-UrlKind, New-MeetingListPrompt, Test-MeetingListReply, New-MeetingNotesPrompt, Test-MeetingNotesReply
+Export-ModuleMember -Function Invoke-StageGrounding, Get-GroundingProbes, New-MarkerPrompt, Test-MarkerReply, New-LinkPrompt, Test-LinkReply, Get-UrlKind, New-MeetingListPrompt, Test-MeetingListReply, New-MeetingNotesPrompt, Test-MeetingNotesReply, New-MeetingDayPrompt, Select-MeetingDay, Test-MeetingDayValue

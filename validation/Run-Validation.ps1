@@ -9,6 +9,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File validation\Run-Validation.ps1 [-Stage V1,V2,...]
 #     [-WriteTest] [-NoCopilot] [-NoPrompt] [-TestPort <n>] [-ProbeBasePath <OneDrive Documents URL>]
 #     [-PublicUrl <url>] [-SharePointUrl <url>] [-OneDriveUrl <url>] [-OutDir <folder>] [-Probe P10]
+#     [-MeetingDay yyyy-mm-dd]
 [CmdletBinding()]
 param(
     [string[]]$Stage = @(),       # V1..V6, e.g. -Stage V1,V3; all stages when left out
@@ -21,7 +22,8 @@ param(
     [string]$SharePointUrl = '',  # P7 without the question (not logged)
     [string]$OneDriveUrl = '',    # P7 without the question (not logged)
     [string]$OutDir = '',         # where the log goes (default: the Desktop)
-    [string[]]$Probe = @()        # V5 only these probes, e.g. -Probe P10 (Run Meeting Probe.cmd); all when left out
+    [string[]]$Probe = @(),       # V5 only these probes, e.g. -Probe P10 (Run Meeting Probe.cmd); all when left out
+    [string]$MeetingDay = ''      # P10's day, yyyy-mm-dd (not logged); default: the busiest day of the last 7
 )
 $ErrorActionPreference = 'Stop'
 # Windows PowerShell's own module paths: started from PowerShell 7, 5.1 would load 7's modules.
@@ -46,6 +48,7 @@ $flags = @{
     WriteTest = [bool]$WriteTest; NoCopilot = [bool]$NoCopilot; NoPrompt = [bool]$NoPrompt
     TestPort = $TestPort; ProbeBasePath = $ProbeBasePath; PublicUrl = $PublicUrl; SharePointUrl = $SharePointUrl; OneDriveUrl = $OneDriveUrl
     Probes = @($Probe | ForEach-Object { "$_".Split(',') } | ForEach-Object { $_.Trim().ToUpperInvariant() } | Where-Object { $_ })
+    MeetingDay = $MeetingDay
 }
 $ctx = New-ValidationContext -AppRoot $appRoot -LogPath $logPath -Stages $stages -Flags $flags
 $appVersion = Get-AppVersionFromRoot $appRoot

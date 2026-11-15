@@ -24,6 +24,7 @@ knowledge graph's data, Add and Ask.
 | Link it | Makes two made-up pages in the test vault, links the first to the second as "Link it" does in the window, checks that a second "Link it" writes nothing, then undoes both pages. No Copilot needed | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Undo of a linked page | Makes two made-up pages, the first with a link to the second (in its properties and as a link in its own text), undoes the second, then checks that the first has no link to it left and that its text says "(deleted: ...)" where the link was; then undoes the first. No Copilot needed | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Tags | Makes one made-up page, gives it a tag, reads the page back, renames the tag, removes it, then undoes the page. No Copilot needed; the log holds counts only, never the tag | Only `ObsidiNote-Validation`, with `-WriteTest` |
+| Archive plan, Archive, Archive (link in another page), Restore, Delete | Makes two made-up pages, the first with a link to the second (in its properties and in its own text). Asks what Archive would do (nothing written), archives the second page (it must be found again under Archive), then follows the link in the first page's text in OneNote: OneNote jumps to a page in `ObsidiNote-Validation` and back. "opens the archived page: no" is a `[WARN]` that tells us links in other pages' text must be rewritten on Archive. Then restores the page to its own section, deletes it (to OneNote's Deleted Pages; the first page's link becomes "(deleted: ...)"), and undoes the first page. No Copilot needed | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Ask (synthetic) | Asks "What do my notes say about tidal gardens?" against the test vault | No (Ask never writes) |
 
 ## Steps
@@ -33,7 +34,9 @@ knowledge graph's data, Add and Ask.
 
 2. Open OneNote with your notebooks. Make sure RB-02 works (Copilot connected).
 
-3. Read-only pass. In **Windows PowerShell**:
+3. Read-only pass: double-click **Run Vault Check.cmd** in
+   `%LOCALAPPDATA%\Programs\ObsidiNote\validation` (no Copilot, no Edge window). Or in
+   **Windows PowerShell**:
    ```powershell
    powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\ObsidiNote\validation\Run-Validation.ps1" -Stage V6
    ```

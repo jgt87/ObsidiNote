@@ -5,6 +5,19 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.0] - 2026-11-16
+
+### Added
+- **Validation kit**: one file to double-click per check that still has to run on a business tenant: `Run OneNote Search Probe.cmd` (P3, 1 and 24 hours after the write tests), `Run Link Probes.cmd` (P7 and P8, asks for the two addresses), `Run Loop Probe.cmd` (P4, asks for your Loop marker) and `Run Vault Check.cmd` (the vault checks, read only, no Edge window). None of them writes anything.
+- **Validation kit, write tests**: a check of Archive, Restore and Delete in the test vault. It also follows a link to the archived page from another page's text in OneNote, to find out whether such links still work after Archive.
+
+### Changed
+- **Knowledge graph**: the zoom buttons at the bottom left no longer carry guiding text beside them.
+- **Validation kit, meeting probe** (`Run Meeting Probe.cmd`): after your meetings of the last 7 days it now lists every meeting of one full day (the busiest day, or the day you give with `-MeetingDay yyyy-mm-dd`) and asks for the notes of two of them, one question each, to find out whether ObsidiNote can file a whole day of meetings. The log still holds counts only, and never the day.
+
+### Fixed
+- **Knowledge graph**: during a search, after you point at a page that is not a result and move the pointer away, the map goes back to the search result chosen in the search box (the first, or the one you stepped to with the arrow keys), until you clear the search.
+
 ## [v0.11.0] - 2026-11-15
 
 ### Added

@@ -19,7 +19,8 @@
 // History, knowledge graph (map, List), page window, its Edit form.
 //  17 every text field has its own edge or fill of at least 3:1 against what is behind it (home, graph, Edit; light and dark)
 //  18 the map's zoom toolbar and legend never overlap, in the app beside the side bar (1920, 1440, 1280, 1024)
-//  19 during a search, a page that is not a result still shows its card on hover and opens on click
+//  19 during a search, a page that is not a result still shows its card on hover and opens on click;
+//     moving off every dot puts the focus back on the search's result; once cleared, nothing stays focused
 //  16 a citation [n] opens the cited page's window (a link page: its address); the box's controls sit in one row
 // NOT covered, so the rules above are not proven there: the Ask answer's other states and its error, a failed Add,
 // the Settings, New vault and Set up dialogs, the quick switcher, the Filter panel, a link Update
@@ -469,15 +470,38 @@ async function main() {
       const r = d.getBoundingClientRect(); return { id: d.getAttribute('data-id'), x: r.x + r.width / 2, y: r.y + r.height / 2, hits: hits.size } })())`)
     expect(!!target, 'search: no dot outside the results could be pointed at, or the search found nothing')
     if (target) {
+      const focused = `(document.querySelector('.kg-card') && document.querySelector('.kg-focus circle.kg-dot--on')?.getAttribute('data-id')) || ''`
+      // A spot on the map with no dot under it, to move the pointer off every dot.
+      const empty = await list(`JSON.stringify((() => { const s = document.querySelector('.kg-stage').getBoundingClientRect()
+        for (let y = s.top + 12; y < s.bottom - 60; y += 9) for (let x = s.left + 12; x < s.right - 12; x += 9) { const e = document.elementFromPoint(x, y); if (e && e.closest('.kg-stage') && !e.closest('circle.kg-dot, .kg-card, .kg-toolbar, .kg-legend')) return [x, y] }
+        return null })())`)
+      const pick = await js(focused)
       await S('Input.dispatchMouseEvent', { type: 'mouseMoved', x: target.x - 40, y: target.y - 40 })
       await S('Input.dispatchMouseEvent', { type: 'mouseMoved', x: target.x, y: target.y }); await wait(400)
       // The focused dot must be the one pointed at: a card may already be open for the first result.
-      const on = await js(`(document.querySelector('.kg-card') && document.querySelector('.kg-focus circle.kg-dot--on')?.getAttribute('data-id')) || ''`)
+      const on = await js(focused)
       expect(on === target.id, `search "zero" (${target.hits} results): hovering ${target.id}, which is not a result, focuses "${on}" instead`)
+      // Off every dot again: the focus goes back to the search's result until the search is cleared
+      // (operator, 2026-11-15).
+      if (empty) {
+        await S('Input.dispatchMouseEvent', { type: 'mouseMoved', x: empty[0], y: empty[1] }); await wait(400)
+        const back = await js(focused)
+        expect(!!pick && back === pick, `search "zero": after hovering ${target.id} and moving off every dot, the focus is on "${back}", not back on the search's result "${pick}"`)
+        await S('Input.dispatchMouseEvent', { type: 'mouseMoved', x: target.x, y: target.y }); await wait(400)
+      } else expect(false, 'search: no spot without a dot was found on the map to move the pointer to')
       for (const type of ['mousePressed', 'mouseReleased']) await S('Input.dispatchMouseEvent', { type, x: target.x, y: target.y, button: 'left', clickCount: 1 })
       await wait(500)
       const opened = await js(`document.querySelector('dialog[open] #kg-dlg-title') ? 'yes' : 'no'`)
       expect(opened === 'yes', `search "zero": clicking a page that is not a result does not open it`)
+      // Cleared search: moving off the dots leaves nothing focused.
+      await js(`document.querySelector('dialog[open]')?.close()`); await wait(300)
+      await js(`document.querySelector('.kg-search__clear')?.click()`); await wait(300)
+      if (empty) {
+        await S('Input.dispatchMouseEvent', { type: 'mouseMoved', x: target.x, y: target.y }); await wait(300)
+        await S('Input.dispatchMouseEvent', { type: 'mouseMoved', x: empty[0], y: empty[1] }); await wait(400)
+        const after = await js(focused)
+        expect(after === '', `search cleared: moving off every dot still leaves "${after}" focused`)
+      }
     }
   }
 

@@ -14,6 +14,10 @@ Import-Module (Join-Path $PSScriptRoot 'StageCopilot.psm1')
 # The bridge itself too: StageCopilot's import of it is nested and not visible here, so the Add steps'
 # Get-Command Send-CopilotPrompt failed (V6 "Dev vault" FAIL on the target machine, 2026-11-14).
 Import-Module (Join-Path $script:AppLib 'CopilotBridge.psm1')
+# Get-KitOneNote: the kit's own OneNote object; Test-ProbeLinkOpens follows a link with it (the
+# Archive write check).
+Import-Module (Join-Path $PSScriptRoot 'StageOneNote.psm1')
+Import-Module (Join-Path $PSScriptRoot 'WriteProbes.psm1')
 
 $script:Needs = @{
     vault = @('OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index')
@@ -65,7 +69,7 @@ function Invoke-WithKnownParams {
 }
 
 function Add-SkipAll($Ctx, [string]$Why) {
-    foreach ($n in 'Vaults', 'Notebook reads', 'Index completeness', 'Upgrade plan', 'Vault settings', 'Knowledge graph', 'Markdown export', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Undo of a linked page', 'Tags', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
+    foreach ($n in 'Vaults', 'Notebook reads', 'Index completeness', 'Upgrade plan', 'Vault settings', 'Knowledge graph', 'Markdown export', 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Undo of a linked page', 'Tags', 'Archive, restore and delete', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n $Why }
 }
 
 function Add-VaultResults($Ctx, $Adapter) {
@@ -422,6 +426,92 @@ function New-DevStore($Ctx, $Adapter, $Dev, [string]$Name, [string]$NeedsCommand
     $s.value
 }
 
+function New-DevLinkedPair($Store, $Dev, [string]$TargetTitle, [string]$LinkerTitle) {
+    <# Two synthetic pages of the kit: a target, and a linker with a link to it in its Meta and as a
+       link in its own text. Returns @{ target = @{ id; pageId }; linker = @{ id; pageId }; link }
+       (link: the target's OneNote link as written into the linker's text). #>
+    $t = New-DevLinkPage $Store $TargetTitle
+    $link = [string]$Dev.model.pages[$t.id].link
+    $i = [string](& $Store.NewId)
+    $line = @{ parts = @(@{ text = 'Synthetic page of the validation kit, see '; href = '' }, @{ text = 'the target'; href = $link }) }
+    $page = @{ id = $i; type = 'note'; bucket = (& $Store.BucketForType -Type 'note'); title = $LinkerTitle; summary = 'Synthetic page of the validation kit.'; topics = @(); aliases = @(); links = @(@{ target = $t.id; strength = 2; why = 'validation kit' }); status = ''; outlines = @(@{ role = 'body'; lines = @($line) }) }
+    $cp = & $Store.CreatePage -Page $page
+    $page.pageId = [string]$cp['pageId']; $page.link = [string]$cp['link']; $page.section = [string]$cp['section']
+    $null = & $Store.IndexAddPage -Page $page
+    @{ target = $t; linker = @{ id = $i; pageId = $page.pageId }; link = $link }
+}
+
+function Invoke-DevRetire($Ctx, $Adapter, $Dev) {
+    <# Archive, Restore and Delete (lib/Ingest.psm1 Get-RetirePlan, Invoke-PageRetire; operator
+       2026-11-15): a synthetic target page and a page that links to it (Meta and its own text). The
+       target is archived (found again under Archive; then the link in the other page's text is
+       followed in OneNote: does it still open the moved page? STATUS P1c says a moved page gets a new
+       id), restored to its own section, and deleted (out of the index; the other page's link becomes
+       "(deleted: ...)"). Then the linking page goes back out. No Copilot. Statuses, counts, yes/no. #>
+    $name = 'Archive, restore and delete'
+    $store = New-DevStore $Ctx $Adapter $Dev $name 'Invoke-PageRetire'
+    if (-not $store) { return }
+    $a = $null; $b = $null
+    try {
+        $mk = Measure-KitStep { New-DevLinkedPair $store $Dev 'Validation archive target' 'Validation archive linker' }
+        if (-not $mk.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' $name "the two test pages could not be made: $($mk.error)"; return }
+        $a = $mk.value.linker; $b = $mk.value.target
+        $homeSection = [string]$Dev.model.pages[$b.id].section   # never $home: $HOME is an automatic variable
+
+        $plan = Measure-KitStep { Get-RetirePlan -Store $store -Action 'archive' -Ids @($b.id) }
+        $pp = @(Get-KitProp $plan.value 'pages' @())
+        $to = if ($pp.Count) { "$($pp[0]['to'])" } else { '' }
+        $okPlan = $plan.ok -and $pp.Count -eq 1 -and $to -like 'Archive*' -and [int]$pp[0]['inbound'] -eq 1
+        Add-ValidationResult $Ctx 'V6' $(if ($okPlan) { 'OK' } else { 'FAIL' }) 'Archive plan' "pages $($pp.Count); goes to Archive: $(Format-YesNo ($to -like 'Archive*')); links to it counted: $(if ($pp.Count) { $pp[0]['inbound'] } else { 0 }) (expected 1); refused $(@(Get-KitProp $plan.value 'refused' @()).Count); nothing written; $($plan.ms) ms"
+
+        $ar = Measure-KitStep { Invoke-PageRetire -Store $store -Action 'archive' -Ids @($b.id) }
+        $rec = $Dev.model.pages[$b.id]
+        $found = $false
+        if ($rec) {
+            $t = ConvertFrom-ObsnHierarchy -Xml ($Adapter.GetHierarchy($Dev.vault.rootId, 4)) -RootId $Dev.vault.rootId
+            $found = @($t.sections | Where-Object { $_.full -eq $rec.section } | ForEach-Object { $_.pages } | Where-Object { $_.id -eq $rec.oneNoteId -and $_.meta['obsn.id'] -eq $b.id }).Count -eq 1
+        }
+        $okAr = $ar.ok -and "$(Get-KitProp $ar.value 'status' '')" -eq 'done' -and $rec -and $rec.status -eq 'archived' -and $rec.section -like 'Archive*' -and $found
+        Add-ValidationResult $Ctx 'V6' $(if ($okAr) { 'OK' } else { 'FAIL' }) 'Archive' "status $(Get-KitProp $ar.value 'status' 'error'); marked archived: $(Format-YesNo ($rec -and $rec.status -eq 'archived')); found again under Archive: $(Format-YesNo $found); page id changed: $(Format-YesNo ($rec -and $rec.oneNoteId -ne $b.pageId)); $($ar.ms) ms"
+
+        # The open question (STATUS 7d, P1c): a link to the page in another page's own text, after the move.
+        if ($rec) {
+            # Following the link selects a page in OneNote: that lives in WriteProbes (write tests only),
+            # never in this module, whose read-only checks select nothing (RB-05 step 3a).
+            $opens = Test-ProbeLinkOpens -One (Get-KitOneNote -Ctx $Ctx) -Url $mk.value.link -PageId $rec.oneNoteId -WaitMs ([int](Get-KitFlag $Ctx 'NavWaitMs' 1500))
+            $st = if ($opens -eq 'yes') { 'OK' } elseif ($opens -eq 'no') { 'WARN' } else { 'INFO' }
+            Add-ValidationResult $Ctx 'V6' $st 'Archive (link in another page)' "the link in the linking page's text opens the archived page: $opens; its OneNote link changed: $(Format-YesNo ($rec.link -ne $mk.value.link))" $(if ($opens -eq 'no') { 'Archive must then rewrite the links in the text of pages that link to the page.' } else { '' })
+        }
+
+        $re = Measure-KitStep { Invoke-PageRetire -Store $store -Action 'restore' -Ids @($b.id) }
+        $rec = $Dev.model.pages[$b.id]
+        $okRe = $re.ok -and "$(Get-KitProp $re.value 'status' '')" -eq 'done' -and $rec -and -not $rec.status -and $rec.section -eq $homeSection
+        Add-ValidationResult $Ctx 'V6' $(if ($okRe) { 'OK' } else { 'FAIL' }) 'Restore' "status $(Get-KitProp $re.value 'status' 'error'); back in its own section: $(Format-YesNo ($rec -and $rec.section -eq $homeSection)); still marked archived: $(Format-YesNo ($rec -and $rec.status -eq 'archived')); $($re.ms) ms"
+
+        $de = Measure-KitStep { Invoke-PageRetire -Store $store -Action 'delete' -Ids @($b.id) }
+        $gone = -not $Dev.model.pages.Contains($b.id)
+        if ($gone) { $b = $null }
+        $pg = Measure-KitStep { & $store.ReadPage -PageId $a.pageId }
+        $left = -1; $says = $false
+        if ($pg.ok) {
+            $left = @(@($pg.value.meta['links']) | Where-Object { $_ -and $_['target'] -eq $mk.value.target.id }).Count
+            $body = @($pg.value.outlines | Where-Object { $_.role -eq 'body' }) | Select-Object -First 1
+            $says = [bool]($body -and "$($body.text)" -match '\(deleted: ')
+        }
+        $okDe = $de.ok -and "$(Get-KitProp $de.value 'status' '')" -eq 'done' -and $gone -and $left -eq 0 -and $says
+        Add-ValidationResult $Ctx 'V6' $(if ($okDe) { 'OK' } else { 'FAIL' }) 'Delete' "status $(Get-KitProp $de.value 'status' 'error'); out of the index: $(Format-YesNo $gone); links left in the linking page: $left; its text says deleted: $(Format-YesNo $says); $($de.ms) ms (to OneNote's Deleted Pages)"
+    } finally {
+        $done = 0; $tried = 0
+        foreach ($rec in @($a, $b | Where-Object { $_ })) {
+            $tried++
+            $cur = if ($Dev.model.pages.Contains($rec.id)) { [string]$Dev.model.pages[$rec.id].oneNoteId } else { $rec.pageId }
+            $x = Measure-KitStep { Undo-AddRequest -Store $store -Undo @{ id = $rec.id; pageId = $cur; targets = @() } }
+            if ($x.ok -and "$(Get-KitProp $x.value 'status' '')" -eq 'undone') { $done++ }
+        }
+        if ($tried) { Add-ValidationResult $Ctx 'V6' $(if ($done -eq $tried) { 'OK' } else { 'WARN' }) "$name (undo)" "$done of $tried test pages back out (OneNote's Deleted Pages)" }
+    }
+}
+
 function Invoke-DevUndoLinked($Ctx, $Adapter, $Dev) {
     <# Undo of a page that another page links to (lib/Ingest.psm1 Undo-AddRequest): two synthetic
        pages, the first with a link to the second in its Meta and as a link in its own text. After
@@ -433,17 +523,7 @@ function Invoke-DevUndoLinked($Ctx, $Adapter, $Dev) {
     if ((Get-IngestStoreContract) -notcontains 'RewriteBodyLinks') { Add-ValidationResult $Ctx 'V6' 'SKIP' $name 'not in this version yet'; return }
     $a = $null; $b = $null
     try {
-        $mk = Measure-KitStep {
-            $t = New-DevLinkPage $store 'Validation undo target'
-            $link = [string]$Dev.model.pages[$t.id].link
-            $i = [string](& $store.NewId)
-            $line = @{ parts = @(@{ text = 'Synthetic page of the validation kit, see '; href = '' }, @{ text = 'the target'; href = $link }) }
-            $page = @{ id = $i; type = 'note'; bucket = (& $store.BucketForType -Type 'note'); title = 'Validation undo linker'; summary = 'Synthetic page of the validation kit.'; topics = @(); aliases = @(); links = @(@{ target = $t.id; strength = 2; why = 'validation kit' }); status = ''; outlines = @(@{ role = 'body'; lines = @($line) }) }
-            $cp = & $store.CreatePage -Page $page
-            $page.pageId = [string]$cp['pageId']; $page.link = [string]$cp['link']; $page.section = [string]$cp['section']
-            $null = & $store.IndexAddPage -Page $page
-            @{ target = $t; linker = @{ id = $i; pageId = $page.pageId } }
-        }
+        $mk = Measure-KitStep { New-DevLinkedPair $store $Dev 'Validation undo target' 'Validation undo linker' }
         if (-not $mk.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' $name "the two test pages could not be made: $($mk.error)"; return }
         $a = $mk.value.linker; $b = $mk.value.target
         $u = Measure-KitStep { Undo-AddRequest -Store $store -Undo @{ id = $b.id; pageId = $b.pageId; targets = @() } }
@@ -605,7 +685,7 @@ function Invoke-DevAsk($Ctx, $Adapter, $Dev, $Bridge) {
 
 function Invoke-DevVaultChecks($Ctx, $Adapter) {
     if (-not (Get-KitFlag $Ctx 'WriteTest')) {
-        foreach ($n in 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Undo of a linked page', 'Tags', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n 'write tests not run' 'Add -WriteTest; they write only into the notebook ObsidiNote-Validation.' }
+        foreach ($n in 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Undo of a linked page', 'Tags', 'Archive, restore and delete', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n 'write tests not run' 'Add -WriteTest; they write only into the notebook ObsidiNote-Validation.' }
         return
     }
     $dev = $null
@@ -619,6 +699,7 @@ function Invoke-DevVaultChecks($Ctx, $Adapter) {
         Invoke-DevLinkIt $Ctx $Adapter $dev
         Invoke-DevUndoLinked $Ctx $Adapter $dev
         Invoke-DevTags $Ctx $Adapter $dev
+        Invoke-DevRetire $Ctx $Adapter $dev
         Invoke-DevUpgrade $Ctx $Adapter $dev
         Invoke-DevAsk $Ctx $Adapter $dev $bridge
     } catch { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Dev vault' $_.Exception.Message }

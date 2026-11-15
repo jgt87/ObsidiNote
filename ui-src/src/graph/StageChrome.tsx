@@ -15,12 +15,10 @@ export function StageToolbar({ firstRef, onZoom, onFit }: { firstRef: RefObject<
           <path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" />
         </svg>
       </button>
-      <span className="kg-toolbar__sep" aria-hidden="true" />
-      <span className="kg-hint" id="kg-stage-help">
-        <span>Hover a dot to focus it</span>
-        <span>Click to open</span>
-        <span>Scroll to zoom · drag to pan</span>
-        <span className="kg-sr">Arrow keys or Tab move between pages, Enter opens, F focuses on the page, Esc leaves the map.</span>
+      {/* design (operator, 2026-11-16): no guiding text beside the zoom buttons. The map's help stays
+          for screen readers (the stage's aria-describedby). */}
+      <span className="kg-sr" id="kg-stage-help">
+        Hover a dot to focus it, click to open, scroll to zoom and drag to pan. Arrow keys or Tab move between pages, Enter opens, F focuses on the page, Esc leaves the map.
       </span>
     </div>
   )

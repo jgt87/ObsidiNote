@@ -398,28 +398,87 @@ Describe 'V5 P10 meetings (operator, 2026-11-14)' {
         "$($n.found)|$($n.attendees)|$($n.decisions)|$($n.actions)|$($n.owners)|$($n.dues)|$($n.basedOn)|$($n.source)" | Should Be 'True|2|1|2|1|1|transcript|True'
         (Test-MeetingNotesReply '{"found":false,"attendees":[],"decisions":[],"actions":[]}').found | Should Be $false
     }
-    It 'asks the second question about the picked meeting and logs counts only: no title, name, link or text' {
-        $d = New-TestDir
-        $log = Join-Path $d 'p10.txt'
+    # The full day (operator, 2026-11-15): every meeting of 2026-11-13, two of them with something to read.
+    $dayList = '{"meetings":[{"title":"Fabrikam merger steering","start":"2026-11-13 10:00","attendees":6,"hasTranscript":true,"hasRecap":true,"hasNotes":false,"link":""},{"title":"Northwind budget review","start":"2026-11-13 14:00","attendees":4,"hasTranscript":false,"hasRecap":true,"hasNotes":true,"link":""},{"title":"Coffee with Ada","start":"2026-11-13 16:00","attendees":2,"hasTranscript":false,"hasRecap":false,"hasNotes":false,"link":""}],"searched":["Teams"]}'
+    function Set-P10Replies([string]$Week, [string]$Day, [string]$Notes) {
+        # Pester 3.4: a Mock runs in the module's scope and cannot see this Describe's variables.
+        $global:ObsnP10List = $Week; $global:ObsnP10Day = $Day; $global:ObsnP10Notes = $Notes
         Mock Connect-KitCopilot -ModuleName StageGrounding { [pscustomobject]@{ Port = 9334 } }
         Mock Get-KitOneNote -ModuleName StageGrounding { $null }
-        # Pester 3.4: a Mock runs in the module's scope and cannot see this Describe's variables.
-        $global:ObsnP10List = $list; $global:ObsnP10Notes = $notes
         Mock Send-KitPrompt -ModuleName StageGrounding {
-            $t = if ($Text -like 'List my Teams meetings*') { $global:ObsnP10List } elseif ($Text -like 'From the transcript*') { $global:ObsnP10Notes } else { '{}' }
+            $t = if ($Text -like 'List my Teams meetings*') { $global:ObsnP10List } elseif ($Text -like 'List all my Teams meetings on*') { $global:ObsnP10Day } elseif ($Text -like 'From the transcript*') { $global:ObsnP10Notes } else { '{}' }
             [pscustomobject]@{ ok = $true; result = 'Success'; ms = 900; error = ''; workIq = 'on'; text = $t }
         }
-        $c = New-TestCtx -LogPath $log -Flags @{ NoPrompt = $true }
+    }
+    function Clear-P10Replies { Remove-Variable -Name ObsnP10List, ObsnP10Day, ObsnP10Notes -Scope Global -ErrorAction SilentlyContinue }
+    It 'lists the busiest day, asks for the notes of two of its meetings one by one, and logs counts only: no title, name, link, date or text' {
+        $d = New-TestDir
+        $log = Join-Path $d 'p10.txt'
+        Set-P10Replies $list $dayList $notes
+        $c = New-TestCtx -LogPath $log -Flags @{ NoPrompt = $true; Probes = @('P10') }
         Invoke-StageGrounding -Ctx $c
-        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Scope It -ParameterFilter { $Text -like '*"Fabrikam merger steering"*' } -Times 1 -Exactly
+        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Scope It -ParameterFilter { $Text -like 'List all my Teams meetings on 2026-11-13,*' } -Times 1 -Exactly
+        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Scope It -ParameterFilter { $Text -like 'From the transcript*"Fabrikam merger steering"*' } -Times 1 -Exactly
+        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Scope It -ParameterFilter { $Text -like 'From the transcript*"Northwind budget review"*' } -Times 1 -Exactly
+        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Scope It -ParameterFilter { $Text -like '*Coffee with Ada*' } -Times 0 -Exactly
         $text = [IO.File]::ReadAllText($log)
-        $text | Should Not Match 'Fabrikam|Ada|Grace|Lovelace|contoso|recap/1|term sheet|bank|12M|Secret'
-        @($c.Results | Where-Object { $_.name -eq 'P10 meetings list' })[0].status | Should Be 'OK'
-        @($c.Results | Where-Object { $_.name -eq 'P10 meeting notes' })[0].status | Should Be 'OK'
+        $text | Should Not Match 'Fabrikam|Northwind|Ada|Grace|Lovelace|contoso|recap/1|term sheet|bank|12M|Secret|2026-11-1[23]'
+        (@($c.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'P10 meetings list=OK,P10 day''s meetings=OK,P10 meeting notes 1=OK,P10 meeting notes 2=OK'
         $text | Should Match '2 meetings in the last 7 days; with a transcript 1, a recap 1, notes 0, a link 1'
-        $text | Should Match '2 attendees, 1 decisions, 2 actions \(1 with an owner, 1 with a due date\); source link yes'
+        $text | Should Match '3 meetings on the busiest day of the last 7 days \(0 of another day\); with a transcript 1, a recap 2, notes 1; the week''s list had 1 of that day'
+        $text | Should Match 'date matches the day yes; 2 attendees, 1 decisions, 2 actions \(1 with an owner, 1 with a due date\); source link yes'
         Remove-Item $d -Recurse -Force
-        Remove-Variable -Name ObsnP10List, ObsnP10Notes -Scope Global
+        Clear-P10Replies
+    }
+    It 'asks the day given with -MeetingDay, also when the week''s list has nothing, and never logs it' {
+        $d = New-TestDir
+        $log = Join-Path $d 'p10day.txt'
+        Set-P10Replies '{"meetings":[],"searched":[]}' $dayList $notes
+        $c = New-TestCtx -LogPath $log -Flags @{ NoPrompt = $true; Probes = @('P10'); MeetingDay = '2026-11-13' }
+        Invoke-StageGrounding -Ctx $c
+        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Scope It -ParameterFilter { $Text -like 'List all my Teams meetings on 2026-11-13,*' } -Times 1 -Exactly
+        $text = [IO.File]::ReadAllText($log)
+        $text | Should Match '3 meetings on the day given with -MeetingDay'
+        $text | Should Not Match '2026-11-13'
+        @($c.Results | Where-Object { $_.name -eq 'P10 meeting notes 2' })[0].status | Should Be 'OK'
+        Remove-Item $d -Recurse -Force
+        Clear-P10Replies
+    }
+    It 'fails on a -MeetingDay that is not a date, without asking for that day' {
+        Set-P10Replies $list $dayList $notes
+        $c = New-TestCtx -Flags @{ NoPrompt = $true; Probes = @('P10'); MeetingDay = '13-11-2026' }
+        Invoke-StageGrounding -Ctx $c
+        (@($c.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'P10 meetings list=OK,P10 day''s meetings=FAIL'
+        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Times 1 -Exactly -Scope It
+        Clear-P10Replies
+    }
+    It 'reads one meeting and says why there is no second, on a day with only one to read; a wrong date shows' {
+        $one = '{"meetings":[{"title":"Fabrikam merger steering","start":"2026-11-13 10:00","hasTranscript":true},{"title":"Coffee with Ada","start":"2026-11-13 16:00"},{"title":"Late call","start":"2026-11-14 09:00","hasRecap":true}],"searched":["Teams"]}'
+        Set-P10Replies $list $one ($notes -replace '"date":"2026-11-13"', '"date":"2026-11-06"')
+        $c = New-TestCtx -Flags @{ NoPrompt = $true; Probes = @('P10') }
+        Invoke-StageGrounding -Ctx $c
+        (@($c.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'P10 meetings list=OK,P10 day''s meetings=WARN,P10 meeting notes 1=OK,P10 meeting notes 2=SKIP'
+        $c.Results[1].detail | Should Match '3 meetings on .* \(1 of another day\)'
+        ($c.Lines -join "`n") | Should Match 'Copilot listed meetings of other days too'
+        $c.Results[2].detail | Should Match 'date matches the day no'
+        $c.Results[3].detail | Should Match 'only 1 meeting'
+        # the meeting of another day is never asked about
+        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Scope It -ParameterFilter { $Text -like '*Late call*' } -Times 0 -Exactly
+        Clear-P10Replies
+    }
+    It 'chooses the day with the most meetings to read, the newest on a tie, and none without dates' {
+        Select-MeetingDay ([pscustomobject]@{ richDays = @('2026-11-10', '2026-11-12', '2026-11-12', '2026-11-13') }) | Should Be '2026-11-12'
+        Select-MeetingDay ([pscustomobject]@{ richDays = @('2026-11-10', '2026-11-13') }) | Should Be '2026-11-13'
+        Select-MeetingDay ([pscustomobject]@{ richDays = @() }) | Should Be ''
+        (Test-MeetingListReply $list).richDays -join ',' | Should Be '2026-11-13'
+    }
+    It 'takes only a real date written yyyy-mm-dd as -MeetingDay' {
+        Test-MeetingDayValue '2026-11-13' | Should Be $true
+        foreach ($bad in '', '2026-02-30', '13-11-2026', '2026-11-13 10:00', '20261113') { Test-MeetingDayValue $bad | Should Be $false }
+    }
+    It 'counts the meetings of the day and of other days, and picks only that day''s' {
+        $l = Test-MeetingListReply '{"meetings":[{"title":"A","start":"2026-11-13 10:00","hasRecap":true},{"title":"B","start":"2026-11-12 10:00","hasRecap":true},{"title":"C","hasNotes":true}]}' -Day '2026-11-13'
+        "$($l.onDay)|$($l.offDay)|$((@($l.picks) | ForEach-Object { $_.title }) -join ',')" | Should Be '1|1|A,C'
     }
     It 'runs only P10 with -Probe P10 (Run Meeting Probe.cmd)' {
         Mock Connect-KitCopilot -ModuleName StageGrounding { [pscustomobject]@{ Port = 9334 } }
@@ -427,7 +486,7 @@ Describe 'V5 P10 meetings (operator, 2026-11-14)' {
         Mock Send-KitPrompt -ModuleName StageGrounding { [pscustomobject]@{ ok = $true; result = 'Success'; ms = 1; error = ''; workIq = 'on'; text = '{"meetings":[],"searched":[]}' } }
         $c = New-TestCtx -Flags @{ NoPrompt = $true; Probes = @('P10') }
         Invoke-StageGrounding -Ctx $c
-        (@($c.Results | ForEach-Object { $_.name }) -join ',') | Should Be 'P10 meetings list,P10 meeting notes'
+        (@($c.Results | ForEach-Object { $_.name }) -join ',') | Should Be 'P10 meetings list,P10 day''s meetings'
         Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Times 1 -Exactly -Scope It
     }
     It 'picks no meeting without a title, and never throws on a list item without one (code review 2026-11-15)' {
@@ -444,9 +503,10 @@ Describe 'V5 P10 meetings (operator, 2026-11-14)' {
         Mock Send-KitPrompt -ModuleName StageGrounding { [pscustomobject]@{ ok = $true; result = 'Success'; ms = 1; error = ''; workIq = 'on'; text = '{"meetings":[{"start":"2026-11-13 10:00","hasTranscript":true}],"searched":["Teams"]}' } }
         $c = New-TestCtx -Flags @{ NoPrompt = $true; Probes = @('P10') }
         { Invoke-StageGrounding -Ctx $c } | Should Not Throw
-        (@($c.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'P10 meetings list=OK,P10 meeting notes=WARN'
-        $c.Results[1].detail | Should Match 'without a title'
-        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Times 1 -Exactly -Scope It
+        # the same reply for the week and the day: one meeting of 2026-11-13 with something to read, no title
+        (@($c.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'P10 meetings list=OK,P10 day''s meetings=OK,P10 meeting notes 1=WARN'
+        $c.Results[2].detail | Should Match 'without a title'
+        Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Times 2 -Exactly -Scope It
     }
 }
 
@@ -478,7 +538,7 @@ Describe 'V5 -Probe: a name that is no probe (code review 2026-11-15)' {
         Mock Send-KitPrompt -ModuleName StageGrounding { [pscustomobject]@{ ok = $true; result = 'Success'; ms = 1; error = ''; workIq = 'on'; text = '{"meetings":[],"searched":[]}' } }
         $c = New-TestCtx -Flags @{ NoPrompt = $true; Probes = @('p10', 'P99') }
         Invoke-StageGrounding -Ctx $c
-        (@($c.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'Probe=FAIL,P10 meetings list=WARN,P10 meeting notes=SKIP'
+        (@($c.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'Probe=FAIL,P10 meetings list=WARN,P10 day''s meetings=SKIP'
     }
     It 'a V5 run never ends without a result line' {
         Mock Connect-KitCopilot -ModuleName StageGrounding { [pscustomobject]@{ Port = 9334 } }
@@ -506,8 +566,9 @@ Describe 'V6 skips what is not in this version yet' {
         $null = New-Item -ItemType Directory -Force -Path (Join-Path $d 'lib')
         $c = New-TestCtx -AppRoot $d -Flags @{ WriteTest = $true }
         Invoke-StageVault -Ctx $c
-        $c.Results.Count | Should Be 15
-        @($c.Results | Where-Object { $_.status -eq 'SKIP' -and $_.detail -match '^not in this version yet' }).Count | Should Be 15
+        $c.Results.Count | Should Be 16
+        @($c.Results | Where-Object { $_.status -eq 'SKIP' -and $_.detail -match '^not in this version yet' }).Count | Should Be 16
+        @($c.Results | Where-Object { $_.name -eq 'Archive, restore and delete' }).Count | Should Be 1
         @($c.Results | Where-Object { $_.name -eq 'Notebook reads' }).Count | Should Be 1
         @($c.Results | Where-Object { $_.name -eq 'Undo of a linked page' }).Count | Should Be 1
         @($c.Results | Where-Object { $_.name -eq 'Tags' }).Count | Should Be 1
@@ -580,7 +641,7 @@ Describe 'V6 "Undo of a linked page" and "Tags" in the dev vault (in-memory OneN
     It 'lists both in the read-only plan (no -WriteTest)' {
         $r = New-TestCtx
         & (Get-Module StageVault) { param($c, $a) Invoke-DevVaultChecks $c $a } $r $w.a
-        (@($r.Results | ForEach-Object { $_.name }) -join ',') | Should Be 'Dev vault,Add and Undo,Check for the answer,Link it,Undo of a linked page,Tags,Upgrade move,Ask'
+        (@($r.Results | ForEach-Object { $_.name }) -join ',') | Should Be 'Dev vault,Add and Undo,Check for the answer,Link it,Undo of a linked page,Tags,Archive, restore and delete,Upgrade move,Ask'
         @($r.Results | Where-Object { $_.status -ne 'SKIP' }).Count | Should Be 0
     }
     It 'takes the company names for the upgrade plan from Get-LinkRules' {
@@ -588,6 +649,55 @@ Describe 'V6 "Undo of a linked page" and "Tags" in the dev vault (in-memory OneN
         $src | Should Not Match 'Get-CompanyNames'
         $src | Should Match 'Get-LinkRules -Locations'
     }
+}
+
+Describe 'V6 "Archive, restore and delete" in the dev vault (in-memory OneNote, no Copilot; operator 2026-11-15)' {
+    foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'Linker', 'LinkCapture', 'Ingest') { Import-Module (Join-Path $root "lib\$m.psm1") -Global }
+    . (Join-Path $here 'SyntheticVault.ps1')
+    $w = New-SyntheticVault
+    $dev = [pscustomobject]@{ vault = $w.open.vault; lease = $w.open.lease; model = $w.open.model }
+    $before = @($w.open.model.pages.Keys | Sort-Object) -join ','
+    # The kit's OneNote window, standing in: it records the links followed and shows no page (as
+    # desktop OneNote did for a moved page's old link, STATUS P1c).
+    $global:ObsnNav = New-Object System.Collections.Generic.List[string]
+    $stub = New-Object psobject
+    $stub | Add-Member ScriptMethod NavigateToUrl { param([string]$Url) $global:ObsnNav.Add($Url) }
+    $stub | Add-Member ScriptMethod CurrentPageId { '' }
+    $stub | Add-Member ScriptMethod NavigateTo { param([string]$Id) }
+    $c = New-TestCtx -Flags @{ WriteTest = $true; NavWaitMs = 0 }
+    $c.Shared.One = $stub
+    & (Get-Module StageVault) { param($c, $a, $d) Invoke-DevRetire $c $a $d } $c $w.a $dev
+    It 'plans, archives, restores and deletes a page another page links to, then takes the linking page back out' {
+        (@($c.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'Archive plan=OK,Archive=OK,Archive (link in another page)=WARN,Restore=OK,Delete=OK,Archive, restore and delete (undo)=OK'
+        $c.Results[0].detail | Should Match 'goes to Archive: yes; links to it counted: 1 \(expected 1\); refused 0; nothing written'
+        $c.Results[1].detail | Should Match 'marked archived: yes; found again under Archive: yes'
+        $c.Results[3].detail | Should Match 'back in its own section: yes; still marked archived: no'
+        $c.Results[4].detail | Should Match 'out of the index: yes; links left in the linking page: 0; its text says deleted: yes'
+        (@($w.open.model.pages.Keys | Sort-Object) -join ',') | Should Be $before
+        (Find-FakePage $w.f 'Validation archive linker') | Should BeNullOrEmpty
+    }
+    It 'follows the link written into the linking page''s text, once, and says what came of it' {
+        $global:ObsnNav.Count | Should Be 1
+        $global:ObsnNav[0] | Should Match '^onenote:'
+        $c.Results[2].detail | Should Match 'opens the archived page: no'
+        ($c.Lines -join "`n") | Should Match 'Archive must then rewrite the links in the text of pages that link to the page'
+    }
+    It 'logs statuses, counts and yes/no only: no page title, id or link' {
+        $all = @(foreach ($x in $c.Results) { "$($x.name) $($x.detail)" }) -join ' '
+        $all | Should Not Match 'Validation archive|onenote:|p\d|\{'
+    }
+    It 'says "not checked" when OneNote''s window cannot be asked, and is listed in the read-only plan' {
+        $w2 = New-SyntheticVault
+        $d2 = [pscustomobject]@{ vault = $w2.open.vault; lease = $w2.open.lease; model = $w2.open.model }
+        $c2 = New-TestCtx -Flags @{ WriteTest = $true; NavWaitMs = 0 }
+        $c2.Shared.One = New-Object psobject   # no NavigateToUrl
+        & (Get-Module StageVault) { param($c, $a, $d) Invoke-DevRetire $c $a $d } $c2 $w2.a $d2
+        @($c2.Results | Where-Object { $_.name -eq 'Archive (link in another page)' })[0].status | Should Be 'INFO'
+        $r = New-TestCtx
+        & (Get-Module StageVault) { param($c, $a) Invoke-DevVaultChecks $c $a } $r $w2.a
+        @($r.Results | Where-Object { $_.name -eq 'Archive, restore and delete' -and $_.status -eq 'SKIP' }).Count | Should Be 1
+    }
+    Remove-Variable -Name ObsnNav -Scope Global -ErrorAction SilentlyContinue
 }
 
 Describe 'V6 "Upgrade move" in the dev vault (in-memory OneNote, no Copilot)' {
@@ -705,6 +815,26 @@ Describe 'The kit on disk' {
     It 'Run Meeting Probe.cmd runs only the meetings probe, asking nothing' {
         $t = [IO.File]::ReadAllText((Join-Path $kit 'Run Meeting Probe.cmd'))
         $t | Should Match '-Stage V5 -Probe P10 -NoPrompt'
+    }
+    # One launcher per probe still to run on the target machine (operator, 2026-11-15: "provide cmd
+    # files for them as well"): each runs exactly its own probe or stage, and never writes.
+    It 'each probe launcher runs only its own probe or stage, and none of them writes' {
+        $want = [ordered]@{
+            'Run OneNote Search Probe.cmd' = '-Stage V5 -Probe P3 -NoPrompt %*'
+            'Run Link Probes.cmd' = '-Stage V5 -Probe P7,P8 %*'
+            'Run Loop Probe.cmd' = '-Stage V5 -Probe P4 %*'
+            'Run Vault Check.cmd' = '-Stage V6 -NoCopilot -NoPrompt %*'
+            'Run Meeting Probe.cmd' = '-Stage V5 -Probe P10 -NoPrompt %*'
+        }
+        foreach ($name in $want.Keys) {
+            $f = Join-Path $kit $name
+            "${name}: $(Test-Path -LiteralPath $f)" | Should Be "${name}: True"
+            $run = @([IO.File]::ReadAllLines($f) | Where-Object { $_ -match 'Run-Validation\.ps1' })
+            "${name}: $($run.Count) $($run[0].Trim().EndsWith('Run-Validation.ps1" ' + $want[$name]))" | Should Be "${name}: 1 True"
+            "${name}: $($run[0] -match '-WriteTest')" | Should Be "${name}: False"
+        }
+        # every name a launcher passes to -Probe is a probe of the kit
+        foreach ($p in @($want.Values | ForEach-Object { if ($_ -match '-Probe (\S+)') { $Matches[1].Split(',') } })) { (Get-GroundingProbes) -contains $p | Should Be $true }
     }
     # Docs in step (code review 2026-11-15: -Probe and Run Meeting Probe.cmd shipped without a word
     # in AGENTS.md, the README or RB-03). What the kit offers is read from the kit itself.

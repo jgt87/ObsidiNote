@@ -146,6 +146,19 @@ function Wait-ProbeNavigation {
     $One.CurrentPageId()
 }
 
+function Test-ProbeLinkOpens {
+    <# Follows $Url in OneNote and says whether it shows $PageId: 'yes', 'no', or 'not checked' when
+       OneNote's window cannot be asked ($One without NavigateToUrl / CurrentPageId). Goes back to the
+       page shown before. Selects a page in OneNote, so only for write tests (V6 Archive check). #>
+    param($One, [Parameter(Mandatory)][string]$Url, [string]$PageId, [int]$WaitMs = 1500)
+    if (-not $One -or -not $One.PSObject.Methods['NavigateToUrl'] -or -not $One.PSObject.Methods['CurrentPageId']) { return 'not checked' }
+    $before = $One.CurrentPageId()
+    try {
+        $shown = Wait-ProbeNavigation -One $One -Url $Url -WaitMs $WaitMs
+        if ($shown -and $shown -eq $PageId) { 'yes' } else { 'no' }
+    } finally { if ($before -and $One.PSObject.Methods['NavigateTo']) { try { $One.NavigateTo($before) } catch { } } }
+}
+
 function Move-P1cPage {
     <# Moves 'P1c move me' to 'P1c moved', by the kit or (when OneNote refuses) by the person. Returns
        @{ how; page } or $null when skipped. #>
@@ -223,4 +236,4 @@ function Get-ProbeMarkers {
     @($out | Sort-Object ageHours)
 }
 
-Export-ModuleMember -Function Invoke-ProbeRoundTrip, Invoke-ProbeMetaSize, Invoke-ProbeLinkMove, New-ProbeMarker, Get-ProbeMarkers, Get-MetaSizeValue, Test-P1ReadBack
+Export-ModuleMember -Function Invoke-ProbeRoundTrip, Invoke-ProbeMetaSize, Invoke-ProbeLinkMove, New-ProbeMarker, Get-ProbeMarkers, Get-MetaSizeValue, Test-P1ReadBack, Test-ProbeLinkOpens
