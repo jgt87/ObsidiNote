@@ -825,6 +825,7 @@ Describe 'The kit on disk' {
             'Run Loop Probe.cmd' = '-Stage V5 -Probe P4 %*'
             'Run Vault Check.cmd' = '-Stage V6 -NoCopilot -NoPrompt %*'
             'Run Meeting Probe.cmd' = '-Stage V5 -Probe P10 -NoPrompt %*'
+            'Run OneNote API Probe.cmd' = '-Stage V2 -NoCopilot -NoPrompt %*'
         }
         foreach ($name in $want.Keys) {
             $f = Join-Path $kit $name

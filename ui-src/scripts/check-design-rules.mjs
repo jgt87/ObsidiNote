@@ -340,29 +340,43 @@ async function titleInPlace({ S, js, list, go, openDot, expect }) {
 }
 
 // 15 the page window shows the page's text; a failed read is an error with its own retry; a long page says so
-async function pageText({ js, list, go, openDot, expect }) {
+const PAGE_BODY = `JSON.stringify((() => { const b = document.querySelector('dialog[open] .kg-body'); if (!b) return { shown: false }; return { shown: true, headings: b.querySelectorAll('h3, h4, h5').length, lists: b.querySelectorAll('ul, ol').length, table: !!b.querySelector('table'), pageLinks: b.querySelectorAll('button.kg-body__page').length, web: [...b.querySelectorAll('a')].map((a) => a.getAttribute('href')), html: /<script|onerror=/i.test(b.innerHTML), width: Math.round(b.getBoundingClientRect().width), scroll: b.scrollWidth > b.clientWidth + 1 } })())`
+
+/** The demo page's text as it should show: its headings, lists and table, one link to another page,
+ *  only http(s)/mailto/onenote addresses, no live HTML, and no sideways scroll. */
+function bodyShownRight(body) {
+  if (!body.shown || !body.table || body.html || body.scroll) return false
+  const addressesSafe = body.web.every((h) => /^(https?:|mailto:|onenote:)/.test(h))
+  return body.headings >= 3 && body.lists >= 3 && body.pageLinks === 1 && addressesSafe
+}
+
+async function pageTextShown({ js, list, go, openDot, expect }) {
   await go('/graph-demo.html?pages=100', '.kg-dot')
-  {
-    await openDot(); await wait(700)
-    const body = await list(`JSON.stringify((() => { const b = document.querySelector('dialog[open] .kg-body'); if (!b) return { shown: false }; return { shown: true, headings: b.querySelectorAll('h3, h4, h5').length, lists: b.querySelectorAll('ul, ol').length, table: !!b.querySelector('table'), pageLinks: b.querySelectorAll('button.kg-body__page').length, web: [...b.querySelectorAll('a')].map((a) => a.getAttribute('href')), html: /<script|onerror=/i.test(b.innerHTML), width: Math.round(b.getBoundingClientRect().width), scroll: b.scrollWidth > b.clientWidth + 1 } })())`)
-    expect(body.shown && body.headings >= 3 && body.lists >= 3 && body.table && body.pageLinks === 1 && body.web.every((h) => /^(https?:|mailto:|onenote:)/.test(h)) && !body.html && !body.scroll, `page text in the page window: ${JSON.stringify(body)}`)
-    const before = await js(`document.querySelector('dialog[open] #kg-dlg-title').textContent`)
-    await js(`document.querySelector('dialog[open] button.kg-body__page').click()`); await wait(900)
-    const after = await js(`document.querySelector('dialog[open] #kg-dlg-title')?.textContent ?? ''`)
-    expect(after && after !== before && (await js(`!!document.querySelector('dialog[open] .kg-body')`)), `page text: a link to another page showed "${after}" (was "${before}") with its own text`)
-  }
+  await openDot(); await wait(700)
+  const body = await list(PAGE_BODY)
+  expect(bodyShownRight(body), `page text in the page window: ${JSON.stringify(body)}`)
+  const before = await js(`document.querySelector('dialog[open] #kg-dlg-title').textContent`)
+  await js(`document.querySelector('dialog[open] button.kg-body__page').click()`); await wait(900)
+  const after = await js(`document.querySelector('dialog[open] #kg-dlg-title')?.textContent ?? ''`)
+  const ownText = await js(`!!document.querySelector('dialog[open] .kg-body')`)
+  expect(after && after !== before && ownText, `page text: a link to another page showed "${after}" (was "${before}") with its own text`)
+}
+
+/** A failed read: an error box (role alert) that says so, with one retry; the page's links stay. */
+const readFailedRight = (err) => /could not be read/.test(err.text) && err.role === 'alert' && err.retry.length === 1 && err.links > 0
+
+async function pageTextFails({ list, go, openDot, expect }) {
   await go('/graph-demo.html?pages=100&body=fail', '.kg-dot')
-  {
-    await openDot(); await wait(700)
-    const err = await list(`JSON.stringify((() => { const n = document.querySelector('dialog[open] .notice--error'); return { text: n?.textContent ?? '', role: n?.getAttribute('role') ?? '', retry: [...(n?.querySelectorAll('button') ?? [])].map((b) => b.textContent.trim()), links: document.querySelectorAll('dialog[open] .kg-row').length } })())`)
-    expect(/could not be read/.test(err.text) && err.role === 'alert' && err.retry.length === 1 && err.links > 0, `page text, the read fails: ${JSON.stringify(err)} (an error box with one retry; the links stay)`)
-  }
+  await openDot(); await wait(700)
+  const err = await list(`JSON.stringify((() => { const n = document.querySelector('dialog[open] .notice--error'); return { text: n?.textContent ?? '', role: n?.getAttribute('role') ?? '', retry: [...(n?.querySelectorAll('button') ?? [])].map((b) => b.textContent.trim()), links: document.querySelectorAll('dialog[open] .kg-row').length } })())`)
+  expect(readFailedRight(err), `page text, the read fails: ${JSON.stringify(err)} (an error box with one retry; the links stay)`)
+}
+
+async function pageTextLong({ js, go, openDot, expect }) {
   await go('/graph-demo.html?pages=100&body=long', '.kg-dot')
-  {
-    await openDot(); await wait(700)
-    const more = await js(`[...document.querySelectorAll('dialog[open] .kg-body .kg-note')].map((n) => n.textContent).join('')`)
-    expect(/first part of a long page/.test(more), `page text, a long page: the note reads "${more}"`)
-  }
+  await openDot(); await wait(700)
+  const more = await js(`[...document.querySelectorAll('dialog[open] .kg-body .kg-note')].map((n) => n.textContent).join('')`)
+  expect(/first part of a long page/.test(more), `page text, a long page: the note reads "${more}"`)
 }
 
 // 11 a read-only page says why and shows Edit disabled, not missing
@@ -410,32 +424,58 @@ async function fieldEdges({ S, js, list, go, openDot, expect }) {
 
 // 16 a citation [n] in an Ask answer opens that page's window; a link page's citation is its address.
 //    And the box: every control (mode switch, paperclip, Send) in one row under the text.
-async function askCitations({ S, js, list, go, expect }) {
-  {
-    const target = graph.pages.find((p) => !p.url && p.id) ?? graph.pages[0]
-    const linkPage = graph.pages.find((p) => p.id !== target.id) ?? graph.pages[1]
-    const source = (n, p, url = '') => ({ n, id: p.id, key: p.id, title: p.title, path: 'Security', link: 'onenote:#example', url, updated: '', age: 'today', type: 'note', archived: false, sourceId: 'v1', sourceName: 'Work wiki', readOnly: false, stale: false, summarizedAge: '' })
-    submitAnswer = {
-      intent: 'ask', ok: true, status: 'answered', conversationId: 'c1', turn: 1, question: 'What did we decide?', writes: 0, note: '', message: '', path: null,
-      answer: { confidence: 'high', paragraphs: [{ sentences: [{ text: 'The first sentence.', cites: [1], unsupported: false }, { text: 'The second one.', cites: [2], unsupported: false }] }] },
-      sources: [source(1, target), source(2, linkPage, 'https://example.com/guide')], unused: [], staleLinks: [], invalidCitations: [], notFound: null,
-    }
-    waiting = false; await go('/#/', '.recent__row')
-    const row = await list(`JSON.stringify((() => { const r = document.querySelector('.composer__bottom'); const tops = [...r.querySelectorAll('.seg, .composer__file-btn, .composer__send')].map((e) => Math.round(e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2)); return { n: tops.length, spread: Math.max(...tops) - Math.min(...tops), clip: r.querySelector('.composer__file-btn')?.getAttribute('aria-label') } })())`)
-    expect(row.n === 3 && row.spread <= 2 && row.clip === 'Add a file', `the box's controls: ${JSON.stringify(row)} (mode switch, paperclip "Add a file" and Send on one line)`)
-    await js(`document.querySelector('#composer-text').focus()`)
-    await S('Input.insertText', { text: 'What did we decide?' })
-    await wait(600)
-    await js(`document.querySelector('.composer__send').click()`)
-    for (let k = 0; k < 50 && !(await js(`!!document.querySelector('[aria-label="Answer"]')`)); k++) await wait(100)
-    const cites = await list(`JSON.stringify([...document.querySelectorAll('.ask-cite')].map((c) => ({ tag: c.tagName, href: c.getAttribute('href') })))`)
-    expect(cites.length === 2 && cites[0].tag === 'BUTTON' && cites[1].href === 'https://example.com/guide', `Ask citations: ${JSON.stringify(cites)} (a button for the vault page, the address for the link page)`)
-    await js(`document.querySelector('button.ask-cite').click()`)
-    let title = ''
-    for (let k = 0; k < 60 && !title; k++) { title = await js(`document.querySelector('dialog[open] #kg-dlg-title')?.textContent ?? ''`); if (!title) await wait(100) }
-    expect(title.includes(target.title), `Ask citation [1]: the page window shows "${title}" ("${target.title}" expected)`)
-    submitAnswer = added
+
+/** An answered Ask from the stub graph: sentence 1 cites a page of the vault (no address), sentence 2
+ *  a link page (https://example.com/guide). Returns the answer and the vault page cited. */
+function askAnswerFixture(pages) {
+  const target = pages.find((p) => !p.url && p.id) ?? pages[0]
+  const linkPage = pages.find((p) => p.id !== target.id) ?? pages[1]
+  const source = (n, p, url = '') => ({ n, id: p.id, key: p.id, title: p.title, path: 'Security', link: 'onenote:#example', url, updated: '', age: 'today', type: 'note', archived: false, sourceId: 'v1', sourceName: 'Work wiki', readOnly: false, stale: false, summarizedAge: '' })
+  const answer = {
+    intent: 'ask', ok: true, status: 'answered', conversationId: 'c1', turn: 1, question: 'What did we decide?', writes: 0, note: '', message: '', path: null,
+    answer: { confidence: 'high', paragraphs: [{ sentences: [{ text: 'The first sentence.', cites: [1], unsupported: false }, { text: 'The second one.', cites: [2], unsupported: false }] }] },
+    sources: [source(1, target), source(2, linkPage, 'https://example.com/guide')], unused: [], staleLinks: [], invalidCitations: [], notFound: null,
   }
+  return { answer, target }
+}
+
+/** Polls expr up to `tries` times, 100 ms apart, until it gives a truthy value; returns the last value. */
+async function waitForValue(js, expr, tries) {
+  let v = await js(expr)
+  for (let k = 1; k < tries && !v; k++) { await wait(100); v = await js(expr) }
+  return v
+}
+
+/** The box's controls (mode switch, paperclip "Add a file", Send) on one line: centres within 2 px. */
+const composerRowRight = (row) => row.n === 3 && row.spread <= 2 && row.clip === 'Add a file'
+
+/** Ask's citations: a button for the vault page, the address for the link page. */
+const citationsRight = (cites) => cites.length === 2 && cites[0].tag === 'BUTTON' && cites[1].href === 'https://example.com/guide'
+
+// The answer cited (set by composerRow, used by askCitations; they run one after the other).
+let askTarget = null
+
+async function composerRow({ list, go, expect }) {
+  const { answer, target } = askAnswerFixture(graph.pages)
+  submitAnswer = answer
+  askTarget = target
+  waiting = false; await go('/#/', '.recent__row')
+  const row = await list(`JSON.stringify((() => { const r = document.querySelector('.composer__bottom'); const tops = [...r.querySelectorAll('.seg, .composer__file-btn, .composer__send')].map((e) => Math.round(e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2)); return { n: tops.length, spread: Math.max(...tops) - Math.min(...tops), clip: r.querySelector('.composer__file-btn')?.getAttribute('aria-label') } })())`)
+  expect(composerRowRight(row), `the box's controls: ${JSON.stringify(row)} (mode switch, paperclip "Add a file" and Send on one line)`)
+}
+
+async function askCitations({ S, js, list, expect }) {
+  await js(`document.querySelector('#composer-text').focus()`)
+  await S('Input.insertText', { text: 'What did we decide?' })
+  await wait(600)
+  await js(`document.querySelector('.composer__send').click()`)
+  await waitForValue(js, `!!document.querySelector('[aria-label="Answer"]')`, 51)
+  const cites = await list(`JSON.stringify([...document.querySelectorAll('.ask-cite')].map((c) => ({ tag: c.tagName, href: c.getAttribute('href') })))`)
+  expect(citationsRight(cites), `Ask citations: ${JSON.stringify(cites)} (a button for the vault page, the address for the link page)`)
+  await js(`document.querySelector('button.ask-cite').click()`)
+  const title = await waitForValue(js, `document.querySelector('dialog[open] #kg-dlg-title')?.textContent ?? ''`, 60)
+  expect(title.includes(askTarget.title), `Ask citation [1]: the page window shows "${title}" ("${askTarget.title}" expected)`)
+  submitAnswer = added
 }
 
 // 1 one primary button per view (the knowledge graph's own is checked after rule 6)
@@ -574,7 +614,8 @@ async function searchHidesNothing({ S, js, list, size, go, expect }) {
 
 const RULES = [
   loadStubGraph, noDotUnderNames, hubsOnlyLabels, zoomNeverStretched, searchClearButton, tagsSetEverywhere, tagsGrouping,
-  titleInPlace, pageText, readOnlyPage, readOnlyBanner, fieldEdges, askCitations, onePrimaryPerView, sectionRows,
+  titleInPlace, pageTextShown, pageTextFails, pageTextLong, readOnlyPage, readOnlyBanner, fieldEdges, composerRow, askCitations,
+  onePrimaryPerView, sectionRows,
   onePrimaryOnGraph, graphNoScroll, addBoxFirstScreen, touchTargets, toolbarLegendApart, searchHidesNothing,
 ]
 

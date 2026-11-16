@@ -77,6 +77,56 @@ Requirements and limits:
 - Alternative: the Microsoft Graph OneNote API. It needs an Entra app registration and token,
   which goes against the zero-install / no-admin goal. Keep it as a fallback only.
 
+### OneNote's API, every method (operator, 2026-11-16)
+
+Every method of desktop OneNote's COM API (`OneNote.Application`, IApplication), what it does,
+where ObsidiNote uses it, and what it could add. Kinds: **read** changes nothing; **write**
+changes notebooks (only through the write guard, inside the active vault); **file** writes or reads
+files on disk; **window** changes OneNote's window or opens a dialog. The validation kit tries
+every read method once on the target machine (`Run OneNote API Probe.cmd`, stage V2, RB-03 step 6;
+read only); the write methods ObsidiNote uses are covered by its write tests in `ObsidiNote-Probe`.
+The list is `validation/lib/ApiProbe.psm1` (`Get-OneNoteApiCatalogue`); `tests/OneNoteApi.Tests.ps1`
+fails when this table, that list or the code's own calls disagree.
+
+| Method | Kind | What it does | ObsidiNote | Could add | Probe |
+|---|---|---|---|---|---|
+| `GetHierarchy` | read | Notebooks, section groups, sections and pages as XML, from any node, at a chosen depth (self, children, notebooks, sections, pages); Meta at page scope | everywhere: vaults, index load, the side bar, the graph | - | tried |
+| `GetHierarchyParent` | read | The id of an object's parent | not used | find a page's section without reading the whole hierarchy | tried |
+| `GetPageContent` | read | A page's XML; the page-info flag adds binary data, the selection or file types | Ask sources, export, page window text, store reads | images and ink of a page (piBinaryData) for the export | tried |
+| `GetBinaryPageContent` | read | One image, ink or file object of a page, base64, by its callback id | not used | images in the Markdown export and the page window | tried |
+| `GetHyperlinkToObject` | read | An onenote: link to a notebook, section, page or paragraph | every page link, "Linked from", graph and Ask sources | - | tried |
+| `GetWebHyperlinkToObject` | read | An https link that opens the object in OneNote on the web | not used | open a page in the browser when desktop OneNote is closed; share a link | tried |
+| `FindPages` | read | OneNote's own search (Windows Search) under a node | feasibility probes only (probes/p1-find.ps1); never for retrieval: unindexed pages come back whatever the term | - | tried |
+| `FindMeta` | read | Every object under a node that carries a Meta of a given name | not used | none: it depends on Windows Search like FindPages (seen 2026-11-16), and GetHierarchy at page scope already returns every page's Meta in one call | tried |
+| `GetSpecialLocation` | read | The backup folder, the unfiled-notes section or the default notebook folder | the default notebook folder for a new vault | - | tried |
+| `Windows` | read | OneNote's windows and what the current one shows (notebook, section, page) | the notebook OneNote shows, at start | - | tried |
+| `OpenHierarchy` | write | Opens a notebook, or creates a notebook, section group or section by path | new vault and fixed sections | - | not tried |
+| `CreateNewPage` | write | A new empty page in a section | every new page | - | not tried |
+| `UpdatePageContent` | write | Writes page XML: title, Meta, outlines | every page write (owned outlines only) | - | not tried |
+| `DeletePageContent` | write | Removes one object (an outline) from a page | owned outlines | - | not tried |
+| `UpdateHierarchy` | write | Changes the hierarchy from XML: rename, reorder, move a page | section rename, moving a page (Archive, link bucket) | - | not tried |
+| `DeleteHierarchy` | write | Deletes a page, section or group (to Deleted Pages unless permanent) | Delete and Undo (never permanent) | - | not tried |
+| `CloseNotebook` | write | Closes a notebook in OneNote | feasibility probes only (probes/p1-cleanup.ps1) | - | not tried |
+| `SyncHierarchy` | write | Asks OneNote to sync a notebook or section now | validation kit only | sync the vault before reading pages another PC wrote | not tried |
+| `MergeSections` | write | Moves every page of one section into another | not used | join a rolled-over section back | not tried |
+| `SetFilingLocation` | write | Where Send to OneNote, Outlook and the web clipper file new items | not used | file clippings straight into the vault's Intake (changes the person's OneNote settings: ask first) | not tried |
+| `Publish` | file | Exports a page, section or notebook to a file (PDF, Word, MHTML, .one, .onepkg) | not used | none: content on disk breaks the storage rule | not tried |
+| `OpenPackage` | file | Unpacks a .onepkg notebook package to a folder | not used | - | not tried |
+| `MergeFiles` | file | Merges .one section files | not used | - | not tried |
+| `NavigateTo` | window | Shows a notebook, section, page or paragraph in OneNote's window | once at start, so OneNote lists a vault it has not selected | - | not tried |
+| `NavigateToUrl` | window | Opens an onenote: link in OneNote's window | validation kit only (P1c) | - | not tried |
+| `QuickFiling` | window | OneNote's pick-a-location dialog | not used | let the person pick a notebook for a new vault in OneNote's own dialog | not tried |
+
+**API probe on the development PC (2026-11-16, desktop OneNote, consumer account; read only):**
+every read method answered. `GetHierarchyParent` gave a page's section, `GetWebHyperlinkToObject`
+an https address for a OneDrive notebook's page, `GetSpecialLocation` all three folders. `FindMeta`
+behaves like `FindPages`: indexed pages only, it returned 15 pages, 11 with `obsn.id`; with unindexed
+pages included, it returned all 206 pages of the hierarchy, 171 of them in recycle bins, each marked
+`isIndexed=false`, whatever the Meta. `GetBinaryPageContent` was skipped (no picture on the first
+25 pages). Still to run on the target machine (business tenant): `Run OneNote API Probe.cmd`.
+The "Could add" column lists candidates only; each needs its own decision (none is planned), and
+every write candidate stays behind the write guard and the invariants in AGENTS.md.
+
 ## 3. Loop as a repository
 
 - **No public API to read or write Loop pages.** A Microsoft Q&A thread from Feb 2026 asks for

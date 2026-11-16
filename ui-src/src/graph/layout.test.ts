@@ -215,6 +215,17 @@ describe('placing linked topics next to each other', () => {
     expect(packOrder([null, null, null, 2, null], W, [false, false, false, false, true])).toEqual([0, 2, 3, 1, 4])
   })
 
+  it('packOrder: a placed parent pulls its subtopic like a link of strength 3', () => {
+    // 0 root, 1 root linked to 0, 2 subtopic of 0 without links. Weaker than 3: the subtopic comes first.
+    const weak = [[0, 2, 0], [2, 0, 0], [0, 0, 0]]
+    expect(packOrder([null, null, 0], weak)).toEqual([0, 2, 1])
+    // Stronger than 3: the linked root comes first. Equal (3): the first area wins the tie.
+    const strong = [[0, 4, 0], [4, 0, 0], [0, 0, 0]]
+    expect(packOrder([null, null, 0], strong)).toEqual([0, 1, 2])
+    const equal = [[0, 3, 0], [3, 0, 0], [0, 0, 0]]
+    expect(packOrder([null, null, 0], equal)).toEqual([0, 1, 2])
+  })
+
   it('puts two topics with many links between them side by side, so their line is straight', () => {
     // Four topics in tree order A, B, C, D; only A and D are linked (strongly).
     const pages: Record<string, unknown>[] = []

@@ -1,13 +1,83 @@
-// The knowledge graph's map layouts per grouping, and the vault's map settings. Used by
-// KnowledgeGraph.tsx.
-import { useEffect, useMemo, useRef, useState } from 'react'
+// The knowledge graph's map layouts per grouping, the vault's map settings, which pages are shown
+// and the Tags grouping's choice. Used by KnowledgeGraph.tsx.
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { getSettings, saveSetting } from '../api'
 import type { VaultSettings } from '../model/vaultSettings'
+import { archivedHidden, emptyFilter, pruneFilter, visiblePageIds, type GraphFilter } from './filters'
 import { buildIndex, type GraphIndex } from './graphIndex'
+import type { Active, Filters } from './GraphStage'
+import { toggleTagChoice } from './graphViewModel'
 import { layoutGraph } from './layout'
 import type { GraphModel } from './model'
 import { bySource, type GroupBy } from './sourceView'
-import { byTag } from './tagView'
+import { availableTags, byTag } from './tagView'
+import { searchPages } from './view'
+
+/**
+ * Which pages are shown and which the search finds. Filters (filters.ts) hide pages; the search then
+ * only finds visible ones. The List gets the same set through `listMatches`, so map and List always
+ * show the same pages. Without a search, the pages to show first (`focus`) are the results.
+ */
+export function useVisiblePages(index: GraphIndex, filter: GraphFilter, query: string, focus: string[]) {
+  const liveFilter = useMemo(() => pruneFilter(index, filter), [index, filter])
+  const shown = useMemo(() => visiblePageIds(index, liveFilter), [index, liveFilter])
+  const allShown = shown.size === index.model.pages.length
+  const hiddenArchived = archivedHidden(index, liveFilter)
+  const searchMatches = useMemo(() => (query.trim() ? searchPages(index, query) : focus.length ? focus : null), [index, query, focus])
+  const matches = useMemo(() => (searchMatches && !allShown ? searchMatches.filter((id) => shown.has(id)) : searchMatches), [searchMatches, shown, allShown])
+  const listMatches = useMemo(() => matches ?? (allShown ? null : [...shown]), [matches, shown, allShown])
+  return { liveFilter, shown, allShown, hiddenArchived, matches, listMatches }
+}
+
+/**
+ * How the map is drawn: the grouping (Topics, Sources or Tags) and what the map shows (links,
+ * mentions, names of hubs only). Both start from the vault's settings when the graph opens
+ * (useGraphSettings), which may also show archived pages through `setFilter`; the person's later
+ * choices of Topics/Sources and hubs-only are saved back to the vault (Tags is session state only).
+ */
+export function useMapChoices(readOnly: boolean, setFilter: (f: (prev: GraphFilter) => GraphFilter) => void) {
+  const [groupBy, setGroupBy] = useState<GroupBy>('topics')
+  const [filters, setFilters] = useState<Filters>({ links: true, mentions: false, hubsOnly: false })
+  const { staleDays, remember } = useGraphSettings(readOnly, (s) => {
+    setGroupBy(s.graphView)
+    setFilters((f) => ({ ...f, hubsOnly: s.labelsHubsOnly }))
+    if (s.graphShowArchived) setFilter((f) => ({ ...f, showArchived: true }))
+  })
+  const setShow = (key: keyof Filters, next: boolean) => {
+    setFilters((f) => ({ ...f, [key]: next }))
+    if (key === 'hubsOnly') remember('labelsHubsOnly', next)
+  }
+  const chooseGroup = (g: GroupBy) => {
+    setGroupBy(g)
+    if (g !== 'tags') remember('graphView', g)
+  }
+  return { groupBy, setGroupBy, filters, staleDays, setShow, chooseGroup }
+}
+
+/** The filter's choices (filters.ts). Applying a filter that hides the focused page drops that
+ *  focus; "focus on this page" keeps the link steps chosen before (1 by default). */
+export function useGraphFilter(index: GraphIndex, setActive: Dispatch<SetStateAction<Active | null>>) {
+  const [filter, setFilterState] = useState<GraphFilter>(emptyFilter)
+  const setFilter = (f: GraphFilter) => {
+    setFilterState(f)
+    const next = visiblePageIds(index, f)
+    setActive((a) => (a && !next.has(a.id) ? null : a))
+  }
+  const focusOn = useCallback((id: string) => {
+    setFilterState((f) => ({ ...f, focus: { id, depth: f.focus?.depth ?? 1 } }))
+    setActive({ id, via: 'keyboard' })
+  }, [setActive])
+  return { filter, setFilterState, setFilter, focusOn }
+}
+
+/** The tags the Tags grouping can show, and which of them it shows (null = every tag; session state,
+ *  like the grouping: the vault's "opens on" setting knows Topics and Sources only). */
+export function useTagGrouping(model: GraphModel) {
+  const [tagChoice, setTagChoice] = useState<ReadonlySet<string> | null>(null)
+  const groupTags = useMemo(() => availableTags(model), [model])
+  const toggleTag = (name: string) => setTagChoice(toggleTagChoice(tagChoice, groupTags.map((t) => t.name), name))
+  return { groupTags, tagChoice, setTagChoice, toggleTag }
+}
 
 /**
  * The layouts of the map: by topic always (the List and the counts use it), and by where the pages

@@ -9,7 +9,7 @@ a log to your Desktop that you can send back. It is in the folder
 | Stage | What it checks | Writes anything? | Time |
 |---|---|---|---|
 | V1 This computer | The start checks (PowerShell, OneNote, Edge and its policies, the debug port, the Edge profile, GitHub), the Edge policy values, ports 9334 and 8767, OneNote running, versions, the install folder against its manifest | No | 5 s |
-| V2 OneNote | Your open notebooks: counts of notebooks, section groups, sections and pages, where each notebook lives, which are ObsidiNote vaults, COM speed | No (with `-WriteTest`: yes, only in `ObsidiNote-Probe`) | 5 s (1 min with `-WriteTest`) |
+| V2 OneNote | Your open notebooks: counts of notebooks, section groups, sections and pages, where each notebook lives, which are ObsidiNote vaults, COM speed; then every read method of OneNote's API tried once on the first page OneNote lists (`API ...` lines) | No (with `-WriteTest`: yes, only in `ObsidiNote-Probe`) | 5 to 20 s (1 min with `-WriteTest`) |
 | V3 Copilot | The Edge profile's account type and single sign-on, then Copilot in ObsidiNote's Edge window: connect, one harmless prompt, the answer checked | No | 1 min |
 | V4 Window | Starts the window's server on a test port (not 8767), calls it, checks that bad requests are refused, stops it | No | 5 s |
 | V5 Grounding | Probes P3, P4, P7, P8 and P10: can Copilot find a marker on a OneNote page, summarize links, and list your Teams meetings, all meetings of one day, and turn two of them into notes. See RB-04 | Only with `-WriteTest`: one marker page in `ObsidiNote-Probe` | 5 to 18 min (P10 alone, with `Run Meeting Probe.cmd`: 2 to 15 min) |
@@ -42,6 +42,7 @@ The files to double-click in the `validation` folder:
 | `Run Link Probes.cmd` | Only P7 and P8: `-Stage V5 -Probe P7,P8`. It asks for a SharePoint page address and a OneDrive document address (Enter skips one) and writes nothing (RB-04, steps 2 and 4). |
 | `Run Loop Probe.cmd` | Only P4: `-Stage V5 -Probe P4`. It asks for the marker you typed on a Loop page and writes nothing (RB-04, step 3). |
 | `Run Vault Check.cmd` | Only the vault checks, read only: `-Stage V6 -NoCopilot -NoPrompt`. No Edge window opens and nothing is written (RB-05, steps 3 and 3a). |
+| `Run OneNote API Probe.cmd` | Only OneNote, read only: `-Stage V2 -NoCopilot -NoPrompt`. It counts your notebooks and tries every read method of OneNote's API once (step 6 below). Nothing is written, no dialog opens and OneNote's window does not change. |
 
 ## Steps
 
@@ -77,6 +78,16 @@ The files to double-click in the `validation` folder:
    OneNote until then.
 
 5. Send the Desktop files of every pass (RB-00, "How to send the results back").
+
+6. OneNote's API, once: open a notebook that has at least one page with a picture (any notebook;
+   it is only read), then double-click **Run OneNote API Probe.cmd**.
+   - What you should see: under V2, one `API ...` line per read method (`GetHierarchy`,
+     `GetHierarchyParent`, `GetPageContent`, `GetBinaryPageContent`, `GetHyperlinkToObject`,
+     `GetWebHyperlinkToObject`, `FindPages`, `FindMeta`, `GetSpecialLocation`, `Windows`), each
+     `[OK]` with a time, and a last line `[INFO] API not tried` that names the methods that write.
+     `GetWebHyperlinkToObject` is `[INFO]` for a notebook on this PC (it has no web address).
+     `GetBinaryPageContent` is `[SKIP]` when the first pages hold no picture, ink or file.
+   - If not, send this: the two newest Desktop files. A `[FAIL]` line names OneNote's error code.
 
 ## Cleaning up (after the 24-hour run)
 

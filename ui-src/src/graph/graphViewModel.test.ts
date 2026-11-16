@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { areaCount, closeFocus, isSearchSlash, isTypingTarget, searchKeyAction } from './graphViewModel'
+import { areaCount, areaWordOf, closeFocus, isSearchSlash, isTypingTarget, readOnlyBanner, searchKeyAction, toggleTagChoice } from './graphViewModel'
 
 const key = (k: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean }> = {}) => ({ key: k, ctrlKey: false, metaKey: false, altKey: false, ...mods })
 const field = { closest: (s: string) => (s.includes('input') ? {} : null) }
@@ -75,5 +75,32 @@ describe('areaCount: the header\'s count of areas', () => {
   })
   it('the List always counts topics', () => {
     expect(areaCount({ ...base, mode: 'list', groupBy: 'tags' })).toEqual({ joiner: ' in ', areas: '6 topics' })
+  })
+})
+
+describe('toggleTagChoice: the chips of the Tags grouping', () => {
+  const all = ['a', 'b', 'c']
+  it('takes a tag out of "every tag", and puts it back to "every tag" again', () => {
+    const one = toggleTagChoice(null, all, 'b')
+    expect([...(one ?? [])]).toEqual(['a', 'c'])
+    expect(toggleTagChoice(one, all, 'b')).toBeNull()
+  })
+  it('adds a tag to a choice that holds fewer than all', () => {
+    expect([...(toggleTagChoice(new Set(['a']), all, 'c') ?? [])]).toEqual(['a', 'c'])
+    expect([...(toggleTagChoice(new Set(['a']), all, 'a') ?? [])]).toEqual([])
+  })
+})
+
+describe('areaWordOf and readOnlyBanner', () => {
+  it('names an area by the grouping drawn', () => {
+    expect(areaWordOf({ tags: true, sources: true })).toBe('tag')
+    expect(areaWordOf({ tags: false, sources: true })).toBe('source')
+    expect(areaWordOf({ tags: false, sources: false })).toBe('topic')
+  })
+  it('a lease uses the app\'s own sentence and offers Check again; other reasons do not', () => {
+    const check = () => {}
+    expect(readOnlyBanner({ readOnlyReason: 'lease' }, 'general', 'Another PC seems to be writing.', 'Still held.', check)).toEqual({ text: 'Another PC seems to be writing.', onCheck: check, result: 'Still held.' })
+    expect(readOnlyBanner({ readOnlyReason: 'lease' }, 'general', undefined, '', check)).toEqual({ text: 'general', onCheck: check, result: '' })
+    expect(readOnlyBanner({ readOnlyReason: 'notebook' }, 'A connected notebook.', 'ignored', 'ignored', check)).toEqual({ text: 'A connected notebook.', onCheck: undefined, result: '' })
   })
 })

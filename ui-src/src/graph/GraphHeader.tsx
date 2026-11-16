@@ -1,8 +1,36 @@
-// The knowledge graph's bar (grouping, Filter, search, Graph/List) and the Tags grouping's chips.
-// Render only; KnowledgeGraph.tsx holds the state.
+// The knowledge graph's heading and bar (grouping, Filter, search, Graph/List), the read-only
+// banner and the Tags grouping's chips. Render only; KnowledgeGraph.tsx holds the state.
 import type { KeyboardEvent, ReactNode, RefObject } from 'react'
+import { ReadOnlyBanner } from '../components/ReadOnlyBanner'
 import { plural } from './format'
+import { readOnlyBanner } from './graphViewModel'
+import type { GraphSource } from './model'
+import { readOnlyWhy } from './readOnly'
 import type { GroupBy } from './sourceView'
+
+/** The heading: the view's title (none when the app shell shows one) and one line of counts. */
+export function GraphHeading({ title, source, pages, areas, links, hiddenArchived }: { title: string; source: string; pages: number; areas: { joiner: string; areas: string }; links: number; hiddenArchived: number }) {
+  return (
+    <div className="kg-head__title">
+      {title && <h1 className="kg-title">{title}</h1>}
+      <span className="kg-meta">
+        {source ? `${source} · ` : ''}
+        {plural(pages, 'page')}
+        {areas.joiner}
+        {areas.areas} · {plural(links, 'link')}
+        {hiddenArchived > 0 ? ` · ${hiddenArchived} archived hidden` : ''}
+      </span>
+    </div>
+  )
+}
+
+/** Why this source is read only, once, above the graph (graphViewModel.ts readOnlyBanner); nothing
+ *  for a source that can be written. */
+export function SourceBanner({ source, appNote, checkResult, onCheckAgain }: { source: GraphSource; appNote?: string; checkResult: string; onCheckAgain?: () => Promise<void> | void }) {
+  if (!source.readOnly) return null
+  const b = readOnlyBanner(source, readOnlyWhy(source), appNote, checkResult, onCheckAgain)
+  return <ReadOnlyBanner text={b.text} onCheck={b.onCheck} result={b.result} />
+}
 
 export interface GraphToolsProps {
   mode: 'graph' | 'list'

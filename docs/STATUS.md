@@ -1,12 +1,13 @@
 # Status - ObsidiNote
 
-Updated: 2026-11-14 (validation runs on the business tenant; Copilot refresh button; white window after update). Status values: `todo` / `done (code)` / `verified` / `unverified live`.
+Updated: 2026-11-16 (OneNote API catalogue and read probe; earlier: validation runs on the business tenant, Copilot refresh button, white window after update). Status values: `todo` / `done (code)` / `verified` / `unverified live`.
 
 | # | Item | Status | Evidence |
 |---|---|---|---|
 | 1 | Scaffold builds and tests pass | verified | `tools/run-tests.ps1`, 2026-11-12 |
 | 2 | P1 OneNote COM round trip (consumer account) | verified | `probes/p1-roundtrip.ps1` 2026-11-12: all OK, owned-outline rewrite keeps the body |
 | 3 | P1 on a Microsoft 365 business tenant | verified | Kit V2 `-WriteTest`, 2026-11-14 (v0.7.0): create, write, read back, owned-outline rewrite, sync all OK. P1c: a moved page gets a new id and its old link no longer opens it (archiving must rewrite links) |
+| 3a | OneNote API: every method catalogued, every read method tried | partly (dev PC verified; target machine todo) | FEASIBILITY.md "OneNote's API, every method", `validation/lib/ApiProbe.psm1`, `tests/OneNoteApi.Tests.ps1`. Kit V2 on the dev PC 2026-11-16 (consumer): all read methods answer; FindMeta depends on Windows Search like FindPages; GetBinaryPageContent skipped (no picture). Target machine: `Run OneNote API Probe.cmd` (RB-03 step 6) |
 | 4 | P2 Copilot linking quality (20 dummy notes) | todo | needs a working Copilot connection |
 | 5 | P3 Copilot grounding on OneNote (business tenant) | partly | 2026-11-14: marker page made; at 0 h not found (Work IQ switch "unavailable"). Re-run V5 after 1 h and 24 h (RB-04) |
 | 6 | P4 Copilot grounding on Loop (business tenant) | todo | |

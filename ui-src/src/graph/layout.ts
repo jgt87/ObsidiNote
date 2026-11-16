@@ -389,9 +389,25 @@ export function packOrder(targets: (number | null)[], links: number[][], outer: 
 /** The most linked root area (not outer); -1 when there is none. The first on a tie. */
 function firstArea(targets: (number | null)[], links: number[][], outer: boolean[]): number {
   const total = (i: number) => (links[i] ?? []).reduce((s, w) => s + (w > 0 ? w : 0), 0)
+  const isRoot = (i: number) => !outer[i] && targets[i] === null
   let first = -1
-  for (let i = 0; i < targets.length; i++) if (!outer[i] && targets[i] === null && (first < 0 || total(i) > total(first))) first = i
+  for (let i = 0; i < targets.length; i++) if (isRoot(i) && (first < 0 || total(i) > total(first))) first = i
   return first
+}
+
+/** Area i may be packed next: not placed yet, not an outer one, and its parent (if any) is placed. */
+function canPackNext(i: number, targets: (number | null)[], outer: boolean[], placed: Set<number>): boolean {
+  if (placed.has(i) || outer[i]) return false
+  const t = targets[i]
+  return t === null || placed.has(t)
+}
+
+/** How strongly area i holds on to the placed areas: its links to them, plus PARENT_LINK for its
+ *  parent (a subtopic always wants to sit by its topic). */
+function pullToPlaced(i: number, targets: (number | null)[], links: number[][], placed: Set<number>): number {
+  let s = targets[i] !== null ? PARENT_LINK : 0
+  for (const j of placed) s += Math.max(0, links[i]?.[j] ?? 0)
+  return s
 }
 
 /** The area with the strongest links to the placed ones (its parent counts as PARENT_LINK); only
@@ -400,10 +416,8 @@ function nextArea(targets: (number | null)[], links: number[][], outer: boolean[
   let best = -1
   let bestScore = -1
   for (let i = 0; i < targets.length; i++) {
-    const t = targets[i]
-    if (placed.has(i) || outer[i] || (t !== null && !placed.has(t))) continue
-    let s = t !== null ? PARENT_LINK : 0
-    for (const j of placed) s += Math.max(0, links[i]?.[j] ?? 0)
+    if (!canPackNext(i, targets, outer, placed)) continue
+    const s = pullToPlaced(i, targets, links, placed)
     if (s > bestScore) {
       bestScore = s
       best = i
@@ -631,12 +645,19 @@ const cellKey = (gx: number, gy: number) => gx * 73856093 + gy * 19349663
  *  of `cell`-sized squares, so each dot only meets its neighbours (keeps this near O(n)). */
 function pushApart(dots: DotLayout[], cell: number, keep: number, v: Forces): void {
   const grid = cellGrid(dots, cell)
-  for (let i = 0; i < dots.length; i++) {
-    const gx = Math.floor(dots[i].x / cell)
-    const gy = Math.floor(dots[i].y / cell)
-    for (const [ox, oy] of NEIGHBOUR_CELLS) {
-      for (const j of grid.get(cellKey(gx + ox, gy + oy)) ?? []) if (j > i) pushPair(dots, i, j, keep, v)
-    }
+  const push = (i: number, j: number) => pushPair(dots, i, j, keep, v)
+  for (let i = 0; i < dots.length; i++) visitNeighboursAfter(dots, grid, cell, i, push)
+}
+
+/** Calls visit(i, j) for each dot j after dot i (higher index, so each pair meets once) in the 3x3
+ *  cells round i's cell, in the order pushApart has always met them: cell by cell (NEIGHBOUR_CELLS),
+ *  index order within a cell. The order matters: the forces add up as floating-point numbers. No
+ *  list is built: this runs for every dot in every round of the simulation. */
+function visitNeighboursAfter(dots: DotLayout[], grid: Map<number, number[]>, cell: number, i: number, visit: (i: number, j: number) => void): void {
+  const gx = Math.floor(dots[i].x / cell)
+  const gy = Math.floor(dots[i].y / cell)
+  for (const [ox, oy] of NEIGHBOUR_CELLS) {
+    for (const j of grid.get(cellKey(gx + ox, gy + oy)) ?? []) if (j > i) visit(i, j)
   }
 }
 
@@ -826,19 +847,26 @@ export function bundleEdges(layout: GraphLayout, shown: Set<string> | null = nul
 function crossAreaLinks(layout: GraphLayout, shown: Set<string> | null): Map<string, { count: number; weight: number }> {
   const counts = new Map<string, { count: number; weight: number }>()
   for (const { edge } of layout.edges) {
-    if (edge.kind === 'mention') continue
-    if (shown && (!shown.has(edge.from) || !shown.has(edge.to))) continue
-    const da = layout.dotById.get(edge.from)
-    const db = layout.dotById.get(edge.to)
-    if (!da || !db || da.area === db.area) continue
-    const [a, b] = da.area < db.area ? [da.area, db.area] : [db.area, da.area]
-    const key = `${a}\u0000${b}`
+    const key = areaPairKey(layout, edge, shown)
+    if (key === null) continue
     const c = counts.get(key) ?? { count: 0, weight: 0 }
     c.count++
     c.weight += edge.strength
     counts.set(key, c)
   }
   return counts
+}
+
+/** The two areas a link joins as one key ("a\0b", a < b); null for a mention, a link to a page
+ *  that is not shown or not drawn, and a link inside one area. */
+function areaPairKey(layout: GraphLayout, edge: GraphEdge, shown: Set<string> | null): string | null {
+  if (edge.kind === 'mention') return null
+  if (shown && (!shown.has(edge.from) || !shown.has(edge.to))) return null
+  const da = layout.dotById.get(edge.from)
+  const db = layout.dotById.get(edge.to)
+  if (!da || !db || da.area === db.area) return null
+  const [a, b] = da.area < db.area ? [da.area, db.area] : [db.area, da.area]
+  return `${a}\u0000${b}`
 }
 
 /** One topic line before its ends are spread: a first route from rim to rim (centre line) says
@@ -1179,9 +1207,18 @@ function areaLinks(model: GraphModel, index: GraphIndex, slot: Map<string, numbe
   return links
 }
 
+/** The areas to pack, by index: each one's radius, its parent's index (null for a root), its link
+ *  strength to every other area, and whether it is an outer one (Unfiled). */
+interface PackInput {
+  radii: number[]
+  targets: (number | null)[]
+  links: number[][]
+  outer: boolean[]
+}
+
 /** The areas' circles, in the areas' order: packed in link order (packOrder), parents and links
  *  carried over to that order. */
-function packedCircles(radii: number[], targets: (number | null)[], links: number[][], outer: boolean[], aspect: number): Circle[] {
+function packedCircles({ radii, targets, links, outer }: PackInput, aspect: number): Circle[] {
   const order = packOrder(targets, links, outer)
   const at = new Map(order.map((orig, k) => [orig, k]))
   const packed = packAreas(
@@ -1256,7 +1293,7 @@ function layoutOnce(model: GraphModel, aspect: number, index: GraphIndex, slotSc
   )
   const slot = new Map(areaIds.map((id, i) => [id, i]))
   const outer = areaIds.map((id) => id === UNFILED_ID)
-  const circles = packedCircles(radii, areaParents(areaIds, index, slot), areaLinks(model, index, slot, areaIds.length), outer, aspect)
+  const circles = packedCircles({ radii, targets: areaParents(areaIds, index, slot), links: areaLinks(model, index, slot, areaIds.length), outer }, aspect)
   const areas = areaIds.map((id, i) => areaLayout(id, circles[i], index, slotScale))
 
   const centre = new Map(areas.map((a) => [a.id, { x: a.x, y: a.y }]))

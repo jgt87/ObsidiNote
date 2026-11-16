@@ -71,3 +71,32 @@ export function areaCount(i: { mode: 'graph' | 'list'; groupBy: GroupBy; sources
   if (onMap && i.groupBy === 'sources') return { joiner: ' in ', areas: plural(i.sources, 'source') }
   return { joiner: ' in ', areas: plural(i.topics, 'topic') }
 }
+
+/** The Tags grouping's choice after a tag's chip is pressed: null means every tag; pressing one
+ *  takes it out of (or puts it back into) the choice, and a choice of every tag is null again. */
+export function toggleTagChoice(choice: ReadonlySet<string> | null, all: readonly string[], name: string): ReadonlySet<string> | null {
+  const next = new Set(choice ?? all)
+  if (next.has(name)) next.delete(name)
+  else next.add(name)
+  return next.size === all.length ? null : next
+}
+
+/** What one area of the map stands for, by the grouping drawn: a tag, a source or a topic. */
+export function areaWordOf(drawn: { tags: boolean; sources: boolean }): 'tag' | 'source' | 'topic' {
+  if (drawn.tags) return 'tag'
+  return drawn.sources ? 'source' : 'topic'
+}
+
+/** The read-only banner above the graph: the app's own sentence for the active vault's lease (who
+ *  holds it, since when) when it has one, else the source's reason; "Check again" and what it
+ *  found only for a lease (the other reasons cannot change by checking). */
+export function readOnlyBanner(
+  source: { readOnlyReason: string },
+  why: string,
+  appNote: string | undefined,
+  checkResult: string,
+  onCheck: (() => Promise<void> | void) | undefined,
+): { text: string; onCheck?: () => Promise<void> | void; result: string } {
+  const lease = source.readOnlyReason === 'lease'
+  return { text: lease && appNote ? appNote : why, onCheck: lease ? onCheck : undefined, result: lease ? checkResult : '' }
+}

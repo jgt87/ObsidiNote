@@ -2,11 +2,14 @@
 
 <img src="assets/icon-256.png" alt="ObsidiNote icon: a faceted purple stone with a white N" width="96" height="96">
 
-**A personal wiki in your own OneNote that files and links itself.** Paste a link, a mail, a file or a few lines; Microsoft 365 Copilot decides what it is, which topics it belongs to and which of your pages it relates to, and ObsidiNote writes it as a page into your OneNote notebook. Ask a question and the answer cites your own pages. A knowledge graph shows how everything connects.
+**Our own web interface on top of OneNote: a personal wiki that files and links itself.** ObsidiNote is a small web portal that you host yourself. It runs on your own PC (a local server that only this PC can reach, opened in its own Edge window), and it uses a OneNote notebook of yours as its data store. OneNote holds the pages; ObsidiNote is the interface you work in.
+
+In that interface you paste a link, a mail, a file or a few lines. Microsoft 365 Copilot decides what it is, which topics it belongs to and which of your pages it relates to, and ObsidiNote writes it as a page into your notebook through desktop OneNote. Ask a question and the answer cites your own pages. A knowledge graph shows how everything connects. The pages stay ordinary OneNote pages: you can still open, read and edit them in OneNote itself.
 
 ![The knowledge graph: pages as dots in topic areas, links as lines, a page pointed at with its preview](docs/screenshots/map.png)
 
-- **Your data stays yours.** Everything lives in a OneNote notebook of your own. ObsidiNote keeps no copy on disk.
+- **Self-hosted.** The portal runs on your PC and nowhere else: no web service, no extra account beyond your Microsoft 365 one.
+- **OneNote is the storage.** Your pages, ObsidiNote's index and the vault's settings all live in your OneNote notebook. ObsidiNote keeps no copy on disk.
 - **No install rights needed.** It runs on Windows PowerShell 5.1, desktop OneNote and Edge, all already on a Microsoft 365 PC.
 - **Copilot does the filing.** You add; ObsidiNote checks every answer against your index before anything is written.
 

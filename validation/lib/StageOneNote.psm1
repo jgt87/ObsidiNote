@@ -1,6 +1,7 @@
 # V2 OneNote: the open notebooks read through COM (counts only: notebooks, section groups, sections,
-# pages; where each notebook lives; which are ObsidiNote vaults), the COM latency, and the notebook
-# on record. With -WriteTest also the write probes P1, P1b and P1c, only in ObsidiNote-Probe.
+# pages; where each notebook lives; which are ObsidiNote vaults), the COM latency, the notebook on
+# record, and every read method of OneNote's API tried once (ApiProbe.psm1). With -WriteTest also the
+# write probes P1, P1b and P1c, only in ObsidiNote-Probe.
 # Every notebook, section and page name read here is registered for masking; the log shows
 # "notebook #1" and counts only. Keep this file ASCII: PS 5.1 reads BOM-less files as ANSI.
 Set-StrictMode -Version 2.0
@@ -8,6 +9,7 @@ $script:AppLib = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $PSScriptRoot 'ValidationCore.psm1')
 Import-Module (Join-Path $PSScriptRoot 'ProbeNotebook.psm1')
 Import-Module (Join-Path $PSScriptRoot 'WriteProbes.psm1')
+Import-Module (Join-Path $PSScriptRoot 'ApiProbe.psm1')
 foreach ($m in 'AppConfig', 'OneNoteHost', 'NotebookView') { Import-Module (Join-Path $script:AppLib "$m.psm1") }
 
 $script:ListMax = 25
@@ -118,6 +120,9 @@ function Invoke-StageOneNote {
     Add-ValidationResult $Ctx 'V2' $(if ($slow) { 'WARN' } else { 'OK' }) 'COM latency' "notebook list $($t2.ms) ms; all sections and pages $($t4.ms) ms"
     Add-NotebookResults $Ctx $counts
     Add-RecordResult $Ctx $counts
+    # Every read method of OneNote's API, tried once (lib ApiProbe.psm1); read only.
+    $com = if ($one.PSObject.Properties['Com']) { $one.Com } else { $null }
+    Invoke-ApiProbe -Ctx $Ctx -Com $com -HierarchyXml "$($t4.value)"
     Invoke-WriteTests $Ctx $one
 }
 

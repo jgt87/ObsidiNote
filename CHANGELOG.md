@@ -5,6 +5,15 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.2] - 2026-11-16
+
+### Added
+- **Validation kit, OneNote API probe** (`Run OneNote API Probe.cmd`): tries every read method of OneNote's API once on the first page OneNote lists (the hierarchy, a page and its pictures, links, OneNote's own search and Meta search, special folders, windows) and lists the methods that write as not tried. Read only: nothing is written, no dialog opens and OneNote's window does not change; the log holds timings, counts and OneNote's error codes. The same check now runs in every V2 pass. Every method of the API, what it does, where ObsidiNote uses it and what it could add is listed in FEASIBILITY.md.
+
+### Changed
+- **README**: the introduction now says plainly what ObsidiNote is: its own web interface, hosted on your PC, on top of a OneNote notebook that holds all the data.
+- **Inside the interface**: the knowledge graph view and the map's layout are split into smaller parts, with new tests. Nothing you see or do changes; the map, the page window and every rendered check were compared before and after.
+
 ## [v0.12.1] - 2026-11-16
 
 ### Changed
