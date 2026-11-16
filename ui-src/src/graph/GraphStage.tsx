@@ -11,12 +11,12 @@ import { memo, useCallback, useMemo, useRef, type RefObject } from 'react'
 import { indexPath, type GraphIndex } from './graphIndex'
 import { HoverCard } from './HoverCard'
 import { bundleEdges, restingBundles, type BundleLayout, type DotLayout, type GraphLayout } from './layout'
-import { primaryTopic } from './model'
+import { primaryTopic, type GraphPage } from './model'
 import { StageLegend, StageToolbar } from './StageChrome'
 import { areaBundles, drawnAtRest, edgeClass, focusEdgeClass, focusEdgeList, sharpDots, stageAnnouncement, stageLabels } from './stageModel'
 import { useStageKeyboard, useStagePointer } from './useStageInput'
 import { useStageView } from './useStageView'
-import { lineMode } from './view'
+import { lineMode, type Viewport } from './view'
 
 export interface Filters {
   links: boolean
@@ -89,15 +89,7 @@ function dotClass(d: DotLayout, extra = ''): string {
 export function GraphStage({ index, layout, filters, matches, active, onActive, onOpen, stageRef, label, shown = null, onFocusPage, areaWord = 'topic' }: Props) {
   const { size, v, fit, setView, layerRef, current, preview, commit, zoomBy } = useStageView(stageRef, layout)
   const toolbarRef = useRef<HTMLButtonElement>(null)
-
-  const matchSet = useMemo(() => (matches ? new Set(matches) : null), [matches])
-  // A search highlights its results; it hides nothing (operator, 2026-11-15: "I'm not able to select
-  // any other dots than the searched item"). The pointer reaches every page the filters show
-  // (isShown); the keyboard walks the results while a search runs (visible), as the box's Enter
-  // and arrow keys do.
-  const isShown = useCallback((id: string) => !shown || shown.has(id), [shown])
-  const visible = useCallback((id: string) => isShown(id) && (!matchSet || matchSet.has(id)), [matchSet, isShown])
-  const activeDot = active && isShown(active.id) ? layout.dotById.get(active.id) ?? null : null
+  const { isShown, visible, activeDot, near } = useStageFocus(index, layout, shown, matches, active)
   const viaKeyboard = active?.via === 'keyboard'
 
   // Pointer and keyboard (useStageInput.ts).
@@ -107,22 +99,14 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
 
   // ---------- focus layer and names ----------
   const activeId = activeDot?.id ?? null
-  const near = useMemo(() => (activeDot ? (index.neighbours.get(activeDot.id) ?? []).filter(isShown) : []), [index, activeDot, isShown])
   const focusEdges = useMemo(() => focusEdgeList(index, layout, activeId, filters.links, filters.mentions, isShown), [index, layout, activeId, filters.links, filters.mentions, isShown])
   const sharp = useMemo(() => sharpDots(layout, activeId, near, matches, isShown), [activeId, near, matches, layout, isShown])
   const dim = !!activeDot || !!matches
-  const { areaLabels, groupLabels, hiddenAreas, labels } = stageLabels({ layout, index, v, fitK: fit.k, size, shown, activeDot, sharp, matches, hubsOnly: filters.hubsOnly, hoverArea })
-
-  const bundles = useMemo(() => bundleEdges(layout, shown), [layout, shown])
-  // At rest the heaviest topic lines; zoomed in far enough, all of them (lineMode).
-  const allLines = lineMode(v.k, fit.k) === 'all'
-  const resting = useMemo(() => (allLines ? bundles : restingBundles(bundles)), [bundles, allLines])
-  // Pointing at a page shows every topic line of its area (under the areas, not faded).
-  const focusBundles = useMemo(() => areaBundles(bundles, activeDot?.area ?? null, filters.links), [bundles, activeDot, filters.links])
+  const names = stageLabels({ layout, index, v, fitK: fit.k, size, shown, activeDot, sharp, matches, hubsOnly: filters.hubsOnly, hoverArea })
+  const { resting, focusBundles } = useTopicLines(layout, shown, v.k, fit.k, activeDot, filters.links)
 
   const world = `matrix(${v.k} 0 0 ${v.k} ${-v.x * v.k} ${-v.y * v.k})`
-  const page = activeDot ? index.pageById.get(activeDot.id) : undefined
-  const announce = page ? stageAnnouncement(page.title, indexPath(index, primaryTopic(page)), near.length, !!onFocusPage) : ''
+  const { page, announce } = focusedPage(index, activeDot, near.length, !!onFocusPage)
 
   return (
     <div
@@ -157,60 +141,16 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
             covers moves with it. */}
         <rect className="kg-veil" data-on={dim} x={0} y={0} width={size.w} height={size.h} />
         <g transform={world}>
-          <g className="kg-focus">
-            {focusEdges.map((f, i) => (
-              <path key={i} d={f.d} className={focusEdgeClass(f)} />
-            ))}
-            {sharp.map((d) => (
-              <circle key={d.id} data-id={d.id} className={dotClass(d, activeDot ? ' kg-dot--near' : '')} cx={d.x} cy={d.y} r={d.r} />
-            ))}
-            {activeDot && (
-              <>
-                <circle data-id={activeDot.id} className={dotClass(activeDot, ' kg-dot--on')} cx={activeDot.x} cy={activeDot.y} r={activeDot.r + 2} />
-                {viaKeyboard && <circle className="kg-ring" cx={activeDot.x} cy={activeDot.y} r={activeDot.r + 2 + 5 / v.k} />}
-              </>
-            )}
-          </g>
+          <FocusLayer focusEdges={focusEdges} sharp={sharp} activeDot={activeDot} ring={viaKeyboard} k={v.k} />
         </g>
       </svg>
 
-      <div className="kg-labels" aria-hidden="true">
-        {areaLabels.map((l) => (
-          <div key={l.id} className="kg-alabel" data-dim={dim} data-at={l.at} data-hidden={hiddenAreas.has(l.id)} style={{ left: l.x, top: l.top }}>
-            <b>{l.text}</b>
-            {l.count !== undefined && <span className="kg-alabel__count">{l.count}</span>}
-          </div>
-        ))}
-        {groupLabels.map((g) => (
-          <div key={g.key} className="kg-glabel" data-dim={dim} data-hidden={!!g.hidden} style={{ left: g.x, top: g.top }}>
-            {g.text}
-          </div>
-        ))}
-        {labels.map((l) => (
-          <div key={l.id} className={l.cls} style={{ left: l.x, top: l.y }}>
-            {l.text}
-          </div>
-        ))}
-      </div>
+      <StageNames names={names} dim={dim} />
       </div>
 
-      {page && activeDot && (
-        <HoverCard
-          index={index}
-          page={page}
-          dot={activeDot}
-          view={v}
-          stage={size}
-          near={near.map((id) => layout.dotById.get(id)).filter((d): d is DotLayout => !!d)}
-          focusKey={onFocusPage && viaKeyboard ? 'F' : undefined}
-        />
-      )}
+      <FocusCard index={index} layout={layout} page={page} dot={activeDot} view={v} stage={size} near={near} showFocusKey={!!onFocusPage && viaKeyboard} />
 
-      {shown && shown.size === 0 && (
-        <p className="kg-stage__empty" role="status">
-          No pages match these filters.
-        </p>
-      )}
+      <EmptyFilterNote shown={shown} />
 
       <div className="kg-bottom">
         <StageToolbar firstRef={toolbarRef} onZoom={zoomBy} onFit={() => setView(fit)} />
@@ -220,6 +160,123 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
       <div className="kg-sr" aria-live="polite">
         {viaKeyboard ? announce : ''}
       </div>
+    </div>
+  )
+}
+
+/**
+ * What the stage can reach and what is focused. A search highlights its results; it hides nothing
+ * (operator, 2026-11-15: "I'm not able to select any other dots than the searched item"). The
+ * pointer reaches every page the filters show (isShown); the keyboard walks the results while a
+ * search runs (visible), as the box's Enter and arrow keys do. The focused dot only counts while
+ * its page is shown; `near` are its linked pages that are shown.
+ */
+function useStageFocus(index: GraphIndex, layout: GraphLayout, shown: Set<string> | null, matches: string[] | null, active: Active | null) {
+  const matchSet = useMemo(() => (matches ? new Set(matches) : null), [matches])
+  const isShown = useCallback((id: string) => !shown || shown.has(id), [shown])
+  const visible = useCallback((id: string) => isShown(id) && (!matchSet || matchSet.has(id)), [matchSet, isShown])
+  const activeDot = focusedDot(layout, active, isShown)
+  const near = useMemo(() => (activeDot ? (index.neighbours.get(activeDot.id) ?? []).filter(isShown) : []), [index, activeDot, isShown])
+  return { isShown, visible, activeDot, near }
+}
+
+/** The focused page's dot, while its page is shown; null otherwise. */
+function focusedDot(layout: GraphLayout, active: Active | null, isShown: (id: string) => boolean): DotLayout | null {
+  if (!active || !isShown(active.id)) return null
+  return layout.dotById.get(active.id) ?? null
+}
+
+/** The focused page and what a screen reader hears for it ('' without one). */
+function focusedPage(index: GraphIndex, activeDot: DotLayout | null, linked: number, canFocusPage: boolean) {
+  const page = activeDot ? index.pageById.get(activeDot.id) : undefined
+  const announce = page ? stageAnnouncement(page.title, indexPath(index, primaryTopic(page)), linked, canFocusPage) : ''
+  return { page, announce }
+}
+
+/** The dots of the given pages, for the hover card's list of linked pages. */
+const nearDots = (layout: GraphLayout, ids: string[]): DotLayout[] => ids.map((id) => layout.dotById.get(id)).filter((d): d is DotLayout => !!d)
+
+interface FocusCardProps {
+  index: GraphIndex
+  layout: GraphLayout
+  page: GraphPage | undefined
+  dot: DotLayout | null
+  view: Viewport
+  stage: { w: number; h: number }
+  near: string[]
+  /** The card names F ("focus on this page") only for the keyboard, where F works. */
+  showFocusKey: boolean
+}
+
+/** The focused page's card beside its dot; nothing without a focused page. */
+function FocusCard({ index, layout, page, dot, view, stage, near, showFocusKey }: FocusCardProps) {
+  if (!page || !dot) return null
+  return <HoverCard index={index} page={page} dot={dot} view={view} stage={stage} near={nearDots(layout, near)} focusKey={showFocusKey ? 'F' : undefined} />
+}
+
+/** When the filters leave no page, the map says so instead of showing an empty stage. */
+function EmptyFilterNote({ shown }: { shown: Set<string> | null }) {
+  if (!shown || shown.size !== 0) return null
+  return (
+    <p className="kg-stage__empty" role="status">
+      No pages match these filters.
+    </p>
+  )
+}
+
+/** The topic lines: at rest the heaviest (restingBundles), zoomed in far enough all of them
+ *  (lineMode); pointing at a page shows every line of its area (under the areas, not faded). */
+function useTopicLines(layout: GraphLayout, shown: Set<string> | null, k: number, fitK: number, activeDot: DotLayout | null, linksOn: boolean) {
+  const bundles = useMemo(() => bundleEdges(layout, shown), [layout, shown])
+  const allLines = lineMode(k, fitK) === 'all'
+  const resting = useMemo(() => (allLines ? bundles : restingBundles(bundles)), [bundles, allLines])
+  const focusBundles = useMemo(() => areaBundles(bundles, activeDot?.area ?? null, linksOn), [bundles, activeDot, linksOn])
+  return { resting, focusBundles }
+}
+
+/** The focus layer above the veil: the focused page's lines, the pages kept sharp (its linked pages,
+ *  or a search's results), and the focused dot itself with the keyboard's ring. */
+function FocusLayer({ focusEdges, sharp, activeDot, ring, k }: { focusEdges: ReturnType<typeof focusEdgeList>; sharp: DotLayout[]; activeDot: DotLayout | null; ring: boolean; k: number }) {
+  return (
+    <g className="kg-focus">
+      {focusEdges.map((f, i) => (
+        <path key={i} d={f.d} className={focusEdgeClass(f)} />
+      ))}
+      {sharp.map((d) => (
+        <circle key={d.id} data-id={d.id} className={dotClass(d, activeDot ? ' kg-dot--near' : '')} cx={d.x} cy={d.y} r={d.r} />
+      ))}
+      {activeDot && (
+        <>
+          <circle data-id={activeDot.id} className={dotClass(activeDot, ' kg-dot--on')} cx={activeDot.x} cy={activeDot.y} r={activeDot.r + 2} />
+          {ring && <circle className="kg-ring" cx={activeDot.x} cy={activeDot.y} r={activeDot.r + 2 + 5 / k} />}
+        </>
+      )}
+    </g>
+  )
+}
+
+/** The names over the map, in screen pixels (stageModel.ts stageLabels): topic or tag names on their
+ *  areas (hidden under the pointer or the focused page), group names, and page names. */
+function StageNames({ names, dim }: { names: ReturnType<typeof stageLabels>; dim: boolean }) {
+  const { areaLabels, groupLabels, hiddenAreas, labels } = names
+  return (
+    <div className="kg-labels" aria-hidden="true">
+      {areaLabels.map((l) => (
+        <div key={l.id} className="kg-alabel" data-dim={dim} data-at={l.at} data-hidden={hiddenAreas.has(l.id)} style={{ left: l.x, top: l.top }}>
+          <b>{l.text}</b>
+          {l.count !== undefined && <span className="kg-alabel__count">{l.count}</span>}
+        </div>
+      ))}
+      {groupLabels.map((g) => (
+        <div key={g.key} className="kg-glabel" data-dim={dim} data-hidden={!!g.hidden} style={{ left: g.x, top: g.top }}>
+          {g.text}
+        </div>
+      ))}
+      {labels.map((l) => (
+        <div key={l.id} className={l.cls} style={{ left: l.x, top: l.y }}>
+          {l.text}
+        </div>
+      ))}
     </div>
   )
 }

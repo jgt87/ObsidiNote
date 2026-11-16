@@ -3,7 +3,7 @@ import { buildIndex } from '../graph/graphIndex'
 import { normalizeGraph, type GraphModel } from '../graph/model'
 import { syntheticGraph } from '../graph/synthetic'
 import { parseQuery } from './query'
-import { moveActive, requestFor, rowFor, SWITCHER_LIMIT, switcherList } from './switcherModel'
+import { emptyListText, moveActive, requestFor, rowDomId, rowFor, SWITCHER_LIMIT, switcherAnnouncement, switcherList } from './switcherModel'
 
 // Invented example data.
 // Hubs are derived from the edges (weights.ts); p1 is made a hub by hand to test the rows alone.
@@ -64,5 +64,22 @@ describe('switcher rows', () => {
     expect(requestFor(index, { kind: 'page', id: 'p1' })).toEqual({ sourceId: 'v1', pageId: 'p1' })
     expect(requestFor(index, { kind: 'topic', id: 't2' })).toEqual({ sourceId: 'v1', query: 'topic:"Security / Networking"' })
     expect(requestFor(index, { kind: 'topic', id: 'x' })).toBeNull()
+  })
+})
+
+describe('the switcher\'s wording', () => {
+  const rows = switcherList(index, '').rows
+  it('announces the number of results, counting the hidden ones; nothing for suggestions or before the list', () => {
+    expect(switcherAnnouncement(null)).toBe('')
+    expect(switcherAnnouncement({ rows, hidden: 0, suggested: true })).toBe('')
+    expect(switcherAnnouncement({ rows: rows.slice(0, 1), hidden: 2, suggested: false })).toBe('3 results')
+    expect(switcherAnnouncement({ rows: [], hidden: 0, suggested: false })).toBe('No pages or topics match')
+  })
+  it('says why the list is empty', () => {
+    expect(emptyListText({ rows: [], hidden: 0, suggested: true }, '')).toBe('This vault has no pages yet.')
+    expect(emptyListText({ rows: [], hidden: 0, suggested: false }, '  zzz ')).toBe('No pages or topics match “zzz”.')
+  })
+  it('names a row\'s element by its key', () => {
+    expect(rowDomId('p-p1')).toBe('qs-row-p-p1')
   })
 })

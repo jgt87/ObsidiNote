@@ -1,14 +1,11 @@
 // The route-level view: loads the model, then shows the graph, or loading / empty / error.
 // The merge renders <GraphView load={() => fetchGraph({ vault })} ... /> for the Map nav entry.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { exportSourceOf } from '../export/exportApi'
-import { updateLink } from '../add/api'
-import { addLink, editPage, fetchPageBody, retirePages, tagPages } from './graphApi'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { KnowledgeGraph, type KnowledgeGraphProps } from './KnowledgeGraph'
-import { mentionBetween, withMentions } from './mentions'
+import { withMentions } from './mentions'
 import type { GraphModel } from './model'
-import type { PageActions } from './PageDialog'
+import { useGraphWrites } from './useGraphWrites'
 import './graph.css'
 
 type State = { status: 'loading' } | { status: 'ready'; model: GraphModel } | { status: 'error'; message: string }
@@ -23,98 +20,49 @@ export interface GraphViewProps extends Omit<KnowledgeGraphProps, 'model'> {
 }
 
 export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, onTagPages, loadBody, onRetire, onUpdateLink, ...rest }: GraphViewProps) {
-  const [state, setState] = useState<State>({ status: 'loading' })
-  const [attempt, setAttempt] = useState(0)
+  const { state, refresh, retry } = useGraphLoad(load, sourceKey)
   const loaded = state.status === 'ready' ? state.model : null
   // Mentions, not linked: found here from titles, aliases and summaries (the server sends links only).
   const model = useMemo(() => (loaded ? withMentions(loaded) : null), [loaded])
+  const writes = useGraphWrites(model, refresh, { onLinkMention, onEditPage, onTagPages, loadBody, onRetire, onUpdateLink })
+  const title = rest.title ?? 'Knowledge graph'
 
-  // After "Link it": read the model again without the loading state, so the map and the open
-  // dialog stay and the mention turns into a link in place.
+  if (state.status === 'loading') return <GraphSkeleton title={title} />
+  if (state.status === 'error') {
+    return (
+      <GraphMessage title={title} alert heading="The map could not be loaded" text={state.message}>
+        <button type="button" className="btn" onClick={retry}>
+          Try again
+        </button>
+      </GraphMessage>
+    )
+  }
+  if (!model || model.pages.length === 0) {
+    return (
+      <GraphMessage title={title} heading="No pages yet" text="Everything you add shows up here as a dot, grouped by topic and linked by relevance.">
+        {onAdd && (
+          <button type="button" className="btn btn--primary" onClick={onAdd}>
+            Add something
+          </button>
+        )}
+      </GraphMessage>
+    )
+  }
+  return <KnowledgeGraph model={model} {...writes} {...rest} />
+}
+
+/**
+ * The model: loaded when the view opens and again when `load`, `sourceKey` or a retry asks for it
+ * (an answer for an earlier request is dropped); `refresh` reads it again WITHOUT the loading state,
+ * so the map and an open page window stay while a write shows up in place.
+ */
+function useGraphLoad(load: (signal: AbortSignal) => Promise<GraphModel>, sourceKey: string | undefined) {
+  const [state, setState] = useState<State>({ status: 'loading' })
+  const [attempt, setAttempt] = useState(0)
   const refresh = useCallback(async () => {
     const m = await load(new AbortController().signal)
     setState({ status: 'ready', model: m })
   }, [load])
-
-  const writable = !!model && model.source.kind === 'vault' && !model.source.readOnly
-  const linkMention = useMemo<PageActions['onLinkMention']>(() => {
-    if (onLinkMention) return onLinkMention
-    if (!model || !writable) return undefined
-    return async (a, b) => {
-      // The link goes from the page that mentions to the page it names.
-      const m = mentionBetween(model, a.id, b.id)
-      const from = m ? m.from : a.id
-      const to = m ? m.to : b.id
-      await addLink({ from, to, vault: model.source.id })
-      await refresh().catch(() => {
-        throw new Error('The link was added, but the map could not be read again. Reload the map to see it.')
-      })
-    }
-  }, [onLinkMention, model, writable, refresh])
-
-  // Edit in the page window: save, then read the map again in place (the dialog stays open).
-  const editPageFn = useMemo<PageActions['onEditPage']>(() => {
-    if (!onEditPage && !writable) return undefined
-    return async (req) => {
-      // A handler given from outside (the demo's) is followed by the same re-read.
-      await (onEditPage ? onEditPage(req) : editPage(req))
-      await refresh().catch(() => {
-        throw new Error('The page was saved, but the map could not be read again. Reload the map to see it.')
-      })
-    }
-  }, [onEditPage, writable, refresh])
-
-  // Tags: write, then read the map again in place (a handler given from outside, the demo's, is
-  // followed by the same re-read).
-  const tagPagesFn = useMemo<PageActions['onTagPages']>(() => {
-    if (!model || !writable) return undefined
-    const vault = model.source.id
-    return async (ids, add, remove) => {
-      if (onTagPages) await onTagPages(ids, add, remove)
-      else await tagPages({ ids, add, remove, vault })
-      await refresh().catch(() => {
-        throw new Error('The tags were saved, but the map could not be read again. Reload the map to see them.')
-      })
-    }
-  }, [onTagPages, model, writable, refresh])
-
-  // Archive / Restore / Delete: after a result the map is read again in place; a plan (the confirm's
-  // data) writes nothing, so it needs no re-read. A failed re-read is said in the result's message,
-  // never as a failure: the pages did change.
-  const retireFn = useMemo<PageActions['onRetire']>(() => {
-    if (!model || !writable) return undefined
-    const vault = model.source.id
-    return async (action, ids, confirm) => {
-      const a = onRetire ? await onRetire(action, ids, confirm) : await retirePages(action, ids, vault, confirm)
-      if (a.kind === 'result') {
-        await refresh().catch(() => {
-          a.result.message += ' The map could not be read again; reload it to see the change.'
-        })
-      }
-      return a
-    }
-  }, [onRetire, model, writable, refresh])
-
-  // One link page's Update (the List's "Update summaries"), then the map again, so the page's date
-  // and the stale filter follow.
-  const updateLinkFn = useMemo<PageActions['onUpdateLink']>(() => {
-    if (!model || !writable) return undefined
-    return async (id) => {
-      const status = onUpdateLink ? await onUpdateLink(id) : (await updateLink(id)).status
-      await refresh().catch(() => {})
-      return status
-    }
-  }, [onUpdateLink, model, writable, refresh])
-
-  // The page window's text: the shown source's page, read when the window shows it. The function
-  // only changes with the source, so an open page is not read again after a tag or an edit.
-  const bodySource = model ? JSON.stringify(exportSourceOf(model.source)) : ''
-  const loadBodyFn = useMemo<PageActions['loadBody']>(() => {
-    if (loadBody) return loadBody
-    if (!bodySource) return undefined
-    return (pageId, signal) => fetchPageBody(pageId, JSON.parse(bodySource), signal)
-  }, [loadBody, bodySource])
-
   useEffect(() => {
     const ctl = new AbortController()
     setState({ status: 'loading' })
@@ -129,42 +77,22 @@ export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, o
     )
     return () => ctl.abort()
   }, [load, sourceKey, attempt])
-
   const retry = useCallback(() => setAttempt((n) => n + 1), [])
-  const title = rest.title ?? 'Knowledge graph'
+  return { state, refresh, retry }
+}
 
-  if (state.status === 'loading') return <GraphSkeleton title={title} />
-  if (state.status === 'error') {
-    return (
-      <div className="kg">
-        {title && <h1 className="kg-title">{title}</h1>}
-        <div className="kg-state" role="alert">
-          <h2>The map could not be loaded</h2>
-          <p>{state.message}</p>
-          <button type="button" className="btn" onClick={retry}>
-            Try again
-          </button>
-        </div>
+/** The view's title and one message in place of the map (an error is an alert), with its action. */
+function GraphMessage({ title, heading, text, alert = false, children }: { title: string; heading: string; text: string; alert?: boolean; children?: ReactNode }) {
+  return (
+    <div className="kg">
+      {title && <h1 className="kg-title">{title}</h1>}
+      <div className="kg-state" role={alert ? 'alert' : undefined}>
+        <h2>{heading}</h2>
+        <p>{text}</p>
+        {children}
       </div>
-    )
-  }
-  if (!model || model.pages.length === 0) {
-    return (
-      <div className="kg">
-        {title && <h1 className="kg-title">{title}</h1>}
-        <div className="kg-state">
-          <h2>No pages yet</h2>
-          <p>Everything you add shows up here as a dot, grouped by topic and linked by relevance.</p>
-          {onAdd && (
-            <button type="button" className="btn btn--primary" onClick={onAdd}>
-              Add something
-            </button>
-          )}
-        </div>
-      </div>
-    )
-  }
-  return <KnowledgeGraph model={model} onLinkMention={linkMention} onEditPage={editPageFn} onTagPages={tagPagesFn} loadBody={loadBodyFn} onRetire={retireFn} onUpdateLink={updateLinkFn} {...rest} />
+    </div>
+  )
 }
 
 /** Loading: the title and one line of text, nothing drawn on the map. design: no placeholder areas;

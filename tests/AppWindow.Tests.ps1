@@ -59,6 +59,8 @@ Describe 'Start-AppInEdgeProfile' {
         $global:obsnOpened | Should Be 'http://127.0.0.1:8767/'
         Remove-Variable -Name obsnOpened -Scope Global
     }
+    # Start-AppInEdgeProfile makes the profile folder it is given: the test removes it again.
+    Remove-Item -LiteralPath (Join-Path $env:TEMP 'obsn-test-profile') -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Describe 'Get-AppWindowDetail' {

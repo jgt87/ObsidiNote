@@ -152,30 +152,65 @@ function fillTopic(b: DemoBuilder, rnd: Rnd, topics: GraphTopic[], ti: number, n
   const named = NAMED[ti]
   for (let k = 0; k < n; k++) {
     const title = named?.titles[k] ?? `${t.name} page ${k + 1}`
-    const extra = k > 2 && rnd() < 0.08 ? [pickOf(rnd, topics).id] : []
-    b.addPage(title, [t.id, ...extra.filter((x) => x !== t.id)], k === 0 && n > 3)
-    const loose = (named?.loose ?? ti % 3 === 1) && k === n - 1 && n > 2
-    if (k > 0 && !loose) {
-      const to = k < 6 ? first : first + Math.floor(rnd() * k)
-      b.link(first + k, to, (1 + Math.floor(rnd() * 3)) as Strength)
-      if (rnd() < 0.35) b.link(first + k, first + Math.floor(rnd() * k), 1)
-    }
+    b.addPage(title, pageTopics(rnd, topics, t.id, k), k === 0 && n > 3)
+    if (k > 0 && !isLooseLast(named?.loose ?? ti % 3 === 1, k, n)) linkIntoTopic(b, rnd, first, k)
   }
   return first
 }
 
+/** Page k's topics: its own, and from the 4th page on sometimes (8%) also a random one. The draw
+ *  happens only past the 3rd page, so the seeded pages stay the same. */
+function pageTopics(rnd: Rnd, topics: GraphTopic[], own: string, k: number): string[] {
+  const extra = k > 2 && rnd() < 0.08 ? [pickOf(rnd, topics).id] : []
+  return [own, ...extra.filter((x) => x !== own)]
+}
+
+/** A loose topic's last page (of more than two) stays without links: the map shows unlinked pages. */
+const isLooseLast = (loose: boolean, k: number, n: number): boolean => loose && k === n - 1 && n > 2
+
+/** Page k (from `first`) linked into its topic: the first six to the topic's first page, later ones
+ *  to a random earlier page, with a random strength; sometimes (35%) one more weak link. */
+function linkIntoTopic(b: DemoBuilder, rnd: Rnd, first: number, k: number): void {
+  const to = k < 6 ? first : first + Math.floor(rnd() * k)
+  b.link(first + k, to, (1 + Math.floor(rnd() * 3)) as Strength)
+  if (rnd() < 0.35) b.link(first + k, first + Math.floor(rnd() * k), 1)
+}
+
+/** How many pages there are: per topic, where each topic's pages start, filed (with a topic) and in all. */
+interface PageCounts {
+  counts: number[]
+  firstOf: number[]
+  filed: number
+  total: number
+}
+
 /** Links between topics: hubs to hubs (each topic to the one before it), then a few page-to-page
  *  across topics, then mentions (shown only with that filter on). */
-function crossTopicLinks(b: DemoBuilder, rnd: Rnd, counts: number[], firstOf: number[], filed: number, total: number): void {
+function crossTopicLinks(b: DemoBuilder, rnd: Rnd, c: PageCounts): void {
+  hubLinks(b, rnd, c.counts, c.firstOf)
+  pageLinksAcross(b, rnd, c.filed)
+  mentionLinks(b, rnd, c.total)
+}
+
+/** Each topic's first page linked to the previous topic's, both topics having pages. */
+function hubLinks(b: DemoBuilder, rnd: Rnd, counts: number[], firstOf: number[]): void {
   for (let i = 1; i < counts.length; i++) {
     if (counts[i] && counts[i - 1]) b.link(firstOf[i - 1], firstOf[i], (1 + Math.floor(rnd() * 3)) as Strength)
   }
+}
+
+/** About 18% as many tries as filed pages: two random filed pages, linked when their topics differ. */
+function pageLinksAcross(b: DemoBuilder, rnd: Rnd, filed: number): void {
   const cross = Math.round(filed * 0.18)
   for (let c = 0; c < cross && filed > 1; c++) {
     const x = Math.floor(rnd() * filed)
     const y = Math.floor(rnd() * filed)
     if (b.pages[x].topicIds[0] !== b.pages[y].topicIds[0]) b.link(x, y, rnd() < 0.7 ? 1 : 2)
   }
+}
+
+/** About 6% as many mentions as pages, between two random pages. */
+function mentionLinks(b: DemoBuilder, rnd: Rnd, total: number): void {
   const mentions = Math.round(total * 0.06)
   for (let c = 0; c < mentions && total > 1; c++) b.link(Math.floor(rnd() * total), Math.floor(rnd() * total), 1, 'mention')
 }
@@ -210,7 +245,7 @@ export function syntheticGraph(opts: SyntheticOptions = {}): GraphModel {
   const b = demoBuilder(rnd, readOnly)
   const firstOf = topics.map((_, ti) => fillTopic(b, rnd, topics, ti, counts[ti]))
   for (let k = 0; k < unfiled; k++) b.addPage(`Unfiled item ${k + 1}`, [], false)
-  crossTopicLinks(b, rnd, counts, firstOf, filed, total)
+  crossTopicLinks(b, rnd, { counts, firstOf, filed, total })
 
   // Drop duplicate pairs, then weigh the pages as normalizeGraph does (weights.ts).
   const pages = b.pages

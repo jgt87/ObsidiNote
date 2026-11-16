@@ -137,11 +137,7 @@ export function FilterButton({ index, filter, onChange, show, onShow, staleDays 
         Filter{n > 0 ? ` · ${n}` : ''}
       </button>
       <div ref={pop.panelRef} id={panelId} className="kg-fp__panel" role="group" aria-label="Filter pages" hidden={!pop.open}>
-        {show && onShow && (
-          <BoxSet legend="Show on the map">
-            {SHOW_BOXES.map(([key, label]) => <Box key={`show:${key}`} label={label} checked={show[key]} onToggle={() => onShow(key, !show[key])} />)}
-          </BoxSet>
-        )}
+        <ShowBoxes show={show} onShow={onShow} />
         <BoxSet legend="Type" none="No pages.">
           {options.types.map((t) => <Box key={`type:${t.key}`} label={t.key} count={t.count} checked={filter.types.has(t.key)} onToggle={() => set({ types: toggle(filter.types, t.key) })} />)}
         </BoxSet>
@@ -155,18 +151,7 @@ export function FilterButton({ index, filter, onChange, show, onShow, staleDays 
             {options.tags.map((t) => <Box key={`tag:${t.name}`} label={t.name} count={t.count} checked={filter.tags.has(t.name)} onToggle={() => set({ tags: toggle(filter.tags, t.name) })} />)}
           </BoxSet>
         )}
-        <div className="kg-fp__set">
-          <Box label="Only pages without links" checked={filter.unlinkedOnly} onToggle={() => set({ unlinkedOnly: !filter.unlinkedOnly })} />
-          {counts.hasLinks && (
-            <Box
-              label={`Link summaries older than ${staleDays} days`}
-              count={counts.stale}
-              checked={filter.staleBefore !== null}
-              onToggle={() => set({ staleBefore: filter.staleBefore === null ? staleCutoff(staleDays, Date.now()) : null })}
-            />
-          )}
-          <Box label="Show archived" count={counts.archived} checked={filter.showArchived} onToggle={() => set({ showArchived: !filter.showArchived })} />
-        </div>
+        <PageStateBoxes filter={filter} set={set} counts={counts} staleDays={staleDays} />
         <div className="kg-fp__foot">
           <button type="button" className="btn btn--sm btn--ghost" disabled={!isFilterActive(filter)} onClick={() => onChange(emptyFilter())}>
             Clear filters
@@ -176,6 +161,31 @@ export function FilterButton({ index, filter, onChange, show, onShow, staleDays 
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** "Show on the map": what the map draws (graph mode only; the List has no such choices). */
+function ShowBoxes({ show, onShow }: { show?: MapShow; onShow?: ButtonProps['onShow'] }) {
+  if (!show || !onShow) return null
+  return (
+    <BoxSet legend="Show on the map">
+      {SHOW_BOXES.map(([key, label]) => <Box key={`show:${key}`} label={label} checked={show[key]} onToggle={() => onShow(key, !show[key])} />)}
+    </BoxSet>
+  )
+}
+
+/** Pages by state: without links, link summaries past the vault's `linkStaleDays` (only when
+ *  there are link pages), and archived pages. */
+function PageStateBoxes({ filter, set, counts, staleDays }: { filter: GraphFilter; set: (patch: Partial<GraphFilter>) => void; counts: ReturnType<typeof usePageCounts>; staleDays: number }) {
+  const stale = filter.staleBefore !== null
+  return (
+    <div className="kg-fp__set">
+      <Box label="Only pages without links" checked={filter.unlinkedOnly} onToggle={() => set({ unlinkedOnly: !filter.unlinkedOnly })} />
+      {counts.hasLinks && (
+        <Box label={`Link summaries older than ${staleDays} days`} count={counts.stale} checked={stale} onToggle={() => set({ staleBefore: stale ? null : staleCutoff(staleDays, Date.now()) })} />
+      )}
+      <Box label="Show archived" count={counts.archived} checked={filter.showArchived} onToggle={() => set({ showArchived: !filter.showArchived })} />
     </div>
   )
 }

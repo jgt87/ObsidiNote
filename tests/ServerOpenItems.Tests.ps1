@@ -324,6 +324,7 @@ Describe 'POST /api/vault/check-lease: "Check again" tries to take the vault now
         $s3 = New-ServerState -AppRoot $app -Port 8767 -TestAdapter (New-GuardedOneNote -Inner $f) -SessionId 'server'
         (Invoke-ApiRoute -Method 'POST' -Path '/api/vault/check-lease' -State $s3).status | Should Be 409
     }
+    Remove-Item $app -Recurse -Force
 }
 
 Describe 'Archive, Restore and Delete through the routes (POST /api/pages/archive|restore|delete)' {
@@ -370,6 +371,7 @@ Describe 'Archive, Restore and Delete through the routes (POST /api/pages/archiv
         $r.body.message | Should Match '60 days'
         $w.open.model.pages.Contains('p2') | Should Be $false
     }
+    Remove-Item $app -Recurse -Force
 }
 
 Describe 'POST /api/shutdown on the live server (test port)' {

@@ -74,6 +74,21 @@ export function switcherList(index: GraphIndex, text: string): SwitcherList {
   return { rows, hidden: Math.max(0, total - items.length), suggested: false }
 }
 
+/** The DOM id of a row (the box's aria-activedescendant points at it). */
+export const rowDomId = (key: string): string => `qs-row-${key}`
+
+/** What a screen reader hears after typing: the number of results, or that none match; nothing
+ *  while there is no list yet or the rows are suggestions. */
+export function switcherAnnouncement(list: SwitcherList | null): string {
+  if (!list || list.suggested) return ''
+  return list.rows.length ? plural(list.rows.length + list.hidden, 'result') : 'No pages or topics match'
+}
+
+/** The line in place of an empty list: a vault without pages, or no match for the text typed. */
+export function emptyListText(list: SwitcherList, text: string): string {
+  return list.suggested ? 'This vault has no pages yet.' : `No pages or topics match “${text.trim()}”.`
+}
+
 /** Arrow keys: next or previous row, wrapping; -1 when there are none. */
 export function moveActive(current: number, delta: 1 | -1, count: number): number {
   if (count <= 0) return -1

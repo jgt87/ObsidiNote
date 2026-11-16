@@ -5,6 +5,14 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.4] - 2026-11-16
+
+### Changed
+- **Inside the interface**: the knowledge graph view, the map, the List, the Filter panel, the quick switcher (Ctrl+K) and the demo graph are split into smaller parts, with new tests. Nothing you see or do changes; the map, the List, the switcher, the page window and every rendered check were compared before and after.
+
+### Fixed
+- **Development checks**: two server test files no longer leave temporary folders behind after each run.
+
 ## [v0.12.3] - 2026-11-16
 
 ### Changed

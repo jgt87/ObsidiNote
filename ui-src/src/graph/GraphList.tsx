@@ -12,9 +12,9 @@ import { COLUMN_COUNT, TableGroupRows } from './table/TableGroupRows'
 import { tagCounts } from './tags'
 import { TagsRow } from './TagsRow'
 import type { AddStatus } from '../add/types'
-import { isLinkPage } from './linkUpdateRun'
 import { LinkUpdateBar } from './LinkUpdateBar'
 import type { RetireAction } from './retireModel'
+import { keepVisible, retireLabel, selectionParts, type SelectionParts } from './table/selectionModel'
 import {
   ariaSort,
   buildTable,
@@ -24,6 +24,7 @@ import {
   ROW_BUDGET,
   type GroupBy,
   type SortKey,
+  type TableGroup,
   type TableSort,
 } from './table/tableModel'
 import './table/table.css'
@@ -67,24 +68,47 @@ export function GraphList({ index, layout, matches, onOpen, onTagPages, onPickTa
   // A running "Update summaries" (the link pages ticked when it started); it stays while it runs.
   const [run, setRun] = useState<string[] | null>(null)
   const canSelect = !!(onTagPages || onRetirePages)
-  // Ticked rows, to tag several pages at once (session state). Ids that left the model are dropped.
+  const { selected, onSelect, clear } = useTicks(index, matches)
+  const [groupBy, setGroupBy] = useState<GroupBy>('topic')
+  const [sort, setSort] = useState<TableSort | null>(null)
+  const table = useMemo(() => buildTable(index, layout.areas, matches, groupBy, sort), [index, layout, matches, groupBy, sort])
+
+  return (
+    <div className="kg-tbl">
+      <ListBar groupBy={groupBy} onGroupBy={setGroupBy} total={table.total} sort={sort} onDefaultOrder={() => setSort(null)} />
+      {canSelect && selected.size > 0 && (
+        <SelectionBar index={index} selected={selected} running={run !== null} onClear={clear} onTagPages={onTagPages} onRetirePages={onRetirePages} onUpdate={onUpdateLink ? setRun : undefined} />
+      )}
+      {run && onUpdateLink && <LinkUpdateBar key={run.join(',')} ids={run} title={titleIn(index)} update={onUpdateLink} onClose={() => setRun(null)} />}
+      <div className="kg-tbl__scroll">
+        <table className="kg-tbl__table">
+          <caption className="kg-sr">All pages of {sourceName(index)}. Column headers sort the table.</caption>
+          <colgroup>
+            {COLUMNS.map((c) => (
+              <col key={c.key} className={c.className} />
+            ))}
+          </colgroup>
+          <ListHead sort={sort} onSort={(key) => setSort((s) => nextSort(s, key))} />
+          <ListGroups index={index} groups={table.groups} groupBy={groupBy} onOpen={onOpen} selected={selected} onSelect={canSelect ? onSelect : undefined} onPickTag={onPickTag} />
+        </table>
+      </div>
+    </div>
+  )
+}
+
+/** A page's title for the update bar; the id when the page is gone. */
+const titleIn = (index: GraphIndex) => (id: string) => index.pageById.get(id)?.title ?? id
+
+/** The source's name for the table's caption. */
+const sourceName = (index: GraphIndex): string => index.model.source.name || 'this source'
+
+/** Ticked rows, to act on several pages at once (session state). A ticked page that leaves the
+ *  model, or that the search or a filter hides, is unticked (selectionModel.ts keepVisible). */
+function useTicks(index: GraphIndex, matches: string[] | null) {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
-  // A ticked page that the search or a filter hides is unticked too: an action on the selection
-  // (Delete, Archive, tags) must only reach pages the person can see.
   useEffect(() => {
-    const visible = matches ? new Set(matches) : null
-    setSelected((s) => {
-      const kept = [...s].filter((id) => index.pageById.has(id) && (!visible || visible.has(id)))
-      return kept.length === s.size ? s : new Set(kept)
-    })
+    setSelected((s) => keepVisible(s, (id) => index.pageById.has(id), matches))
   }, [index, matches])
-  const allTags = useMemo(() => tagCounts(index.model.pages), [index])
-  // The tags any ticked page has: shown as chips, a chip's x takes that tag off all ticked pages.
-  const selectedTags = useMemo(() => [...new Set([...selected].flatMap((id) => index.pageById.get(id)?.tags ?? []))].sort(), [selected, index])
-  const ticked = [...selected].map((id) => index.pageById.get(id)).filter((p) => p !== undefined)
-  const tickedArchived = ticked.filter((p) => p.archived).map((p) => p.id)
-  const tickedLive = ticked.filter((p) => !p.archived).map((p) => p.id)
-  const tickedLinks = ticked.filter(isLinkPage).map((p) => p.id)
   const onSelect = (id: string, on: boolean) =>
     setSelected((s) => {
       const next = new Set(s)
@@ -92,126 +116,163 @@ export function GraphList({ index, layout, matches, onOpen, onTagPages, onPickTa
       else next.delete(id)
       return next
     })
-  const [groupBy, setGroupBy] = useState<GroupBy>('topic')
-  const [sort, setSort] = useState<TableSort | null>(null)
-  // Folding and "Show more", keyed "<groupBy>:<group key>"; only what the person changed.
-  const [folded, setFolded] = useState<Record<string, boolean>>({})
-  const [limits, setLimits] = useState<Record<string, number>>({})
+  return { selected, onSelect, clear: () => setSelected(new Set()) }
+}
 
-  const table = useMemo(() => buildTable(index, layout.areas, matches, groupBy, sort), [index, layout, matches, groupBy, sort])
-  const openByDefault = useMemo(() => defaultOpenGroups(table.groups), [table])
-  const src = exportSourceOf(index.model.source)
+/** The bar above the table: grouping, the page count (and sort), and the way back to the default order. */
+function ListBar({ groupBy, onGroupBy, total, sort, onDefaultOrder }: { groupBy: GroupBy; onGroupBy: (g: GroupBy) => void; total: number; sort: TableSort | null; onDefaultOrder: () => void }) {
   const sortedLabel = sort ? COLUMNS.find((c) => c.key === sort.key)?.label : null
-
   return (
-    <div className="kg-tbl">
-      <div className="kg-tbl__bar">
-        <label className="kg-tbl__groupby">
-          <span>Group by</span>
-          <select className="field kg-tbl__select" value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}>
-            {GROUP_BY_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span className="kg-meta" role="status">
-          {plural(table.total, 'page')}
-          {sortedLabel ? `, sorted by ${sortedLabel.toLowerCase()}` : ''}
-        </span>
-        {sort && (
-          <button type="button" className="btn btn--sm btn--ghost" onClick={() => setSort(null)}>
-            Default order
-          </button>
-        )}
-      </div>
-      {canSelect && selected.size > 0 && (
-        <div className="kg-tbl__sel" role="group" aria-label="Selected pages">
-          <span className="kg-tbl__sel-count" role="status">
-            {plural(selected.size, 'page')} selected
-          </span>
-          {onTagPages && <TagsRow tags={selectedTags} all={allTags} onChange={(add, remove) => onTagPages([...selected], add, remove)} label="Add a tag to the selected pages" />}
-          {onUpdateLink && tickedLinks.length > 0 && (
-            <button type="button" className="btn btn--sm" disabled={run !== null} onClick={() => setRun(tickedLinks)}>
-              Update summaries ({tickedLinks.length})
-            </button>
-          )}
-          {onRetirePages && tickedLive.length > 0 && (
-            <button type="button" className="btn btn--sm" onClick={() => onRetirePages('archive', tickedLive)}>
-              Archive{tickedArchived.length ? ` (${tickedLive.length})` : ''}
-            </button>
-          )}
-          {onRetirePages && tickedArchived.length > 0 && (
-            <button type="button" className="btn btn--sm" onClick={() => onRetirePages('restore', tickedArchived)}>
-              Restore{tickedLive.length ? ` (${tickedArchived.length})` : ''}
-            </button>
-          )}
-          {onRetirePages && (
-            <button type="button" className="btn btn--sm btn--danger" onClick={() => onRetirePages('delete', [...selected])}>
-              Delete
-            </button>
-          )}
-          <button type="button" className="btn btn--sm btn--ghost" onClick={() => setSelected(new Set())}>
-            Clear selection
-          </button>
-        </div>
+    <div className="kg-tbl__bar">
+      <label className="kg-tbl__groupby">
+        <span>Group by</span>
+        <select className="field kg-tbl__select" value={groupBy} onChange={(e) => onGroupBy(e.target.value as GroupBy)}>
+          {GROUP_BY_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span className="kg-meta" role="status">
+        {plural(total, 'page')}
+        {sortedLabel ? `, sorted by ${sortedLabel.toLowerCase()}` : ''}
+      </span>
+      {sort && (
+        <button type="button" className="btn btn--sm btn--ghost" onClick={onDefaultOrder}>
+          Default order
+        </button>
       )}
-      {run && onUpdateLink && <LinkUpdateBar key={run.join(',')} ids={run} title={(id: string) => index.pageById.get(id)?.title ?? id} update={onUpdateLink} onClose={() => setRun(null)} />}
-      <div className="kg-tbl__scroll">
-        <table className="kg-tbl__table">
-          <caption className="kg-sr">All pages of {index.model.source.name || 'this source'}. Column headers sort the table.</caption>
-          <colgroup>
-            {COLUMNS.map((c) => (
-              <col key={c.key} className={c.className} />
-            ))}
-          </colgroup>
-          <thead>
-            <tr>
-              {COLUMNS.map((c) => {
-                const dir = ariaSort(sort, c.key)
-                return (
-                  <th key={c.key} scope="col" aria-sort={dir} className={c.key === 'links' ? 'num' : c.key === 'title' ? 'kg-tbl__page' : undefined}>
-                    <button type="button" className="kg-tbl__sort" onClick={() => setSort((s) => nextSort(s, c.key))}>
-                      {c.label}
-                      <SortArrow dir={dir} />
-                    </button>
-                  </th>
-                )
-              })}
-            </tr>
-          </thead>
-          {table.groups.length === 0 ? (
-            <tbody>
-              <tr>
-                <td colSpan={COLUMN_COUNT} className="kg-tbl__empty">
-                  No pages match.
-                </td>
-              </tr>
-            </tbody>
-          ) : (
-            table.groups.map((g) => {
-              const k = `${groupBy}:${g.key}`
-              const open = folded[k] === undefined ? openByDefault.has(g.key) : !folded[k]
-              return (
-                <TableGroupRows
-                  key={k}
-                  group={g}
-                  open={open}
-                  limit={limits[k] ?? ROW_BUDGET}
-                  exportRequest={groupBy === 'topic' && g.topicId ? { scope: 'topic', topic: g.topicId, ...src } : null}
-                  onToggle={() => setFolded((f) => ({ ...f, [k]: open }))}
-                  onMore={() => setLimits((l) => ({ ...l, [k]: (l[k] ?? ROW_BUDGET) + ROW_BUDGET }))}
-                  onOpen={onOpen}
-                  selected={selected}
-                  onSelect={canSelect ? onSelect : undefined}
-                  onPickTag={onPickTag}
-                />
-              )
-            })
-          )}
-        </table>
-      </div>
     </div>
   )
+}
+
+interface SelectionBarProps {
+  index: GraphIndex
+  selected: ReadonlySet<string>
+  /** An "Update summaries" is running: the button waits for it. */
+  running: boolean
+  onClear: () => void
+  onTagPages?: Props['onTagPages']
+  onRetirePages?: Props['onRetirePages']
+  /** Starts "Update summaries" for these link pages; without it the button is not offered. */
+  onUpdate?: (ids: string[]) => void
+}
+
+/** The bar for the ticked rows: their tags, Update summaries, Archive / Restore / Delete, Clear. */
+function SelectionBar({ index, selected, running, onClear, onTagPages, onRetirePages, onUpdate }: SelectionBarProps) {
+  const allTags = useMemo(() => tagCounts(index.model.pages), [index])
+  const parts = useMemo(() => selectionParts(selected, index.pageById), [selected, index])
+  return (
+    <div className="kg-tbl__sel" role="group" aria-label="Selected pages">
+      <span className="kg-tbl__sel-count" role="status">
+        {plural(selected.size, 'page')} selected
+      </span>
+      {onTagPages && <TagsRow tags={parts.tags} all={allTags} onChange={(add, remove) => onTagPages([...selected], add, remove)} label="Add a tag to the selected pages" />}
+      {onUpdate && parts.links.length > 0 && (
+        <button type="button" className="btn btn--sm" disabled={running} onClick={() => onUpdate(parts.links)}>
+          Update summaries ({parts.links.length})
+        </button>
+      )}
+      {onRetirePages && <RetireButtons parts={parts} all={[...selected]} onRetirePages={onRetirePages} />}
+      <button type="button" className="btn btn--sm btn--ghost" onClick={onClear}>
+        Clear selection
+      </button>
+    </div>
+  )
+}
+
+/** Archive (the live pages), Restore (the archived ones) and Delete (every ticked page). */
+function RetireButtons({ parts, all, onRetirePages }: { parts: SelectionParts; all: string[]; onRetirePages: (action: RetireAction, ids: string[]) => void }) {
+  const { live, archived } = parts
+  return (
+    <>
+      {live.length > 0 && (
+        <button type="button" className="btn btn--sm" onClick={() => onRetirePages('archive', live)}>
+          {retireLabel('Archive', live.length, archived.length)}
+        </button>
+      )}
+      {archived.length > 0 && (
+        <button type="button" className="btn btn--sm" onClick={() => onRetirePages('restore', archived)}>
+          {retireLabel('Restore', archived.length, live.length)}
+        </button>
+      )}
+      <button type="button" className="btn btn--sm btn--danger" onClick={() => onRetirePages('delete', all)}>
+        Delete
+      </button>
+    </>
+  )
+}
+
+/** The header row: every column header is a button that sorts by it (nextSort). */
+function ListHead({ sort, onSort }: { sort: TableSort | null; onSort: (key: SortKey) => void }) {
+  return (
+    <thead>
+      <tr>
+        {COLUMNS.map((c) => {
+          const dir = ariaSort(sort, c.key)
+          return (
+            <th key={c.key} scope="col" aria-sort={dir} className={HEAD_CLASS[c.key]}>
+              <button type="button" className="kg-tbl__sort" onClick={() => onSort(c.key)}>
+                {c.label}
+                <SortArrow dir={dir} />
+              </button>
+            </th>
+          )
+        })}
+      </tr>
+    </thead>
+  )
+}
+
+/** A header cell's own class: the number column aligns right, the page column has its own width. */
+const HEAD_CLASS: Partial<Record<SortKey, string>> = { links: 'num', title: 'kg-tbl__page' }
+
+interface ListGroupsProps {
+  index: GraphIndex
+  groups: TableGroup[]
+  groupBy: GroupBy
+  onOpen: (id: string) => void
+  selected: ReadonlySet<string>
+  onSelect?: (id: string, on: boolean) => void
+  onPickTag?: (tag: string) => void
+}
+
+/** The groups of rows, or one line when nothing matches. Folding and "Show more" are keyed
+ *  "<groupBy>:<group key>" and hold only what the person changed (in memory). */
+function ListGroups({ index, groups, groupBy, onOpen, selected, onSelect, onPickTag }: ListGroupsProps) {
+  const [folded, setFolded] = useState<Record<string, boolean>>({})
+  const [limits, setLimits] = useState<Record<string, number>>({})
+  const openByDefault = useMemo(() => defaultOpenGroups(groups), [groups])
+  const src = exportSourceOf(index.model.source)
+  if (groups.length === 0) {
+    return (
+      <tbody>
+        <tr>
+          <td colSpan={COLUMN_COUNT} className="kg-tbl__empty">
+            No pages match.
+          </td>
+        </tr>
+      </tbody>
+    )
+  }
+  return groups.map((g) => {
+    const k = `${groupBy}:${g.key}`
+    const open = folded[k] === undefined ? openByDefault.has(g.key) : !folded[k]
+    return (
+      <TableGroupRows
+        key={k}
+        group={g}
+        open={open}
+        limit={limits[k] ?? ROW_BUDGET}
+        exportRequest={groupBy === 'topic' && g.topicId ? { scope: 'topic', topic: g.topicId, ...src } : null}
+        onToggle={() => setFolded((f) => ({ ...f, [k]: open }))}
+        onMore={() => setLimits((l) => ({ ...l, [k]: (l[k] ?? ROW_BUDGET) + ROW_BUDGET }))}
+        onOpen={onOpen}
+        selected={selected}
+        onSelect={onSelect}
+        onPickTag={onPickTag}
+      />
+    )
+  })
 }
