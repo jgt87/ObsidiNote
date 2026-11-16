@@ -156,9 +156,18 @@ $script:MeetingDays = 7
 $script:MeetingNotesAsked = 2
 
 function Test-MeetingDayValue([AllowEmptyString()][string]$Day) {
-    <# A -MeetingDay value: a real date written yyyy-mm-dd. Pure. #>
+    <# A -MeetingDay value: a real date written yyyy-mm-dd, or "today". Pure. #>
+    if ($Day.Trim() -eq 'today') { return $true }
     $d = [datetime]::MinValue
     $Day -match '^\d{4}-\d{2}-\d{2}$' -and [datetime]::TryParseExact($Day, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$d)
+}
+
+function Resolve-MeetingDay([string]$Day, [datetime]$Now = (Get-Date)) {
+    <# A valid -MeetingDay value as the date to ask for: "today" is this computer's local date
+       (operator, 2026-11-16: a Microsoft 365 outage left the busiest day of the week without
+       meetings, so the probe asks for the current day). Pure but for the default $Now. #>
+    if ($Day.Trim() -eq 'today') { return $Now.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) }
+    $Day.Trim()
 }
 
 function New-MeetingDayPrompt([string]$Day) {
@@ -262,11 +271,11 @@ function Invoke-P10Day {
     param([Parameter(Mandatory)]$Ctx, [Parameter(Mandatory)]$Bridge, [Parameter(Mandatory)]$Week)
     $given = "$(Get-KitFlag $Ctx 'MeetingDay' '')".Trim()
     if ($given -and -not (Test-MeetingDayValue $given)) {
-        Add-ValidationResult $Ctx 'V5' 'FAIL' 'P10 day''s meetings' 'the -MeetingDay value is not a date written yyyy-mm-dd' 'Run it again with a date like -MeetingDay 2026-11-12.'
+        Add-ValidationResult $Ctx 'V5' 'FAIL' 'P10 day''s meetings' 'the -MeetingDay value is not a date written yyyy-mm-dd, nor today' 'Run it again with a date like -MeetingDay 2026-11-12, or -MeetingDay today.'
         return
     }
-    $day = if ($given) { $given } else { Select-MeetingDay $Week }
-    $how = if ($given) { 'the day given with -MeetingDay' } else { "the busiest day of the last $script:MeetingDays days" }
+    $day = if ($given) { Resolve-MeetingDay $given } else { Select-MeetingDay $Week }
+    $how = if ($given -eq 'today') { 'today' } elseif ($given) { 'the day given with -MeetingDay' } else { "the busiest day of the last $script:MeetingDays days" }
     if (-not $day) { Add-ValidationResult $Ctx 'V5' 'SKIP' 'P10 day''s meetings' "no meeting of the last $script:MeetingDays days has a transcript, recap or notes with a date, and no -MeetingDay was given" 'Run it again with -MeetingDay set to a day you had meetings with transcription, a recap or notes.'; return }
     # How many of that day the week's list had: the list stops at 10, so a busy day may show more here.
     $inWeek = @($Week.richDays | Where-Object { $_ -eq $day }).Count
@@ -324,4 +333,4 @@ function Invoke-StageGrounding {
     if ($Ctx.Results.Count -eq $before) { Add-ValidationResult $Ctx 'V5' 'FAIL' ($run -join ', ') 'no probe gave a result' }
 }
 
-Export-ModuleMember -Function Invoke-StageGrounding, Get-GroundingProbes, New-MarkerPrompt, Test-MarkerReply, New-LinkPrompt, Test-LinkReply, Get-UrlKind, New-MeetingListPrompt, Test-MeetingListReply, New-MeetingNotesPrompt, Test-MeetingNotesReply, New-MeetingDayPrompt, Select-MeetingDay, Test-MeetingDayValue
+Export-ModuleMember -Function Invoke-StageGrounding, Get-GroundingProbes, New-MarkerPrompt, Test-MarkerReply, New-LinkPrompt, Test-LinkReply, Get-UrlKind, New-MeetingListPrompt, Test-MeetingListReply, New-MeetingNotesPrompt, Test-MeetingNotesReply, New-MeetingDayPrompt, Select-MeetingDay, Test-MeetingDayValue, Resolve-MeetingDay

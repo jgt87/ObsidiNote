@@ -2,7 +2,18 @@
 // operator, 2026-11-15: a page of the main vault showed "read only" with no reason and no Edit
 // button; the cause (another ObsidiNote held the vault's writer lease) could only be guessed.
 
-import type { GraphSource } from './model'
+import type { GraphPage, GraphSource } from './model'
+
+/** Why a page you made yourself is not changed here (operator, 2026-11-16: Delete was offered on
+ *  such a page and failed). ObsidiNote lists those pages and never edits, archives or deletes them. */
+export const OWN_PAGE_WHY = 'You made this page in OneNote: ObsidiNote lists it and never changes it. Change, archive or delete it in OneNote.'
+
+/** Why this page cannot be changed in the window: the source's reason first, then a page that is
+ *  not one of ObsidiNote's own; '' when it can be changed. */
+export function pageReadOnlyWhy(page: Pick<GraphPage, 'readOnly' | 'own'>, source: Pick<GraphSource, 'kind' | 'readOnly' | 'readOnlyReason'>): string {
+  if (page.readOnly) return readOnlyWhy(source)
+  return page.own === false ? OWN_PAGE_WHY : ''
+}
 
 /** One sentence on why the source is read only and what to do; '' when it can be changed. */
 export function readOnlyWhy(source: Pick<GraphSource, 'kind' | 'readOnly' | 'readOnlyReason'>): string {

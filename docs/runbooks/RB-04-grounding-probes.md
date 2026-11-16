@@ -62,10 +62,11 @@ took. The same holds for the markers, the prompts and Copilot's answers.
      For P10, also say (no titles) whether you had meetings with transcription or a recap in the
      last 7 days, and whether Copilot in Teams shows their recap to you.
 
-   - P10 alone, at any time (for example after a week with Teams meetings that had transcription,
-     a Copilot recap or Facilitator notes): double-click **Run Meeting Probe.cmd** in
+   - P10 alone, for today's meetings (run it late in a day with Teams meetings that had
+     transcription, a Copilot recap or Facilitator notes): double-click **Run Meeting Probe.cmd** in
      `%LOCALAPPDATA%\Programs\ObsidiNote\validation`. It asks nothing and writes nothing; it shows
      the four `P10` lines and puts the log on your Desktop. It takes 2 to 15 minutes (four questions).
+     The day line says "today".
    - P10 for a day you choose (a day with several meetings that had transcription, a recap or
      notes), in **Windows PowerShell**:
      ```powershell

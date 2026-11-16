@@ -474,7 +474,13 @@ Describe 'V5 P10 meetings (operator, 2026-11-14)' {
     }
     It 'takes only a real date written yyyy-mm-dd as -MeetingDay' {
         Test-MeetingDayValue '2026-11-13' | Should Be $true
-        foreach ($bad in '', '2026-02-30', '13-11-2026', '2026-11-13 10:00', '20261113') { Test-MeetingDayValue $bad | Should Be $false }
+        foreach ($bad in '', '2026-02-30', '13-11-2026', '2026-11-13 10:00', '20261113', 'tomorrow') { Test-MeetingDayValue $bad | Should Be $false }
+    }
+    It 'takes "today" as -MeetingDay and asks for this computer''s date (operator, 2026-11-16)' {
+        Test-MeetingDayValue 'today' | Should Be $true
+        Resolve-MeetingDay 'today' -Now ([datetime]'2026-11-16 23:30') | Should Be '2026-11-16'
+        Resolve-MeetingDay '2026-11-12' | Should Be '2026-11-12'
+        New-MeetingDayPrompt (Resolve-MeetingDay 'today' -Now ([datetime]'2026-11-16 08:00')) | Should Match 'meetings on 2026-11-16,'
     }
     It 'counts the meetings of the day and of other days, and picks only that day''s' {
         $l = Test-MeetingListReply '{"meetings":[{"title":"A","start":"2026-11-13 10:00","hasRecap":true},{"title":"B","start":"2026-11-12 10:00","hasRecap":true},{"title":"C","hasNotes":true}]}' -Day '2026-11-13'
@@ -585,6 +591,21 @@ Describe 'V6 skips what is not in this version yet' {
     }
 }
 
+Describe 'V6 Add lines say why an Add did not go as expected (target machine, 2026-11-16)' {
+    # The kit logged "status failed" for Add without a reason: Add never throws, its message carries it.
+    $why = { param($Step, $St, $Exp) & (Get-Module StageVault) { param($s, $t, $e) Get-AddWhy $s $t $e } $Step $St $Exp }
+    It 'adds the Add result''s message when the status is not the expected one' {
+        & $why @{ ok = $true; value = @{ status = 'failed'; message = 'Copilot did not answer (Busy).' } } 'failed' 'added' | Should Be '; Copilot did not answer (Busy).'
+    }
+    It 'adds nothing when the status is the expected one, or the result has no message' {
+        & $why @{ ok = $true; value = @{ status = 'added'; message = 'Added.' } } 'added' 'added' | Should Be ''
+        & $why @{ ok = $true; value = @{ status = 'failed' } } 'failed' 'waiting' | Should Be ''
+    }
+    It 'adds the error of a step that threw' {
+        & $why @{ ok = $false; error = 'boom'; value = $null } 'error' 'added' | Should Be '; boom'
+    }
+}
+
 Describe 'V6 "Link it" in the dev vault (in-memory OneNote, no Copilot)' {
     foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'Linker', 'LinkCapture', 'Ingest') { Import-Module (Join-Path $root "lib\$m.psm1") -Global }
     . (Join-Path $here 'SyntheticVault.ps1')
@@ -655,20 +676,28 @@ Describe 'V6 "Archive, restore and delete" in the dev vault (in-memory OneNote, 
     foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'Linker', 'LinkCapture', 'Ingest') { Import-Module (Join-Path $root "lib\$m.psm1") -Global }
     . (Join-Path $here 'SyntheticVault.ps1')
     $w = New-SyntheticVault
+    # As on the business tenant (STATUS P1c): a moved page gets a new page-id, so its old link opens nothing.
+    $w.f | Add-Member NoteProperty MoveChangesLink $true
     $dev = [pscustomobject]@{ vault = $w.open.vault; lease = $w.open.lease; model = $w.open.model }
     $before = @($w.open.model.pages.Keys | Sort-Object) -join ','
-    # The kit's OneNote window, standing in: it records the links followed and shows no page (as
-    # desktop OneNote did for a moved page's old link, STATUS P1c).
+    # The kit's OneNote window, standing in: it records the links followed and shows the page whose
+    # link it is now, as desktop OneNote does (a moved page's old link shows nothing).
     $global:ObsnNav = New-Object System.Collections.Generic.List[string]
+    $global:ObsnFake = $w.f
     $stub = New-Object psobject
     $stub | Add-Member ScriptMethod NavigateToUrl { param([string]$Url) $global:ObsnNav.Add($Url) }
-    $stub | Add-Member ScriptMethod CurrentPageId { '' }
+    $stub | Add-Member ScriptMethod CurrentPageId {
+        if (-not $global:ObsnNav.Count) { return '' }
+        $u = $global:ObsnNav[$global:ObsnNav.Count - 1]
+        foreach ($k in @($global:ObsnFake.Nodes.Keys)) { if ($global:ObsnFake.Nodes[$k].kind -eq 'Page' -and $global:ObsnFake.GetHyperlinkToObject($k) -eq $u) { return $k } }
+        ''
+    }
     $stub | Add-Member ScriptMethod NavigateTo { param([string]$Id) }
     $c = New-TestCtx -Flags @{ WriteTest = $true; NavWaitMs = 0 }
     $c.Shared.One = $stub
     & (Get-Module StageVault) { param($c, $a, $d) Invoke-DevRetire $c $a $d } $c $w.a $dev
     It 'plans, archives, restores and deletes a page another page links to, then takes the linking page back out' {
-        (@($c.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'Archive plan=OK,Archive=OK,Archive (link in another page)=WARN,Restore=OK,Delete=OK,Archive, restore and delete (undo)=OK'
+        (@($c.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'Archive plan=OK,Archive=OK,Archive (link in another page)=OK,Restore=OK,Delete=OK,Archive, restore and delete (undo)=OK'
         $c.Results[0].detail | Should Match 'goes to Archive: yes; links to it counted: 1 \(expected 1\); refused 0; nothing written'
         $c.Results[1].detail | Should Match 'marked archived: yes; found again under Archive: yes'
         $c.Results[3].detail | Should Match 'back in its own section: yes; still marked archived: no'
@@ -676,11 +705,10 @@ Describe 'V6 "Archive, restore and delete" in the dev vault (in-memory OneNote, 
         (@($w.open.model.pages.Keys | Sort-Object) -join ',') | Should Be $before
         (Find-FakePage $w.f 'Validation archive linker') | Should BeNullOrEmpty
     }
-    It 'follows the link written into the linking page''s text, once, and says what came of it' {
+    It 'follows the link as it stands in the linking page''s text, once: Archive pointed it at the moved page' {
         $global:ObsnNav.Count | Should Be 1
         $global:ObsnNav[0] | Should Match '^onenote:'
-        $c.Results[2].detail | Should Match 'opens the archived page: no'
-        ($c.Lines -join "`n") | Should Match 'Archive must then rewrite the links in the text of pages that link to the page'
+        $c.Results[2].detail | Should Match 'opens the archived page: yes; its OneNote link changed: yes; the text points at the new link: yes; pages re-pointed: 1'
     }
     It 'logs statuses, counts and yes/no only: no page title, id or link' {
         $all = @(foreach ($x in $c.Results) { "$($x.name) $($x.detail)" }) -join ' '
@@ -697,7 +725,7 @@ Describe 'V6 "Archive, restore and delete" in the dev vault (in-memory OneNote, 
         & (Get-Module StageVault) { param($c, $a) Invoke-DevVaultChecks $c $a } $r $w2.a
         @($r.Results | Where-Object { $_.name -eq 'Archive, restore and delete' -and $_.status -eq 'SKIP' }).Count | Should Be 1
     }
-    Remove-Variable -Name ObsnNav -Scope Global -ErrorAction SilentlyContinue
+    Remove-Variable -Name ObsnNav, ObsnFake -Scope Global -ErrorAction SilentlyContinue
 }
 
 Describe 'V6 "Upgrade move" in the dev vault (in-memory OneNote, no Copilot)' {
@@ -742,13 +770,32 @@ Describe 'V6 "Notebook reads" (in-memory OneNote; read only)' {
         $w.f.Hidden[$nb] = 'meta'
         $c = & $run
         (@($c.Results | ForEach-Object { $_.name }) -join ',') | Should Be 'Notebook reads,Reads of notebook #1,Reads of notebook #2'
-        $c.Results[0].detail | Should Match '^2 notebooks open; the selected notebook is one of them;'
+        $c.Results[0].detail | Should Match '^2 notebooks open; the selected notebook is one of them \(said by the window\);'
         $v = @($c.Results | Where-Object { $_.detail -match '00 Index sections: 1' })
         $v.Count | Should Be 1
         $v[0].status | Should Be 'WARN'
         $v[0].detail | Should Match '^selected: no; sections: (\d+) read by notebook, \1 read with all notebooks; 00 Index sections: 1; their pages: \d+, with obsn Meta: 0; state page found: no; vaults listed in it: 0; \d+ ms$'
         $o = @($c.Results | Where-Object { $_.detail -match 'no 00 Index section listed' })[0]
         "$($o.status)|$($o.detail -replace '; \d+ ms$', '')" | Should Be 'INFO|selected: yes; sections: 1 read by notebook, 1 read with all notebooks; no 00 Index section listed; state page found: no; vaults listed in it: 0'
+    }
+    It 'asks the notebook list when the window says nothing, and says so (target machine, 2026-11-16)' {
+        # An adapter whose window lists no window, while the notebook list marks the notebook in view.
+        $global:ObsnInner = $w.a
+        $global:ObsnViewed = [string]$w.household
+        $s = New-Object psobject
+        $s | Add-Member ScriptMethod GetCurrentNotebookId { '' }
+        $s | Add-Member ScriptMethod GetHierarchy { param($Id, $Scope)
+            $x = $global:ObsnInner.GetHierarchy($Id, $Scope)
+            if ($Id) { return $x }
+            [xml]$d = $x
+            foreach ($n in @($d.DocumentElement.ChildNodes | Where-Object { $_.LocalName -eq 'Notebook' -and $_.GetAttribute('ID') -eq $global:ObsnViewed })) { $n.SetAttribute('isCurrentlyViewed', 'true') }
+            $d.OuterXml
+        }
+        $c = New-TestCtx
+        & (Get-Module StageVault) { param($c, $a, $v) Add-NotebookReadResults $c $a $v } $c $s @()
+        $c.Results[0].detail | Should Match '^2 notebooks open; the selected notebook is one of them \(said by the notebook list\);'
+        @($c.Results | Where-Object { $_.detail -match '^selected: yes;' }).Count | Should Be 1
+        Remove-Variable -Name ObsnInner, ObsnViewed -Scope Global
     }
     It 'shows the notebook without its sections' {
         $w.f.Hidden[$nb] = 'sections'
@@ -776,6 +823,43 @@ Describe 'V6 "Notebook reads" (in-memory OneNote; read only)' {
         $c = & $run
         $all = (@($c.Results | ForEach-Object { "$($_.name) $($_.detail) $($_.hint)" }) -join ' ')
         $all | Should Not Match 'Synthetic|Household|example\.invalid|\{[A-Z]{2}-'
+    }
+}
+
+Describe 'V6 -SelectNotebooks: each open notebook shown in turn, the vaults read each time (in-memory OneNote)' {
+    foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore') { Import-Module (Join-Path $root "lib\$m.psm1") -Global }
+    . (Join-Path $here 'SyntheticVault.ps1')
+    $w = New-SyntheticVault
+    $nb = [string]$w.open.vault.notebookId
+    # The fault the probe looks for: the vault's pages come without Meta until its notebook is shown
+    # (the in-memory OneNote reveals a notebook when it is navigated to).
+    $w.f.Current = [string]$w.household
+    $w.f.Hidden[$nb] = 'meta'
+    $writes = $w.f.Writes.Count
+    $vaults = @(Get-VaultList -Adapter $w.a)
+    $c = New-TestCtx -Flags @{ SelectNotebooks = $true; NavWaitMs = 0 }
+    $c.Shared.One = $w.f
+    & (Get-Module StageVault) { param($c, $a, $v) Invoke-NotebookSelectionProbe $c $a $v } $c $w.a $vaults
+    $lines = @($c.Results | Where-Object { $_.name -like 'Notebook selection*' })
+    It 'shows each open notebook once and reads the vault each time' {
+        $lines.Count | Should Be 2
+        $w.f.Navigations.Count | Should Be 2
+    }
+    It 'flags the vault read while another notebook was shown, and passes once its own was shown' {
+        (@($lines | ForEach-Object { $_.status }) -join ',') | Should Be 'WARN,OK'
+        $lines[0].detail | Should Match 'state page found no'
+        $lines[1].detail | Should Match 'state page found yes, sections (\d+) of \1, Index pages with Meta (\d+) of \2$'
+    }
+    It 'writes nothing and logs no notebook name, id or address' {
+        $w.f.Writes.Count | Should Be $writes
+        (@($c.Results | ForEach-Object { "$($_.name) $($_.detail)" }) -join ' ') | Should Not Match 'Synthetic|Household|example\.invalid|\{[A-Z]{2}-'
+    }
+    It 'does nothing without -SelectNotebooks' {
+        $c2 = New-TestCtx -Flags @{ SelectNotebooks = $false }
+        $nav = $w.f.Navigations.Count
+        & (Get-Module StageVault) { param($c, $a) Invoke-NotebookSelectionProbe $c $a @() } $c2 $w.a
+        $c2.Results.Count | Should Be 0
+        $w.f.Navigations.Count | Should Be $nav
     }
 }
 
@@ -824,7 +908,8 @@ Describe 'The kit on disk' {
             'Run Link Probes.cmd' = '-Stage V5 -Probe P7,P8 %*'
             'Run Loop Probe.cmd' = '-Stage V5 -Probe P4 %*'
             'Run Vault Check.cmd' = '-Stage V6 -NoCopilot -NoPrompt %*'
-            'Run Meeting Probe.cmd' = '-Stage V5 -Probe P10 -NoPrompt %*'
+            'Run Meeting Probe.cmd' = '-Stage V5 -Probe P10 -NoPrompt -MeetingDay today %*'
+            'Run Notebook Selection Probe.cmd' = '-Stage V6 -NoCopilot -NoPrompt -SelectNotebooks %*'
             'Run OneNote API Probe.cmd' = '-Stage V2 -NoCopilot -NoPrompt %*'
         }
         foreach ($name in $want.Keys) {

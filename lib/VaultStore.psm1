@@ -297,14 +297,15 @@ function Invoke-VsDeletePage {
 }
 
 function Invoke-VsRewriteBodyLinks {
-    <# A page left the vault (Undo): on page $PageId, links to it ($TargetLink, its onenote: link) in
-       ObsidiNote's own body outline become the plain text $Text ("(deleted: <title>)"). Only an
-       outline with obsn.role = body is changed (Convert-ObsnBodyLinks); never "Your notes", never an
-       outline without a role. Through the guarded adapter, under the lease. Returns @{ count }. #>
-    param([hashtable]$Ctx, [string]$PageId, [string]$TargetLink, [string]$Text)
+    <# On page $PageId, links to a page ($TargetLink, its onenote: link) in ObsidiNote's own body
+       outline become the plain text $Text ("(deleted: <title>)": the page left the vault), or with
+       $NewLink point at its new link (it moved). Only an outline with obsn.role = body is changed
+       (Convert-ObsnBodyLinks); never "Your notes", never an outline without a role. Through the
+       guarded adapter, under the lease. Returns @{ count }. #>
+    param([hashtable]$Ctx, [string]$PageId, [string]$TargetLink, [string]$Text = '', [string]$NewLink = '')
     Assert-VsWritable $Ctx
     if (-not $TargetLink) { return @{ count = 0 } }
-    $r = Convert-ObsnBodyLinks -Xml ($Ctx.Adapter.GetPageContent($PageId)) -TargetLink $TargetLink -Text $Text
+    $r = Convert-ObsnBodyLinks -Xml ($Ctx.Adapter.GetPageContent($PageId)) -TargetLink $TargetLink -Text $Text -NewLink $NewLink
     if ($r.count) { $Ctx.Adapter.UpdatePageContent($r.xml) }
     @{ count = [int]$r.count }
 }
@@ -377,11 +378,70 @@ function Invoke-VsMovePage {
     if ($Type) { Invoke-VsUpdatePage -Ctx $Ctx -PageId $newId -Meta @{ type = $Type } -Outlines @() }
     $old = [string]$p.oneNoteId
     if ($old -and $Ctx.Model.byOneNoteId.ContainsKey($old)) { $Ctx.Model.byOneNoteId.Remove($old) }
+    $oldLink = [string]$p.link
     $link = $Ctx.Adapter.GetHyperlinkToObject($newId)
     $rec = @{ id = $Id; pageId = $newId; section = $target.name; link = $link }
     if ($Type) { $rec.type = $Type }
     Invoke-VsIndexAddPage -Ctx $Ctx -Page $rec
-    @{ moved = $true; pageId = $newId; from = $from.full; to = $target.name; link = $link }
+    $re = Update-VsMovedAnchors -Ctx $Ctx -Id $Id -OldLink $oldLink -NewLink $link
+    @{ moved = $true; pageId = $newId; from = $from.full; to = $target.name; link = $link; relinked = $re.count; warnings = @($re.warnings) }
+}
+
+function Invoke-VsRepairBodyLinks {
+    <# Upgrade step body-links: on ObsidiNote's page $Id, a link in its own body outline that points
+       at no page of the vault any more, and whose text is the title or an alias of a page it links to
+       (its own links), points at that page's link now (Repair-ObsnBodyLinks). For text written before
+       moves re-pointed such links (2026-11-16). Through the guarded adapter, under the lease.
+       Returns @{ count }. #>
+    param([hashtable]$Ctx, [string]$Id)
+    Assert-VsWritable $Ctx
+    if (-not $Ctx.Model.pages.Contains($Id)) { throw "page $Id is not in the index" }
+    $p = $Ctx.Model.pages[$Id]
+    if ($p.owner -ne 'obsn' -or -not $p.oneNoteId) { throw "page $Id is not one of ObsidiNote's pages" }
+    $live = New-Object 'System.Collections.Generic.HashSet[string]'
+    foreach ($q in @($Ctx.Model.pages.Values)) { $g = Get-OneLinkPageGuid ([string]$q.link); if ($g) { [void]$live.Add($g) } }
+    $targets = @(foreach ($l in @($p.links)) {
+        if (-not $l) { continue }
+        $t = [string]$(if ($l -is [Collections.IDictionary]) { if ($l.Contains('target')) { $l['target'] } else { $l['t'] } } else { $l.target })
+        if (-not $t -or -not $Ctx.Model.pages.Contains($t)) { continue }
+        $tp = $Ctx.Model.pages[$t]
+        if (-not $tp.link) { continue }
+        @{ link = [string]$tp.link; names = @(@([string]$tp.title) + @($tp.aliases | Where-Object { $_ } | ForEach-Object { [string]$_ })) }
+    })
+    if (-not $targets.Count) { return @{ count = 0 } }
+    $r = Repair-ObsnBodyLinks -Xml ($Ctx.Adapter.GetPageContent([string]$p.oneNoteId)) -Targets $targets -LiveGuids $live
+    if ($r.count) { $Ctx.Adapter.UpdatePageContent($r.xml) }
+    @{ count = [int]$r.count }
+}
+
+function Get-VsLinkingPages {
+    <# ObsidiNote's pages whose own links (their index record, from their obsn.links Meta) point at
+       page $Id, without $Id itself. Returns the index records. #>
+    param([hashtable]$Ctx, [string]$Id)
+    foreach ($q in @($Ctx.Model.pages.Values)) {
+        if ($q.owner -ne 'obsn' -or [string]$q.id -eq $Id -or -not $q.oneNoteId) { continue }
+        $hit = @(@($q.links) | Where-Object { $_ -and "$(if ($_ -is [Collections.IDictionary]) { if ($_.Contains('target')) { $_['target'] } else { $_['t'] } } else { $_.target })" -eq $Id }).Count
+        if ($hit) { $q }
+    }
+}
+
+function Update-VsMovedAnchors {
+    <# A page moved (MovePage): OneNote gave it a new link, so a link to it in the text of the pages
+       that link to it no longer opened it (target machine, 2026-11-16, kit V6 "Archive (link in
+       another page)"). In each such page's own body outline (obsn.role = body only, never "Your
+       notes"), a link matching its old link or page id now points at $NewLink; the link's text stays.
+       Returns @{ count (pages whose text changed); warnings }. One page that fails does not stop the
+       others; the move itself stands. #>
+    param([hashtable]$Ctx, [string]$Id, [string]$OldLink, [string]$NewLink)
+    $count = 0; $warn = @()
+    if (-not $OldLink -or -not $NewLink -or $OldLink -eq $NewLink) { return @{ count = 0; warnings = @() } }
+    foreach ($q in @(Get-VsLinkingPages -Ctx $Ctx -Id $Id)) {
+        try {
+            $x = Invoke-VsRewriteBodyLinks -Ctx $Ctx -PageId ([string]$q.oneNoteId) -TargetLink $OldLink -NewLink $NewLink
+            if ($x.count) { $count++ }
+        } catch { $warn += "Page $($q.id) still shows the old link to the moved page in its text: $($_.Exception.Message)" }
+    }
+    @{ count = $count; warnings = $warn }
 }
 
 function Invoke-VsFindPageByUrl {
@@ -419,6 +479,7 @@ function Invoke-VaultStoreCall {
         'IndexUpdatePage' { return (Invoke-VsIndexAddPage -Ctx $Ctx @Arguments) }
         'IndexRemovePage' { return (Invoke-VsIndexRemovePage -Ctx $Ctx @Arguments) }
         'RewriteBodyLinks' { return (Invoke-VsRewriteBodyLinks -Ctx $Ctx @Arguments) }
+        'RepairBodyLinks' { return (Invoke-VsRepairBodyLinks -Ctx $Ctx @Arguments) }
         'IndexUpdatePages' { return (Invoke-VsIndexUpdatePages -Ctx $Ctx @Arguments) }
         'MovePage' { return (Invoke-VsMovePage -Ctx $Ctx @Arguments) }
         'Model' { return $Ctx.Model }
@@ -460,6 +521,7 @@ function New-VaultStore {
         IndexUpdatePage = { param([hashtable]$Page) & $call $ctx 'IndexUpdatePage' @{ Page = $Page } }.GetNewClosure()
         IndexRemovePage = { param([string]$Id) & $call $ctx 'IndexRemovePage' @{ Id = $Id } }.GetNewClosure()
         RewriteBodyLinks = { param([string]$PageId, [string]$TargetLink, [string]$Text) & $call $ctx 'RewriteBodyLinks' @{ PageId = $PageId; TargetLink = $TargetLink; Text = $Text } }.GetNewClosure()
+        RepairBodyLinks = { param([string]$Id) & $call $ctx 'RepairBodyLinks' @{ Id = $Id } }.GetNewClosure()
         # Optional (Ingest falls back to IndexUpdatePage per page): many records, one Index write.
         IndexUpdatePages = { param([object[]]$Pages) & $call $ctx 'IndexUpdatePages' @{ Pages = $Pages } }.GetNewClosure()
         # Upgrade steps (lib/Upgrade.psm1), not part of Ingest's contract.

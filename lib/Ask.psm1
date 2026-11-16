@@ -414,10 +414,14 @@ function New-AskStep3Prompt {
 # ---------------------------------------------------------------------------------------------
 
 function New-AskCopilot {
-    <# The Copilot adapter for Ask, over lib/CopilotBridge.psm1 (loaded by the caller):
-       @{ Send = { param([string]$Text) -> reply text }; NewChat = { } }. A reply that is not
-       Success throws. #>
+    <# The Copilot adapter for Ask, over lib/CopilotBridge.psm1: @{ Send = { param([string]$Text)
+       -> reply text }; NewChat = { } }. A reply that is not Success throws. #>
     param([Parameter(Mandatory)]$Bridge, [int]$TimeoutSec = 600, [int]$StallSec = 300, [int]$MaxTimeoutSec = 900)
+    # Loaded here on use, globally, as the server does (lib/Server.psm1 Get-AskCopilotAdapter): a
+    # caller that loaded the bridge inside its own module (the validation kit) left it unseen here,
+    # and the kit's V6 Ask failed with "Send-CopilotPrompt is not recognized" (target machine,
+    # 2026-11-16). Importing an already loaded module keeps its one copy and its connection.
+    Import-Module (Join-Path $PSScriptRoot 'CopilotBridge.psm1') -Global
     $send = Get-Command Send-CopilotPrompt -ErrorAction Stop
     $new = Get-Command New-CopilotChat -ErrorAction Stop
     $b = $Bridge; $t = $TimeoutSec; $st = $StallSec; $mx = $MaxTimeoutSec

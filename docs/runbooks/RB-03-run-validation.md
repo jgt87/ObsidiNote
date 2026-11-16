@@ -26,7 +26,8 @@ a log to your Desktop that you can send back. It is in the folder
 | `-ProbeBasePath <address>` | Where to create the test notebooks, when the kit cannot find a OneDrive notebook. Use your OneDrive Documents address. |
 | `-TestPort <n>` | The port for V4 (default 18768). |
 | `-Probe P10` | In stage V5, run only the named probes (`P3`, `P4`, `P7`, `P8`, `P10`; several with commas). Without it, all of them run. A name that is not a probe gives a `[FAIL] Probe` line that lists the probes, and Copilot is not opened for it. |
-| `-MeetingDay 2026-11-12` | The day P10 lists all meetings of and reads two of (written yyyy-mm-dd). Without it, P10 takes the busiest day of the last 7 days. The date is not written to the log; a value that is not a date gives a `[FAIL] P10 day's meetings` line. |
+| `-SelectNotebooks` | In stage V6: show each open notebook in OneNote in turn and read every vault each time (RB-05, step 3b). Writes nothing; OneNote shows your page again at the end. |
+| `-MeetingDay 2026-11-12` | The day P10 lists all meetings of and reads two of (written yyyy-mm-dd, or `today` for this computer's date). Without it, P10 takes the busiest day of the last 7 days. The date is not written to the log; a value that is not a date gives a `[FAIL] P10 day's meetings` line. |
 | `-PublicUrl <address>` | The public web page P8 summarizes (default: a public documentation page). |
 | `-SharePointUrl <address>`, `-OneDriveUrl <address>` | The addresses for P7, so the kit does not ask for them. They are not written to the log. |
 | `-OutDir <folder>` | Where the two result files go (default: your Desktop). |
@@ -37,7 +38,8 @@ The files to double-click in the `validation` folder:
 |---|---|
 | `Run Validation.cmd` | All stages, read only. |
 | `Run Validation with write tests.cmd` | All stages with `-WriteTest`. Run it once before the OneNote search probe: it makes the marker page. |
-| `Run Meeting Probe.cmd` | Only the meetings probe: `-Stage V5 -Probe P10 -NoPrompt`. It asks nothing and writes nothing (RB-04, step 4). |
+| `Run Meeting Probe.cmd` | Only the meetings probe, for today's meetings: `-Stage V5 -Probe P10 -NoPrompt -MeetingDay today`. It asks nothing and writes nothing (RB-04, step 4). |
+| `Run Notebook Selection Probe.cmd` | Only the vault checks plus the selection probe: `-Stage V6 -NoCopilot -NoPrompt -SelectNotebooks`. OneNote switches notebooks while it runs; nothing is written (RB-05, step 3b). |
 | `Run OneNote Search Probe.cmd` | Only P3: `-Stage V5 -Probe P3 -NoPrompt`. Run it 1 hour and 24 hours after the write tests. It asks nothing and writes nothing (RB-04, step 6). |
 | `Run Link Probes.cmd` | Only P7 and P8: `-Stage V5 -Probe P7,P8`. It asks for a SharePoint page address and a OneDrive document address (Enter skips one) and writes nothing (RB-04, steps 2 and 4). |
 | `Run Loop Probe.cmd` | Only P4: `-Stage V5 -Probe P4`. It asks for the marker you typed on a Loop page and writes nothing (RB-04, step 3). |

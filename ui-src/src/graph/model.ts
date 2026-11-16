@@ -86,6 +86,9 @@ export interface GraphPage {
   /** When a link page's source was last read, ISO ('' or absent for other pages): the filter
    *  "Link summaries older than N days" (linkUpdateRun.ts). */
   summarizedAt?: string
+  /** One of ObsidiNote's own pages (it can be edited, archived and deleted); false for a page the
+   *  person made in OneNote, which is listed and never changed. Absent = true (older server). */
+  own?: boolean
 }
 
 export interface GraphEdge {
@@ -244,6 +247,7 @@ function normalizePage(p: Record<string, unknown>, id: string, topicIds: Set<str
     archived: p.archived === true,
     url: webUrl(str(p.url)),
     summarizedAt: str(p.summarizedAt),
+    own: p.own !== false,
     sourceId: str(p.sourceId),
     origin: validOrigin(p.origin),
   }

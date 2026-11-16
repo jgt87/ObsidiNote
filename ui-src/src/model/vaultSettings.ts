@@ -88,14 +88,14 @@ export function changedKeys(before: VaultSettings, after: VaultSettings): (keyof
 /** The text of the "Company addresses" field (one per line, commas too) as host rules, plus the
  *  entries that are not a host. Lower case, no duplicates, scheme and path dropped. */
 export function parseHosts(text: string): { hosts: string[]; bad: string[] } {
-  const hosts: string[] = []
+  const hosts = new Set<string>()
   const bad: string[] = []
   for (const part of text.split(/[\n,;]+/)) {
     let h = part.trim().toLowerCase()
     if (!h) continue
     h = h.replace(/^[a-z]+:\/\//, '').replace(/[/?#].*$/, '')
     if (!HOST.test(h) || h.length > 253) bad.push(part.trim())
-    else if (!hosts.includes(h)) hosts.push(h)
+    else hosts.add(h)
   }
-  return { hosts, bad }
+  return { hosts: [...hosts], bad }
 }

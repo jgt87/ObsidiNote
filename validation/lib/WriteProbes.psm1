@@ -159,6 +159,31 @@ function Test-ProbeLinkOpens {
     } finally { if ($before -and $One.PSObject.Methods['NavigateTo']) { try { $One.NavigateTo($before) } catch { } } }
 }
 
+function Select-KitNotebook {
+    <# Shows notebook $Id in OneNote (NavigateTo) and waits $WaitMs for OneNote to load it. Writes
+       nothing; it changes which notebook OneNote shows, so only for the opt-in selection probe
+       (-SelectNotebooks), which puts the person's page back afterwards (Restore-KitView). Returns
+       $true when OneNote took the request. #>
+    param($One, [Parameter(Mandatory)][string]$Id, [int]$WaitMs = 2000)
+    if (-not $One -or -not $One.PSObject.Methods['NavigateTo']) { return $false }
+    try { $One.NavigateTo($Id) } catch { return $false }
+    $until = (Get-Date).AddMilliseconds($WaitMs)
+    while ((Get-Date) -lt $until) { Start-Sleep -Milliseconds 100 }
+    $true
+}
+
+function Get-KitView($One) {
+    <# The page OneNote shows now ('' when it cannot be asked), for Restore-KitView. #>
+    if (-not $One -or -not $One.PSObject.Methods['CurrentPageId']) { return '' }
+    try { [string]$One.CurrentPageId() } catch { '' }
+}
+
+function Restore-KitView($One, [string]$PageId) {
+    <# Shows page $PageId again (the one shown before the probe); nothing when it is not known. #>
+    if (-not $PageId -or -not $One -or -not $One.PSObject.Methods['NavigateTo']) { return }
+    try { $One.NavigateTo($PageId) } catch { }
+}
+
 function Move-P1cPage {
     <# Moves 'P1c move me' to 'P1c moved', by the kit or (when OneNote refuses) by the person. Returns
        @{ how; page } or $null when skipped. #>
@@ -236,4 +261,4 @@ function Get-ProbeMarkers {
     @($out | Sort-Object ageHours)
 }
 
-Export-ModuleMember -Function Invoke-ProbeRoundTrip, Invoke-ProbeMetaSize, Invoke-ProbeLinkMove, New-ProbeMarker, Get-ProbeMarkers, Get-MetaSizeValue, Test-P1ReadBack, Test-ProbeLinkOpens
+Export-ModuleMember -Function Invoke-ProbeRoundTrip, Invoke-ProbeMetaSize, Invoke-ProbeLinkMove, New-ProbeMarker, Get-ProbeMarkers, Get-MetaSizeValue, Test-P1ReadBack, Test-ProbeLinkOpens, Select-KitNotebook, Get-KitView, Restore-KitView

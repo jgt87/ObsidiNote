@@ -213,6 +213,10 @@ button.kg-tagchip__name:focus-visible { outline: 2px solid var(--ring); outline-
 .kg-tagchip__x:disabled { opacity: 0.45; cursor: not-allowed; }
 .kg-tags__add { display: inline-flex; align-items: center; gap: var(--space-2); }
 .kg-tags__input { height: var(--control-h-sm); width: 150px; font-size: var(--text-meta); }
+/* design (operator, 2026-11-16): in the page window the tag field takes the rest of its row; the
+   List's tag bar keeps the compact field. */
+.kg-dialog .kg-tags__add { flex: 1 1 240px; min-width: 0; }
+.kg-dialog .kg-tags__input { flex: 1 1 auto; width: auto; min-width: 150px; }
 .kg-tags__error { flex-basis: 100%; padding: var(--space-2) var(--space-3); border-radius: var(--radius); background: var(--danger-soft); color: var(--danger); font-size: var(--text-meta); font-weight: 600; }
 @media (pointer: coarse) {
   /* The chip keeps its size; its remove button reaches 44px through an invisible box. */
@@ -220,7 +224,9 @@ button.kg-tagchip__name:focus-visible { outline: 2px solid var(--ring); outline-
 }
 
 /* ---------- page dialog ---------- */
-.kg-dialog { width: min(880px, calc(100vw - 32px)); max-height: min(790px, calc(100dvh - 48px)); }
+/* design (operator, 2026-11-16): a page opened from the map gets a bigger window when the screen has
+   the room; it still fits a small window with 16px each side. */
+.kg-dialog { width: min(1120px, calc(100vw - 32px)); max-height: min(900px, calc(100dvh - 48px)); }
 .kg-dialog[open] { display: flex; flex-direction: column; }
 .kg-dlg__head { display: flex; align-items: flex-start; gap: var(--space-4); padding: var(--space-6) var(--space-6) 0; }
 .kg-dlg__head > div { flex: 1; min-width: 0; }
@@ -233,8 +239,10 @@ button.kg-tagchip__name:focus-visible { outline: 2px solid var(--ring); outline-
 .kg-tab[aria-selected="true"] { border-bottom-color: var(--ink); color: var(--ink); font-weight: 600; }
 @media (hover: hover) { .kg-tab:hover { color: var(--ink); } }
 .kg-dlg__body { overflow: auto; padding: var(--space-5) var(--space-6); flex: 1 1 auto; min-height: 0; }
-/* The links are the longer column: they get the wider half (the summary side stood 73% empty). */
-.kg-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: var(--space-6); }
+/* design (operator, 2026-11-16): the page itself (summary, tags, page text) is what is read, so it
+   gets 65% of the window and the link sections 35%. Before, the links had the wider half, from when
+   the window showed no page text and the summary side stood mostly empty. */
+.kg-cols { display: grid; grid-template-columns: minmax(0, 65fr) minmax(0, 35fr); gap: var(--space-6); }
 @media (max-width: 720px) { .kg-cols { grid-template-columns: minmax(0, 1fr); } }
 .kg-lbl { font-size: var(--text-meta); font-weight: 600; color: var(--muted); margin: 0 0 var(--space-2); }
 .kg-lbl + .kg-lbl, * + .kg-lbl { margin-top: var(--space-5); }
@@ -256,9 +264,12 @@ textarea.kg-inline-edit__field { height: auto; padding: var(--space-3); resize: 
 .kg-inline-edit__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .kg-inline-edit__error { font-size: var(--text-meta); color: var(--ink); }
 .kg-note { margin: 0; color: var(--muted); font-size: var(--text-meta); }
-/* The page's own text (PageBody): reading text, a step larger than the interface around it, at a
-   readable measure. Headings sit under the window's title, so they stay small and bold. */
-.kg-body { font-size: var(--text-control); line-height: 1.5; max-width: 70ch; overflow-wrap: anywhere; }
+/* The page's own text (PageBody): reading text, a step larger than the interface around it.
+   Headings sit under the window's title, so they stay small and bold.
+   design (operator, 2026-11-16: "the left side items should utilize the available space"): the text
+   fills its column instead of stopping at a 70-character measure; the column itself is 65% of a
+   window of at most 1120px, so a line stays short of a full screen. */
+.kg-body { font-size: var(--text-control); line-height: 1.5; overflow-wrap: anywhere; }
 .kg-body > * { margin: 0; }
 .kg-body > * + * { margin-top: var(--space-4); }
 .kg-body h3, .kg-body h4, .kg-body h5 { font-weight: 600; line-height: 1.3; }

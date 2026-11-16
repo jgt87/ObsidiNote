@@ -162,6 +162,10 @@ function New-FakeOneNote {
         $this.Nodes.Remove($PageId)
         $new = $this.NewId('PA')
         $n.id = $new; $n.parent = $ToSectionId
+        # MoveChangesLink: as on a business tenant (kit P1c, 2026-11-14 and 2026-11-16) the moved page
+        # also gets a new page-id in its link, so an old link no longer opens it. Off: as the consumer
+        # PC's probe P9 saw (the page-id kept).
+        if ($this.PSObject.Properties['MoveChangesLink'] -and $this.MoveChangesLink) { $n.guid = [guid]::NewGuid().ToString() }
         $this.Nodes[$new] = $n
         $null = $this.Nodes[$ToSectionId].children.Add($new)
     }

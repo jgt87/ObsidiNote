@@ -23,12 +23,13 @@ export function normalizeTag(text: string): TagResult {
 
 /** A list of tags in normal form (duplicates go, the first stays), or why it is refused. */
 export function normalizeTags(list: string[]): { ok: true; tags: string[] } | { ok: false; error: string } {
-  const out: string[] = []
+  const seen = new Set<string>()
   for (const t of list) {
     const r = normalizeTag(t)
     if (!r.ok) return r
-    if (!out.includes(r.tag)) out.push(r.tag)
+    seen.add(r.tag) // a Set keeps the first place of each tag
   }
+  const out = [...seen]
   if (out.length > TAGS_PER_PAGE) return { ok: false, error: `A page has at most ${TAGS_PER_PAGE} tags.` }
   return { ok: true, tags: out }
 }

@@ -5,6 +5,22 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.5] - 2026-11-17
+
+### Added
+- **Validation kit, notebook selection probe** (`Run Notebook Selection Probe.cmd`): shows each open notebook in OneNote in turn and reads your vaults each time, to see whether a vault reads differently while another notebook is shown. It writes nothing and shows your page again at the end. The vault check also asks OneNote's notebook list which notebook is shown when OneNote's window does not say.
+- **Validation kit, meetings of today**: `Run Meeting Probe.cmd` now asks for today's meetings (`-MeetingDay today`); another day still works with `-MeetingDay yyyy-mm-dd`.
+
+### Changed
+- **Page window**: it opens larger when the screen has room (up to 1120 px wide), the page itself (summary, tags, page text) takes 65% of it and the link lists 35%, and the page text and the tag field use the full width of their column.
+- **Knowledge graph, Sources**: fewer pages end up under "ObsidiNote notes". A link page whose address is missing is placed by its site, or else under "Other web sites" or "Other company sites" by its link type; only pages that say nothing about where they come from stay under notes.
+
+### Fixed
+- **Delete or Archive a page you made in OneNote**: the window offered Delete and Archive on such a page and then failed with "ids must be ObsidiNote page ids". ObsidiNote never changes pages you made yourself, so the window now shows Edit greyed out with that reason and no Archive or Delete; a request for such a page gets the same plain refusal.
+- **Archive, Restore and moved pages**: a link to a page in the text of another page kept working only until the page moved. OneNote gives a moved page a new address, so after Archive, Restore, a type change in Edit or a re-filed link page, such links opened nothing on a work account. Those links now follow the page to its new place (only in ObsidiNote's own text, never in "Your notes"). Links already broken by an earlier Archive are repaired at the next start: a link to an archived page whose old address no longer exists and whose text is that page's title or alias points at it again.
+- **Validation kit, Ask**: the write-test run's "Ask (synthetic)" step stopped with "Send-CopilotPrompt is not recognized". Ask now loads the Copilot connection it needs itself, as the window already did, so the step reaches Copilot.
+- **Validation kit, Add**: when the synthetic Add or "Check for the answer" does not go as expected, the log now says why (Add's own message), not only "status failed".
+
 ## [v0.12.4] - 2026-11-16
 
 ### Changed

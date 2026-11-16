@@ -67,6 +67,21 @@ knowledge graph's data, Add and Ask.
      send the files anyway.
    - Send this in every case: the two newest Desktop files of BOTH runs, and which run had which
      notebook selected.
+   - Since v0.12.5 the `Notebook reads` line also asks OneNote's notebook list when its window does
+     not answer, and says which of the two did ("said by the notebook list").
+
+3b. The same question in one run, without selecting by hand: with OneNote open, double-click
+   **Run Notebook Selection Probe.cmd** in `%LOCALAPPDATA%\Programs\ObsidiNote\validation`.
+   OneNote's window switches through your open notebooks while it runs (do not click in it), and
+   shows the page you had open again at the end. Nothing is written.
+   - What you should see: besides the lines of step 3, one `Notebook selection, notebook #n shown`
+     line per open notebook, each `[OK]` with, for every vault, `state page found yes`, the same
+     two section counts and `Index pages with Meta` equal to the pages.
+   - The fault this step looks for: a `[WARN] Notebook selection, notebook #n shown` line where a
+     vault reads `state page found no` (or fewer sections) while another notebook is shown.
+   - `marked as in view: no` on every line: OneNote's notebook list does not mark the notebook
+     shown; the reads still count.
+   - Send this in every case: the two newest Desktop files.
 
 4. Write pass, only in the test vault:
    ```powershell

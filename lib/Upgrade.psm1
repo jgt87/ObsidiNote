@@ -13,6 +13,12 @@
 #   link-strength (2026-11-14): a "Link it" link (the person's own) is "related" (2); before v0.8.2
 #     it was written as "loose" (1). The page's obsn.links Meta and index record are raised
 #     (Update-LinkItStrength in lib/Ingest.psm1); no outline is written. Copilot's links are left as rated.
+#   body-links (2026-11-16): a moved page gets a new link (on a business tenant a new page-id too), so
+#     before moves re-pointed them (lib/VaultStore.psm1 MovePage), a link to an archived page in the
+#     text of a page that links to it stopped opening it. Each page that links to an archived page is
+#     checked (store RepairBodyLinks): in its own body outline only, a link that points at no page of
+#     the vault any more and whose text is the archived page's title or alias points at it again.
+#     Pages archived and restored before stay as they are (no mark says they moved).
 # Done once: Intake requests leave the index by the scan rule itself (lib/Index.psm1); nothing to move.
 # The log holds counts and ids only. PS 5.1, ASCII only.
 Set-StrictMode -Version 2.0
@@ -26,6 +32,17 @@ function Get-UpgradePlan {
     <# The pages that do not match the current rules. Pure. Returns @(@{ step; id; from; to; type }). #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable]$Model, [string[]]$InternalHosts = @(), [string[]]$CompanyNames = @())
+    # body-links: the pages that link to an archived page (their own links, from their obsn.links Meta).
+    $archived = @{}
+    foreach ($p in @($Model.pages.Values)) { if ($p.owner -eq 'obsn' -and $p.status -eq 'archived') { $archived[[string]$p.id] = $true } }
+    foreach ($p in @($Model.pages.Values)) {
+        if ($p.owner -ne 'obsn' -or -not $p.oneNoteId -or -not $archived.Count) { continue }
+        foreach ($l in @($p.links)) {
+            if (-not $l) { continue }
+            $t = [string]$(if ($l -is [Collections.IDictionary]) { if ($l.Contains('target')) { $l['target'] } else { $l['t'] } } else { $l.target })
+            if ($t -and $t -ne [string]$p.id -and $archived.ContainsKey($t)) { @{ step = 'body-links'; id = [string]$p.id; from = ''; to = $t; type = '' }; break }
+        }
+    }
     foreach ($p in @($Model.pages.Values)) {
         if ($p.owner -ne 'obsn' -or $p.status -eq 'archived') { continue }
         if (Test-WeakLinkIt -Links @($p.links)) { @{ step = 'link-strength'; id = [string]$p.id; from = ''; to = ''; type = '' } }
@@ -47,7 +64,7 @@ function Invoke-VaultUpgrade {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Store)
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    $r = [ordered]@{ status = 'none'; planned = 0; changed = 0; moved = 0; raised = 0; failed = 0; reason = '' }
+    $r = [ordered]@{ status = 'none'; planned = 0; changed = 0; moved = 0; raised = 0; relinked = 0; failed = 0; reason = '' }
     # Made before the try: when a later step stops the upgrade, the pages already changed and the
     # failures already collected are still reported (code review 2026-11-15).
     $failedIds = @{}; $changedIds = @{}
@@ -55,11 +72,18 @@ function Invoke-VaultUpgrade {
         $model = & $Store.Model
         $rules = & $Store.LinkRules
         $plan = @(Get-UpgradePlan -Model $model -InternalHosts @($rules.InternalHosts) -CompanyNames @($rules.CompanyNames))
-        $r.planned = @($plan | ForEach-Object { $_.id } | Select-Object -Unique).Count
+        # body-links pages are only checked (most need nothing): they count once something changed.
+        $r.planned = @($plan | Where-Object { $_.step -ne 'body-links' } | ForEach-Object { $_.id } | Select-Object -Unique).Count
         if (-not $plan.Count) { return $r }
-        try { & $Store.AssertWritable | Out-Null } catch { $r.status = 'skipped'; $r.reason = $_.Exception.Message; return $r }
+        # Read only: say so only when a page is known to differ (body-links pages are only checks).
+        try { & $Store.AssertWritable | Out-Null } catch { if ($r.planned) { $r.status = 'skipped'; $r.reason = $_.Exception.Message }; return $r }
         $targets = New-Object System.Collections.Generic.List[string]
         foreach ($s in $plan) {
+            if ($s.step -eq 'body-links') {
+                try { if ((& $Store.RepairBodyLinks $s.id).count) { $r.relinked++; $changedIds[$s.id] = $true; $r.planned++ } }
+                catch { $failedIds[$s.id] = $true; $r.planned++; Write-AppLog info upgrade 'Body links failed' @{ step = $s.step; id = $s.id; error = $_.Exception.GetType().Name } }
+                continue
+            }
             if ($s.step -eq 'link-strength') {
                 try { if ((Update-LinkItStrength -Store $Store -Id $s.id).changed) { $r.raised++; $changedIds[$s.id] = $true } }
                 catch { $failedIds[$s.id] = $true; Write-AppLog info upgrade 'Link strength failed' @{ step = $s.step; id = $s.id; error = $_.Exception.GetType().Name } }
@@ -102,6 +126,7 @@ function Format-UpgradeStatus {
     $done = @()
     if ($Result.moved) { $done += "$($Result.moved) link page(s) moved to the section the current link rule asks for" }
     if ($Result.raised) { $done += "your own links on $($Result.raised) page(s) set to related" }
+    if ($Result -is [Collections.IDictionary] -and $Result['relinked']) { $done += "links in the text of $($Result.relinked) page(s) point at the archived pages again" }
     if ($Result.status -eq 'done' -and -not $done.Count) { return $null }
     switch ($Result.status) {
         'done' { @{ status = 'OK'; detail = ($done -join '; '); hint = '' } }

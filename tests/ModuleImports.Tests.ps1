@@ -28,7 +28,15 @@ function Get-LookedUpName($Command) {
     if ($Command.GetCommandName() -ne 'Get-Command') { return '' }
     $els = @($Command.CommandElements)
     if ($els.Count -lt 2 -or $els[1] -isnot [Management.Automation.Language.StringConstantExpressionAst]) { return '' }
-    if (@($els | Where-Object { $_ -is [Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -like 'ErrorAction*' }).Count) { return '' }
+    # Optional only when a missing command is allowed: `-ErrorAction Stop` is a lookup that must
+    # succeed (lib/Ask.psm1 New-AskCopilot failed that way in the kit's V6 Ask on the target machine,
+    # 2026-11-16, while this test skipped it as optional).
+    for ($i = 1; $i -lt $els.Count; $i++) {
+        $e = $els[$i]
+        if ($e -isnot [Management.Automation.Language.CommandParameterAst] -or $e.ParameterName -notlike 'ErrorAction*') { continue }
+        $v = if ($e.Argument) { $e.Argument } elseif ($i + 1 -lt $els.Count) { $els[$i + 1] } else { $null }
+        if (-not ($v -is [Management.Automation.Language.StringConstantExpressionAst] -and $v.Value -eq 'Stop')) { return '' }
+    }
     $fn = $Command.Parent
     while ($fn -and $fn -isnot [Management.Automation.Language.FunctionDefinitionAst]) { $fn = $fn.Parent }
     if ($fn -and @($fn.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Import-Module' }, $true)).Count) { return '' }

@@ -1132,7 +1132,11 @@ function Invoke-PagesRetireRoute($State, [string]$Body, [string]$Action) {
     $ids = @($l.list | Select-Object -Unique)
     if (-not $ids.Count) { return @{ status = 400; body = @{ error = 'Choose at least one page.' } } }
     if ($ids.Count -gt 200) { return @{ status = 400; body = @{ error = 'At most 200 pages at a time.' } } }
-    if (@($ids | Where-Object { -not (Test-ObsnId $_) }).Count) { return @{ status = 400; body = @{ error = 'ids must be ObsidiNote page ids.' } } }
+    # A page key of the map: ObsidiNote's own (p...) or a page the person made (n:<OneNote id>). The
+    # plan refuses the second kind with words for a person ("A page you made yourself is moved or
+    # deleted in OneNote"); before, the whole request failed with "ids must be ObsidiNote page ids"
+    # (operator, 2026-11-16, deleting a test page). Anything else is no page of a map.
+    if (@($ids | Where-Object { -not (Test-ObsnId $_) -and $_ -notmatch '^n:[{}A-Za-z0-9-]{1,120}$' }).Count) { return @{ status = 400; body = @{ error = 'These are not pages of this map.' } } }
     if (Test-OtherVault $State $b) { return (Get-OtherVaultAnswer) }
     $u = Use-ActiveVault $State
     if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }

@@ -19,7 +19,7 @@ import { primaryTopic, type GraphPage } from './model'
 import { dialogKeysHint, pageLinks, type DialogTab } from './pageDialogModel'
 import { DialogFooter, DialogHeader, DialogTabs, NeighbourhoodTab, PageTab, rowNav, TopicTab, type Linking } from './PageDialogParts'
 import { PageEditForm } from './PageEditForm'
-import { readOnlyWhy } from './readOnly'
+import { pageReadOnlyWhy } from './readOnly'
 import { useDialogKeys, useModalDialog } from './usePageDialogKeys'
 import { usePageHistory } from './usePageHistory'
 
@@ -77,8 +77,10 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
   if (!page) return null
   const topic = index.topicById.get(primaryTopic(page))
   const { out, back, mentions } = pageLinks(index, page.id)
-  const ro = page.readOnly
-  const why = ro ? readOnlyWhy(index.model.source) : ''
+  // A page the person made is shown like a read-only one: Edit greyed out with its reason, no
+  // Archive or Delete, no tags (the server refuses all of them for such a page).
+  const why = pageReadOnlyWhy(page, index.model.source)
+  const ro = page.readOnly || page.own === false
   const { canEdit, inPlace } = editAccess(ro, onEditPage, editing)
   const nav = rowNav(index, history.go)
   const close = () => ref.current?.close()

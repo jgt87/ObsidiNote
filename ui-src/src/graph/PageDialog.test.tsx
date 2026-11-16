@@ -11,6 +11,7 @@ const raw = syntheticGraph({ pages: 30, topics: 4, seed: 3 }) as unknown as { pa
 raw.pages[0] = { ...raw.pages[0], url: 'https://contoso.example/x', onenoteUrl: 'onenote:x' }
 raw.pages[1] = { ...raw.pages[1], url: '', onenoteUrl: '' }
 raw.pages[2] = { ...raw.pages[2], url: '', archived: true }
+raw.pages[4] = { ...raw.pages[4], own: false }
 const index = buildIndex(normalizeGraph(raw))
 const roIndex = buildIndex(normalizeGraph({ ...raw, source: { ...raw.source, readOnly: true, readOnlyReason: 'notebook' } }))
 const ids = [...index.pageById.keys()]
@@ -32,6 +33,14 @@ describe('PageDialog: the first render', () => {
     expect(render(3, { onRetirePages: noop })).toContain('>Archive</button>')
     expect(render(3)).not.toContain('>Delete</button>')
     expect(render(3, { onRetirePages: noop }, roIndex)).not.toContain('>Delete</button>')
+  })
+
+  it('a page the person made: no Archive or Delete, Edit greyed out with the reason (operator, 2026-11-16)', () => {
+    const html = render(4, { onRetirePages: noop, onEditPage: async () => {} })
+    expect(html).not.toContain('>Delete</button>')
+    expect(html).not.toContain('>Archive</button>')
+    expect(html).toContain('aria-disabled="true" aria-describedby="kg-dlg-why"')
+    expect(html).toContain('You made this page in OneNote')
   })
 
   it('read only: Edit is shown but does nothing, with the reason', () => {

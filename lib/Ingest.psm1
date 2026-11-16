@@ -859,9 +859,11 @@ function Get-RetirePlan {
 
 function Set-PageArchived {
     <# Moves page $Id to section $To (the store's MovePage: OneNote gives it a new hierarchy id and
-       link) and writes the archive mark (-Archive: status archived, archivedFrom = $From) or clears it.
-       Returns the ids of the pages it links to (their "Linked from" holds its old link). Throws when
-       the move or the mark fails. #>
+       link, and the links to it in the text of the pages that link to it are pointed at the new one)
+       and writes the archive mark (-Archive: status archived, archivedFrom = $From) or clears it.
+       Returns @{ targets (the ids of the pages it links to: their "Linked from" holds its old link);
+       relinked (pages whose text now links to the new place); warnings }. Throws when the move or the
+       mark fails. #>
     param($Store, [string]$Id, [string]$To, [string]$From, [switch]$Archive)
     $m = Invoke-Store $Store 'MovePage' @{ Id = $Id; Bucket = $To; Type = '' }
     $pageId = [string](Get-LkProp $m 'pageId' '')
@@ -869,7 +871,11 @@ function Set-PageArchived {
     Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = $meta; Outlines = @(); Title = $null } | Out-Null
     Invoke-Store $Store 'IndexUpdatePage' @{ Page = (@{ id = $Id } + $meta) } | Out-Null
     $rec = (Get-IndexPageMap (Invoke-Store $Store 'GetIndex'))[$Id]
-    , @(@(Get-LkProp $rec 'links' @()) | ForEach-Object { [string](Get-LkProp $_ 'target' '') } | Where-Object { $_ })
+    @{
+        targets  = @(@(Get-LkProp $rec 'links' @()) | ForEach-Object { [string](Get-LkProp $_ 'target' '') } | Where-Object { $_ })
+        relinked = [int](Get-LkProp $m 'relinked' 0)
+        warnings = @(@(Get-LkProp $m 'warnings' @()) | Where-Object { $_ })
+    }
 }
 
 function Invoke-PageRetire {
@@ -882,7 +888,7 @@ function Invoke-PageRetire {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Store, [ValidateSet('archive', 'restore', 'delete')][string]$Action, [string[]]$Ids = @())
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    $r = [ordered]@{ status = 'failed'; message = ''; action = $Action; done = @(); refused = @(); failed = @(); warnings = @(); ms = 0 }
+    $r = [ordered]@{ status = 'failed'; message = ''; action = $Action; done = @(); refused = @(); failed = @(); relinked = 0; warnings = @(); ms = 0 }
     try { $r = Invoke-PageRetireWrite -Store $Store -Action $Action -Ids $Ids -Result $r }
     catch { $r.status = 'failed'; $r.message = "Nothing more was changed: $($_.Exception.Message)" }
     $r.ms = [int]$sw.ElapsedMilliseconds
@@ -908,8 +914,10 @@ function Invoke-PageRetireWrite {
         try {
             if ($Action -eq 'delete') { $x = Invoke-PageRemoval -Store $Store -Id $p.id; $r.warnings = @($r.warnings) + @($x.warnings) }
             else {
-                $tg = Set-PageArchived -Store $Store -Id $p.id -To $p.to -From $p.section -Archive:($Action -eq 'archive')
-                foreach ($t in @($tg)) { if ($t -and -not $targets.Contains($t)) { $targets.Add($t) } }
+                $mv = Set-PageArchived -Store $Store -Id $p.id -To $p.to -From $p.section -Archive:($Action -eq 'archive')
+                foreach ($t in @($mv.targets)) { if ($t -and -not $targets.Contains($t)) { $targets.Add($t) } }
+                $r.relinked = [int]$r.relinked + $mv.relinked
+                $r.warnings = @($r.warnings) + @($mv.warnings)
             }
             $done.Add([ordered]@{ id = $p.id; title = $p.title; to = $p.to })
         } catch { $failed.Add([ordered]@{ id = $p.id; title = $p.title; error = $_.Exception.Message }) }
@@ -1459,8 +1467,13 @@ function Invoke-PageEditWrite {
     $moved = ''
     if ($ch.ContainsKey('moveTo')) {
         # A type or address of another section moves the page there (store MovePage: a new hierarchy
-        # id and link, found again by its obsn.id; the index record follows).
-        try { $mv = Invoke-Store $Store 'MovePage' @{ Id = $Id; Bucket = [string]$ch.moveTo; Type = '' }; $moved = [string](Get-LkProp $mv 'to' '') }
+        # id and link, found again by its obsn.id; the index record follows, and links to it in the
+        # text of the pages that link to it are pointed at its new link).
+        try {
+            $mv = Invoke-Store $Store 'MovePage' @{ Id = $Id; Bucket = [string]$ch.moveTo; Type = '' }
+            $moved = [string](Get-LkProp $mv 'to' '')
+            $r.warnings = @($r.warnings) + @(@(Get-LkProp $mv 'warnings' @()) | Where-Object { $_ })
+        }
         catch { $r.warnings = @($r.warnings) + "The page was saved but stays in its section: $($_.Exception.Message)" }
     }
 

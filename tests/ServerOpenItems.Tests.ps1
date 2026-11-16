@@ -119,7 +119,7 @@ Describe 'GET /api/graph: source.readOnlyReason and tags' {
         $g.body.source.readOnlyReason | Should Be ''
         $j = Get-Json $g
         $j | Should Match '"tags":\[\],"edgesComplete"'
-        $j | Should Match '"origin":"[^"]*","tags":\[\]\}'
+        $j | Should Match '"origin":"[^"]*","tags":\[\],"own":true\}'
     }
     It 'is notebook for a connected notebook' {
         # The read-only hierarchy fixture: its ids have OneNote's shape, which the route checks.
@@ -347,6 +347,17 @@ Describe 'Archive, Restore and Delete through the routes (POST /api/pages/archiv
         }
         $r = Invoke-ApiRoute -Method 'POST' -Path '/api/pages/archive' -Body '{"ids":["p1","p99"]}' -State $state
         (Get-Json $r) | Should Match '"plan":\{"pages":\[\{"id":"p1","title":"Zero-trust networking","section":"Notes","to":"Archive/Notes","inbound":1\}\],"refused":\[\{"id":"p99"'
+        $w.f.Writes.Count | Should Be $before
+    }
+    It 'refuses a page the person made with words for a person, not a bad-request error (operator, 2026-11-16)' {
+        $before = $w.f.Writes.Count
+        $key = 'n:{3A1F0000-0000-4000-8000-00000000AB12}{1}{B0}'
+        $p = Invoke-ApiRoute -Method 'POST' -Path '/api/pages/delete' -Body ('{"ids":["' + $key + '"]}') -State $state
+        $p.status | Should Be 409
+        @($p.body.plan.refused)[0].reason | Should Match 'A page you made yourself is moved or deleted in OneNote'
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/pages/delete' -Body ('{"ids":["' + $key + '"],"confirm":true}') -State $state
+        $r.status | Should Be 400
+        $r.body.error | Should Match '^Nothing was changed: It is not one of ObsidiNote''s pages'
         $w.f.Writes.Count | Should Be $before
     }
     It 'answers 409 with the other-vault sentence for another vault''s ids' {

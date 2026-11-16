@@ -131,6 +131,18 @@ Describe 'ConvertTo-GraphModel: sources' {
         "$($s.id):$($s.name):$($s.kind)" | Should Be 'internal:Other company sites:other-internal'
         (@($g2.sources | ForEach-Object { $_.kind }) -join ',') | Should Be 'm365,other-internal,web,other,notes'
     }
+    It 'files a link page without an address by its host, then by its link type, never as a note (operator, 2026-11-16)' {
+        $m3 = New-TestModel
+        foreach ($i in 1..3) { $null = Add-IndexPage -Model $m3 -Page @{ id = "h$i"; title = "Host only $i"; type = 'link-web'; bucket = 'Web links'; section = 'Web links'; oneNoteId = "{H$i}"; host = 'docs.example.org' } }
+        $null = Add-IndexPage -Model $m3 -Page @{ id = 't1'; title = 'Web, nothing else'; type = 'link-web'; bucket = 'Web links'; section = 'Web links'; oneNoteId = '{T1}' }
+        $null = Add-IndexPage -Model $m3 -Page @{ id = 't2'; title = 'Company, nothing else'; type = 'link-internal'; bucket = 'Internal links'; section = 'Internal links'; oneNoteId = '{T2}' }
+        $null = Add-IndexPage -Model $m3 -Page @{ id = 'h9'; title = 'Bad host'; type = 'note'; bucket = 'Notes'; section = 'Notes'; oneNoteId = '{H9}'; host = 'not a host' }
+        $g3 = ConvertTo-GraphModel -Model $m3 -Source @{ kind = 'vault'; id = 'v1'; name = 'S'; readOnly = $false }
+        $of = @{}; foreach ($p in $g3.pages) { $of[$p.id] = $p.sourceId }
+        "$($of['h1'])|$($of['t1'])|$($of['t2'])|$($of['h9'])" | Should Be 'web/docs.example.org|web|internal|obsidinote'
+        # The notes area holds only pages that say nothing about where they are from.
+        @($g3.pages | Where-Object { $_.sourceId -eq 'obsidinote' -and $_.kind -like 'link-*' }).Count | Should Be 0
+    }
 }
 
 Describe 'ConvertTo-GraphModel: section, bucket and kind per page (tests/fixtures/graph-pages.json)' {
@@ -154,25 +166,32 @@ Describe 'ConvertTo-GraphModel: section, bucket and kind per page (tests/fixture
         if ($p.PSObject.Properties['summarizedAt']) { $meta['obsn.summarizedAt'] = $p.summarizedAt }
         $null = $f.AddPage((Add-FixtureSection $f $vault $p.section), "Page $($p.id)", $meta, 1, '')
     }
+    # A page the person made in the vault: no obsn Meta (it is listed, never changed).
+    foreach ($p in @($want | Where-Object { $_.source -eq 'vault-user' })) { $null = $f.AddPage((Add-FixtureSection $f $vault $p.section), "Page $($p.id)", @{}, 1, '') }
     $other = $f.AddNotebook('Fixture notebook')
     foreach ($p in @($want | Where-Object { $_.source -eq 'notebook' })) { $null = $f.AddPage((Add-FixtureSection $f $other $p.section), "Page $($p.id)", @{}, 1, '') }
     $gv = ConvertTo-GraphModel -Model (Read-VaultScan -Adapter $f -RootId $vault -VaultId 'v1') -Source @{ kind = 'vault'; id = 'v1'; name = 'Fixture vault'; readOnly = $false }
     $gn = ConvertTo-GraphModel -Model (Get-NotebookModel -Adapter $f -NotebookId $other -NoLinks -Vaults @()) -Source @{ kind = 'notebook'; id = $other; name = 'Fixture notebook'; readOnly = $true }
     It 'covers the cases the interface relies on' {
         foreach ($s in 'Notes', 'Notes 2', 'Journal/2026', 'Journal/2025', 'Web links', 'Archive/Notes', 'Group/Section', '00 Admin') { (@($want | ForEach-Object { $_.section }) -contains $s) | Should Be $true }
-        @($gv.pages).Count | Should Be @($want | Where-Object { $_.source -eq 'vault' }).Count
+        @($gv.pages).Count | Should Be @($want | Where-Object { $_.source -like 'vault*' }).Count
         @($gn.pages).Count | Should Be @($want | Where-Object { $_.source -eq 'notebook' }).Count
     }
     foreach ($p in $want) {
         It "sends $($p.source) section '$($p.section)' as bucket '$($p.bucket)', kind '$($p.kind)'" {
             # A vault page is found by its id; a notebook page (its id is OneNote's) by its section.
-            $got = if ($p.source -eq 'vault') { @($gv.pages | Where-Object { $_.id -eq $p.id })[0] } else { @($gn.pages | Where-Object { $_.section -eq $p.section })[0] }
+            $got = switch ($p.source) {
+                'vault' { @($gv.pages | Where-Object { $_.id -eq $p.id })[0] }
+                'vault-user' { @($gv.pages | Where-Object { $_.section -eq $p.section })[0] }
+                default { @($gn.pages | Where-Object { $_.section -eq $p.section })[0] }
+            }
             $got | Should Not BeNullOrEmpty
             "$($got.section)|$($got.bucket)|$($got.kind)" | Should Be "$($p.section)|$($p.bucket)|$($p.kind)"
             # tags: as JSON, so a list of one and an empty list are checked as lists.
             (ConvertTo-Json -InputObject $got.tags -Compress) | Should Be (ConvertTo-Json -InputObject @($p.tags) -Compress)
             $sa = if ($p.PSObject.Properties['summarizedAt']) { $p.summarizedAt } else { '' }
             $got.summarizedAt | Should Be $sa
+            $got.own | Should Be ([bool]$p.own)
         }
     }
     It 'sends the tags of the shown source with their page counts, sorted by name, as a list' {

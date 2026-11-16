@@ -23,6 +23,17 @@ $script:MinWebPages = 3   # a web site with fewer pages joins "Other web sites"
 # Order of the kinds in the sources list (the map packs the strongest linked first anyway).
 $script:SourceKindOrder = @{ m365 = 0; service = 1; 'other-internal' = 2; web = 3; other = 4; notes = 5 }
 
+function Get-LinkTypeSource([string]$Type) {
+    <# A link page without an address or host: its type still says web or company. The same rest
+       groups as the view's few-page sites ("Other web sites", "Other company sites"); $null for a page
+       that is not a link page. Pure. #>
+    switch ($Type) {
+        'link-web' { return @{ id = 'web'; name = 'Other web sites'; kind = 'other' } }
+        'link-internal' { return @{ id = 'internal'; name = 'Other company sites'; kind = 'other-internal' } }
+        default { return $null }
+    }
+}
+
 function Get-GraphSources {
     <# Per page id its source id, plus the sources list @(@{ id; name; kind; pageCount }). #>
     param([object[]]$Pages, [bool]$Notebook, [hashtable]$LinkRules = @{})
@@ -33,9 +44,14 @@ function Get-GraphSources {
     $byId = @{}
     $count = @{}
     foreach ($p in $Pages) {
-        # The address wins (a link page); else where it came from (obsn.origin); else the notes area.
+        # The address wins (a link page); then its host alone (a link page whose record lost the
+        # address); then where it came from (obsn.origin); then its link type; the notes area only
+        # when nothing says where it is from (operator, 2026-11-16: "putting items in ObsidiNote notes
+        # should be minimized. Web links should be listed as such, and not as notes").
         $s = if ([string]$p.url -match '^(?i)https?://') { Get-LinkSource -Url ([string]$p.url) -InternalHosts $hosts -CompanyNames $names } else { $null }
+        if (-not $s -and $p.ContainsKey('host') -and [string]$p.host -match '^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$') { $s = Get-LinkSource -Url "https://$([string]$p.host)/" -InternalHosts $hosts -CompanyNames $names }
         if (-not $s -and $p.ContainsKey('origin') -and $p.origin) { $s = Get-OriginSource ([string]$p.origin) }
+        if (-not $s) { $s = Get-LinkTypeSource ([string]$p.type) }
         if (-not $s) { $s = $notes }
         $of[$p.key] = $s
         $byId[$s.id] = $s
@@ -107,6 +123,10 @@ function ConvertTo-GraphModel {
             origin = [string]$p['origin']
             # tags: set by hand (obsn.tags); always an array, [] when none.
             tags = [string[]]@(@($p['tags']) | Where-Object { $_ } | ForEach-Object { [string]$_ })
+            # own: one of ObsidiNote's own pages (it can be edited, archived and deleted); false for a
+            # page the person made in OneNote, which is listed and never changed (operator, 2026-11-16:
+            # Delete was offered on such a page and failed).
+            own = ([string]$p.owner -eq 'obsn')
         }
     })
     # The tags of the shown source with their page counts, sorted by name (ordinal).

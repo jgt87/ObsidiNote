@@ -131,8 +131,16 @@ function Add-NotebookReadResults($Ctx, $Adapter, [object[]]$Vaults) {
     $all = Measure-KitStep { $x = $Adapter.GetHierarchy('', 3); [xml]$d = $x; $d }
     if (-not $all.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Notebook reads' $all.error; return }
     $nbs = @($all.value.DocumentElement.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -eq 'Notebook' })
+    # OneNote's window can list no window at all (target machine, 2026-11-16: "not known" twice); the
+    # hierarchy also marks the notebook in view (isCurrentlyViewed). Not yet seen on that machine, so
+    # the line says which of the two answered.
+    $from = 'the window'
+    if (-not $cur) {
+        $cur = [string](@($nbs | Where-Object { $_.GetAttribute('isCurrentlyViewed') -eq 'true' } | ForEach-Object { $_.GetAttribute('ID') }) | Select-Object -First 1)
+        $from = 'the notebook list'
+    }
     $isOpen = [bool](@($nbs | Where-Object { $_.GetAttribute('ID') -eq $cur }).Count)
-    $shown = if (-not $cur) { 'not known' } elseif ($isOpen) { 'one of them' } else { 'none of them' }
+    $shown = if (-not $cur) { 'not known' } elseif ($isOpen) { "one of them (said by $from)" } else { 'none of them' }
     # Never "OneNote:" in a line: the kit's masking reads that as the start of a onenote: link.
     Add-ValidationResult $Ctx 'V6' 'INFO' 'Notebook reads' "$($nbs.Count) notebooks open; the selected notebook is $shown; read in $($all.ms) ms (read only, nothing is selected)"
     foreach ($nb in @($nbs | Select-Object -First $script:GraphMax)) {
@@ -152,6 +160,51 @@ function Add-NotebookReadResults($Ctx, $Adapter, [object[]]$Vaults) {
         $odd = ($f.indexSections -and $f.states -ne $f.indexSections) -or ($f.sections -ne $f.sectionsInAll)
         Add-ValidationResult $Ctx 'V6' $(if ($odd) { 'WARN' } else { 'INFO' }) "Reads of $alias" $detail $(if ($odd) { 'Run this stage again with this notebook selected in OneNote and send both logs.' } else { '' })
     }
+}
+
+function Invoke-NotebookSelectionProbe($Ctx, $Adapter, [object[]]$Vaults) {
+    <# -SelectNotebooks (Run Notebook Selection Probe.cmd; STATUS 29, operator 2026-11-16: "should a
+       new probe be created"): does what OneNote answers for a vault depend on which notebook it shows?
+       Shows each open notebook in turn (Select-KitNotebook: NavigateTo, writes nothing), then reads
+       every vault's notebook as the app does (Get-NotebookReadFacts) and says per vault whether its
+       state page and all its sections were found. Puts the page shown before back at the end. One line
+       per notebook shown; counts and yes/no only. #>
+    if (-not (Get-KitFlag $Ctx 'SelectNotebooks')) { return }
+    $name = 'Notebook selection'
+    $one = $null
+    try { $one = Get-KitOneNote -Ctx $Ctx } catch { $one = $null }
+    if (-not $one -or -not $one.PSObject.Methods['NavigateTo']) { Add-ValidationResult $Ctx 'V6' 'SKIP' $name 'OneNote''s window cannot be asked to show a notebook'; return }
+    $all = Measure-KitStep { $x = $Adapter.GetHierarchy('', 3); [xml]$d = $x; $d }
+    if (-not $all.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' $name $all.error; return }
+    $nbs = @($all.value.DocumentElement.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -eq 'Notebook' } | Select-Object -First $script:GraphMax)
+    # Every notebook with a `00 Index` section or a vault, not only the vaults found at the start: a
+    # vault that is not found while another notebook is shown is the very fault this probe looks for.
+    $vaultNbs = @($nbs | Where-Object {
+        $id = $_.GetAttribute('ID')
+        @($Vaults | Where-Object { "$(Get-KitProp $_ 'notebookId' '')" -eq $id }).Count -or @(Get-KitSections $_ | Where-Object { $_.GetAttribute('name') -eq '00 Index' }).Count
+    })
+    if (-not $vaultNbs.Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' $name 'no open notebook has a 00 Index section'; return }
+    $before = Get-KitView $one
+    $wait = [int](Get-KitFlag $Ctx 'NavWaitMs' 2000)
+    try {
+        foreach ($nb in $nbs) {
+            $alias = Register-ValidationName $Ctx 'notebook' "$($nb.GetAttribute('name'))"
+            if (-not (Select-KitNotebook -One $one -Id $nb.GetAttribute('ID') -WaitMs $wait)) { Add-ValidationResult $Ctx 'V6' 'WARN' "$name, $alias shown" 'OneNote did not show it'; continue }
+            $now = Measure-KitStep { $x = $Adapter.GetHierarchy('', 3); [xml]$d = $x; $d }
+            if (-not $now.ok) { Add-ValidationResult $Ctx 'V6' 'WARN' "$name, $alias shown" $now.error; continue }
+            $viewed = Format-YesNo ([bool](@($now.value.DocumentElement.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.GetAttribute('ID') -eq $nb.GetAttribute('ID') -and $_.GetAttribute('isCurrentlyViewed') -eq 'true' }).Count))
+            $parts = @(); $bad = 0
+            foreach ($v in $vaultNbs) {
+                $valias = Register-ValidationName $Ctx 'notebook' "$($v.GetAttribute('name'))"
+                $f = Measure-KitStep { Get-NotebookReadFacts $Adapter $v.GetAttribute('ID') $now.value }
+                if (-not $f.ok) { $parts += "${valias}: not read"; $bad++; continue }
+                $ok = $f.value.states -eq $f.value.indexSections -and $f.value.indexSections -gt 0 -and $f.value.sections -eq $f.value.sectionsInAll
+                if (-not $ok) { $bad++ }
+                $parts += "${valias}: state page found $(Format-YesNo ($f.value.states -eq $f.value.indexSections -and $f.value.indexSections -gt 0)), sections $($f.value.sections) of $($f.value.sectionsInAll), Index pages with Meta $($f.value.withMeta) of $($f.value.pages)"
+            }
+            Add-ValidationResult $Ctx 'V6' $(if ($bad) { 'WARN' } else { 'OK' }) "$name, $alias shown" "marked as in view: $viewed; $($parts -join '; ')" $(if ($bad) { 'A vault read differently while another notebook was shown: send this log back.' } else { '' })
+        }
+    } finally { Restore-KitView $one $before }
 }
 
 function Add-IndexResults($Ctx, $Adapter, [object[]]$Vaults) {
@@ -227,6 +280,16 @@ function Open-DevVault($Ctx, $Adapter) {
     [pscustomobject]@{ vault = $record; lease = $lease; model = $model }
 }
 
+function Get-AddWhy($Step, [string]$Status, [string]$Expected) {
+    <# '; <why>' for a result line when an Add did not end as $Expected: the error of a step that threw,
+       else the Add result's own message (Add never throws; its status alone said "failed" without a
+       reason on the target machine, 2026-11-16). '' when it went as expected. The line is masked. #>
+    if (-not $Step.ok) { return "; $($Step.error)" }
+    if ($Status -eq $Expected) { return '' }
+    $m = "$(Get-KitProp $Step.value 'message' '')".Trim()
+    if ($m) { "; $m" } else { '' }
+}
+
 function Invoke-DevAdd($Ctx, $Adapter, $Dev, $Bridge) {
     $miss = @(Get-MissingAppModules -AppRoot $Ctx.AppRoot -Names $script:Needs.add)
     if ($miss.Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' 'Add and Undo' "not in this version yet ($($miss -join ', ') missing)"; return }
@@ -244,7 +307,7 @@ function Invoke-DevAdd($Ctx, $Adapter, $Dev, $Bridge) {
     $add = Measure-KitStep { Invoke-AddRequest -Request @{ text = $script:AddText; mode = 'add' } -Store $store -Ask $ask }
     $r = $add.value
     $st = "$(Get-KitProp $r 'status' 'error')"
-    Add-ValidationResult $Ctx 'V6' $(if ($add.ok -and $st -eq 'added') { 'OK' } else { 'FAIL' }) 'Add (synthetic)' "status $st; $(@(Get-KitProp $r 'links' @()).Count) links, $(@(Get-KitProp $r 'chips' @()).Count) topics; $($add.ms) ms$(if (-not $add.ok) { "; $($add.error)" })"
+    Add-ValidationResult $Ctx 'V6' $(if ($add.ok -and $st -eq 'added') { 'OK' } else { 'FAIL' }) 'Add (synthetic)' "status $st; $(@(Get-KitProp $r 'links' @()).Count) links, $(@(Get-KitProp $r 'chips' @()).Count) topics; $($add.ms) ms$(Get-AddWhy $add $st 'added')"
     $undo = Get-KitProp $r 'undo' $null
     if (-not $undo) { Add-ValidationResult $Ctx 'V6' 'WARN' 'Undo' 'the Add result has no undo record'; return }
     $u = Measure-KitStep { Undo-AddRequest -Store $store -Undo $undo }
@@ -278,7 +341,7 @@ function Invoke-DevAnswerCheck($Ctx, $Adapter, $Dev, $Bridge) {
     $inboxId = "$(Get-KitProp $add.value 'inboxId' '')"
     if ($st -ne 'waiting' -or -not $inboxId) {
         $level = if ($st -eq 'added') { 'WARN' } else { 'FAIL' }
-        Add-ValidationResult $Ctx 'V6' $level "$name (waiting)" "status $st instead of waiting; $($add.ms) ms$(if (-not $add.ok) { "; $($add.error)" })" $(if ($st -eq 'added') { 'Copilot answered within 1 s, so the waiting path was not reached; run the kit again.' } else { '' })
+        Add-ValidationResult $Ctx 'V6' $level "$name (waiting)" "status $st instead of waiting; $($add.ms) ms$(Get-AddWhy $add $st 'waiting')" $(if ($st -eq 'added') { 'Copilot answered within 1 s, so the waiting path was not reached; run the kit again.' } else { '' })
         $u0 = Get-KitProp $add.value 'undo' $null
         if ($u0) { $null = Measure-KitStep { Undo-AddRequest -Store $store -Undo $u0 } }
         return
@@ -441,6 +504,19 @@ function New-DevLinkedPair($Store, $Dev, [string]$TargetTitle, [string]$LinkerTi
     @{ target = $t; linker = @{ id = $i; pageId = $page.pageId }; link = $link }
 }
 
+function Get-KitBodyLink($Adapter, [string]$PageId) {
+    <# The address of the first link in a page's own body outline (obsn.role = body), decoded; '' when
+       there is none or the page cannot be read. Read only. #>
+    try { [xml]$d = $Adapter.GetPageContent($PageId) } catch { return '' }
+    foreach ($o in @($d.DocumentElement.ChildNodes | Where-Object { $_.LocalName -eq 'Outline' })) {
+        $role = @($o.ChildNodes | Where-Object { $_.LocalName -eq 'Meta' -and $_.GetAttribute('name') -eq 'obsn.role' } | ForEach-Object { $_.GetAttribute('content') }) | Select-Object -First 1
+        if ($role -ne 'body') { continue }
+        $m = [regex]::Match($o.InnerText, '(?is)<a\b[^>]*?\bhref\s*=\s*"([^"]*)"')
+        if ($m.Success) { return [System.Net.WebUtility]::HtmlDecode($m.Groups[1].Value) }
+    }
+    ''
+}
+
 function Invoke-DevRetire($Ctx, $Adapter, $Dev) {
     <# Archive, Restore and Delete (lib/Ingest.psm1 Get-RetirePlan, Invoke-PageRetire; operator
        2026-11-15): a synthetic target page and a page that links to it (Meta and its own text). The
@@ -474,13 +550,16 @@ function Invoke-DevRetire($Ctx, $Adapter, $Dev) {
         $okAr = $ar.ok -and "$(Get-KitProp $ar.value 'status' '')" -eq 'done' -and $rec -and $rec.status -eq 'archived' -and $rec.section -like 'Archive*' -and $found
         Add-ValidationResult $Ctx 'V6' $(if ($okAr) { 'OK' } else { 'FAIL' }) 'Archive' "status $(Get-KitProp $ar.value 'status' 'error'); marked archived: $(Format-YesNo ($rec -and $rec.status -eq 'archived')); found again under Archive: $(Format-YesNo $found); page id changed: $(Format-YesNo ($rec -and $rec.oneNoteId -ne $b.pageId)); $($ar.ms) ms"
 
-        # The open question (STATUS 7d, P1c): a link to the page in another page's own text, after the move.
+        # A link to the page in another page's own text, after the move (STATUS 7d, P1c): the link as it
+        # stands in that text now (Archive points it at the new link since 2026-11-16), not the old one.
         if ($rec) {
             # Following the link selects a page in OneNote: that lives in WriteProbes (write tests only),
             # never in this module, whose read-only checks select nothing (RB-05 step 3a).
-            $opens = Test-ProbeLinkOpens -One (Get-KitOneNote -Ctx $Ctx) -Url $mk.value.link -PageId $rec.oneNoteId -WaitMs ([int](Get-KitFlag $Ctx 'NavWaitMs' 1500))
-            $st = if ($opens -eq 'yes') { 'OK' } elseif ($opens -eq 'no') { 'WARN' } else { 'INFO' }
-            Add-ValidationResult $Ctx 'V6' $st 'Archive (link in another page)' "the link in the linking page's text opens the archived page: $opens; its OneNote link changed: $(Format-YesNo ($rec.link -ne $mk.value.link))" $(if ($opens -eq 'no') { 'Archive must then rewrite the links in the text of pages that link to the page.' } else { '' })
+            $now = Get-KitBodyLink $Adapter $a.pageId
+            $opens = if ($now) { Test-ProbeLinkOpens -One (Get-KitOneNote -Ctx $Ctx) -Url $now -PageId $rec.oneNoteId -WaitMs ([int](Get-KitFlag $Ctx 'NavWaitMs' 1500)) } else { 'no link found' }
+            $st = if ($opens -eq 'yes') { 'OK' } elseif ($opens -eq 'no') { 'FAIL' } else { 'INFO' }
+            $detail = "the link in the linking page's text opens the archived page: $opens; its OneNote link changed: $(Format-YesNo ($rec.link -ne $mk.value.link)); the text points at the new link: $(Format-YesNo ($now -and $now -eq $rec.link)); pages re-pointed: $(Get-KitProp $ar.value 'relinked' 0)"
+            Add-ValidationResult $Ctx 'V6' $st 'Archive (link in another page)' $detail $(if ($opens -eq 'no') { 'Send this log back: Archive should point links in other pages at the moved page.' } else { '' })
         }
 
         $re = Measure-KitStep { Invoke-PageRetire -Store $store -Action 'restore' -Ids @($b.id) }
@@ -717,6 +796,7 @@ function Invoke-StageVault {
     if (-not $a.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' 'OneNote adapter' $a.error; return }
     $vaults = @(Add-VaultResults $Ctx $a.value)
     Add-NotebookReadResults $Ctx $a.value $vaults
+    Invoke-NotebookSelectionProbe $Ctx $a.value $vaults
     Add-IndexResults $Ctx $a.value $vaults
     Add-UpgradePlanResults $Ctx $vaults $a.value
     Add-SettingsResults $Ctx $vaults $a.value

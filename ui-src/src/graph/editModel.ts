@@ -90,18 +90,18 @@ export function linkChoices(index: GraphIndex, page: GraphPage, links: EditLink[
 }
 
 export function parseTopics(text: string): string[] {
-  const out: string[] = []
+  const out = new Set<string>()
   for (const line of text.split(/\r?\n/)) {
     const path = line.split('/').map((s) => s.trim()).filter(Boolean).join('/')
-    if (path && !out.includes(path)) out.push(path)
+    if (path) out.add(path)
   }
-  return out
+  return [...out]
 }
 
 export function parseAliases(text: string): string[] {
-  const out: string[] = []
-  for (const a of text.split(',').map((s) => s.trim())) if (a && !out.includes(a)) out.push(a)
-  return out
+  const out = new Set<string>()
+  for (const a of text.split(',').map((s) => s.trim())) if (a) out.add(a)
+  return [...out]
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)

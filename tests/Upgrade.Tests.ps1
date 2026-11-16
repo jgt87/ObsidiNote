@@ -226,3 +226,47 @@ Describe 'The write guard on moves' {
         { $w.a.MovePage($w.tomato, $w.f.Nodes[$w.tomato].parent, $sid) } | Should Throw 'Write refused'
     }
 }
+
+Describe 'Upgrade body-links: links in the text to a page archived before moves re-pointed them (2026-11-16)' {
+    # Old-shaped data: a page links to p1 in its Meta and its body, then p1 was archived by a version
+    # that did not re-point the link, so the body still holds p1's old address, which no page has.
+    $w = New-SyntheticVault
+    $dead = 'onenote:https://example.invalid/docs/Notes.one#Zero-trust%20networking&section-id={11111111-1111-1111-1111-111111111111}&page-id={DEADDEAD-0000-4000-8000-0000000000DE}&end'
+    $id = [string](& $w.store.NewId)
+    $line = @{ parts = @(@{ text = 'We follow '; href = '' }, @{ text = 'Zero-trust networking'; href = $dead }, @{ text = ' and '; href = '' }, @{ text = 'a retired wiki'; href = $dead }, @{ text = '.'; href = '' }) }
+    $page = @{ id = $id; type = 'note'; bucket = 'Notes'; title = 'Linker'; summary = 'Links to p1.'; topics = @(); aliases = @(); links = @(@{ target = 'p1'; strength = 3; why = 'core' }); status = ''
+        outlines = @(@{ role = 'body'; lines = @($line) }, @{ role = 'notes'; lines = @(@{ parts = @(@{ text = 'Zero-trust networking'; href = $dead }) }) }) }
+    $cp = & $w.store.CreatePage -Page $page
+    $page.pageId = [string]$cp.pageId; $page.link = [string]$cp.link; $page.section = [string]$cp.section
+    $null = & $w.store.IndexAddPage -Page $page
+    $null = Invoke-PageRetire -Store $w.store -Action archive -Ids @('p1')
+    $notesBefore = Get-FakeOutlineXml $w.f $page.pageId 'notes'
+
+    It 'plans a check of each page that links to the archived page (p3 links to it in its Meta only)' {
+        (@(Get-UpgradePlan -Model $w.open.model | Where-Object { $_.step -eq 'body-links' } | ForEach-Object { "$($_.id)>$($_.to)" } | Sort-Object) -join ',') | Should Be "p3>p1,$id>p1"
+    }
+    $r = Invoke-VaultUpgrade -Store $w.store
+    It 'points the link whose text is the archived page''s title at it, and says so' {
+        $r.status | Should Be 'done'
+        $r.relinked | Should Be 1
+        $body = Get-FakeOutlineXml $w.f $page.pageId 'body'
+        $p1link = ([string]$w.open.model.pages['p1'].link).Replace('&', '&amp;')
+        $body | Should Match ([regex]::Escape("<a href=""$p1link"">Zero-trust networking</a>"))
+        (Format-UpgradeStatus $r).detail | Should Be 'links in the text of 1 page(s) point at the archived pages again'
+    }
+    It 'leaves a dead link whose text names no page it links to, and "Your notes"' {
+        Get-FakeOutlineXml $w.f $page.pageId 'body' | Should Match 'DEADDEAD[^"]*"[^>]*>a retired wiki</a>'
+        Get-FakeOutlineXml $w.f $page.pageId 'notes' | Should Be $notesBefore
+    }
+    It 'changes nothing and says nothing at the next start' {
+        $before = $w.f.Writes.Count
+        $again = Invoke-VaultUpgrade -Store $w.store
+        $again.relinked | Should Be 0
+        Format-UpgradeStatus $again | Should Be $null
+        $w.f.Writes.Count | Should Be $before
+    }
+    It 'stays quiet in a read-only session that only had pages to check' {
+        $w.box.lease = @{ mode = 'readonly'; sessionId = 'other'; holder = 'other'; expires = (Get-Date).AddMinutes(1); statePageId = ''; indexSectionId = '' }
+        Format-UpgradeStatus (Invoke-VaultUpgrade -Store $w.store) | Should Be $null
+    }
+}

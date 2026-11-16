@@ -208,11 +208,16 @@ function ConvertTo-OneHtml {
     $Text.Replace('&', '&amp;').Replace('<', '&lt;').Replace('>', '&gt;')
 }
 
+function ConvertTo-OneHref([string]$Href) {
+    <# A link address as an href attribute value. Never a literal '>' so the CDATA stays closed. #>
+    $Href.Replace('&', '&amp;').Replace('"', '&quot;').Replace('<', '&lt;').Replace('>', '&gt;')
+}
+
 function New-OneLink {
-    <# HTML fragment of a link. The href never contains a literal '>' so the CDATA stays closed. #>
+    <# HTML fragment of a link. #>
     param([string]$Href, [string]$Label)
     if (-not $Href) { return (ConvertTo-OneHtml $Label) }
-    '<a href="' + $Href.Replace('&', '&amp;').Replace('"', '&quot;').Replace('<', '&lt;').Replace('>', '&gt;') + '">' + (ConvertTo-OneHtml $Label) + '</a>'
+    '<a href="' + (ConvertTo-OneHref $Href) + '">' + (ConvertTo-OneHtml $Label) + '</a>'
 }
 
 function New-OneLine {
@@ -390,29 +395,85 @@ function Get-OneLinkPageGuid([string]$Text) {
     ''
 }
 
+function Get-OneLinkText([string]$Inner) {
+    <# The plain text of a link's inner HTML: tags left out, entities decoded, spaces folded. #>
+    ([System.Net.WebUtility]::HtmlDecode(($Inner -replace '<[^>]*>', '')) -replace '\s+', ' ').Trim()
+}
+
+function Repair-ObsnBodyLinks {
+    <# Upgrade step body-links (lib/Upgrade.psm1): links in ObsidiNote's own body outline (obsn.role =
+       body only, never "Your notes" or an outline without a role) that a page moved away from before
+       moves re-pointed them (target machine, 2026-11-16). A link is re-pointed only when BOTH hold:
+       its page-id is not one of $LiveGuids (no page has it any more), and its text is a name of
+       exactly one of $Targets (@(@{ link; names = @(title, aliases) }), the pages this page links to
+       in its own Meta), compared without case. It then points at that target's link and keeps its
+       text. Returns @{ count; xml } as Convert-ObsnBodyLinks. Pure. #>
+    param([Parameter(Mandatory)][string]$Xml, [object[]]$Targets = @(), $LiveGuids)
+    $byName = @{}
+    foreach ($t in @($Targets | Where-Object { $_ -and $_['link'] })) {
+        foreach ($n in @($t['names'] | Where-Object { $_ })) {
+            $k = ([string]$n -replace '\s+', ' ').Trim().ToLowerInvariant()
+            if (-not $k) { continue }
+            if ($byName.ContainsKey($k) -and $byName[$k] -ne [string]$t['link']) { $byName[$k] = '' } else { $byName[$k] = [string]$t['link'] }
+        }
+    }
+    if (-not $byName.Count) { return @{ count = 0; xml = '' } }
+    Edit-ObsnBodyAnchors -Xml $Xml -OnLink {
+        param($Href, $Inner)
+        $g = Get-OneLinkPageGuid $Href
+        if (-not $g -or ($LiveGuids -and $LiveGuids.Contains($g))) { return $null }
+        $to = $byName[(Get-OneLinkText $Inner).ToLowerInvariant()]
+        if ($to) { @{ href = $to } } else { $null }
+    }
+}
+
 function Convert-ObsnBodyLinks {
-    <# Delete invariant (AGENTS.md, Archive and delete): in the page XML of GetPageContent, every link
-       to the page $TargetLink (an onenote: link; matched as written or by its page-id GUID) inside an
-       outline ObsidiNote owns with obsn.role = body becomes the plain text $Text. Outlines with any
-       other role ("Your notes" = notes among them) and outlines without a role are never read for
-       it or returned. Returns @{ count (links replaced); xml (the update for UpdatePageContent: the
-       page with only the changed body outlines, each whole and by its objectID; '' when count is 0) }.
-       Pure. #>
-    param([Parameter(Mandatory)][string]$Xml, [Parameter(Mandatory)][string]$TargetLink, [Parameter(Mandatory)][string]$Text)
+    <# Delete and archive invariants (AGENTS.md, Archive and delete): in the page XML of GetPageContent,
+       every link to the page $TargetLink (an onenote: link; matched as written or by its page-id GUID)
+       inside an outline ObsidiNote owns with obsn.role = body becomes the plain text $Text (the page
+       was deleted), or with -NewLink keeps its text and points at $NewLink (the page moved: OneNote
+       gave it a new link; a link already pointing there is left as it is). Outlines with any other
+       role ("Your notes" = notes among them) and outlines without a role are never read for it or
+       returned. Returns @{ count (links changed); xml (the update for UpdatePageContent: the page with
+       only the changed body outlines, each whole and by its objectID; '' when count is 0) }. Pure. #>
+    param([Parameter(Mandatory)][string]$Xml, [Parameter(Mandatory)][string]$TargetLink, [string]$Text = '', [string]$NewLink = '')
+    if (-not $NewLink -and -not $Text) { throw 'Convert-ObsnBodyLinks needs -Text or -NewLink' }
+    $guid = Get-OneLinkPageGuid $TargetLink
+    $plain = ConvertTo-OneHtml $Text
+    Edit-ObsnBodyAnchors -Xml $Xml -OnLink {
+        param($Href, $Inner)
+        if ($NewLink -and $Href -eq $NewLink) { return $null }
+        $g = Get-OneLinkPageGuid $Href
+        if (-not (($guid -and $g -eq $guid) -or $Href -eq $TargetLink)) { return $null }
+        if ($NewLink) { @{ href = $NewLink } } else { @{ html = $plain } }
+    }
+}
+
+function Edit-ObsnBodyAnchors {
+    <# The one walk over links in ObsidiNote's own body outline (obsn.role = body; outlines with any
+       other role, "Your notes" among them, and outlines without a role are never read or returned),
+       for Convert-ObsnBodyLinks and Repair-ObsnBodyLinks. $OnLink gets each link's address (decoded)
+       and inner HTML and returns $null (keep it), @{ href = <new address> } (keep the link's text and
+       attributes, change only its address) or @{ html = <replacement> } (the whole link). The block
+       runs in this module's call chain, so it sees its caller's variables (no GetNewClosure: a closure
+       made here could not see this module's functions). Returns @{ count (links changed); xml (the
+       update for UpdatePageContent: the page with only the changed body outlines, each whole and by
+       its objectID; '' when count is 0) }. Pure. #>
+    param([Parameter(Mandatory)][string]$Xml, [Parameter(Mandatory)][scriptblock]$OnLink)
     [xml]$doc = $Xml
     $ns = New-OneNoteNsManager $doc
     $page = $doc.DocumentElement
-    $guid = Get-OneLinkPageGuid $TargetLink
-    $plain = ConvertTo-OneHtml $Text
     $state = @{ n = 0 }
     $eval = [System.Text.RegularExpressions.MatchEvaluator] {
         param($m)
-        $href = [System.Net.WebUtility]::HtmlDecode($m.Groups[1].Value)
-        $g = Get-OneLinkPageGuid $href
-        if (($guid -and $g -eq $guid) -or $href -eq $TargetLink) { $state.n++; return $plain }
-        $m.Value
+        $res = & $OnLink ([System.Net.WebUtility]::HtmlDecode($m.Groups[1].Value)) $m.Groups[2].Value
+        if (-not $res) { return $m.Value }
+        $state.n++
+        if (-not $res.ContainsKey('href')) { return [string]$res['html'] }
+        $at = $m.Groups[1].Index - $m.Index
+        $m.Value.Substring(0, $at) + (ConvertTo-OneHref ([string]$res['href'])) + $m.Value.Substring($at + $m.Groups[1].Length)
     }
-    $rx = New-Object System.Text.RegularExpressions.Regex ('<a\b[^>]*?\bhref\s*=\s*"([^"]*)"[^>]*>.*?</a>', ([System.Text.RegularExpressions.RegexOptions]'IgnoreCase, Singleline'))
+    $rx = New-Object System.Text.RegularExpressions.Regex ('<a\b[^>]*?\bhref\s*=\s*"([^"]*)"[^>]*>(.*?)</a>', ([System.Text.RegularExpressions.RegexOptions]'IgnoreCase, Singleline'))
     $changed = @()
     foreach ($o in @($page.SelectNodes('one:Outline', $ns))) {
         $r = $o.SelectSingleNode('one:Meta[@name="obsn.role"]', $ns)
@@ -464,4 +525,4 @@ function Write-ObsnPage {
     $Adapter.UpdatePageContent((New-ObsnPageXml @args2))
 }
 
-Export-ModuleMember -Function Get-ObsnRoles, Get-ObsnMetaKeys, ConvertTo-Base36, ConvertFrom-Base36, New-ObsnId, Test-ObsnId, Get-ObsnIdNumber, ConvertTo-TopicPath, Format-TopicPath, ConvertTo-CompactJson, Get-JsonProp, ConvertFrom-JsonList, ConvertTo-ObsnLinksValue, ConvertFrom-ObsnLinksValue, ConvertTo-ObsnMeta, ConvertFrom-ObsnMeta, Split-ObsnMetaValue, Join-ObsnMetaValue, ConvertTo-OneHtml, New-OneLink, New-OneLine, New-ObsnOutlineXml, New-ObsnPageXml, ConvertFrom-ObsnPageXml, ConvertFrom-ObsnPageText, Get-PropertiesLines, Get-LinkedFromLines, Read-ObsnPage, Write-ObsnPage, ConvertTo-TagList, Convert-ObsnBodyLinks, Get-OneLinkPageGuid
+Export-ModuleMember -Function Get-ObsnRoles, Get-ObsnMetaKeys, ConvertTo-Base36, ConvertFrom-Base36, New-ObsnId, Test-ObsnId, Get-ObsnIdNumber, ConvertTo-TopicPath, Format-TopicPath, ConvertTo-CompactJson, Get-JsonProp, ConvertFrom-JsonList, ConvertTo-ObsnLinksValue, ConvertFrom-ObsnLinksValue, ConvertTo-ObsnMeta, ConvertFrom-ObsnMeta, Split-ObsnMetaValue, Join-ObsnMetaValue, ConvertTo-OneHtml, New-OneLink, New-OneLine, New-ObsnOutlineXml, New-ObsnPageXml, ConvertFrom-ObsnPageXml, ConvertFrom-ObsnPageText, Get-PropertiesLines, Get-LinkedFromLines, Read-ObsnPage, Write-ObsnPage, ConvertTo-TagList, Convert-ObsnBodyLinks, Repair-ObsnBodyLinks, Get-OneLinkPageGuid
