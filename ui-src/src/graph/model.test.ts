@@ -43,6 +43,36 @@ describe('normalizeGraph', () => {
     expect(m.topics[0].parent).toBeNull()
     expect(m.pages[0].topicIds).toEqual(['t'])
   })
+
+  it('source areas: the first of an id, an unknown kind as other, pages without a known source in the notes area, empty areas left out', () => {
+    const m = normalizeGraph({
+      pages: [{ id: 'a', sourceId: 'web/x' }, { id: 'b', sourceId: 'gone' }, { id: 'c' }, { id: 'd', sourceId: 'odd' }],
+      sources: [{ id: 'web/x', name: 'x', kind: 'web' }, { id: 'web/x', name: 'second', kind: 'm365' }, { id: 'odd', name: 'Odd', kind: 'nonsense' }, { id: 'empty', kind: 'web' }],
+    })
+    expect(m.sources).toEqual([
+      { id: 'web/x', name: 'x', kind: 'web', pageCount: 1 },
+      { id: 'odd', name: 'Odd', kind: 'other', pageCount: 1 },
+      { id: 'obsidinote', name: 'ObsidiNote notes', kind: 'notes', pageCount: 2 },
+    ])
+    expect(m.pages.map((p) => p.sourceId)).toEqual(['web/x', 'obsidinote', 'obsidinote', 'odd'])
+    // A connected notebook's own pages are its OneNote pages.
+    const nb = normalizeGraph({ source: { kind: 'notebook', readOnly: true }, pages: [{ id: 'a' }] })
+    expect(nb.sources).toEqual([{ id: 'onenote', name: 'OneNote pages', kind: 'notes', pageCount: 1 }])
+  })
+
+  it('tags in one form, a read-only reason only for a read-only source, types with both fields only', () => {
+    const m = normalizeGraph({
+      source: { kind: 'vault', readOnly: false, readOnlyReason: 'lease' },
+      pages: [{ id: 'a', tags: [' Follow Up ', 'follow up', '', 'Licensing'] }],
+      types: [{ type: 'note', bucket: 'Notes' }, { type: '', bucket: 'X' }, { type: 'concept' }],
+    })
+    expect(m.pages[0].tags).toEqual(['follow up', 'licensing'])
+    expect(m.source.readOnlyReason).toBe('')
+    expect(m.types).toEqual([{ type: 'note', bucket: 'Notes' }])
+    expect(normalizeGraph({ source: { readOnly: true, readOnlyReason: 'lease' } }).source.readOnlyReason).toBe('lease')
+    expect(normalizeGraph({ source: { readOnly: true, readOnlyReason: 'other' } }).source.readOnlyReason).toBe('')
+    expect('types' in normalizeGraph({ types: [{ type: '' }] })).toBe(false)
+  })
 })
 
 describe('syntheticGraph', () => {

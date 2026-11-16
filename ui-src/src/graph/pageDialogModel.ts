@@ -72,6 +72,21 @@ export function openButtons(page: Pick<GraphPage, 'url' | 'onenoteUrl'>, editing
   return { link: null, onenote: { href: page.onenoteUrl || '', primary: !editing } }
 }
 
+/** A page's links: those it makes, those made to it, and the mentions it is part of. */
+export function pageLinks(index: GraphIndex, pageId: string) {
+  return {
+    out: index.out.get(pageId) ?? [],
+    back: index.in.get(pageId) ?? [],
+    mentions: (index.mentions.get(pageId) ?? []).filter((e) => e.from === pageId || e.to === pageId),
+  }
+}
+
+/** The keys line at the foot of the window: Esc always; the arrows when the page it was opened on
+ *  has linked pages; Alt+arrows once there is a page to go back or forward to. */
+export function dialogKeysHint(linkedOfAnchor: number, canMove: boolean): string {
+  return `Esc closes${linkedOfAnchor ? ' · ← → previous or next linked page' : ''}${canMove ? ' · Alt+← → back or forward' : ''}`
+}
+
 /** How many pages are two links away from `pageId` (linked to its linked pages, not to it). */
 export function twoStepsAway(index: GraphIndex, pageId: string): number {
   const neighbours = index.neighbours.get(pageId) ?? []

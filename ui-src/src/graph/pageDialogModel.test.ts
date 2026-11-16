@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildIndex } from './graphIndex'
 import { normalizeGraph } from './model'
-import { dialogKeyAction, nextTab, openButtons, pageMetaLine, tabLabel, twoStepsAway } from './pageDialogModel'
+import { dialogKeyAction, dialogKeysHint, nextTab, openButtons, pageLinks, pageMetaLine, tabLabel, twoStepsAway } from './pageDialogModel'
 import { syntheticGraph } from './synthetic'
 
 const k = (key: string, mods: Partial<{ altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }> = {}) => ({ key, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...mods })
@@ -69,5 +69,24 @@ describe('pageMetaLine and twoStepsAway', () => {
     for (const n of near) for (const m of index.neighbours.get(n) ?? []) if (m !== p.id && !near.has(m)) expected.add(m)
     expect(twoStepsAway(index, p.id)).toBe(expected.size)
     expect(twoStepsAway(index, 'nope')).toBe(0)
+  })
+})
+
+describe('pageLinks and dialogKeysHint', () => {
+  it('lists the links a page makes, those made to it, and only the mentions it is part of', () => {
+    const index = buildIndex(normalizeGraph({
+      pages: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+      edges: [{ from: 'a', to: 'b', strength: 2 }, { from: 'c', to: 'a', strength: 1 }, { from: 'b', to: 'a', strength: 1, kind: 'mention' }, { from: 'b', to: 'c', strength: 1, kind: 'mention' }],
+    }))
+    const l = pageLinks(index, 'a')
+    expect(l.out.map((e) => e.to)).toEqual(['b'])
+    expect(l.back.map((e) => e.from)).toEqual(['c'])
+    expect(l.mentions.map((e) => `${e.from}>${e.to}`)).toEqual(['b>a'])
+    expect(pageLinks(index, 'nope')).toEqual({ out: [], back: [], mentions: [] })
+  })
+  it('names the arrows only when they do something', () => {
+    expect(dialogKeysHint(0, false)).toBe('Esc closes')
+    expect(dialogKeysHint(3, false)).toBe('Esc closes · ← → previous or next linked page')
+    expect(dialogKeysHint(0, true)).toBe('Esc closes · Alt+← → back or forward')
   })
 })

@@ -29,16 +29,11 @@
 // graph demo. Usage (ui-src): npx vite --port 5193 --strictPort   (separately), then
 //   node scripts/check-design-rules.mjs [http://localhost:5193] [cdp port 9559]
 // Exit 1 names the view and the rule. Writes nothing.
-import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { startEdge, stopEdge } from './headlessEdge.mjs'
 
 const BASE = process.argv[2] || 'http://localhost:5193'
 const PORT = Number(process.argv[3] || 9559)
-const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
-const profile = mkdtempSync(join(tmpdir(), 'obsn-design-'))
-const edge = spawn(EDGE, ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`, '--no-first-run', '--window-size=1440,900', 'about:blank'], { stdio: 'ignore' })
+const browser = startEdge(PORT, 'obsn-design-')
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // ---------- invented data for the app's API ----------
@@ -629,7 +624,5 @@ async function main() {
 }
 main().catch((e) => { console.error(e); process.exitCode = 1 }).finally(async () => {
   try { ws?.close() } catch {} // already closed: nothing to do
-  edge.kill()
-  await wait(800)
-  try { rmSync(profile, { recursive: true, force: true }) } catch {}
+  await stopEdge(browser)
 })

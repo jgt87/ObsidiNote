@@ -5,6 +5,14 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.3] - 2026-11-16
+
+### Changed
+- **Inside the interface**: the code that reads added files (Word, PowerPoint, Excel, PDF, Outlook and mail files), the map's data from the server, the page window and the graph demo is split into smaller parts, with new tests. Nothing you see or do changes; every file kind, the page window and every rendered check were compared before and after.
+
+### Fixed
+- **Development checks**: the rendered interface checks (`check-design-rules`, `check-control-rows`, `readme-shots`) now close their headless browser completely and delete its temporary profile after each run. Before, every run left a profile of up to several hundred MB in the temp folder, enough to fill a disk over a few days of checks.
+
 ## [v0.12.2] - 2026-11-16
 
 ### Added

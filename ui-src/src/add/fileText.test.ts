@@ -451,6 +451,18 @@ describe('limits and refusals', () => {
     expect((await readFileText('setup.exe', '', new Uint8Array(4))).ok).toBe(false)
   })
 
+  it('names each kind it cannot read by extension, or by media type when the name has none', async () => {
+    const say = async (name: string, mime = '') => (await readFileText(name, mime, new Uint8Array(4))).message
+    expect(await say('setup.exe')).toBe("Program files can't be read here.")
+    expect(await say('talk.mp3')).toBe("Audio and video files can't be read here. Paste a written summary instead.")
+    expect(await say('clip', 'video/mp4')).toBe("Audio and video files can't be read here. Paste a written summary instead.")
+    expect(await say('photo', 'image/heic')).toBe("Image files can't be read here. Open it and paste the text instead.")
+    expect(await say('letter.rtf')).toBe("RTF files can't be read here. Save it as .docx first, or paste the text.")
+    expect(await say('deck.pps')).toBe("Old .pps files can't be read here. Save it as .pptx first, or paste the text.")
+    expect(await say('notes.one')).toBe(".one files can't be read here. Open it and paste the text instead.")
+    expect(await say('noext', 'application/x-thing')).toBe("This kind of file can't be read here. Open it and paste the text instead.")
+  })
+
   it('never throws on damaged files', async () => {
     const junk = Uint8Array.from({ length: 3000 }, (_, i) => (i * 73 + 11) & 0xff)
     for (const name of ['a.docx', 'a.pptx', 'a.xlsx', 'a.pdf', 'a.msg', 'a.eml']) {

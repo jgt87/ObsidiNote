@@ -160,65 +160,104 @@ export function clampStrength(v: unknown): Strength {
  */
 export function normalizeGraph(raw: unknown): GraphModel {
   const r = (raw ?? {}) as Record<string, unknown>
-  const src = (r.source ?? {}) as Record<string, unknown>
-  const source: GraphSource = {
+  const source = normalizeSource(r.source)
+  const topics = normalizeTopics(r.topics)
+  const pages = normalizePages(r.pages, new Set(topics.map((t) => t.id)), source.readOnly)
+  const edges = normalizeEdges(r.edges, new Set(pages.map((p) => p.id)))
+  // Sizes and hubs come from the edges (applyLinkWeights): one definition of both.
+  applyLinkWeights(pages, edges)
+  const types = normalizeTypes(r.types)
+  const sources = normalizeSources(r.sources, pages, source)
+  return types.length ? { source, topics, pages, edges, types, sources } : { source, topics, pages, edges, sources }
+}
+
+/** The records of a list from the server (PS 5.1 may send one record or none for a list). */
+const records = (v: unknown): Record<string, unknown>[] => asList(v as unknown[]) as Record<string, unknown>[]
+
+/** Which notebook the graph is of; a reason for read only only when it is read only. */
+function normalizeSource(v: unknown): GraphSource {
+  const src = (v ?? {}) as Record<string, unknown>
+  const readOnly = src.readOnly === true
+  return {
     kind: src.kind === 'notebook' ? 'notebook' : 'vault',
     id: str(src.id),
     name: str(src.name),
-    readOnly: src.readOnly === true,
-    readOnlyReason: src.readOnly === true && READ_ONLY_REASONS.has(src.readOnlyReason as string) ? (src.readOnlyReason as GraphSource['readOnlyReason']) : '',
+    readOnly,
+    readOnlyReason: readOnly && READ_ONLY_REASONS.has(src.readOnlyReason as string) ? (src.readOnlyReason as GraphSource['readOnlyReason']) : '',
   }
-  const topicIds = new Set<string>()
+}
+
+/** The topics, once per id (the first wins); a parent that is not a topic of the graph is dropped. */
+function normalizeTopics(v: unknown): GraphTopic[] {
+  const ids = new Set<string>()
   const topics: GraphTopic[] = []
-  for (const t of asList(r.topics as unknown[]) as Record<string, unknown>[]) {
+  for (const t of records(v)) {
     const id = str(t?.id)
-    if (!id || topicIds.has(id)) continue
-    topicIds.add(id)
+    if (!id || ids.has(id)) continue
+    ids.add(id)
     const name = str(t.name, id)
-    topics.push({ id, name, path: str(t.path, name), parent: t.parent == null || t.parent === '' ? null : str(t.parent), pageCount: num(t.pageCount), subjects: str(t.subjects) })
+    topics.push({ id, name, path: str(t.path, name), parent: topicParent(t.parent), pageCount: num(t.pageCount), subjects: str(t.subjects) })
   }
-  for (const t of topics) if (t.parent !== null && !topicIds.has(t.parent)) t.parent = null
+  for (const t of topics) if (t.parent !== null && !ids.has(t.parent)) t.parent = null
+  return topics
+}
 
-  const pageIds = new Set<string>()
+/** A topic's parent id; null for a root (no parent, or an empty one). */
+const topicParent = (v: unknown): string | null => (v == null || v === '' ? null : str(v))
+
+/** The pages, once per id (the first wins), each repaired by normalizePage. */
+function normalizePages(v: unknown, topicIds: Set<string>, sourceReadOnly: boolean): GraphPage[] {
+  const ids = new Set<string>()
   const pages: GraphPage[] = []
-  for (const p of asList(r.pages as unknown[]) as Record<string, unknown>[]) {
+  for (const p of records(v)) {
     const id = str(p?.id)
-    if (!id || pageIds.has(id)) continue
-    pageIds.add(id)
-    pages.push({
-      id,
-      title: str(p.title, '(untitled)'),
-      topicIds: asList(p.topicIds as string[]).map((x) => str(x)).filter((x) => topicIds.has(x)),
-      bucket: str(p.bucket),
-      section: str(p.section),
-      tags: [...new Set(asList(p.tags as string[]).map((x) => str(x).trim().toLowerCase()).filter(Boolean))],
-      kind: str(p.kind),
-      // Set from the edges below (applyLinkWeights): one definition of size and hubs.
-      links: 0,
-      linkedFrom: 0,
-      weight: 0,
-      isHub: false,
-      unlinked: true,
-      summary: str(p.summary),
-      onenoteUrl: str(p.onenoteUrl),
-      modified: str(p.modified),
-      readOnly: p.readOnly === true || source.readOnly,
-      aliases: asList(p.aliases as string[]).map((x) => str(x).trim()).filter(Boolean),
-      site: str(p.site),
-      archived: p.archived === true,
-      url: webUrl(str(p.url)),
-      summarizedAt: str(p.summarizedAt),
-      sourceId: str(p.sourceId),
-      origin: validOrigin(p.origin),
-    })
+    if (!id || ids.has(id)) continue
+    ids.add(id)
+    pages.push(normalizePage(p, id, topicIds, sourceReadOnly))
   }
+  return pages
+}
 
+/** One page: topics that exist only, tags in their one form (lower case, once each), only a web
+ *  address that may be opened, a known origin; read only when its source is. The link counts,
+ *  weight and hub flag are filled in later from the edges. */
+function normalizePage(p: Record<string, unknown>, id: string, topicIds: Set<string>, sourceReadOnly: boolean): GraphPage {
+  return {
+    id,
+    title: str(p.title, '(untitled)'),
+    topicIds: asList(p.topicIds as string[]).map((x) => str(x)).filter((x) => topicIds.has(x)),
+    bucket: str(p.bucket),
+    section: str(p.section),
+    tags: [...new Set(asList(p.tags as string[]).map((x) => str(x).trim().toLowerCase()).filter(Boolean))],
+    kind: str(p.kind),
+    links: 0,
+    linkedFrom: 0,
+    weight: 0,
+    isHub: false,
+    unlinked: true,
+    summary: str(p.summary),
+    onenoteUrl: str(p.onenoteUrl),
+    modified: str(p.modified),
+    readOnly: p.readOnly === true || sourceReadOnly,
+    aliases: asList(p.aliases as string[]).map((x) => str(x).trim()).filter(Boolean),
+    site: str(p.site),
+    archived: p.archived === true,
+    url: webUrl(str(p.url)),
+    summarizedAt: str(p.summarizedAt),
+    sourceId: str(p.sourceId),
+    origin: validOrigin(p.origin),
+  }
+}
+
+/** The edges between known pages, no self-loops, once per kind and direction (the first wins),
+ *  strength clamped to 1-3; anything but a mention is a link. */
+function normalizeEdges(v: unknown, pageIds: Set<string>): GraphEdge[] {
   const seen = new Set<string>()
   const edges: GraphEdge[] = []
-  for (const e of asList(r.edges as unknown[]) as Record<string, unknown>[]) {
-    const from = str(e?.from)
-    const to = str(e?.to)
-    if (!pageIds.has(from) || !pageIds.has(to) || from === to) continue
+  for (const e of records(v)) {
+    const ends = edgeEnds(e, pageIds)
+    if (!ends) continue
+    const { from, to } = ends
     const kind = e.kind === 'mention' ? 'mention' : 'link'
     const key = `${kind}:${from}>${to}`
     if (seen.has(key)) continue
@@ -227,12 +266,21 @@ export function normalizeGraph(raw: unknown): GraphModel {
     if (e.reason) edge.reason = str(e.reason)
     edges.push(edge)
   }
-  applyLinkWeights(pages, edges)
-  const types = (asList(r.types as unknown[]) as Record<string, unknown>[])
+  return edges
+}
+
+/** An edge's two pages; null when either is not a page of the graph, or both are the same page. */
+function edgeEnds(e: Record<string, unknown> | null | undefined, pageIds: Set<string>): { from: string; to: string } | null {
+  const from = str(e?.from)
+  const to = str(e?.to)
+  return pageIds.has(from) && pageIds.has(to) && from !== to ? { from, to } : null
+}
+
+/** The page types the Edit form offers (only those with a type and a section). */
+function normalizeTypes(v: unknown): { type: string; bucket: string }[] {
+  return records(v)
     .map((t) => ({ type: str(t?.type), bucket: str(t?.bucket) }))
     .filter((t) => t.type && t.bucket)
-  const sources = normalizeSources(r.sources, pages, source)
-  return types.length ? { source, topics, pages, edges, types, sources } : { source, topics, pages, edges, sources }
 }
 
 const SOURCE_KINDS = new Set<GraphSourceArea['kind']>(['m365', 'service', 'other-internal', 'web', 'other', 'notes'])
@@ -240,14 +288,8 @@ const SOURCE_KINDS = new Set<GraphSourceArea['kind']>(['m365', 'service', 'other
 /** The sources list, repaired: one entry per id, counts from the pages, and every page's sourceId in
  *  it (a page without one, or with an unknown one, goes to the notes area). */
 function normalizeSources(raw: unknown, pages: GraphPage[], source: GraphSource): GraphSourceArea[] {
-  const notes: GraphSourceArea = source.kind === 'notebook' ? { id: 'onenote', name: 'OneNote pages', kind: 'notes', pageCount: 0 } : { id: 'obsidinote', name: 'ObsidiNote notes', kind: 'notes', pageCount: 0 }
-  const byId = new Map<string, GraphSourceArea>()
-  for (const s of asList(raw as unknown[]) as Record<string, unknown>[]) {
-    const id = str(s?.id)
-    if (!id || byId.has(id)) continue
-    const kind = SOURCE_KINDS.has(s.kind as GraphSourceArea['kind']) ? (s.kind as GraphSourceArea['kind']) : 'other'
-    byId.set(id, { id, name: str(s.name, id), kind, pageCount: 0 })
-  }
+  const notes = notesArea(source)
+  const byId = sourceAreasById(raw)
   for (const p of pages) {
     if (!p.sourceId || !byId.has(p.sourceId)) {
       if (!byId.has(notes.id)) byId.set(notes.id, { ...notes })
@@ -256,6 +298,27 @@ function normalizeSources(raw: unknown, pages: GraphPage[], source: GraphSource)
     byId.get(p.sourceId)!.pageCount++
   }
   return [...byId.values()].filter((s) => s.pageCount > 0)
+}
+
+/** The area of pages without an address: a connected notebook's OneNote pages, or the vault's own
+ *  notes. */
+function notesArea(source: GraphSource): GraphSourceArea {
+  return source.kind === 'notebook'
+    ? { id: 'onenote', name: 'OneNote pages', kind: 'notes', pageCount: 0 }
+    : { id: 'obsidinote', name: 'ObsidiNote notes', kind: 'notes', pageCount: 0 }
+}
+
+/** The server's source areas by id, once per id (the first wins), an unknown kind as 'other', the
+ *  counts at 0 (they are counted from the pages). */
+function sourceAreasById(raw: unknown): Map<string, GraphSourceArea> {
+  const byId = new Map<string, GraphSourceArea>()
+  for (const s of records(raw)) {
+    const id = str(s?.id)
+    if (!id || byId.has(id)) continue
+    const kind = SOURCE_KINDS.has(s.kind as GraphSourceArea['kind']) ? (s.kind as GraphSourceArea['kind']) : 'other'
+    byId.set(id, { id, name: str(s.name, id), kind, pageCount: 0 })
+  }
+  return byId
 }
 
 /** Primary topic of a page (the area it is drawn in). */

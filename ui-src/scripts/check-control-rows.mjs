@@ -5,16 +5,11 @@
 // Usage (ui-src): npx vite --port 5193 --strictPort   (separately), then
 //   node scripts/check-control-rows.mjs [http://localhost:5193] [cdp port 9557]
 // Exit 1 when a row mixes heights. Invented demo data only; writes nothing.
-import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { startEdge, stopEdge } from './headlessEdge.mjs'
 
 const BASE = (process.argv[2] || 'http://localhost:5193') + '/graph-demo.html'
 const PORT = Number(process.argv[3] || 9557)
-const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
-const profile = mkdtempSync(join(tmpdir(), 'kg-rows-'))
-const edge = spawn(EDGE, ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`, '--no-first-run', '--window-size=1440,900', 'about:blank'], { stdio: 'ignore' })
+const browser = startEdge(PORT, 'kg-rows-')
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 
 let ws, id = 0
@@ -67,8 +62,6 @@ async function main() {
   else console.log('OK: every row of controls has one height (graph, list, filter panel, page window, edit form; 1440 and 390 px).')
 }
 main().catch((e) => { console.error(e); process.exitCode = 1 }).finally(async () => {
-  try { ws?.close() } catch {}
-  edge.kill()
-  await wait(800)
-  try { rmSync(profile, { recursive: true, force: true }) } catch {}
+  try { ws?.close() } catch {} // already closed: nothing to do
+  await stopEdge(browser)
 })

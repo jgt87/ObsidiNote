@@ -83,18 +83,23 @@ export function fileKindOf(name: string, mime: string): FileKind | null {
   return BY_MIME[(mime || '').split(';')[0].trim().toLowerCase()] ?? null
 }
 
+/** Old Office formats and the format to save them as. */
+const OLD_OFFICE: Record<string, string> = { doc: 'docx', xls: 'xlsx', ppt: 'pptx', dot: 'docx', pps: 'pptx' }
+
+/** Kinds of file that cannot be read, in the order they are tested: by extension, or by media type. */
+const UNSUPPORTED: { exts: string[]; mime?: RegExp; message: string }[] = [
+  { exts: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'heic', 'heif', 'tif', 'tiff', 'ico', 'svg'], mime: /^image\//, message: "Image files can't be read here. Open it and paste the text instead." },
+  { exts: ['zip', '7z', 'rar', 'gz', 'tar', 'cab'], message: "Zip files can't be read here. Unpack it and add one file at a time." },
+  { exts: ['exe', 'dll', 'msi', 'com', 'scr', 'sys'], message: "Program files can't be read here." },
+  { exts: ['mp3', 'mp4', 'wav', 'm4a', 'mov', 'avi', 'wmv', 'webm', 'ogg'], mime: /^(audio|video)\//, message: "Audio and video files can't be read here. Paste a written summary instead." },
+  { exts: ['rtf'], message: "RTF files can't be read here. Save it as .docx first, or paste the text." },
+]
+
 function unsupportedMessage(name: string, mime: string): string {
   const ext = extensionOf(name)
-  const old: Record<string, string> = { doc: 'docx', xls: 'xlsx', ppt: 'pptx', dot: 'docx', pps: 'pptx' }
-  if (old[ext]) return `Old .${ext} files can't be read here. Save it as .${old[ext]} first, or paste the text.`
-  const images = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'heic', 'heif', 'tif', 'tiff', 'ico', 'svg']
-  if (images.includes(ext) || mime.startsWith('image/')) return "Image files can't be read here. Open it and paste the text instead."
-  if (['zip', '7z', 'rar', 'gz', 'tar', 'cab'].includes(ext)) return "Zip files can't be read here. Unpack it and add one file at a time."
-  if (['exe', 'dll', 'msi', 'com', 'scr', 'sys'].includes(ext)) return "Program files can't be read here."
-  if (['mp3', 'mp4', 'wav', 'm4a', 'mov', 'avi', 'wmv', 'webm', 'ogg'].includes(ext) || /^(audio|video)\//.test(mime)) {
-    return "Audio and video files can't be read here. Paste a written summary instead."
-  }
-  if (ext === 'rtf') return "RTF files can't be read here. Save it as .docx first, or paste the text."
+  if (OLD_OFFICE[ext]) return `Old .${ext} files can't be read here. Save it as .${OLD_OFFICE[ext]} first, or paste the text.`
+  const known = UNSUPPORTED.find((u) => u.exts.includes(ext) || !!u.mime?.test(mime))
+  if (known) return known.message
   return ext
     ? `.${ext} files can't be read here. Open it and paste the text instead.`
     : "This kind of file can't be read here. Open it and paste the text instead."
@@ -114,26 +119,38 @@ export async function readFileText(name: string, mime: string, bytes: Uint8Array
   let kind: FileKind | null = null
   try {
     kind = fileKindOf(name ?? '', mime ?? '')
-    if (bytes.length > MAX_FILE_BYTES) return fail(kind, MSG_TOO_LARGE)
-    if (!kind) return fail(null, unsupportedMessage(name ?? '', (mime ?? '').toLowerCase()))
-    if (bytes.length === 0) return fail(kind, `This ${LABEL[kind]} is empty. Pick another file or paste the text instead.`)
-    const got = await EXTRACT[kind](bytes)
-    let text = tidy(got.text)
-    if (!text) return fail(kind, `This ${LABEL[kind]} has no text that can be read. Open it and paste the text instead.`)
-    const notes = [...got.notes]
-    if (text.length > MAX_TEXT_CHARS) {
-      let end = MAX_TEXT_CHARS
-      const code = text.charCodeAt(end - 1)
-      if (code >= 0xd800 && code <= 0xdbff) end -= 1
-      text = `${text.slice(0, end).trimEnd()}\n\n[Cut at 60,000 characters.]`
-      notes.push('Cut at 60,000 characters.')
-    }
-    return { ok: true, kind, text: `File: ${cleanName(name)}\n\n${text}`, message: notes.join(' ') }
+    const refused = refusalBeforeReading(name, mime, bytes, kind)
+    if (refused) return refused
+    const k = kind as FileKind // a file without a kind was refused above
+    const got = await EXTRACT[k](bytes)
+    const text = tidy(got.text)
+    if (!text) return fail(k, `This ${LABEL[k]} has no text that can be read. Open it and paste the text instead.`)
+    const cut = cutText(text)
+    const notes = cut.cut ? [...got.notes, 'Cut at 60,000 characters.'] : [...got.notes]
+    return { ok: true, kind: k, text: `File: ${cleanName(name)}\n\n${cut.text}`, message: notes.join(' ') }
   } catch (e) {
     if (e instanceof FileTextError) return fail(kind, e.message)
     const label = kind ? LABEL[kind] : 'file'
     return fail(kind, `This ${label} could not be read; it may be damaged. Open it and paste the text instead.`)
   }
+}
+
+/** Why a file is refused before it is read: too large, a kind that cannot be read, or empty; null
+ *  when it can be read. */
+function refusalBeforeReading(name: string, mime: string, bytes: Uint8Array, kind: FileKind | null): FileTextResult | null {
+  if (bytes.length > MAX_FILE_BYTES) return fail(kind, MSG_TOO_LARGE)
+  if (!kind) return fail(null, unsupportedMessage(name ?? '', (mime ?? '').toLowerCase()))
+  if (bytes.length === 0) return fail(kind, `This ${LABEL[kind]} is empty. Pick another file or paste the text instead.`)
+  return null
+}
+
+/** The text cut at MAX_TEXT_CHARS (never inside a surrogate pair), with a line that says so. */
+function cutText(text: string): { text: string; cut: boolean } {
+  if (text.length <= MAX_TEXT_CHARS) return { text, cut: false }
+  let end = MAX_TEXT_CHARS
+  const code = text.charCodeAt(end - 1)
+  if (code >= 0xd800 && code <= 0xdbff) end -= 1
+  return { text: `${text.slice(0, end).trimEnd()}\n\n[Cut at 60,000 characters.]`, cut: true }
 }
 
 function cleanName(name: string): string {
@@ -259,29 +276,42 @@ function tagText(rules: XmlTextRules, name: string, closing: boolean, selfClosin
   return ''
 }
 
+/** Reading through an XML document: the text so far, how deep inside text elements, how deep
+ *  inside skipped ones. */
+interface XmlTextState {
+  out: string
+  inText: number
+  skip: number
+}
+
 /** Text inside the given XML elements; paragraph ends give line breaks. Pure string work. */
 function xmlText(xml: string, rules: XmlTextRules): string {
   const re = /<!\[CDATA\[([\s\S]*?)\]\]>|<[!?][^>]*>|<(\/?)([A-Za-z_][\w:.-]*)[^>]*?(\/?)>|([^<]+)/g
-  let out = ''
-  let inText = 0
-  let skip = 0
+  const st: XmlTextState = { out: '', inText: 0, skip: 0 }
   let m: RegExpExecArray | null
-  while ((m = re.exec(xml))) {
-    const reading = inText > 0 && skip === 0
-    if (m[1] !== undefined || m[5] !== undefined) {
-      if (reading) out += m[1] !== undefined ? m[1] : decodeEntities(m[5])
-      continue
-    }
-    if (m[3] === undefined) continue
-    const closing = m[2] === '/'
-    const selfClosing = m[4] === '/'
-    const step = selfClosing ? 0 : closing ? -1 : 1
-    const name = rules.local ? m[3].replace(/^[^:]*:/, '') : m[3]
-    if (rules.skip?.has(name)) skip += step
-    else if (rules.text.has(name)) inText = Math.max(0, inText + step)
-    else if (skip === 0) out += tagText(rules, name, closing, selfClosing)
-  }
-  return out
+  while ((m = re.exec(xml))) xmlToken(m, rules, st)
+  return st.out
+}
+
+/** One token of the document: text or CDATA is kept while inside a text element and outside a
+ *  skipped one; a tag moves those depths or adds a break or tab (tagText); comments and
+ *  processing instructions are passed over. */
+function xmlToken(m: RegExpExecArray, rules: XmlTextRules, st: XmlTextState): void {
+  const cdata = m[1]
+  const text = m[5]
+  if (cdata !== undefined || text !== undefined) {
+    if (st.inText > 0 && st.skip === 0) st.out += cdata ?? decodeEntities(text)
+  } else if (m[3] !== undefined) xmlTag(m[3], m[2] === '/', m[4] === '/', rules, st)
+}
+
+/** A tag: entering or leaving a skipped or a text element moves its depth; any other tag outside
+ *  skipped elements may add a break or tab (tagText). */
+function xmlTag(rawName: string, closing: boolean, selfClosing: boolean, rules: XmlTextRules, st: XmlTextState): void {
+  const step = selfClosing ? 0 : closing ? -1 : 1
+  const name = rules.local ? rawName.replace(/^[^:]*:/, '') : rawName
+  if (rules.skip?.has(name)) st.skip += step
+  else if (rules.text.has(name)) st.inText = Math.max(0, st.inText + step)
+  else if (st.skip === 0) st.out += tagText(rules, name, closing, selfClosing)
 }
 
 // ---------------------------------------------------------------- inflate
@@ -590,6 +620,20 @@ async function readPdf(bytes: Uint8Array): Promise<Extracted> {
   if (/\/Encrypt\s*(\d+\s+\d+\s+R|<<)/.test(s)) throw new FileTextError(MSG_PASSWORD)
   const pieces: string[] = []
   let budget = MAX_UNPACKED_BYTES
+  for (const stream of pdfStreams(s)) {
+    if (PDF_NOT_TEXT.test(stream.dict)) continue
+    const data = await pdfStreamData(bytes.subarray(stream.start, stream.end), stream.dict, budget)
+    if (!data) continue
+    budget -= data.used
+    const text = pdfTextOf(data.content)
+    if (text.trim()) pieces.push(text)
+  }
+  return { text: readablePdfText(pieces), notes: [] }
+}
+
+/** Every stream of the file in order: its dictionary (from its object's start) and where its data
+ *  starts and ends. Stops at a stream whose end cannot be found. */
+function* pdfStreams(s: string): Generator<{ dict: string; start: number; end: number }> {
   const re = /stream(\r\n|\n|\r)/g
   let m: RegExpExecArray | null
   while ((m = re.exec(s))) {
@@ -598,17 +642,15 @@ async function readPdf(bytes: Uint8Array): Promise<Extracted> {
     const objAt = s.lastIndexOf('obj', m.index)
     const dict = s.slice(objAt < 0 ? Math.max(0, m.index - 2000) : objAt, m.index)
     const end = pdfStreamEnd(s, start, dict)
-    if (end < 0) break
+    if (end < 0) return
     re.lastIndex = end
-    if (PDF_NOT_TEXT.test(dict)) continue
-    const data = await pdfStreamData(bytes.subarray(start, end), dict, budget)
-    if (!data) continue
-    budget -= data.used
-    if (!/\bBT\b/.test(data.content)) continue
-    const text = pdfContentText(data.content)
-    if (text.trim()) pieces.push(text)
+    yield { dict, start, end }
   }
-  return { text: readablePdfText(pieces), notes: [] }
+}
+
+/** The text a content stream shows; '' for a stream with no text object (BT). */
+function pdfTextOf(content: string): string {
+  return /\bBT\b/.test(content) ? pdfContentText(content) : ''
 }
 
 const PDF_DELIM = new Set(['(', ')', '<', '>', '[', ']', '{', '}', '/', '%'])
@@ -620,14 +662,19 @@ const PDF_ESCAPES: Record<string, string> = { n: '\n', r: '\r', t: '\t', b: '\b'
  *  digits, a line end after a backslash-CR): its text and the index after it. */
 function pdfEscape(c: string, nx: string, i: number): [string, number] {
   if (PDF_ESCAPES[nx] !== undefined) return [PDF_ESCAPES[nx], i]
-  if (nx >= '0' && nx <= '7') {
-    let oct = nx
-    while (oct.length < 3 && c[i] >= '0' && c[i] <= '7') oct += c[i++]
-    return [String.fromCharCode(parseInt(oct, 8) & 0xff), i]
-  }
+  if (isOctalDigit(nx)) return pdfOctal(c, nx, i)
   // A backslash at a line end continues the string on the next line.
   if (nx === '\r') return ['', c[i] === '\n' ? i + 1 : i]
   return [nx === '\n' ? '' : nx, i]
+}
+
+const isOctalDigit = (ch: string | undefined): boolean => ch !== undefined && ch >= '0' && ch <= '7'
+
+/** An octal escape: its first digit, then up to two more read from `i`; the byte it names. */
+function pdfOctal(c: string, first: string, i: number): [string, number] {
+  let oct = first
+  while (oct.length < 3 && isOctalDigit(c[i])) oct += c[i++]
+  return [String.fromCharCode(parseInt(oct, 8) & 0xff), i]
 }
 
 /** A PDF literal string starting at `(`; returns its text and the index after the closing `)`. */
@@ -778,35 +825,55 @@ function pdfOperator(c: string, i: number, st: PdfTextState): number {
 /** Text shown by a content stream's text operators, with line breaks from line moves. */
 function pdfContentText(c: string): string {
   const st: PdfTextState = { out: '', ops: [], lastY: null }
-  const n = c.length
   let i = 0
-  while (i < n) {
-    const ch = c[i]
-    if (isPdfSpace(ch)) i++
-    else if (ch === '(') {
-      const [str, j] = readPdfString(c, i)
-      st.ops.push(str)
-      i = j
-    } else if (ch === '<' && c[i + 1] === '<') i += 2
-    else if (ch === '<') {
-      // A hex string: glyph ids of an embedded font, not readable without the font. Left out.
-      const j = c.indexOf('>', i)
-      st.ops.push(null)
-      i = j < 0 ? n : j + 1
-    } else if (ch === '[') {
-      const [parts, j] = readPdfArray(c, i)
-      st.ops.push(parts)
-      i = j
-    } else if (ch === '%') {
-      while (i < n && c[i] !== '\n' && c[i] !== '\r') i++
-    } else if (ch === '/') {
-      i = pdfTokenEnd(c, i + 1)
-      st.ops.push(null)
-    } else if (PDF_DELIM.has(ch)) i++
-    else i = pdfOperator(c, i, st)
-  }
+  while (i < c.length) i = pdfStep(c, i, st)
   return st.out
 }
+
+/** One step through a content stream at `i`: a space, a value that starts with a delimiter
+ *  (PDF_VALUES), another delimiter (passed over), or a number or operator (pdfOperator). Returns
+ *  the index after it. */
+function pdfStep(c: string, i: number, st: PdfTextState): number {
+  const ch = c[i]
+  if (isPdfSpace(ch)) return i + 1
+  const value = PDF_VALUES.get(ch)
+  if (value) return value(c, i, st)
+  if (PDF_DELIM.has(ch)) return i + 1
+  return pdfOperator(c, i, st)
+}
+
+/** The values a content stream starts with a delimiter, each read from its first character to the
+ *  index after it. A Map, like PDF_TEXT_OPS. */
+const PDF_VALUES = new Map<string, (c: string, i: number, st: PdfTextState) => number>([
+  ['(', (c, i, st) => {
+    const [str, j] = readPdfString(c, i)
+    st.ops.push(str)
+    return j
+  }],
+  // `<<` opens a dictionary (passed over); a single `<` a hex string: glyph ids of an embedded
+  // font, not readable without the font, left out.
+  ['<', (c, i, st) => {
+    if (c[i + 1] === '<') return i + 2
+    const j = c.indexOf('>', i)
+    st.ops.push(null)
+    return j < 0 ? c.length : j + 1
+  }],
+  ['[', (c, i, st) => {
+    const [parts, j] = readPdfArray(c, i)
+    st.ops.push(parts)
+    return j
+  }],
+  // A comment runs to the line end.
+  ['%', (c, i) => {
+    while (i < c.length && c[i] !== '\n' && c[i] !== '\r') i++
+    return i
+  }],
+  // A name is an operand of no interest here.
+  ['/', (c, i, st) => {
+    st.ops.push(null)
+    return pdfTokenEnd(c, i + 1)
+  }],
+])
 
 // ---------------------------------------------------------------- Outlook .msg (OLE compound file)
 
@@ -832,24 +899,35 @@ const NO_STREAM = 0xffffffff
 /** The sectors that hold the FAT: up to 109 listed in the header, the rest in the DIFAT chain. */
 function cfbFatSectors(b: Uint8Array, ss: number, sector: (n: number) => Uint8Array): number[] {
   const nFat = u32(b, 0x2c)
-  const difatStart = u32(b, 0x44)
+  const fatSectors = cfbHeaderFat(b, nFat)
+  let d = u32(b, 0x44)
   const nDifat = u32(b, 0x48)
-  const fatSectors: number[] = []
-  for (let i = 0; i < 109 && fatSectors.length < nFat; i++) {
-    const s = u32(b, 0x4c + 4 * i)
-    if (s >= 0xfffffffa) break
-    fatSectors.push(s)
-  }
-  let d = difatStart
   for (let hops = 0; d < 0xfffffffa && fatSectors.length < nFat && hops < nDifat; hops++) {
     const sec = sector(d)
-    for (let k = 0; k < ss / 4 - 1 && fatSectors.length < nFat; k++) {
-      const s = u32(sec, 4 * k)
-      if (s < 0xfffffffa) fatSectors.push(s)
-    }
+    cfbDifatFat(sec, ss, nFat, fatSectors)
     d = u32(sec, ss - 4)
   }
   return fatSectors
+}
+
+/** The FAT sectors the header lists (up to 109, up to the first free slot). */
+function cfbHeaderFat(b: Uint8Array, nFat: number): number[] {
+  const out: number[] = []
+  for (let i = 0; i < 109 && out.length < nFat; i++) {
+    const s = u32(b, 0x4c + 4 * i)
+    if (s >= 0xfffffffa) break
+    out.push(s)
+  }
+  return out
+}
+
+/** The FAT sectors one DIFAT sector lists (all slots but its last, which links to the next one),
+ *  added to `out` until it holds nFat. */
+function cfbDifatFat(sec: Uint8Array, ss: number, nFat: number, out: number[]): void {
+  for (let k = 0; k < ss / 4 - 1 && out.length < nFat; k++) {
+    const s = u32(sec, 4 * k)
+    if (s < 0xfffffffa) out.push(s)
+  }
 }
 
 /** The directory entries, 128 bytes each. */
@@ -888,13 +966,22 @@ function rootStreams(entries: CfbEntry[], root: CfbEntry, readStream: (e: CfbEnt
 }
 
 /** The streams directly under the root storage, by lower-case name. */
-function readCfbRootStreams(b: Uint8Array): Map<string, Uint8Array> {
+/** The sectors of a chain: from `start`, following `next` to the end of the chain; a chain longer
+ *  than `limit` is a loop in a damaged file. */
+function cfbChain(start: number, next: (n: number) => number, limit: number): number[] {
+  const out: number[] = []
+  for (let s = start; s < 0xfffffffa; s = next(s)) {
+    if (out.length > limit) throw new Error('sector loop')
+    out.push(s)
+  }
+  return out
+}
+
+/** Reading a compound file's big sectors: one sector by number, and the data of a FAT chain (cut to
+ *  `size` when given). Throws on a sector size other than 512 or 4096 or a sector outside the file. */
+function cfbSectorReader(b: Uint8Array) {
   const ss = 1 << u16(b, 0x1e)
   if (ss !== 512 && ss !== 4096) throw new Error('bad sector size')
-  const mss = 1 << u16(b, 0x20)
-  const dirStart = u32(b, 0x30)
-  const cutoff = u32(b, 0x38)
-  const miniFatStart = u32(b, 0x3c)
   const sector = (n: number): Uint8Array => {
     const o = (n + 1) * ss
     if (o >= b.length) throw new Error('sector out of range')
@@ -902,35 +989,41 @@ function readCfbRootStreams(b: Uint8Array): Map<string, Uint8Array> {
   }
   const fat = concat(cfbFatSectors(b, ss, sector).map(sector))
   const fatAt = (n: number): number => (4 * n + 3 < fat.length ? u32(fat, 4 * n) : END_OF_CHAIN)
-  const chain = (start: number, next: (n: number) => number, limit: number): number[] => {
-    const out: number[] = []
-    for (let s = start; s < 0xfffffffa; s = next(s)) {
-      if (out.length > limit) throw new Error('sector loop')
-      out.push(s)
-    }
-    return out
-  }
   const maxSectors = Math.ceil(b.length / ss)
   const readFat = (start: number, size?: number): Uint8Array => {
-    const data = concat(chain(start, fatAt, maxSectors).map(sector))
+    const data = concat(cfbChain(start, fatAt, maxSectors).map(sector))
     return size === undefined ? data : data.subarray(0, size)
   }
-  const entries = parseCfbDirectory(readFat(dirStart))
+  return { readFat }
+}
+
+function readCfbRootStreams(b: Uint8Array): Map<string, Uint8Array> {
+  const { readFat } = cfbSectorReader(b)
+  const entries = parseCfbDirectory(readFat(u32(b, 0x30)))
   const root = entries[0]
   if (!root || root.type !== 5) throw new Error('no root entry')
   if (root.size > MAX_UNPACKED_BYTES) throw new Error('mini stream too large')
+  const readMini = cfbMiniReader(b, root, readFat)
+  const cutoff = u32(b, 0x38)
+  const readStream = (e: CfbEntry): Uint8Array => {
+    if (e.size > MAX_UNPACKED_BYTES) throw new Error('stream too large')
+    return e.size < cutoff ? readMini(e) : readFat(e.start, e.size)
+  }
+  return rootStreams(entries, root, readStream)
+}
+
+/** Reading a small stream from the mini stream (the root entry's data, in 64-byte mini sectors
+ *  chained by the mini FAT). */
+function cfbMiniReader(b: Uint8Array, root: CfbEntry, readFat: (start: number, size?: number) => Uint8Array): (e: CfbEntry) => Uint8Array {
+  const mss = 1 << u16(b, 0x20)
+  const miniFatStart = u32(b, 0x3c)
   const mini = root.size ? readFat(root.start, root.size) : new Uint8Array(0)
   const miniFat = miniFatStart < 0xfffffffa ? readFat(miniFatStart) : new Uint8Array(0)
   const miniAt = (n: number): number => (4 * n + 3 < miniFat.length ? u32(miniFat, 4 * n) : END_OF_CHAIN)
-  const readStream = (e: CfbEntry): Uint8Array => {
-    if (e.size > MAX_UNPACKED_BYTES) throw new Error('stream too large')
-    if (e.size < cutoff) {
-      const parts = chain(e.start, miniAt, Math.ceil(mini.length / mss)).map((s) => mini.subarray(s * mss, (s + 1) * mss))
-      return concat(parts).subarray(0, e.size)
-    }
-    return readFat(e.start, e.size)
+  return (e) => {
+    const parts = cfbChain(e.start, miniAt, Math.ceil(mini.length / mss)).map((s) => mini.subarray(s * mss, (s + 1) * mss))
+    return concat(parts).subarray(0, e.size)
   }
-  return rootStreams(entries, root, readStream)
 }
 
 function msgProperty(streams: Map<string, Uint8Array>, tag: string): string {
@@ -1013,20 +1106,39 @@ function multipartChildren(body: string, boundary: string): MimePart[] {
 
 /** The first text/plain and first text/html part (attachments left out). */
 function findTextParts(part: MimePart, found: { plain?: string; html?: string }, depth: number): void {
-  if (depth > 10 || (found.plain !== undefined && found.html !== undefined)) return
-  const ct = part.headers.get('content-type') ?? 'text/plain'
-  const type = ct.split(';')[0].trim().toLowerCase() || 'text/plain'
-  if (depth > 0 && /^\s*attachment/i.test(part.headers.get('content-disposition') ?? '')) return
-  if (type.startsWith('multipart/')) {
-    for (const child of multipartChildren(part.body, headerParam(ct, 'boundary'))) findTextParts(child, found, depth + 1)
+  if (depth > 10 || foundBoth(found)) return
+  if (depth > 0 && isAttachment(part)) return
+  const { ct, type } = partType(part)
+  const children = partChildren(part, ct, type)
+  if (children) {
+    for (const child of children) findTextParts(child, found, depth + 1)
     return
   }
-  if (type === 'message/rfc822') {
-    findTextParts(parseMime(part.body), found, depth + 1)
-    return
-  }
+  keepFirstText(part, type, found)
+}
+
+/** The first text/plain and the first text/html part are kept; later ones and other types are not. */
+function keepFirstText(part: MimePart, type: string, found: { plain?: string; html?: string }): void {
   if (type === 'text/plain' && found.plain === undefined) found.plain = partText(part)
   else if (type === 'text/html' && found.html === undefined) found.html = partText(part)
+}
+
+/** A part's Content-Type header and its media type in lower case; text/plain when it has none. */
+function partType(part: MimePart): { ct: string; type: string } {
+  const ct = part.headers.get('content-type') ?? 'text/plain'
+  return { ct, type: ct.split(';')[0].trim().toLowerCase() || 'text/plain' }
+}
+
+const foundBoth = (found: { plain?: string; html?: string }): boolean => found.plain !== undefined && found.html !== undefined
+
+const isAttachment = (part: MimePart): boolean => /^\s*attachment/i.test(part.headers.get('content-disposition') ?? '')
+
+/** The parts inside a part: a multipart's children, or the message a forwarded mail holds; null
+ *  for a part that holds content itself. */
+function partChildren(part: MimePart, ct: string, type: string): MimePart[] | null {
+  if (type.startsWith('multipart/')) return multipartChildren(part.body, headerParam(ct, 'boundary'))
+  if (type === 'message/rfc822') return [parseMime(part.body)]
+  return null
 }
 
 /** A header value: raw 8-bit bytes as UTF-8 when valid, RFC 2047 encoded words decoded. */

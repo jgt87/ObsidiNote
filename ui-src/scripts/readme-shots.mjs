@@ -4,18 +4,15 @@
 //   node scripts/readme-shots.mjs [http://localhost:5194] [cdp port 9566]
 // Writes docs/screenshots/*.png (1440x900, light theme). Drives headless Edge over CDP and answers
 // the API here, like check-design-rules.mjs.
-import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { startEdge, stopEdge } from './headlessEdge.mjs'
 
 const BASE = process.argv[2] || 'http://localhost:5194'
 const PORT = Number(process.argv[3] || 9566)
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'screenshots')
-const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
-const profile = mkdtempSync(join(tmpdir(), 'obsn-shots-'))
-const edge = spawn(EDGE, ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`, '--no-first-run', '--window-size=1440,900', 'about:blank'], { stdio: 'ignore' })
+const browser = startEdge(PORT, 'obsn-shots-')
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 const ago = (min) => new Date(Date.now() - min * 60000).toISOString()
 
@@ -260,8 +257,6 @@ try {
   console.error(e.message)
   process.exitCode = 1
 } finally {
-  try { ws?.close() } catch {}
-  edge.kill()
-  await wait(500)
-  try { rmSync(profile, { recursive: true, force: true }) } catch {}
+  try { ws?.close() } catch {} // already closed: nothing to do
+  await stopEdge(browser)
 }

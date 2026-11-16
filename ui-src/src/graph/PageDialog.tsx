@@ -7,7 +7,7 @@
 // What each key does and which buttons show is decided in pageDialogModel.ts; the header, tabs and
 // footer are PageDialogParts.tsx.
 
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AddStatus } from '../add/types'
 import type { RetireAnswer } from './graphApi'
 import type { RetireAction } from './retireModel'
@@ -16,12 +16,12 @@ import type { PageEditRequest } from './editModel'
 import type { PageBodyResult } from './PageBody'
 import type { GraphIndex } from './graphIndex'
 import { primaryTopic, type GraphPage } from './model'
-import { canGoBack, canGoForward, currentPage, goBack, goForward, startHistory, visit, type PageHistory } from './history'
-import { dialogKeyAction, nextTab, type DialogTab } from './pageDialogModel'
+import { dialogKeysHint, pageLinks, type DialogTab } from './pageDialogModel'
 import { DialogFooter, DialogHeader, DialogTabs, NeighbourhoodTab, PageTab, rowNav, TopicTab, type Linking } from './PageDialogParts'
 import { PageEditForm } from './PageEditForm'
 import { readOnlyWhy } from './readOnly'
-import { stepLinked } from './view'
+import { useDialogKeys, useModalDialog } from './usePageDialogKeys'
+import { usePageHistory } from './usePageHistory'
 
 export interface PageActions {
   onAsk?: (page: GraphPage) => void
@@ -67,61 +67,22 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
   // Edit form open for this page (closes when another page is shown).
   const [editing, setEditing] = useState(false)
   useEffect(() => setEditing(false), [pageId])
-  // Back/Forward over the pages visited in this dialog (history.ts); gone when it closes.
-  const [hist, setHist] = useState<PageHistory>(() => startHistory(pageId))
+  const history = usePageHistory(pageId, onNavigate)
   // "link it": the mention being linked (busy) and the last error, per page shown.
   const [linking, setLinking] = useState<Linking | null>(null)
   const page = index.pageById.get(pageId)
-
-  useEffect(() => {
-    const d = ref.current
-    if (d && !d.open) d.showModal()
-  }, [])
-  // A page set from outside (not through go/back/forward) still counts as a visit.
-  useEffect(() => {
-    setHist((h) => (currentPage(h) === pageId ? h : visit(h, pageId)))
-  }, [pageId])
-
-  const go = (id: string) => {
-    setHist((h) => visit(h, id))
-    onNavigate(id)
-  }
-  const move = (next: PageHistory) => {
-    if (next === hist) return
-    setHist(next)
-    onNavigate(currentPage(next))
-  }
+  useModalDialog(ref)
+  const onKeyDown = useDialogKeys({ ref, index, anchorId, pageId, tab, setTab, history })
 
   if (!page) return null
   const topic = index.topicById.get(primaryTopic(page))
-  const out = index.out.get(page.id) ?? []
-  const back = index.in.get(page.id) ?? []
-  const mentions = (index.mentions.get(page.id) ?? []).filter((e) => e.from === page.id || e.to === page.id)
+  const { out, back, mentions } = pageLinks(index, page.id)
   const ro = page.readOnly
   const why = ro ? readOnlyWhy(index.model.source) : ''
-  // Title and summary are changed where they stand (InlineText); not while the form is open,
-  // which holds its own copy of both.
-  const inPlace = onEditPage && !ro && !editing ? onEditPage : null
-  const nav = rowNav(index, go)
+  const { canEdit, inPlace } = editAccess(ro, onEditPage, editing)
+  const nav = rowNav(index, history.go)
   const close = () => ref.current?.close()
 
-  const onKeyDown = (e: KeyboardEvent<HTMLDialogElement>) => {
-    const t = e.target as HTMLElement
-    const a = dialogKeyAction(e, t.getAttribute('role') === 'tab', !!t.closest('input, textarea, select'))
-    if (!a) return
-    e.preventDefault()
-    if (a === 'back' || a === 'forward') move(a === 'back' ? goBack(hist) : goForward(hist))
-    else if (a === 'tab-next' || a === 'tab-prev') {
-      const n = nextTab(tab, a === 'tab-next' ? 1 : -1)
-      setTab(n)
-      ref.current?.querySelector<HTMLElement>(`#kg-tab-${n}`)?.focus()
-    } else {
-      const next = stepLinked(index, anchorId, page.id, a === 'step-next' ? 1 : -1)
-      if (next) go(next)
-    }
-  }
-
-  const pos = (index.neighbours.get(anchorId) ?? []).length
   const src = exportSourceOf(index.model.source)
 
   return (
@@ -141,47 +102,53 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
         inPlace={inPlace}
         linksOut={out.length}
         linkedFrom={back.length}
-        canBack={canGoBack(hist)}
-        canForward={canGoForward(hist)}
-        onBack={() => move(goBack(hist))}
-        onForward={() => move(goForward(hist))}
+        canBack={history.canBack}
+        canForward={history.canForward}
+        onBack={history.back}
+        onForward={history.forward}
         onClose={close}
       />
       <DialogTabs tab={tab} topicName={topic?.name} onTab={setTab} />
 
       <div id="kg-tabpanel" role="tabpanel" aria-labelledby={`kg-tab-${tab}`} className="kg-dlg__body">
         {notice}
-        {editing && onEditPage && (
-          <PageEditForm
-            index={index}
-            page={page}
-            onSave={async (req) => {
-              await onEditPage(req)
-              setEditing(false)
-            }}
-            onCancel={() => setEditing(false)}
+        {editing ? (
+          onEditPage && (
+            <PageEditForm
+              index={index}
+              page={page}
+              onSave={async (req) => {
+                await onEditPage(req)
+                setEditing(false)
+              }}
+              onCancel={() => setEditing(false)}
+            />
+          )
+        ) : (
+          <ShownTab
+            tab={tab}
+            pageTab={
+              <PageTab
+                index={index}
+                page={page}
+                nav={nav}
+                inPlace={inPlace}
+                out={out}
+                back={back}
+                mentions={mentions}
+                readOnly={ro}
+                onTagPages={onTagPages}
+                onPickTag={onPickTag}
+                loadBody={loadBody}
+                onLinkMention={onLinkMention}
+                linking={linking}
+                setLinking={setLinking}
+              />
+            }
+            topicTab={<TopicTab index={index} page={page} nav={nav} src={src} />}
+            neighbourhoodTab={<NeighbourhoodTab index={index} page={page} nav={nav} />}
           />
         )}
-        {!editing && tab === 'page' && (
-          <PageTab
-            index={index}
-            page={page}
-            nav={nav}
-            inPlace={inPlace}
-            out={out}
-            back={back}
-            mentions={mentions}
-            readOnly={ro}
-            onTagPages={onTagPages}
-            onPickTag={onPickTag}
-            loadBody={loadBody}
-            onLinkMention={onLinkMention}
-            linking={linking}
-            setLinking={setLinking}
-          />
-        )}
-        {!editing && tab === 'topic' && <TopicTab index={index} page={page} nav={nav} src={src} />}
-        {!editing && tab === 'neighbourhood' && <NeighbourhoodTab index={index} page={page} nav={nav} />}
       </div>
 
       <DialogFooter
@@ -191,27 +158,37 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
         why={why}
         src={src}
         onAsk={onAsk}
-        canEdit={!!onEditPage && !ro}
+        canEdit={canEdit}
         onToggleEdit={() => {
           setTab('page')
           setEditing((e) => !e)
         }}
         onRetirePages={onRetirePages}
-        onFocusPage={
-          onFocusPage
-            ? () => {
-                onFocusPage(page.id)
-                close()
-              }
-            : undefined
-        }
-        keys={
-          <span className="kg-dlg__keys">
-            Esc closes{pos ? ' · ← → previous or next linked page' : ''}
-            {canGoBack(hist) || canGoForward(hist) ? ' · Alt+← → back or forward' : ''}
-          </span>
-        }
+        onFocusPage={focusAndClose(onFocusPage, page.id, close)}
+        keys={<span className="kg-dlg__keys">{dialogKeysHint((index.neighbours.get(anchorId) ?? []).length, history.canBack || history.canForward)}</span>}
       />
     </dialog>
   )
+}
+
+/** Who may change the page: the Edit form only for a page that can be written, and the title and
+ *  summary in place (InlineText) only while the form is not open, which holds its own copy of both. */
+function editAccess(readOnly: boolean, onEditPage: PageActions['onEditPage'], editing: boolean) {
+  const canEdit = !!onEditPage && !readOnly
+  return { canEdit, inPlace: canEdit && !editing ? onEditPage! : null }
+}
+
+/** "Focus on this page": the map narrows to it and the window closes; none when the map offers it not. */
+function focusAndClose(onFocusPage: ((id: string) => void) | undefined, pageId: string, close: () => void): (() => void) | undefined {
+  if (!onFocusPage) return undefined
+  return () => {
+    onFocusPage(pageId)
+    close()
+  }
+}
+
+/** The chosen tab's content (each tab is made only when it is the one shown). */
+function ShownTab({ tab, pageTab, topicTab, neighbourhoodTab }: { tab: DialogTab; pageTab: ReactNode; topicTab: ReactNode; neighbourhoodTab: ReactNode }) {
+  const byTab: Record<DialogTab, ReactNode> = { page: pageTab, topic: topicTab, neighbourhood: neighbourhoodTab }
+  return <>{byTab[tab]}</>
 }
