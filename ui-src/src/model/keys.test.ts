@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isFindKey, isSendKey, modeForKey } from './keys'
+import { isFindKey, isPlainPasteKey, isSendKey, modeForKey } from './keys'
 
 const base = { key: '', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false }
 
@@ -32,5 +32,17 @@ describe('isFindKey', () => {
     expect(isFindKey({ ...base, key: 'K', code: 'KeyK', ctrlKey: true, shiftKey: true })).toBe(false)
     expect(isFindKey({ ...base, key: 'k', code: 'KeyK', ctrlKey: true, altKey: true })).toBe(false)
     expect(isFindKey({ ...base, key: 'j', code: 'KeyJ', ctrlKey: true })).toBe(false)
+  })
+})
+
+describe('isPlainPasteKey', () => {
+  it('is Ctrl+Shift+V or Cmd+Shift+V, by the key code', () => {
+    expect(isPlainPasteKey({ ...base, key: 'V', code: 'KeyV', ctrlKey: true, shiftKey: true })).toBe(true)
+    expect(isPlainPasteKey({ ...base, key: 'V', code: 'KeyV', metaKey: true, shiftKey: true })).toBe(true)
+    // a layout that puts another letter on that key: still the plain paste
+    expect(isPlainPasteKey({ ...base, key: 'Ü', code: 'KeyV', ctrlKey: true, shiftKey: true })).toBe(true)
+    expect(isPlainPasteKey({ ...base, key: 'v', code: 'KeyV', ctrlKey: true })).toBe(false)
+    expect(isPlainPasteKey({ ...base, key: 'V', code: 'KeyV', shiftKey: true })).toBe(false)
+    expect(isPlainPasteKey({ ...base, key: 'C', code: 'KeyC', ctrlKey: true, shiftKey: true })).toBe(false)
   })
 })

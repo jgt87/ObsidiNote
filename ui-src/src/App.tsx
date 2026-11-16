@@ -1,143 +1,43 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { checkLease, getSettings, reconnectCopilot } from './api'
-import type { AskChoices } from './components/AskOptions'
+import { useCallback, useMemo, useState } from 'react'
 import { ActivityView } from './activity/ActivityView'
+import { AppDialogs, type AppDialog } from './components/AppDialogs'
 import { HomeView } from './components/HomeView'
-import { NewVaultDialog } from './components/NewVaultDialog'
-import { SetUpVaultDialog } from './components/SetUpVaultDialog'
-import { SettingsDialog } from './components/SettingsDialog'
 import { Rail } from './components/Rail'
-import { fetchGraph, GraphView } from './graph'
+import { GraphView } from './graph'
+import { useAskChoices, useCopilotRetry, useGraphNavigation, useHashView, useVaultAccess } from './hooks/useAppShell'
 import { useHomeFlow } from './hooks/useHomeFlow'
 import { useNotebook, useNotebooks, useStatus } from './hooks/useServerData'
-import { attentionNotes, leaseCheckNote, sendBlock, vaultNote } from './model/attention'
+import { attentionNotes, sendBlock } from './model/attention'
 import { ReadOnlyBanner } from './components/ReadOnlyBanner'
 import { askAboutText } from './model/handoff'
-import { addTargetFor, askSourceChoices, graphRefFor } from './model/notebooks'
-import { viewFromHash, VIEWS, type View } from './model/views'
+import { addTargetFor, askSourceChoices } from './model/notebooks'
 import { QuickSwitcher } from './search/QuickSwitcher'
-import type { FindRequest } from './search/switcherModel'
 
 export function App() {
-  const [view, setView] = useState<View>(() => viewFromHash(window.location.hash))
+  const { view, goto } = useHashView()
   const { status, serverDown, refresh: refreshStatus } = useStatus()
-  const retryCopilot = useCallback(async () => {
-    try {
-      const r = await reconnectCopilot()
-      return r.state === 'connected' ? '' : r.message
-    } catch (e) {
-      return e instanceof Error ? e.message : 'Copilot could not be reached.'
-    } finally {
-      await refreshStatus()
-    }
-  }, [refreshStatus])
+  const retryCopilot = useCopilotRetry(refreshStatus)
   const notebooks = useNotebooks()
   const notebook = useNotebook(notebooks.shownId)
   const addTarget = addTargetFor(notebooks.list, notebooks.activeId, notebooks.shownId)
-  const [choices, setChoices] = useState<AskChoices>({ sources: [], includeArchived: false })
-  const [graphFocus, setGraphFocus] = useState<string[]>([])
-  const [newVaultOpen, setNewVaultOpen] = useState(false)
-  const [setUpOpen, setSetUpOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [choices, setChoices] = useAskChoices(notebooks.activeId)
+  const [dialog, setDialog] = useState<AppDialog>(null)
   // Saved settings reach the open graph by remounting it (it reads them when it opens).
   const [graphReload, setGraphReload] = useState(0)
-  // Ask's "Include archived pages" starts from the vault's setting (kept in OneNote), per vault.
-  useEffect(() => {
-    let live = true
-    getSettings()
-      .then((r) => live && setChoices((c) => ({ ...c, includeArchived: r.settings.askIncludeArchived })))
-      .catch(() => {})
-    return () => {
-      live = false
-    }
-  }, [notebooks.activeId])
+  const reloadGraph = useCallback(() => setGraphReload((n) => n + 1), [])
   const [notice, setNotice] = useState('')
-  // Why this window cannot write in its vault ('' when it can); one banner says it.
-  const vaultWhy = status && !serverDown ? vaultNote(status) : ''
-  // This window became the writer (the earlier start let go of the vault): read the map again, so
-  // its pages stop showing read only without a click (operator, 2026-11-15).
-  const writerNow = status?.vault?.mode === 'writer'
-  const wasWriter = useRef(writerNow)
-  useEffect(() => {
-    if (writerNow && !wasWriter.current) setGraphReload((n) => n + 1)
-    wasWriter.current = writerNow
-  }, [writerNow])
-  // "Check again": the server tries to take the vault now (it is never taken from a holder that
-  // still renews it), then the status is read again; what it found stays under the note.
-  const [checkResult, setCheckResult] = useState('')
-  const checkAgain = async () => {
-    try {
-      const v = await checkLease()
-      setCheckResult(leaseCheckNote(v))
-      if (v.mode === 'writer') setGraphReload((n) => n + 1)
-    } catch (e) {
-      setCheckResult(e instanceof Error ? `Could not check: ${e.message}` : 'Could not check.')
-    }
-    await refreshStatus()
-  }
-  useEffect(() => {
-    if (!vaultWhy) setCheckResult('')
-  }, [vaultWhy])
-
-  const goto = (v: View) => { window.location.hash = VIEWS[v].hash }
-  const home = useHomeFlow(choices, (ids) => {
-    // "Show on map": the active vault's graph, its cited pages highlighted.
-    if (notebooks.activeId) notebooks.choose(notebooks.activeId)
-    setGraphFocus(ids)
-    goto('graph')
-  })
-
-  useEffect(() => {
-    const onHash = () => setView(viewFromHash(window.location.hash))
-    window.addEventListener('hashchange', onHash)
-    return () => window.removeEventListener('hashchange', onHash)
-  }, [])
-
-  useEffect(() => {
-    document.title = view === 'home' ? 'ObsidiNote' : `${VIEWS[view].label} - ObsidiNote`
-  }, [view])
-
-  const shown = notebooks.list.find((n) => n.id === notebooks.shownId)
-  const ref = graphRefFor(shown)
-  const refKey = JSON.stringify(ref)
-  const loadGraph = useCallback((signal: AbortSignal) => fetchGraph(JSON.parse(refKey), signal), [refKey])
-  // Quick switcher (Ctrl+K): searches the ACTIVE vault; a pick shows that vault's graph.
-  const [findRequest, setFindRequest] = useState<FindRequest | null>(null)
-  const activeEntry = notebooks.list.find((n) => n.id === notebooks.activeId)
-  const findKey = activeEntry?.vault ? JSON.stringify(graphRefFor(activeEntry)) : null
-  const loadFind = useCallback((signal: AbortSignal) => fetchGraph(findKey ? JSON.parse(findKey) : {}, signal), [findKey])
+  const { vaultWhy, checkResult, checkAgain } = useVaultAccess(status, serverDown, refreshStatus, reloadGraph)
+  const nav = useGraphNavigation(notebooks, goto)
+  const home = useHomeFlow(choices, nav.showCited)
   const sourceOptions = useMemo(() => askSourceChoices(notebooks.list, notebooks.activeId), [notebooks.list, notebooks.activeId])
-  // A page opened from the home page or History: the knowledge graph of its notebook with the page
-  // window open (the same FindRequest the Ctrl+K switcher uses; operator, 2026-11-14).
-  const openPage = (entry: typeof shown, pageId: string) => {
-    if (!entry) return
-    if (entry.id !== notebooks.shownId) notebooks.choose(entry.id)
-    setGraphFocus([])
-    setFindRequest({ sourceId: entry.vault && entry.vaultId ? entry.vaultId : entry.id, pageId })
-    goto('graph')
-  }
-  // A section picked in the side bar: the shown notebook's List, searched on that section.
-  const openSection = (query: string) => {
-    if (!shown) return
-    setGraphFocus([])
-    setFindRequest({ sourceId: shown.vault && shown.vaultId ? shown.vaultId : shown.id, query, list: true })
-    goto('graph')
-  }
   // The waiting list and History read the Intake again after a vault switch or a finished send.
   const activityKey = `${notebooks.activeId ?? ''}|${home.flow.kind}|${home.clearKey}|${home.changes}`
 
   return (
     <div className="shell">
-      <Rail view={view} notebooks={notebooks} notebook={notebook} notes={attentionNotes(status, serverDown)} onNewVault={() => setNewVaultOpen(true)} onSetUp={() => setSetUpOpen(true)} onRetryCopilot={retryCopilot} onSettings={notebooks.activeId ? () => setSettingsOpen(true) : undefined} onOpenSection={openSection} />
+      <Rail view={view} notebooks={notebooks} notebook={notebook} notes={attentionNotes(status, serverDown)} onNewVault={() => setDialog('new-vault')} onSetUp={() => setDialog('set-up')} onRetryCopilot={retryCopilot} onSettings={notebooks.activeId ? () => setDialog('settings') : undefined} onOpenSection={nav.openSection} />
       <main className="main">
-        {notice && (
-          <p className="home-notice app-notice" role="status">
-            {notice}{' '}
-            <button type="button" className="link-btn" onClick={() => setNotice('')}>
-              Close
-            </button>
-          </p>
-        )}
+        <AppNotice text={notice} onClose={() => setNotice('')} />
         {vaultWhy && view !== 'graph' && <ReadOnlyBanner text={vaultWhy} onCheck={checkAgain} result={checkResult} />}
         {view === 'home' && (
           <HomeView
@@ -148,8 +48,8 @@ export function App() {
             onChoices={setChoices}
             sourceOptions={sourceOptions}
             activityKey={activityKey}
-            onOpenRecent={(id) => openPage(shown, id)}
-            onOpenActive={(id) => openPage(activeEntry, id)}
+            onOpenRecent={(id) => nav.openPage(nav.shown, id)}
+            onOpenActive={(id) => nav.openPage(nav.activeEntry, id)}
             block={sendBlock(status, serverDown)}
             onRetryCopilot={retryCopilot}
           />
@@ -157,11 +57,11 @@ export function App() {
         {view === 'graph' && (
           <GraphView
             key={graphReload}
-            load={loadGraph}
-            sourceKey={refKey}
-            focusIds={graphFocus}
-            request={findRequest}
-            onRequestDone={() => setFindRequest(null)}
+            load={nav.loadGraph}
+            sourceKey={nav.refKey}
+            focusIds={nav.graphFocus}
+            request={nav.findRequest}
+            onRequestDone={nav.requestDone}
             readOnlyNote={vaultWhy}
             checkResult={checkResult}
             onCheckAgain={checkAgain}
@@ -172,52 +72,39 @@ export function App() {
             }}
           />
         )}
-        {view === 'history' && <ActivityView refreshKey={activityKey} onOpen={(id) => openPage(activeEntry, id)} />}
+        {view === 'history' && <ActivityView refreshKey={activityKey} onOpen={(id) => nav.openPage(nav.activeEntry, id)} />}
       </main>
-      <QuickSwitcher
-        vaultKey={findKey}
-        load={loadFind}
-        onPick={(r) => {
-          if (notebooks.activeId) notebooks.choose(notebooks.activeId)
-          setGraphFocus([])
-          setFindRequest(r)
-          goto('graph')
+      <QuickSwitcher vaultKey={nav.findKey} load={nav.loadFind} onPick={nav.showFound} />
+      <AppDialogs
+        dialog={dialog}
+        onClose={() => setDialog(null)}
+        notebooks={notebooks.list}
+        shown={nav.shown}
+        version={status?.version ?? ''}
+        onSettingsSaved={(s) => {
+          setChoices((c) => ({ ...c, includeArchived: s.askIncludeArchived }))
+          reloadGraph()
+        }}
+        onTagsChanged={reloadGraph}
+        onAdopt={(id, message) => {
+          setDialog(null)
+          setNotice(message)
+          notebooks.adopt(id)
         }}
       />
-      {settingsOpen && (
-        <SettingsDialog
-          onClose={() => setSettingsOpen(false)}
-          onSaved={(s) => {
-            setChoices((c) => ({ ...c, includeArchived: s.askIncludeArchived }))
-            setGraphReload((n) => n + 1)
-          }}
-          onTagsChanged={() => setGraphReload((n) => n + 1)}
-          version={status?.version ?? ''}
-        />
-      )}
-      {newVaultOpen && (
-        <NewVaultDialog
-          notebooks={notebooks.list}
-          onClose={() => setNewVaultOpen(false)}
-          onMade={(r) => {
-            setNewVaultOpen(false)
-            setNotice(`${r.name} is your active vault now.${r.warning ? ` ${r.warning}` : ''}`)
-            notebooks.adopt(r.id)
-          }}
-        />
-      )}
-      {setUpOpen && shown && (
-        <SetUpVaultDialog
-          id={shown.id}
-          name={shown.name}
-          onClose={() => setSetUpOpen(false)}
-          onDone={(r) => {
-            setSetUpOpen(false)
-            setNotice(`${r.name} is your active vault now.`)
-            notebooks.adopt(r.id)
-          }}
-        />
-      )}
     </div>
+  )
+}
+
+/** What the window says once (a vault became the active one), until it is closed; nothing when empty. */
+function AppNotice({ text, onClose }: { text: string; onClose: () => void }) {
+  if (!text) return null
+  return (
+    <p className="home-notice app-notice" role="status">
+      {text}{' '}
+      <button type="button" className="link-btn" onClick={onClose}>
+        Close
+      </button>
+    </p>
   )
 }

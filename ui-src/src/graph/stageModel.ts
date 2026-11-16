@@ -1,6 +1,7 @@
 // What the map stage draws on top of its base layer and how it answers keys: the focus layer's
 // lines and dots, the topic, group and page names, and the key map. Pure (tests: stageModel.test.ts);
 // GraphStage.tsx reads state, calls these and renders.
+import { plural } from './format'
 import type { GraphIndex } from './graphIndex'
 import { groupLabelSize } from './labelSize'
 import { edgePath, onePerPair, type AreaLayout, type DotLayout, type EdgeLayout, type GraphLayout } from './layout'
@@ -167,6 +168,18 @@ export function stageLabels(i: StageLabelInput) {
   for (const l of areaLabels) if (rects.some((r) => meets(r, l.rect))) hiddenAreas.add(l.id)
   for (const g of groupLabels) if (rects.some((r) => meets(r, g.rect))) g.hidden = true
   return { areaLabels, groupLabels, hiddenAreas, labels }
+}
+
+/** The focused page's area's topic lines (all of them, under the areas, not faded), while links are
+ *  shown; none without a focused page. */
+export function areaBundles<B extends { a: string; b: string }>(bundles: B[], activeArea: string | null, links: boolean): B[] {
+  return activeArea && links ? bundles.filter((b) => b.a === activeArea || b.b === activeArea) : []
+}
+
+/** What a screen reader hears for the page focused with the keyboard: its title, where it is, how
+ *  many linked pages, and the keys. */
+export function stageAnnouncement(title: string, path: string, linked: number, canFocusPage: boolean): string {
+  return `${title}, ${path}, ${plural(linked, 'linked page')}. Enter opens${canFocusPage ? ', F focuses on this page' : ''}.`
 }
 
 /** The topic area at a point of the stage (screen pixels), or null. */

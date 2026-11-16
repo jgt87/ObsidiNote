@@ -107,24 +107,44 @@ const UNDER_NAMES = `JSON.stringify((() => { const hit = (a, b) => a.left < b.ri
   const box = (l) => { const rs = [...l.querySelectorAll('b, .kg-alabel__count')].map((e) => e.getBoundingClientRect()); return { left: Math.min(...rs.map((r) => r.left)), right: Math.max(...rs.map((r) => r.right)), top: Math.min(...rs.map((r) => r.top)), bottom: Math.max(...rs.map((r) => r.bottom)) } }
   return [...document.querySelectorAll('.kg-alabel')].map((l) => ({ name: l.textContent, n: dots.filter((d) => hit(box(l), d)).length })).filter((x) => x.n > 0) })())`
 
-async function main() {
-  let ver
-  for (let k = 0; k < 60 && !ver; k++) { try { ver = await (await fetch(`http://127.0.0.1:${PORT}/json/version`)).json() } catch { await wait(200) } }
-  ws = new WebSocket(ver.webSocketDebuggerUrl)
+// ---------- the browser session ----------
+
+/** The CDP address of the headless Edge, once it answers (up to 12 s). */
+async function debuggerUrl() {
+  for (let k = 0; k < 60; k++) {
+    try {
+      return (await (await fetch(`http://127.0.0.1:${PORT}/json/version`)).json()).webSocketDebuggerUrl
+    } catch {
+      await wait(200) // not up yet
+    }
+  }
+  throw new Error(`Edge did not answer on CDP port ${PORT}`)
+}
+
+/** Answers of the commands sent, and the app's API calls answered from the invented data above. */
+function onMessage(m) {
+  const d = JSON.parse(m.data)
+  if (d.id && pending.has(d.id)) {
+    const p = pending.get(d.id)
+    pending.delete(d.id)
+    d.error ? p.reject(new Error(JSON.stringify(d.error))) : p.resolve(d.result)
+  } else if (d.method === 'Fetch.requestPaused') {
+    const { requestId, request } = d.params
+    const body = answer(new URL(request.url).pathname)
+    // A request the page dropped meanwhile (it navigated away) cannot be answered: nothing to do.
+    send('Fetch.fulfillRequest', { requestId, responseCode: body ? 200 : 404, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: Buffer.from(JSON.stringify(body ?? { error: 'not stubbed' })).toString('base64') }, d.sessionId).catch(() => {})
+  }
+}
+
+/** A page in the headless Edge with its API answered here, and the helpers every rule uses. */
+async function connect() {
+  ws = new WebSocket(await debuggerUrl())
   await new Promise((r) => ws.addEventListener('open', r))
   const { targetId } = await new Promise((resolve) => {
     ws.addEventListener('message', function first(m) { const d = JSON.parse(m.data); if (d.id === 1) { ws.removeEventListener('message', first); resolve(d.result) } })
     ws.send(JSON.stringify({ id: ++id, method: 'Target.createTarget', params: { url: 'about:blank' } }))
   })
-  ws.addEventListener('message', (m) => {
-    const d = JSON.parse(m.data)
-    if (d.id && pending.has(d.id)) { const p = pending.get(d.id); pending.delete(d.id); d.error ? p.reject(new Error(JSON.stringify(d.error))) : p.resolve(d.result) }
-    else if (d.method === 'Fetch.requestPaused') {
-      const { requestId, request } = d.params
-      const body = answer(new URL(request.url).pathname)
-      send('Fetch.fulfillRequest', { requestId, responseCode: body ? 200 : 404, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: Buffer.from(JSON.stringify(body ?? { error: 'not stubbed' })).toString('base64') }, d.sessionId).catch(() => {})
-    }
-  })
+  ws.addEventListener('message', onMessage)
   const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true })
   const S = (m, p) => send(m, p, sessionId)
   const js = async (e) => (await S('Runtime.evaluate', { expression: e, awaitPromise: true, returnByValue: true })).result.value
@@ -136,6 +156,7 @@ async function main() {
     await S('Page.navigate', { url: 'about:blank' })
     await S('Page.navigate', { url: BASE + path })
     let ok = false
+    // A page still loading has no context to evaluate in yet: that counts as "not there yet".
     for (let k = 0; k < 150 && !ok; k++) { ok = await js(`!!document.querySelector(${JSON.stringify(ready)})`).catch(() => false); if (!ok) await wait(100) }
     if (!ok) throw new Error(`${path}: ${ready} never appeared (is Vite running on ${BASE}?)`)
     await wait(500)
@@ -146,18 +167,24 @@ async function main() {
     for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await S('Input.dispatchMouseEvent', { type, x: pos[0], y: pos[1], button: type === 'mouseMoved' ? 'none' : 'left', clickCount: 1 })
     await wait(500)
   }
+  const t = { S, js, list, size, go, click, openDot, problems: [], checks: 0 }
+  t.expect = (ok, text) => { t.checks++; if (!ok) t.problems.push(text) }
+  t.onePrimary = async (view) => { const p = await list(PRIMARIES); t.expect(p.length <= 1, `${view}: ${p.length} primary buttons (${p.join(', ')})`) }
+  return t
+}
 
-  const problems = []
-  let checks = 0
-  const expect = (ok, text) => { checks++; if (!ok) problems.push(text) }
+// ---------- the rules, in the order they run (later ones rely on the stub state earlier ones left) ----------
 
+/** The stub API's graph: the demo map's own model, as vault v1 (the notebook stub's vaultId). */
+async function loadStubGraph({ js, size, go }) {
   await size(1440, 900)
   await go('/graph-demo.html?pages=100', '.kg-dot')
   graph = JSON.parse(await js(`import('/src/graph/synthetic.ts').then((m) => JSON.stringify(m.syntheticGraph({ pages: 100, topics: 6, seed: 7 })))`))
-  // The app asks for the graph of vault v1 (the notebook stub's vaultId): the stub graph is that vault's.
   graph.source = { ...graph.source, id: 'v1', kind: 'vault', readOnly: false }
+}
 
-  // 5 no dot under a topic name (the demo map and the Sources view)
+// 5 no dot under a topic name (the demo map and the Sources view)
+async function noDotUnderNames({ list, go, click, expect }) {
   let under = await list(UNDER_NAMES)
   expect(under.length === 0, `map: dots under topic names: ${JSON.stringify(under)}`)
   await click('Sources'); await wait(700)
@@ -167,8 +194,10 @@ async function main() {
   await go('/graph-demo.html?pages=600&topics=25', '.kg-dot'); await wait(600)
   under = await list(UNDER_NAMES)
   expect(under.length === 0, `map of 600 pages (fitted zoomed out): dots under topic names: ${JSON.stringify(under)}`)
+}
 
-  // "Labels: hubs only": the topic names stay, no page is named at rest, the page pointed at is.
+// 7 "Labels: hubs only": the topic names stay, no page is named at rest, the page pointed at is.
+async function hubsOnlyLabels({ S, js, list, go, click, expect }) {
   await go('/graph-demo.html?pages=100', '.kg-dot')
   const pageNames = () => js(`document.querySelectorAll('.kg-plabel').length`)
   const topicNames = () => js(`document.querySelectorAll('.kg-alabel').length`)
@@ -180,15 +209,15 @@ async function main() {
   await js(`[...document.querySelectorAll('.kg-fp__foot button')].find((b) => b.textContent.trim() === 'Done').click()`)
   await wait(400)
   expect(before[0] > 0 && (await pageNames()) === 0 && (await topicNames()) === before[1], `hubs only: ${await pageNames()} page name(s) at rest (were ${before[0]}), ${await topicNames()} topic name(s) (were ${before[1]})`)
-  {
-    const pos = await list(`JSON.stringify((() => { const r = document.querySelectorAll('.kg-base circle.kg-dot--hub')[0].getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2] })())`)
-    await S('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pos[0], y: pos[1], button: 'none' })
-    await wait(400)
-    expect((await pageNames()) === 1, `hubs only, pointing at a page: ${await pageNames()} page name(s) (1 expected: its own)`)
-    await S('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 5, button: 'none' })
-  }
+  const pos = await list(`JSON.stringify((() => { const r = document.querySelectorAll('.kg-base circle.kg-dot--hub')[0].getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2] })())`)
+  await S('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pos[0], y: pos[1], button: 'none' })
+  await wait(400)
+  expect((await pageNames()) === 1, `hubs only, pointing at a page: ${await pageNames()} page name(s) (1 expected: its own)`)
+  await S('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 5, button: 'none' })
+}
 
-  // 8 a long zoom-in never shows the map as a far-stretched picture of its last drawing
+// 8 a long zoom-in never shows the map as a far-stretched picture of its last drawing
+async function zoomNeverStretched({ S, js, list, go, expect }) {
   await go('/graph-demo.html?pages=100', '.kg-dot')
   {
     const r = await list(`JSON.stringify((() => { const b = document.querySelector('.kg-stage').getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2] })())`)
@@ -207,8 +236,10 @@ async function main() {
     expect(grew > 1.8, `zooming in with the wheel: the map grew ${grew.toFixed(2)} times after 14 wheel steps (the check did not zoom)`)
     expect(worst <= 1.35, `zooming in with the wheel: the map was shown stretched ${worst.toFixed(2)} times before being drawn again (1.35 at most)`)
   }
+}
 
-  // 9 the map's search shows its clear button whenever it holds text (no hover needed), and it clears
+// 9 the map's search shows its clear button whenever it holds text (no hover needed), and it clears
+async function searchClearButton({ S, js, go, expect }) {
   await go('/graph-demo.html?pages=100', '.kg-dot')
   {
     const shown = () => js(`(() => { const b = document.querySelector('.kg-search__clear'); if (!b) return false; const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(b).opacity === '1' && getComputedStyle(b).visibility === 'visible' })()`)
@@ -225,8 +256,10 @@ async function main() {
     const after = await js(`document.querySelector('#kg-search').value`)
     expect(!empty && withText && after === '', `map search: clear button with an empty field ${empty}, with text and the pointer elsewhere ${withText}, value after pressing it "${after}"`)
   }
+}
 
-  // 10 tags: set in the page window, shown as one joined group on the map, set on several rows in the List
+// 10 tags: set in the page window, shown as one joined group on the map, set on several rows in the List
+async function tagsSetEverywhere({ S, js, list, go, click, openDot, expect }) {
   await go('/graph-demo.html?pages=100', '.kg-dot')
   {
     await openDot()
@@ -255,7 +288,10 @@ async function main() {
     const tagged = await js(`[...document.querySelectorAll('.kg-tbl__table tbody tr[data-selected]')].filter((r) => /\\bbulk\\b/.test(r.children[3]?.textContent || '')).length`)
     expect(/^2 pages selected/.test(bar) && tagged === 2, `tags, List: bar says "${bar}", ${tagged} of the 2 ticked rows show the tag "bulk" in the Tags column`)
   }
-  // 13 the Tags grouping: one area per tag, only tagged pages, and a chip takes a tag's area away
+}
+
+// 13 the Tags grouping: one area per tag, only tagged pages, and a chip takes a tag's area away
+async function tagsGrouping({ js, list, go, click, expect }) {
   await go('/graph-demo.html?pages=100', '.kg-dot')
   {
     await click('Tags'); await wait(900)
@@ -275,7 +311,10 @@ async function main() {
     const groups = await list(`JSON.stringify((() => { const dots = [...document.querySelectorAll('.kg-base circle.kg-dot')].map((c) => c.getBoundingClientRect()); const labels = [...document.querySelectorAll('.kg-glabel')]; const hit = labels.filter((l) => { const r = l.getBoundingClientRect(); return dots.some((d) => d.left < r.right - 1 && d.right > r.left + 1 && d.top < r.bottom - 1 && d.bottom > r.top + 1) }).map((l) => l.textContent); return { names: labels.length, hit } })())`)
     expect(groups.names >= 3 && groups.hit.length === 0, `Tags grouping, topics inside the areas: ${groups.names} topic name(s) shown, on a dot: ${JSON.stringify(groups.hit)}`)
   }
-  // 14 the title is changed in place: Esc keeps the window and the old title, Enter saves the new one
+}
+
+// 14 the title is changed in place: Esc keeps the window and the old title, Enter saves the new one
+async function titleInPlace({ S, js, list, go, openDot, expect }) {
   await go('/graph-demo.html?pages=100', '.kg-dot')
   {
     await openDot()
@@ -298,7 +337,10 @@ async function main() {
     const empty = await js(`document.querySelector('dialog[open] .kg-inline-edit__error')?.textContent ?? ''`)
     expect(/cannot be empty/.test(empty), `title in place, an empty title: the message reads "${empty}"`)
   }
-  // 15 the page window shows the page's text; a failed read is an error with its own retry; a long page says so
+}
+
+// 15 the page window shows the page's text; a failed read is an error with its own retry; a long page says so
+async function pageText({ js, list, go, openDot, expect }) {
   await go('/graph-demo.html?pages=100', '.kg-dot')
   {
     await openDot(); await wait(700)
@@ -321,16 +363,19 @@ async function main() {
     const more = await js(`[...document.querySelectorAll('dialog[open] .kg-body .kg-note')].map((n) => n.textContent).join('')`)
     expect(/first part of a long page/.test(more), `page text, a long page: the note reads "${more}"`)
   }
-  // 11 a read-only page says why and shows Edit disabled, not missing
-  await go('/graph-demo.html?pages=100&readOnly=1', '.kg-dot')
-  {
-    await openDot()
-    const ro = await list(`JSON.stringify((() => { const d = document.querySelector('dialog[open]'); const e = [...d.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Edit'); return { edit: !!e, disabled: e?.getAttribute('aria-disabled') === 'true', why: d.querySelector('.kg-dlg__why')?.textContent || '', canTag: !!d.querySelector('.kg-tags__input') } })())`)
-    expect(ro.edit && ro.disabled && ro.why.length > 20 && !ro.canTag, `read-only page window: Edit shown ${ro.edit}, disabled ${ro.disabled}, reason "${ro.why}", tag field shown ${ro.canTag}`)
-  }
+}
 
-  // 12 the side bar says why this window cannot write; Settings lists the vault's tags
-  vaultStatus = { name: 'Work wiki', vaultId: 'v1', mode: 'readonly', reason: 'other-pc', since: new Date(Date.now() - 3600000).toISOString(), detail: '' }
+// 11 a read-only page says why and shows Edit disabled, not missing
+async function readOnlyPage({ list, go, openDot, expect }) {
+  await go('/graph-demo.html?pages=100&readOnly=1', '.kg-dot')
+  await openDot()
+  const ro = await list(`JSON.stringify((() => { const d = document.querySelector('dialog[open]'); const e = [...d.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Edit'); return { edit: !!e, disabled: e?.getAttribute('aria-disabled') === 'true', why: d.querySelector('.kg-dlg__why')?.textContent || '', canTag: !!d.querySelector('.kg-tags__input') } })())`)
+  expect(ro.edit && ro.disabled && ro.why.length > 20 && !ro.canTag, `read-only page window: Edit shown ${ro.edit}, disabled ${ro.disabled}, reason "${ro.why}", tag field shown ${ro.canTag}`)
+}
+
+// 12 the side bar says why this window cannot write; Settings lists the vault's tags
+async function readOnlyBanner({ js, go, click, expect }) {
+  vaultStatus ={ name: 'Work wiki', vaultId: 'v1', mode: 'readonly', reason: 'other-pc', since: new Date(Date.now() - 3600000).toISOString(), detail: '' }
   waiting = false; await go('/#/', '.recent__row')
   {
     const note = await js(`[...document.querySelectorAll('.ro-banner')].map((n) => n.textContent).join(' | ')`)
@@ -342,8 +387,10 @@ async function main() {
     const wanted = new Set(graph.pages.flatMap((p) => p.tags || [])).size
     expect(wanted > 0 && tags === wanted, `Settings, Tags: ${tags} tag row(s) shown, the vault's pages carry ${wanted} different tag(s)`)
   }
+}
 
-  // 17 every text field has its own edge (or fill) of at least 3:1 against what is behind it, light and dark
+// 17 every text field has its own edge (or fill) of at least 3:1 against what is behind it, light and dark
+async function fieldEdges({ S, js, list, go, openDot, expect }) {
   for (const dark of [false, true]) {
     await S('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] })
     const where = dark ? ' (dark)' : ''
@@ -359,9 +406,11 @@ async function main() {
     expect(bad.length === 0, `page window, Edit${where}: text fields without a visible edge: ${bad.join('; ')}`)
   }
   await S('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] })
+}
 
-  // 16 a citation [n] in an Ask answer opens that page's window; a link page's citation is its address.
-  //    And the box: every control (mode switch, paperclip, Send) in one row under the text.
+// 16 a citation [n] in an Ask answer opens that page's window; a link page's citation is its address.
+//    And the box: every control (mode switch, paperclip, Send) in one row under the text.
+async function askCitations({ S, js, list, go, expect }) {
   {
     const target = graph.pages.find((p) => !p.url && p.id) ?? graph.pages[0]
     const linkPage = graph.pages.find((p) => p.id !== target.id) ?? graph.pages[1]
@@ -387,9 +436,10 @@ async function main() {
     expect(title.includes(target.title), `Ask citation [1]: the page window shows "${title}" ("${target.title}" expected)`)
     submitAnswer = added
   }
+}
 
-  // 1 one primary button per view
-  const onePrimary = async (view) => { const p = await list(PRIMARIES); expect(p.length <= 1, `${view}: ${p.length} primary buttons (${p.join(', ')})`) }
+// 1 one primary button per view (the knowledge graph's own is checked after rule 6)
+async function onePrimaryPerView({ S, js, go, click, openDot, expect, onePrimary }) {
   await go('/graph-demo.html?pages=100', '.kg-dot'); await openDot(); await onePrimary('page window')
   await click('Edit', `document.querySelector('dialog[open]')`); await wait(400); await onePrimary('page window, Edit form')
   waiting = false; await go('/#/', '.recent__row'); await onePrimary('home')
@@ -409,8 +459,10 @@ async function main() {
   await go('/#/', '.act__row'); await sendLink(); await onePrimary('home with an Add that waits')
   submitAnswer = added
   await go('/#/history', '.act__row'); await onePrimary('History')
+}
 
-  // 6 a section row opens the List on that section, and the List holds pages
+// 6 a section row opens the List on that section, and the List holds pages
+async function sectionRows({ js, go, expect }) {
   waiting = false; await go('/#/', '.recent__row')
   for (const name of ['Notes', 'Web links']) {
     const clicked = await js(`(() => { const b = [...document.querySelectorAll('button.tree__row')].find((e) => e.querySelector('.tree__name')?.textContent === ${JSON.stringify(name)}); if (b) b.click(); return !!b })()`)
@@ -420,24 +472,34 @@ async function main() {
     expect(clicked && rows > 0 && rows <= wanted, `section row "${name}": clicked ${clicked}, the List shows ${rows} page(s), the graph holds ${wanted} in that section`)
     await go('/#/', '.recent__row')
   }
-  await go('/#/graph', '.kg-dot'); await onePrimary('knowledge graph')
+}
 
-  // 2 the knowledge graph never makes the page scroll
+// 1 (continued) the knowledge graph's one primary button
+async function onePrimaryOnGraph({ go, onePrimary }) {
+  await go('/#/graph', '.kg-dot'); await onePrimary('knowledge graph')
+}
+
+// 2 the knowledge graph never makes the page scroll
+async function graphNoScroll({ list, size, go, expect }) {
   for (const [w, h] of [[1440, 900], [1024, 768]]) {
     await size(w, h); await go('/#/graph', '.kg-dot')
     const [doc, inner] = await list(`JSON.stringify([document.documentElement.scrollHeight, innerHeight])`)
     expect(doc <= inner, `knowledge graph at ${w}x${h}: the page is ${doc}px high in a ${inner}px window`)
   }
+}
 
-  // 3 the Add box starts on the first screen in a narrow window
+// 3 the Add box starts on the first screen in a narrow window
+async function addBoxFirstScreen({ js, size, go, expect }) {
   waiting = false
   for (const [w, h, touch] of [[720, 900, false], [390, 844, true]]) {
     await size(w, h, touch); await go('/#/', '.recent__row')
     const top = await js(`Math.round(document.querySelector('.composer').getBoundingClientRect().top)`)
     expect(top < h * 0.6, `home at ${w}px: the Add box starts at ${top}px of a ${h}px window`)
   }
+}
 
-  // 4 touch: every control at least 44 px high
+// 4 touch: every control at least 44 px high
+async function touchTargets({ list, size, go, click, openDot, expect }) {
   await size(390, 844, true)
   const touch = async (view) => { const s = await list(SMALL); expect(s.length === 0, `${view} on touch: under 44px: ${s.join(', ')}`) }
   waiting = true; await go('/#/', '.act__row'); await touch('home')
@@ -445,9 +507,11 @@ async function main() {
   await go('/#/graph', '.kg-dot'); await touch('knowledge graph')
   await click('List'); await wait(400); await touch('List')
   await go('/graph-demo.html?pages=100', '.kg-dot'); await openDot(); await touch('page window')
+}
 
-  // 18 the map's toolbar and legend never overlap, beside the side bar too (2026-11-15: a longer
-  // legend covered the zoom buttons in the app at 1440, while the demo page without a side bar was fine)
+// 18 the map's toolbar and legend never overlap, beside the side bar too (2026-11-15: a longer
+// legend covered the zoom buttons in the app at 1440, while the demo page without a side bar was fine)
+async function toolbarLegendApart({ list, size, go, expect }) {
   for (const [w, h] of [[1920, 1080], [1440, 900], [1280, 800], [1024, 768]]) {
     await size(w, h, false)
     await go('/#/graph', '.kg-dot')
@@ -456,9 +520,11 @@ async function main() {
       return { overlap: t.left < l.right && l.left < t.right && t.top < l.bottom && l.top < t.bottom, toolbar: [Math.round(t.left), Math.round(t.right)], legend: [Math.round(l.left), Math.round(l.right)] } })())`)
     expect(!hit || !hit.overlap, `map at ${w}px in the app: the legend ${JSON.stringify(hit?.legend)} lies over the zoom toolbar ${JSON.stringify(hit?.toolbar)}`)
   }
+}
 
-  // 19 a search highlights its results and hides nothing: a page that is not a result still shows
-  // its card on hover and opens on click (operator, 2026-11-15: only the searched dots answered)
+// 19 a search highlights its results and hides nothing: a page that is not a result still shows
+// its card on hover and opens on click (operator, 2026-11-15: only the searched dots answered)
+async function searchHidesNothing({ S, js, list, size, go, expect }) {
   await size(1440, 900, false)
   await go('/graph-demo.html?pages=100', '.kg-dot')
   await js(`document.querySelector('#kg-search').focus()`)
@@ -504,13 +570,24 @@ async function main() {
       }
     }
   }
+}
 
+const RULES = [
+  loadStubGraph, noDotUnderNames, hubsOnlyLabels, zoomNeverStretched, searchClearButton, tagsSetEverywhere, tagsGrouping,
+  titleInPlace, pageText, readOnlyPage, readOnlyBanner, fieldEdges, askCitations, onePrimaryPerView, sectionRows,
+  onePrimaryOnGraph, graphNoScroll, addBoxFirstScreen, touchTargets, toolbarLegendApart, searchHidesNothing,
+]
+
+async function main() {
+  const t = await connect()
+  for (const rule of RULES) await rule(t)
+  const { checks, problems } = t
   if (checks < 45) problems.push(`only ${checks} checks ran: the script did not reach every view`)
   if (problems.length) { console.error('Design rules broken:\n' + problems.join('\n')); process.exitCode = 1 }
   else console.log(`OK: ${checks} rendered design checks (one primary per view, no page scroll on the graph, Add box on the first screen, 44px touch targets, no dot under a topic name, section rows open their pages).`)
 }
 main().catch((e) => { console.error(e); process.exitCode = 1 }).finally(async () => {
-  try { ws?.close() } catch {}
+  try { ws?.close() } catch {} // already closed: nothing to do
   edge.kill()
   await wait(800)
   try { rmSync(profile, { recursive: true, force: true }) } catch {}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerShares, citeTarget, combinedLine, list, normalizeAskResult, notFoundText, pathChips, sentencesPerSource, sharePercent, sourceAnchor } from './askModel'
+import { answerShares, citeChipView, citeTarget, combinedLine, droppedCitationsNote, list, normalizeAskResult, notFoundText, pathChips, sentencesPerSource, sharePercent, sourceAnchor } from './askModel'
 import type { AskResult } from './types'
 
 describe('citeTarget: where a citation [n] leads', () => {
@@ -140,5 +140,22 @@ describe('answerShares: how much of the answer came from each source (2026-11-14
     expect(sharePercent(0.004)).toBe(1)
     expect(sharePercent(0)).toBe(0)
     expect(sharePercent(0.756)).toBe(76)
+  })
+})
+
+describe('citeChipView', () => {
+  it('a web address opens in a new tab, OneNote in place, a vault page as a button, else the list', () => {
+    expect(citeChipView(1, 'Guide', { kind: 'url', href: 'https://example.com/g' }, 'a1')).toEqual({ tag: 'a', href: 'https://example.com/g', newTab: true, title: 'https://example.com/g', label: 'Source 1: Guide, opens the link' })
+    expect(citeChipView(2, 'Notes', { kind: 'onenote', href: 'onenote:#x' }, 'a2')).toEqual({ tag: 'a', href: 'onenote:#x', newTab: false, title: 'Open in OneNote', label: 'Source 2: Notes, opens in OneNote' })
+    expect(citeChipView(3, 'Plan', { kind: 'page' }, 'a3')).toEqual({ tag: 'button', title: 'Open Plan', label: 'Source 3: Plan, opens the page' })
+    expect(citeChipView(7, undefined, { kind: 'list' }, 'a7')).toEqual({ tag: 'a', href: '#a7', newTab: false, label: 'Source 7: ' })
+  })
+})
+
+describe('droppedCitationsNote', () => {
+  it('says how many citations were left out, in one or many', () => {
+    expect(droppedCitationsNote(0)).toBe('')
+    expect(droppedCitationsNote(1)).toBe(' One citation pointed to a page that was not read and was left out.')
+    expect(droppedCitationsNote(3)).toBe(' 3 citations pointed to a page that was not read and were left out.')
   })
 })

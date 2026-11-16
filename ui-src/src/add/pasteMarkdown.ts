@@ -29,6 +29,15 @@ const IMAGES = new Set(['IMG', 'PICTURE', 'V:IMAGEDATA', 'V:SHAPE', 'CANVAS', 'V
 const BLOCKS = new Set(['P', 'DIV', 'SECTION', 'ARTICLE', 'MAIN', 'HEADER', 'FOOTER', 'ASIDE', 'NAV', 'FIGURE', 'FIGCAPTION', 'BODY', 'HTML', 'CENTER', 'ADDRESS', 'DL', 'DT', 'DD', 'FORM', 'FIELDSET', 'DETAILS', 'SUMMARY', 'HR'])
 const HEADINGS: Record<string, number> = { H1: 1, H2: 2, H3: 3, H4: 4, H5: 5, H6: 6 }
 const LINK_SCHEMES = /^(https?:\/\/|mailto:)/i
+const LISTS = new Set(['UL', 'OL'])
+/** Tags that are structure by themselves (hasStructure). */
+const STRUCTURE = new Set([...Object.keys(HEADINGS), 'UL', 'OL', 'LI', 'TABLE', 'I', 'EM'])
+/** Tags that end the inline run and start a block of their own. */
+const BLOCKISH = new Set([...BLOCKS, ...Object.keys(HEADINGS), 'UL', 'OL', 'LI', 'TABLE', 'PRE', 'BLOCKQUOTE'])
+const BOLD_TAGS = new Set(['B', 'STRONG'])
+const ITALIC_TAGS = new Set(['I', 'EM', 'CITE'])
+const STRIKE_TAGS = new Set(['S', 'DEL', 'STRIKE'])
+const CODE_TAGS = new Set(['CODE', 'KBD', 'SAMP', 'TT'])
 
 function name(n: PasteNode): string {
   return n.nodeName.toUpperCase()
@@ -49,6 +58,15 @@ function style(n: PasteNode): string {
 /** Word's list bullets ("·", "1.") sit in a span marked mso-list:Ignore: they are not text. */
 function isMsoJunk(n: PasteNode): boolean {
   return style(n).includes('mso-list:ignore')
+}
+
+/** An element left out entirely: scripts, styles, form controls, Word's bullet spans. */
+function isDropped(n: PasteNode): boolean {
+  return n.nodeType === ELEMENT && (DROP.has(name(n)) || isMsoJunk(n))
+}
+
+function hasText(n: PasteNode): boolean {
+  return !!(n.textContent ?? '').trim()
 }
 
 /** A Word list paragraph: style "mso-list:l0 level2 lfo1". Its level, else 0. */
@@ -94,17 +112,18 @@ function isItalicStyle(n: PasteNode): boolean | null {
 /** True when the HTML holds structure worth keeping: headings, lists, tables, bold or italic, or
  *  links. Plain paragraphs alone are not (the plain text says the same). */
 export function hasStructure(root: PasteNode): boolean {
-  for (const k of kids(root)) {
-    if (k.nodeType !== ELEMENT) continue
-    const n = name(k)
-    if (DROP.has(n) || isMsoJunk(k)) continue
-    if (n in HEADINGS || n === 'UL' || n === 'OL' || n === 'LI' || n === 'TABLE' || n === 'I' || n === 'EM') return true
-    if ((n === 'B' || n === 'STRONG') && isBoldStyle(k) !== false && (k.textContent ?? '').trim()) return true
-    if (n === 'A' && LINK_SCHEMES.test(attr(k, 'href').trim())) return true
-    if (msoListLevel(k) > 0) return true
-    if (n === 'SPAN' && (isBoldStyle(k) || isItalicStyle(k)) && (k.textContent ?? '').trim()) return true
-    if (hasStructure(k)) return true
-  }
+  return kids(root).some((k) => k.nodeType === ELEMENT && !isDropped(k) && (isStructure(k) || hasStructure(k)))
+}
+
+/** This element itself is structure: a heading, list, table or italic tag; a bold tag Google Docs did
+ *  not mark normal, with text; a link the box keeps; a Word list paragraph; a span styled bold or
+ *  italic, with text. */
+function isStructure(k: PasteNode): boolean {
+  const n = name(k)
+  if (STRUCTURE.has(n) || msoListLevel(k) > 0) return true
+  if (n === 'A') return LINK_SCHEMES.test(attr(k, 'href').trim())
+  if (BOLD_TAGS.has(n)) return isBoldStyle(k) !== false && hasText(k)
+  if (n === 'SPAN') return !!(isBoldStyle(k) || isItalicStyle(k)) && hasText(k)
   return false
 }
 
@@ -132,40 +151,77 @@ function wrap(text: string, open: string, close = open): string {
   return m[1] + open + m[2] + close + m[3]
 }
 
+/** A node's inline Markdown under the marks of the elements around it. */
 function inline(n: PasteNode, marks: Marks): string {
-  if (n.nodeType === TEXT) {
-    const t = (n.textContent ?? '').replace(/[\s\u00a0]+/g, ' ')
-    return marks.code ? t.replace(/`/g, "'") : escapeText(t)
-  }
-  if (n.nodeType !== ELEMENT) return ''
+  if (n.nodeType === TEXT) return inlineText(n, marks)
+  if (n.nodeType !== ELEMENT || isDropped(n)) return ''
   const tag = name(n)
-  if (DROP.has(tag) || isMsoJunk(n)) return ''
   if (IMAGES.has(tag)) return ' ' + IMAGE_LEFT_OUT + ' '
   if (tag === 'BR') return '\n'
-  const inner = (m: Marks) => kids(n).map((k) => inline(k, m)).join('')
-  if (tag === 'A') {
-    const href = attr(n, 'href').trim()
-    if (marks.link || !LINK_SCHEMES.test(href)) return inner(marks)
-    const label = inner({ ...marks, link: true }).replace(/\n/g, ' ')
-    const url = href.replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29')
-    const text = label.trim() ? label : escapeText(href)
-    return wrap(text, '[', `](${url})`)
+  if (tag === 'A') return inlineLink(n, marks)
+  if (CODE_TAGS.has(tag)) return inlineCode(n, marks)
+  if (marks.code) return inner(n, marks)
+  return inlineStyled(n, tag, marks)
+}
+
+/** The element's children as inline Markdown. */
+function inner(n: PasteNode, marks: Marks): string {
+  return kids(n).map((k) => inline(k, marks)).join('')
+}
+
+/** Text with spaces collapsed; escaped, or inside code with its backticks made quotes. */
+function inlineText(n: PasteNode, marks: Marks): string {
+  const t = (n.textContent ?? '').replace(/[\s\u00a0]+/g, ' ')
+  return marks.code ? t.replace(/`/g, "'") : escapeText(t)
+}
+
+/** [label](address) for an http(s) or mailto address outside another link; else the label alone.
+ *  A link without a label shows its address. */
+function inlineLink(n: PasteNode, marks: Marks): string {
+  const href = attr(n, 'href').trim()
+  if (marks.link || !LINK_SCHEMES.test(href)) return inner(n, marks)
+  const label = inner(n, { ...marks, link: true }).replace(/\n/g, ' ')
+  const url = href.replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29')
+  const text = label.trim() ? label : escapeText(href)
+  return wrap(text, '[', `](${url})`)
+}
+
+/** `code` on one line; code inside code adds no second marker. */
+function inlineCode(n: PasteNode, marks: Marks): string {
+  if (marks.code) return inner(n, marks)
+  return wrap(inner(n, { ...marks, code: true }).replace(/\n/g, ' '), '`')
+}
+
+/** Whether an element makes its text bold: a bold tag unless its style says normal (Google Docs
+ *  wraps everything in <b style="font-weight:normal">), or a bold style on any tag. */
+function makesBold(n: PasteNode, tag: string): boolean {
+  const styled = isBoldStyle(n)
+  return styled === null ? BOLD_TAGS.has(tag) : styled
+}
+
+type StyleMark = 'bold' | 'italic' | 'strike'
+
+/** Each style's marker, in the order they are wrapped: strike innermost, bold outermost, so bold
+ *  italic reads "**_x_**". */
+const STYLE_MARKERS: [StyleMark, string][] = [['strike', '~~'], ['italic', '_'], ['bold', '**']]
+
+/** The styles this element itself sets, by tag or style. */
+function ownStyles(n: PasteNode, tag: string): Record<StyleMark, boolean> {
+  return {
+    bold: makesBold(n, tag),
+    italic: ITALIC_TAGS.has(tag) || isItalicStyle(n) === true,
+    strike: STRIKE_TAGS.has(tag) || /text-decoration:[^;]*line-through/.test(style(n)),
   }
-  if (tag === 'CODE' || tag === 'KBD' || tag === 'SAMP' || tag === 'TT') {
-    if (marks.code) return inner(marks)
-    return wrap(inner({ ...marks, code: true }).replace(/\n/g, ' '), '`')
-  }
-  if (marks.code) return inner(marks)
-  let bold = tag === 'B' || tag === 'STRONG'
-  if (bold && isBoldStyle(n) === false) bold = false // Google Docs wraps everything in <b style="font-weight:normal">
-  const bs = isBoldStyle(n)
-  if (bs) bold = true
-  const italic = tag === 'I' || tag === 'EM' || tag === 'CITE' || isItalicStyle(n) === true
-  const strike = tag === 'S' || tag === 'DEL' || tag === 'STRIKE' || /text-decoration:[^;]*line-through/.test(style(n))
-  let out = inner({ ...marks, bold: marks.bold || bold, italic: marks.italic || italic, strike: marks.strike || strike })
-  if (strike && !marks.strike) out = wrapLines(out, '~~')
-  if (italic && !marks.italic) out = wrapLines(out, '_')
-  if (bold && !marks.bold) out = wrapLines(out, '**')
+}
+
+/** Bold, italic and strike-through; each marker is added only where its style starts (not inside the
+ *  same style), and per line (wrapLines). */
+function inlineStyled(n: PasteNode, tag: string, marks: Marks): string {
+  const own = ownStyles(n, tag)
+  const next = { ...marks }
+  for (const [key] of STYLE_MARKERS) next[key] = marks[key] || own[key]
+  let out = inner(n, next)
+  for (const [key, marker] of STYLE_MARKERS) if (own[key] && !marks[key]) out = wrapLines(out, marker)
   return out
 }
 
@@ -207,72 +263,70 @@ function flushPending(ctx: Ctx) {
 }
 
 function isBlockish(n: PasteNode): boolean {
-  if (n.nodeType !== ELEMENT) return false
-  const t = name(n)
-  return BLOCKS.has(t) || t in HEADINGS || t === 'UL' || t === 'OL' || t === 'LI' || t === 'TABLE' || t === 'PRE' || t === 'BLOCKQUOTE'
+  return n.nodeType === ELEMENT && BLOCKISH.has(name(n))
 }
 
 function walkBlocks(n: PasteNode, ctx: Ctx) {
   for (const k of kids(n)) {
-    if (k.nodeType === ELEMENT && (DROP.has(name(k)) || isMsoJunk(k))) continue
-    if (!isBlockish(k)) {
-      if (k.nodeType === ELEMENT || k.nodeType === TEXT) ctx.pending.push(k)
-      continue
-    }
-    flushPending(ctx)
-    block(k, ctx)
+    if (isDropped(k)) continue
+    if (isBlockish(k)) {
+      flushPending(ctx)
+      block(k, ctx)
+    } else if (k.nodeType === ELEMENT || k.nodeType === TEXT) ctx.pending.push(k)
   }
   flushPending(ctx)
 }
 
+/** The lines of a block that is one Markdown block by its tag (a heading, a list or a lone item, a
+ *  table, preformatted code, a quote); [] when it holds nothing. */
+const BLOCK_LINES: Record<string, (n: PasteNode) => string[]> = {
+  ...Object.fromEntries(Object.entries(HEADINGS).map(([tag, level]) => [tag, (n: PasteNode) => headingLines(n, level)])),
+  UL: (n) => listLines(n, 0),
+  OL: (n) => listLines(n, 0),
+  LI: (n) => itemLines(n, '-', 0),
+  TABLE: (n) => tableLines(n),
+  PRE: (n) => preLines(n),
+  BLOCKQUOTE: (n) => quoteLines(n),
+  HR: () => [],
+}
+
 function block(n: PasteNode, ctx: Ctx) {
-  const t = name(n)
-  if (t in HEADINGS) {
-    const text = inlineLines(n).filter(Boolean).join(' ')
-    if (text) ctx.blocks.push(['#'.repeat(HEADINGS[t]) + ' ' + text])
-    return
-  }
-  if (t === 'UL' || t === 'OL') {
-    const lines = listLines(n, 0)
-    if (lines.length) ctx.blocks.push(lines)
-    return
-  }
-  if (t === 'LI') {
-    const lines = itemLines(n, '-', 0)
-    if (lines.length) ctx.blocks.push(lines)
-    return
-  }
-  if (t === 'TABLE') {
-    const lines = tableLines(n)
-    if (lines.length) ctx.blocks.push(lines)
-    return
-  }
-  if (t === 'PRE') {
-    const code = (n.textContent ?? '').replace(/\r\n?/g, '\n').replace(/\n+$/, '').replace(/^```/gm, "'''")
-    if (code.trim()) ctx.blocks.push(['```', ...code.split('\n'), '```'])
-    return
-  }
-  if (t === 'BLOCKQUOTE') {
-    const inner: Ctx = { blocks: [], pending: [] }
-    walkBlocks(n, inner)
-    const lines = inner.blocks.flat().filter(Boolean).map((l) => '> ' + l.replace(/^>\s?/, ''))
-    if (lines.length) ctx.blocks.push(lines)
-    return
-  }
-  if (t === 'HR') return
-  if (msoListLevel(n) > 0) {
-    // Word: each list item is a paragraph; consecutive ones join into one list block.
-    const level = msoListLevel(n) - 1
-    const marker = msoListMarker(n)
-    const text = inlineLines(n).filter(Boolean).join(' ')
-    if (!text) return
-    const line = ' '.repeat(level * 3) + marker + ' ' + text
-    const last = ctx.blocks[ctx.blocks.length - 1]
-    if (last && (last as Block & { mso?: boolean }).mso) last.push(line)
-    else ctx.blocks.push(Object.assign([line], { mso: true }))
-    return
-  }
-  walkBlocks(n, ctx)
+  const lines = BLOCK_LINES[name(n)]
+  if (lines) {
+    const out = lines(n)
+    if (out.length) ctx.blocks.push(out)
+  } else if (msoListLevel(n) > 0) msoListItem(n, ctx)
+  else walkBlocks(n, ctx)
+}
+
+function headingLines(n: PasteNode, level: number): string[] {
+  const text = inlineLines(n).filter(Boolean).join(' ')
+  return text ? ['#'.repeat(level) + ' ' + text] : []
+}
+
+/** Fenced code; a fence inside the code is made harmless. */
+function preLines(n: PasteNode): string[] {
+  const code = (n.textContent ?? '').replace(/\r\n?/g, '\n').replace(/\n+$/, '').replace(/^```/gm, "'''")
+  return code.trim() ? ['```', ...code.split('\n'), '```'] : []
+}
+
+/** Every line of the quote's blocks as "> line" (one level: a nested quote's marker is dropped). */
+function quoteLines(n: PasteNode): string[] {
+  const inner: Ctx = { blocks: [], pending: [] }
+  walkBlocks(n, inner)
+  return inner.blocks.flat().filter(Boolean).map((l) => '> ' + l.replace(/^>\s?/, ''))
+}
+
+/** Word: each list item is a paragraph; consecutive ones join into one list block. */
+function msoListItem(n: PasteNode, ctx: Ctx) {
+  const level = msoListLevel(n) - 1
+  const marker = msoListMarker(n)
+  const text = inlineLines(n).filter(Boolean).join(' ')
+  if (!text) return
+  const line = ' '.repeat(level * 3) + marker + ' ' + text
+  const last = ctx.blocks[ctx.blocks.length - 1]
+  if (last && (last as Block & { mso?: boolean }).mso) last.push(line)
+  else ctx.blocks.push(Object.assign([line], { mso: true }))
 }
 
 /** A list's items; nested lists are indented under their item by the item's marker width. */
@@ -285,7 +339,7 @@ function listLines(list: PasteNode, indent: number): string[] {
     if (t === 'LI') {
       const marker = name(list) === 'OL' ? `${number++}.` : '-'
       out.push(...itemLines(k, marker, indent))
-    } else if (t === 'UL' || t === 'OL') {
+    } else if (LISTS.has(t)) {
       out.push(...listLines(k, indent + 2)) // a list straight inside a list (invalid, but pasted)
     }
   }
@@ -297,7 +351,7 @@ function itemLines(li: PasteNode, marker: string, indent: number): string[] {
   const nested: PasteNode[] = []
   for (const k of kids(li)) {
     const t = k.nodeType === ELEMENT ? name(k) : ''
-    if (t === 'UL' || t === 'OL') nested.push(k)
+    if (LISTS.has(t)) nested.push(k)
     else textNodes.push(k)
   }
   const holder: PasteNode = { nodeType: ELEMENT, nodeName: 'SPAN', childNodes: textNodes, textContent: null }
@@ -318,14 +372,14 @@ function blockText(n: PasteNode): string {
     run = []
   }
   for (const k of kids(n)) {
-    if (k.nodeType === ELEMENT && (DROP.has(name(k)) || isMsoJunk(k))) continue
-    if (isBlockish(k) && name(k) !== 'TABLE') {
-      flush()
-      parts.push(blockText(k))
-    } else if (k.nodeType === ELEMENT && name(k) === 'TABLE') {
-      flush()
-      parts.push(IMAGE_LEFT_OUT.replace('image', 'table'))
-    } else run.push(k)
+    if (isDropped(k)) continue
+    if (!isBlockish(k)) {
+      run.push(k)
+      continue
+    }
+    flush()
+    // A table inside a cell or item cannot be one line: it is named, not written.
+    parts.push(name(k) === 'TABLE' ? IMAGE_LEFT_OUT.replace('image', 'table') : blockText(k))
   }
   flush()
   return parts.map(cleanLine).filter(Boolean).join(' ')

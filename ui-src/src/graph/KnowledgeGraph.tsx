@@ -6,21 +6,21 @@ import { archivedHidden, emptyFilter, pruneFilter, visiblePageIds, type GraphFil
 import { FilterButton, FilterSummary } from './FilterPanel'
 import { plural } from './format'
 import { buildIndex } from './graphIndex'
+import { GraphTools, TagBar } from './GraphHeader'
 import { GraphList } from './GraphList'
 import { GraphStage, type Active, type Filters } from './GraphStage'
+import { areaCount, closeFocus, isSearchSlash, searchKeyAction } from './graphViewModel'
 import { focusAfter } from './searchFocus'
-import { layoutGraph } from './layout'
 import type { GraphModel } from './model'
-import { bySource, type GroupBy } from './sourceView'
+import type { GroupBy } from './sourceView'
 import { PageDialog, type PageActions } from './PageDialog'
 import { ReadOnlyBanner } from '../components/ReadOnlyBanner'
 import { readOnlyWhy } from './readOnly'
-import { availableTags, byTag } from './tagView'
+import { availableTags } from './tagView'
+import { useGraphSettings, useMapLayouts } from './useGraphView'
 import { searchPages } from './view'
 import { useRetireFlow } from './useRetireFlow'
 import { SearchFilters } from '../search/SearchFilters'
-import { getSettings, saveSetting } from '../api'
-import type { VaultSettings } from '../model/vaultSettings'
 import type { FindRequest } from '../search/switcherModel'
 import './graph.css'
 
@@ -69,53 +69,20 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   const [mode, setMode] = useState<'graph' | 'list'>(initialMode)
   const stageRef = useRef<HTMLDivElement>(null)
   const aspect = useStageAspect(stageRef, mode)
-  const layout = useMemo(() => layoutGraph(model, { aspect }, index), [model, index, aspect])
-  // Areas by topic, or by where the pages come from (sourceView.ts); only the map's areas change:
-  // the page window, filters, search and List keep the topics.
+  // Areas by topic, by where the pages come from, or by hand-set tag (useMapLayouts). Which tags make
+  // the areas is chosen with the chips under the bar (null = every tag); session state, like the
+  // grouping itself (the vault's "opens on" setting knows Topics and Sources only).
   const [groupBy, setGroupBy] = useState<GroupBy>('topics')
-  const sourceLayout = useMemo(() => {
-    if (groupBy !== 'sources') return null
-    const m = bySource(model)
-    return layoutGraph(m, { aspect }, buildIndex(m))
-  }, [groupBy, model, aspect])
-  // Areas by hand-set tag (tagView.ts): the third grouping. Which tags make the areas is chosen
-  // with the chips under the bar (null = every tag); session state, like the grouping itself (the
-  // vault's "opens on" setting knows Topics and Sources only).
   const [tagChoice, setTagChoice] = useState<ReadonlySet<string> | null>(null)
   const groupTags = useMemo(() => availableTags(model), [model])
-  const tagLayout = useMemo(() => {
-    if (groupBy !== 'tags') return null
-    const m = byTag(model, tagChoice)
-    return layoutGraph(m, { aspect }, buildIndex(m))
-  }, [groupBy, model, aspect, tagChoice])
-  const mapLayout = tagLayout ?? sourceLayout ?? layout
+  const { layout, sourceLayout, tagLayout, mapLayout } = useMapLayouts(model, index, aspect, groupBy, tagChoice)
   const focus = useMemo(() => (focusIds ?? []).filter((id) => index.pageById.has(id)), [focusIds, index])
   const [filters, setFilters] = useState<Filters>({ links: true, mentions: false, hubsOnly: false })
-  // The vault's "older than N days" for link summaries (linkStaleDays): the Filter's stale box.
-  const [staleDays, setStaleDays] = useState(90)
-  // The map opens with the vault's settings (kept in OneNote, model/vaultSettings.ts) and a change
-  // made here is saved there, when this window may change them; otherwise it lasts this session.
-  const canSave = useRef(false)
-  useEffect(() => {
-    let live = true
-    getSettings()
-      .then((s) => {
-        if (!live) return
-        canSave.current = s.canChange
-        setGroupBy(s.settings.graphView)
-        setFilters((f) => ({ ...f, hubsOnly: s.settings.labelsHubsOnly }))
-        setStaleDays(s.settings.linkStaleDays)
-        if (s.settings.graphShowArchived) setFilterState((f) => ({ ...f, showArchived: true }))
-      })
-      .catch(() => {}) // the defaults stay; the map works without them
-    return () => {
-      live = false
-    }
-  }, [])
-  const remember = <K extends 'graphView' | 'labelsHubsOnly'>(key: K, value: VaultSettings[K]) => {
-    // Only on the active vault's own map: another vault or a connected notebook is read only.
-    if (canSave.current && !model.source.readOnly) saveSetting(key, value).catch(() => {})
-  }
+  const { staleDays, remember } = useGraphSettings(model.source.readOnly, (s) => {
+    setGroupBy(s.graphView)
+    setFilters((f) => ({ ...f, hubsOnly: s.labelsHubsOnly }))
+    if (s.graphShowArchived) setFilterState((f) => ({ ...f, showArchived: true }))
+  })
   const [query, setQuery] = useState('')
   const [active, setActive] = useState<Active | null>(() => (focus.length ? { id: focus[0], via: 'keyboard' } : null))
   const [dialog, setDialog] = useState<{ pageId: string; anchorId: string } | null>(null)
@@ -145,9 +112,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   // "/" focuses the search, anywhere on the page, unless the user is typing or a dialog is open.
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || dialog) return
-      const t = e.target as HTMLElement | null
-      if (t && (t.closest('input, textarea, select, [contenteditable="true"]') || t.isContentEditable)) return
+      if (!isSearchSlash(e, e.target as HTMLElement | null, !!dialog)) return
       e.preventDefault()
       searchRef.current?.focus()
       searchRef.current?.select()
@@ -171,24 +136,14 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
     [query, matches, pick],
   )
   const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && matches?.length) {
-      e.preventDefault()
-      open(active && matches.includes(active.id) ? active.id : matches[0])
-    } else if (e.key === 'Escape' && query) {
-      e.preventDefault()
-      onQuery('')
-    } else if (e.key === 'ArrowDown' && matches?.length) {
-      e.preventDefault()
-      const i = active ? matches.indexOf(active.id) : -1
-      const id = matches[(i + 1) % matches.length]
-      setPick(id)
-      setActive({ id, via: 'keyboard' })
-    } else if (e.key === 'ArrowUp' && matches?.length) {
-      e.preventDefault()
-      const i = active ? matches.indexOf(active.id) : 0
-      const id = matches[(i - 1 + matches.length) % matches.length]
-      setPick(id)
-      setActive({ id, via: 'keyboard' })
+    const a = searchKeyAction(e.key, matches, active?.id ?? null, query)
+    if (!a) return
+    e.preventDefault()
+    if (a.kind === 'open') open(a.id)
+    else if (a.kind === 'clear') onQuery('')
+    else {
+      setPick(a.id)
+      setActive({ id: a.id, via: 'keyboard' })
     }
   }
 
@@ -212,22 +167,19 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
     onRequestDone?.()
   }, [request, model]) // once per request; again when the asked source's model arrives
 
+  // Where focus goes when the page window closes (graphViewModel.ts closeFocus).
   const close = () => {
     const last = dialog?.pageId
     setDialog(null)
     const back = returnTo.current
-    // Opened with a click: no keyboard focus on the dot afterwards, so no preview card stays behind
-    // (it would only close when the pointer passed over another dot; operator, 2026-11-13).
-    if (mode === 'graph' && openedBy.current === 'pointer') {
+    const to = closeFocus({ mode, openedBy: openedBy.current, last, back, stage: stageRef.current, body: document.body })
+    if (to === 'clear') {
       setActive(null)
       requestAnimationFrame(() => {
         if (document.activeElement === stageRef.current) stageRef.current?.blur()
         setActive(null)
       })
-      return
-    }
-    // Opened with the keyboard: focus returns to the dot, with that page focused.
-    if (mode === 'graph' && last && (!back || back === stageRef.current || back === document.body)) {
+    } else if (to === 'stage' && last) {
       setActive({ id: last, via: 'keyboard' })
       requestAnimationFrame(() => stageRef.current?.focus())
     } else {
@@ -250,7 +202,6 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
     setGroupBy(g)
     if (g !== 'tags') remember('graphView', g)
   }
-  const tagOn = (name: string) => !tagChoice || tagChoice.has(name)
   // Archive / Restore / Delete (useRetireFlow): a deleted page's window closes; the outcome shows
   // in the page window while it is open, else above the map or the List.
   const retire = useRetireFlow(actions.onRetire, (r) => {
@@ -266,6 +217,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   }
 
   const src = model.source
+  const count = areaCount({ mode, groupBy, sources: mapLayout.areas.length, tags: groupTags.length, topics: layout.areas.filter((a) => a.topic).length })
   return (
     <div className="kg">
       <div className="kg-head">
@@ -274,108 +226,30 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           <span className="kg-meta">
             {src.name ? `${src.name} · ` : ''}
             {plural(model.pages.length, 'page')}
-            {mode === 'graph' && groupBy === 'tags' ? ', ' : ' in '}
-            {mode === 'graph' && groupBy === 'sources' ? plural(mapLayout.areas.length, 'source') : mode === 'graph' && groupBy === 'tags' ? plural(groupTags.length, 'tag') : plural(layout.areas.filter((a) => a.topic).length, 'topic')} · {plural(index.linkCount, 'link')}
+            {count.joiner}
+            {count.areas} · {plural(index.linkCount, 'link')}
             {hiddenArchived > 0 ? ` · ${hiddenArchived} archived hidden` : ''}
           </span>
         </div>
-        <div className="kg-tools">
-          {mode === 'graph' && (
-            <>
-              <div className="seg seg--sm" role="group" aria-label="Group the map by">
-                <button type="button" className="seg__btn" aria-pressed={groupBy === 'topics'} onClick={() => chooseGroup('topics')}>
-                  Topics
-                </button>
-                <button type="button" className="seg__btn" aria-pressed={groupBy === 'sources'} onClick={() => chooseGroup('sources')}>
-                  Sources
-                </button>
-                <button type="button" className="seg__btn" aria-pressed={groupBy === 'tags'} onClick={() => chooseGroup('tags')}>
-                  Tags
-                </button>
-              </div>
-            </>
-          )}
-          <FilterButton index={index} filter={liveFilter} onChange={setFilter} show={mode === 'graph' ? filters : undefined} onShow={setShow} staleDays={staleDays} />
-          <label htmlFor="kg-search" className="kg-sr">
-            Search pages and topics
-          </label>
-          {/* design: the search has its own clear button, shown whenever there is text (operator,
-              2026-11-15: the browser's own "x" only shows while the pointer is over the field). */}
-          <span className="kg-searchbox">
-            <input
-              id="kg-search"
-              ref={searchRef}
-              className="field kg-search"
-              type="search"
-              placeholder="Search pages and topics  /"
-              value={query}
-              onChange={(e) => onQuery(e.target.value)}
-              onKeyDown={onSearchKey}
-              aria-describedby="kg-search-count"
-            />
-            {query && (
-              <button
-                type="button"
-                className="kg-search__clear"
-                aria-label="Clear search"
-                title="Clear search"
-                onClick={() => {
-                  onQuery('')
-                  searchRef.current?.focus()
-                }}
-              >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
-                  <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
-                </svg>
-              </button>
-            )}
-          </span>
-          <span id="kg-search-count" className="kg-sr" aria-live="polite">
-            {matches ? plural(matches.length, 'match', 'matches') : ''}
-          </span>
-          <div className="seg seg--sm" role="group" aria-label="View">
-            <button type="button" className="seg__btn" aria-pressed={mode === 'graph'} onClick={() => setMode('graph')}>
-              Graph
-            </button>
-            <button type="button" className="seg__btn" aria-pressed={mode === 'list'} onClick={() => setMode('list')}>
-              List
-            </button>
-          </div>
-        </div>
+        <GraphTools
+          mode={mode}
+          onMode={setMode}
+          groupBy={groupBy}
+          onGroup={chooseGroup}
+          filter={<FilterButton index={index} filter={liveFilter} onChange={setFilter} show={mode === 'graph' ? filters : undefined} onShow={setShow} staleDays={staleDays} />}
+          query={query}
+          onQuery={onQuery}
+          onSearchKey={onSearchKey}
+          searchRef={searchRef}
+          matches={matches}
+        />
       </div>
       {src.readOnly && (
         <ReadOnlyBanner text={src.readOnlyReason === 'lease' && readOnlyNote ? readOnlyNote : readOnlyWhy(src)} onCheck={src.readOnlyReason === 'lease' ? onCheckAgain : undefined} result={src.readOnlyReason === 'lease' ? checkResult : ''} />
       )}
       <SearchFilters query={query} onQuery={onQuery} />
       {mode === 'graph' && groupBy === 'tags' && (
-        // The Tags grouping: which tags make the areas. Every tag is on at first; a chip takes one
-        // out or puts it back. Only pages that carry a shown tag are on this map.
-        <div className="kg-tagbar" role="group" aria-label="Tags shown as areas">
-          {groupTags.length === 0 ? (
-            <span className="kg-meta">No page has a tag yet. Add one in a page's window, or tick rows in the List and tag them together.</span>
-          ) : (
-            <>
-              <span className="kg-meta">Areas:</span>
-              {groupTags.map((t) => (
-                <button key={t.name} type="button" className="btn btn--sm" aria-pressed={tagOn(t.name)} onClick={() => toggleTag(t.name)}>
-                  <svg className="toggle-mark" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <rect x="1" y="1" width="10" height="10" rx="2" />
-                    {tagOn(t.name) && <path d="m3.4 6.2 1.9 1.9 3.3-3.8" />}
-                  </svg>
-                  {t.name} <span className="kg-meta num">{t.count}</span>
-                </button>
-              ))}
-              {tagChoice && (
-                <button type="button" className="kg-linkbtn" onClick={() => setTagChoice(null)}>
-                  All tags
-                </button>
-              )}
-              <span className="kg-meta">
-                {plural(mapLayout.dots.length, 'tagged page')} of {plural(model.pages.length, 'page')} shown
-              </span>
-            </>
-          )}
-        </div>
+        <TagBar tags={groupTags} choice={tagChoice} onToggle={toggleTag} onAll={() => setTagChoice(null)} shownPages={mapLayout.dots.length} allPages={model.pages.length} />
       )}
 
       <FilterSummary index={index} filter={liveFilter} onChange={setFilter} shown={shown.size} />

@@ -225,68 +225,15 @@ const CROSS_CLEARANCE = 6
  */
 export function packAreas(radii: number[], targets: (number | null)[], aspect: number, gap = AREA_GAP, outer: boolean[] = [], links: number[][] = []): Circle[] {
   const placed: Circle[] = []
-  const box = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
-  const steps = 36
+  const box: Box4 = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
   // The linked pairs among the placed circles, kept as circles are placed, so the crossing check
   // per candidate spot only walks real lines, not every pair (code review 2026-11-14: all pairs per
   // spot grow with the 4th power of the area count; 200 areas 857 ms -> 229 ms, layout.test.ts).
   const placedLines: Line[] = []
   for (let i = 0; i < radii.length; i++) {
     const r = radii[i]
-    if (i === 0) {
-      placed.push({ x: 0, y: 0, r })
-      grow(box, placed[0])
-      continue
-    }
-    const mine: Line[] = []
-    for (let j = 0; j < placed.length; j++) {
-      const w = links[i]?.[j] ?? 0
-      if (w > 0) mine.push({ j, k: i, w })
-    }
-    const t = targets[i]
-    const tx = t === null ? 0 : placed[t].x
-    const ty = t === null ? 0 : placed[t].y
-    let best: Circle | null = null
-    let bestScore = Infinity
-    for (const p of placed) {
-      const d = p.r + r + gap
-      for (let k = 0; k < steps; k++) {
-        const a = (k / steps) * Math.PI * 2
-        const x = p.x + Math.cos(a) * d
-        const y = p.y + Math.sin(a) * d
-        let ok = true
-        for (const q of placed) {
-          const dx = q.x - x
-          const dy = q.y - y
-          const min = q.r + r + gap - 1e-6
-          if (dx * dx + dy * dy < min * min) {
-            ok = false
-            break
-          }
-        }
-        if (!ok) continue
-        // Two parts: how big the picture gets when fitted to the stage (width over the aspect,
-        // or height with label space, whichever is larger), so the areas fill the stage's shape;
-        // and the distance to the target (x shrunk by the aspect). A subtopic weighs the
-        // distance to its parent far more, so it stays next to it.
-        const fw = (Math.max(box.maxX, x + r) - Math.min(box.minX, x - r)) / aspect
-        const fh = Math.max(box.maxY, y + r + LABEL_SPACE) - Math.min(box.minY, y - r - LABEL_SPACE)
-        const sx = (x - tx) / aspect
-        const sy = y - ty
-        // Unfiled (outer) is pushed away from the picture's centre, so it ends up at the rim and
-        // not in a gap between topics (no pull alone let it fill a gap once dot sizes changed).
-        let score = Math.max(fw, fh)
-        if (outer[i]) score -= Math.hypot((x - (box.minX + box.maxX) / 2) / aspect, y - (box.minY + box.maxY) / 2) * OUTER_PUSH
-        else if (t !== null) score += Math.sqrt(sx * sx + sy * sy) * 4
-        else score += linkPull(i, x, y, placed, links, aspect) * 0.35
-        if (mine.length || placedLines.length) score += crossings({ x, y, r }, placed, mine, placedLines) * CROSS_PENALTY
-        if (score < bestScore - 1e-9) {
-          bestScore = score
-          best = { x, y, r }
-        }
-      }
-    }
-    const c = best ?? { x: 0, y: 0, r }
+    const mine = i === 0 ? [] : linesToPlaced(i, placed.length, links)
+    const c = i === 0 ? { x: 0, y: 0, r } : (bestSpot({ i, r, gap, aspect, box, placed, target: targets[i], outer: !!outer[i], links, mine, placedLines }) ?? { x: 0, y: 0, r })
     placed.push(c)
     grow(box, c)
     placedLines.push(...mine)
@@ -294,12 +241,99 @@ export function packAreas(radii: number[], targets: (number | null)[], aspect: n
   return placed
 }
 
+type Box4 = { minX: number; maxX: number; minY: number; maxY: number }
+
+/** The candidate spots tried round each placed circle. */
+const PACK_STEPS = 36
+
+/** Circle i's topic lines to the circles placed so far (summed link strength > 0). */
+function linesToPlaced(i: number, placedCount: number, links: number[][]): Line[] {
+  const mine: Line[] = []
+  for (let j = 0; j < placedCount; j++) {
+    const w = links[i]?.[j] ?? 0
+    if (w > 0) mine.push({ j, k: i, w })
+  }
+  return mine
+}
+
+/** A circle of radius r at (x, y) keeps the gap to every placed circle. */
+function spotFree(placed: Circle[], x: number, y: number, r: number, gap: number): boolean {
+  for (const q of placed) {
+    const dx = q.x - x
+    const dy = q.y - y
+    const min = q.r + r + gap - 1e-6
+    if (dx * dx + dy * dy < min * min) return false
+  }
+  return true
+}
+
+interface PackStep {
+  i: number
+  r: number
+  gap: number
+  aspect: number
+  box: Box4
+  placed: Circle[]
+  /** The circle's parent (a subtopic stays next to it), or null. */
+  target: number | null
+  /** Unfiled: pushed to the rim. */
+  outer: boolean
+  links: number[][]
+  mine: Line[]
+  placedLines: Line[]
+}
+
+/** The score of a free spot (lower is better). Two parts: how big the picture gets when fitted to
+ *  the stage (width over the aspect, or height with label space, whichever is larger), so the areas
+ *  fill the stage's shape; and the pull to the parent (weighed far more, so a subtopic stays next to
+ *  it) or to linked circles, with x shrunk by the aspect. Unfiled is pushed away from the picture's
+ *  centre, so it ends up at the rim and not in a gap between topics (no pull alone let it fill a gap
+ *  once dot sizes changed). Plus CROSS_PENALTY for each topic line the spot would make pass another
+ *  circle. */
+function spotScore(s: PackStep, x: number, y: number): number {
+  const { box, r, aspect, placed } = s
+  const fw = (Math.max(box.maxX, x + r) - Math.min(box.minX, x - r)) / aspect
+  const fh = Math.max(box.maxY, y + r + LABEL_SPACE) - Math.min(box.minY, y - r - LABEL_SPACE)
+  const tx = s.target === null ? 0 : placed[s.target].x
+  const ty = s.target === null ? 0 : placed[s.target].y
+  const sx = (x - tx) / aspect
+  const sy = y - ty
+  let score = Math.max(fw, fh)
+  if (s.outer) score -= Math.hypot((x - (box.minX + box.maxX) / 2) / aspect, y - (box.minY + box.maxY) / 2) * OUTER_PUSH
+  else if (s.target !== null) score += Math.sqrt(sx * sx + sy * sy) * 4
+  else score += linkPull(s, x, y) * 0.35
+  if (s.mine.length || s.placedLines.length) score += crossings({ x, y, r }, placed, s.mine, s.placedLines) * CROSS_PENALTY
+  return score
+}
+
+/** The free tangent spot with the lowest score, among PACK_STEPS spots round each placed circle;
+ *  null when none is free. */
+function bestSpot(s: PackStep): Circle | null {
+  let best: Circle | null = null
+  let bestScore = Infinity
+  for (const p of s.placed) {
+    const d = p.r + s.r + s.gap
+    for (let k = 0; k < PACK_STEPS; k++) {
+      const a = (k / PACK_STEPS) * Math.PI * 2
+      const x = p.x + Math.cos(a) * d
+      const y = p.y + Math.sin(a) * d
+      if (!spotFree(s.placed, x, y, s.r, s.gap)) continue
+      const score = spotScore(s, x, y)
+      if (score < bestScore - 1e-9) {
+        bestScore = score
+        best = { x, y, r: s.r }
+      }
+    }
+  }
+  return best
+}
+
 /** A topic line between placed circles j and k (k placed later), with its summed strength. */
 interface Line { j: number; k: number; w: number }
 
 /** Mean distance from (x, y) to the placed circles linked to i, weighted by link strength (x shrunk
  *  by the aspect); the distance to the centre when i has no links to placed circles. */
-function linkPull(i: number, x: number, y: number, placed: Circle[], links: number[][], aspect: number): number {
+function linkPull({ i, placed, links, aspect }: PackStep, x: number, y: number): number {
   let sum = 0
   let w = 0
   for (let j = 0; j < placed.length; j++) {
@@ -339,35 +373,43 @@ function crossings(c: Circle, placed: Circle[], mine: Line[], placedLines: Line[
  */
 export function packOrder(targets: (number | null)[], links: number[][], outer: boolean[] = []): number[] {
   const n = targets.length
-  const total = (i: number) => (links[i] ?? []).reduce((s, w) => s + (w > 0 ? w : 0), 0)
   const placed = new Set<number>()
   const order: number[] = []
   const take = (i: number) => {
     placed.add(i)
     order.push(i)
   }
-  let first = -1
-  for (let i = 0; i < n; i++) if (!outer[i] && targets[i] === null && (first < 0 || total(i) > total(first))) first = i
+  const first = firstArea(targets, links, outer)
   if (first >= 0) take(first)
-  for (;;) {
-    let best = -1
-    let bestScore = -1
-    for (let i = 0; i < n; i++) {
-      if (placed.has(i) || outer[i]) continue
-      const t = targets[i]
-      if (t !== null && !placed.has(t)) continue
-      let s = t !== null ? PARENT_LINK : 0
-      for (const j of placed) s += Math.max(0, links[i]?.[j] ?? 0)
-      if (s > bestScore) {
-        bestScore = s
-        best = i
-      }
-    }
-    if (best < 0) break
-    take(best)
-  }
+  for (let next = nextArea(targets, links, outer, placed); next >= 0; next = nextArea(targets, links, outer, placed)) take(next)
   for (let i = 0; i < n; i++) if (!placed.has(i)) take(i)
   return order
+}
+
+/** The most linked root area (not outer); -1 when there is none. The first on a tie. */
+function firstArea(targets: (number | null)[], links: number[][], outer: boolean[]): number {
+  const total = (i: number) => (links[i] ?? []).reduce((s, w) => s + (w > 0 ? w : 0), 0)
+  let first = -1
+  for (let i = 0; i < targets.length; i++) if (!outer[i] && targets[i] === null && (first < 0 || total(i) > total(first))) first = i
+  return first
+}
+
+/** The area with the strongest links to the placed ones (its parent counts as PARENT_LINK); only
+ *  areas whose parent is placed, never an outer one; -1 when none is left. The first on a tie. */
+function nextArea(targets: (number | null)[], links: number[][], outer: boolean[], placed: Set<number>): number {
+  let best = -1
+  let bestScore = -1
+  for (let i = 0; i < targets.length; i++) {
+    const t = targets[i]
+    if (placed.has(i) || outer[i] || (t !== null && !placed.has(t))) continue
+    let s = t !== null ? PARENT_LINK : 0
+    for (const j of placed) s += Math.max(0, links[i]?.[j] ?? 0)
+    if (s > bestScore) {
+      bestScore = s
+      best = i
+    }
+  }
+  return best
 }
 
 /** What a parent-subtopic relation counts as in packOrder (a core link). */
@@ -448,22 +490,45 @@ function dotSprings(dots: DotLayout[], index: GraphIndex, areaCentre: Map<string
     const other = index.pageById.get(id)
     return other ? areaCentre.get(primaryTopic(other)) : undefined
   }
-  const springs: Spring[] = []
-  const outward: Outward[] = []
+  const s: SpringSet = { index, pos, centreOf, springs: [], outward: [] }
   for (const d of dots) {
     const i = pos.get(d.id)!
-    for (const e of index.out.get(d.id) ?? []) {
-      const j = pos.get(e.to)
-      const c = j === undefined ? centreOf(e.to) : undefined
-      if (j !== undefined) springs.push([i, j, e.strength])
-      else if (c) outward.push([i, c.x, c.y, e.strength])
-    }
-    for (const e of index.in.get(d.id) ?? []) {
-      const c = pos.has(e.from) ? undefined : centreOf(e.from)
-      if (c) outward.push([i, c.x, c.y, e.strength])
-    }
+    linksOutOf(s, d.id, i)
+    linksInto(s, d.id, i)
   }
-  return { springs, outward }
+  return { springs: s.springs, outward: s.outward }
+}
+
+/** What the spring helpers read (the area's dots by page id, other areas' centres) and fill. */
+interface SpringSet {
+  index: GraphIndex
+  pos: Map<string, number>
+  centreOf: (id: string) => Centre | undefined
+  springs: Spring[]
+  outward: Outward[]
+}
+
+/** The dot's own links: a spring to a dot of this area, else a pull to the other page's area. */
+function linksOutOf(s: SpringSet, id: string, i: number): void {
+  for (const e of s.index.out.get(id) ?? []) {
+    const j = s.pos.get(e.to)
+    if (j !== undefined) {
+      s.springs.push([i, j, e.strength])
+      continue
+    }
+    const c = s.centreOf(e.to)
+    if (c) s.outward.push([i, c.x, c.y, e.strength])
+  }
+}
+
+/** Links to the dot from other areas: a pull to that page's area (a link from this area is
+ *  already the other dot's spring). */
+function linksInto(s: SpringSet, id: string, i: number): void {
+  for (const e of s.index.in.get(id) ?? []) {
+    if (s.pos.has(e.from)) continue
+    const c = s.centreOf(e.from)
+    if (c) s.outward.push([i, c.x, c.y, e.strength])
+  }
 }
 
 function placeDots(area: AreaLayout, pages: GraphPage[], index: GraphIndex, areaCentre: Map<string, Centre>): DotLayout[] {
@@ -475,17 +540,8 @@ function placeDots(area: AreaLayout, pages: GraphPage[], index: GraphIndex, area
   if (n <= 1) return placeAlone(dots, area)
   const { springs, outward } = dotSprings(dots, index, areaCentre)
 
-  const iterations = n > 400 ? 70 : n > 150 ? 110 : 160
-  const maxR = dots.reduce((m, d) => Math.max(m, d.r), 0)
-  // Hexagonal spacing at which n dots would fill 95% of the area; dots keep 90% of it apart, so
-  // they use the whole area and clusters show as denser patches, not one clump in the middle.
-  const spacing = ((area.r - 12) * 0.95 * 1.905) / Math.sqrt(n)
-  // Grouped (the Tags grouping): the pages of a group stay close, so the groups read as groups
-  // and their names have room between them; ungrouped pages spread over the whole area.
-  const keep = grouped ? Math.min(spacing * 0.9, maxR * 2 + 12) : spacing * 0.9
-  const cell = Math.max(maxR * 2 + 6, keep + 1)
+  const { iterations, keep, cell, ideal } = simulationSizes(area, dots, grouped)
   const v: Forces = { x: new Float64Array(n), y: new Float64Array(n) }
-  const ideal = Math.max(12, spacing)
   const groupOf = grouped ? sorted.map((p) => anchor.get(p.group!.id)!) : null
   for (let it = 0; it < iterations; it++) {
     const alpha = 1 - it / iterations
@@ -499,14 +555,31 @@ function placeDots(area: AreaLayout, pages: GraphPage[], index: GraphIndex, area
     pushApart(dots, cell, keep, v)
     moveDots(dots, area, v)
   }
-  for (const d of dots) {
-    clearSlot(d, area)
-    contain(d, area)
-    d.x = round(d.x)
-    d.y = round(d.y)
-    contain(d, area)
-  }
+  for (const d of dots) settleDot(d, area)
   return dots
+}
+
+/** The simulation's sizes for n dots in an area. Fewer rounds for many dots. Hexagonal spacing at
+ *  which n dots would fill 95% of the area; dots keep 90% of it apart, so they use the whole area
+ *  and clusters show as denser patches, not one clump in the middle. Grouped (the Tags grouping):
+ *  the pages of a group stay close, so the groups read as groups and their names have room between
+ *  them; ungrouped pages spread over the whole area. `cell`: the collision grid's square. */
+function simulationSizes(area: AreaLayout, dots: DotLayout[], grouped: boolean): { iterations: number; keep: number; cell: number; ideal: number } {
+  const n = dots.length
+  const iterations = n > 400 ? 70 : n > 150 ? 110 : 160
+  const maxR = dots.reduce((m, d) => Math.max(m, d.r), 0)
+  const spacing = ((area.r - 12) * 0.95 * 1.905) / Math.sqrt(n)
+  const keep = grouped ? Math.min(spacing * 0.9, maxR * 2 + 12) : spacing * 0.9
+  return { iterations, keep, cell: Math.max(maxR * 2 + 6, keep + 1), ideal: Math.max(12, spacing) }
+}
+
+/** A dot's last place: off the name, inside the area, rounded to a tenth (and inside again). */
+function settleDot(d: DotLayout, area: AreaLayout): void {
+  clearSlot(d, area)
+  contain(d, area)
+  d.x = round(d.x)
+  d.y = round(d.y)
+  contain(d, area)
 }
 
 /** The step each dot takes in one round of the simulation, summed over the forces. */
@@ -557,6 +630,21 @@ const cellKey = (gx: number, gy: number) => gx * 73856093 + gy * 19349663
 /** Collisions and short-range spacing: dots closer than `keep` (or touching) push apart. On a grid
  *  of `cell`-sized squares, so each dot only meets its neighbours (keeps this near O(n)). */
 function pushApart(dots: DotLayout[], cell: number, keep: number, v: Forces): void {
+  const grid = cellGrid(dots, cell)
+  for (let i = 0; i < dots.length; i++) {
+    const gx = Math.floor(dots[i].x / cell)
+    const gy = Math.floor(dots[i].y / cell)
+    for (const [ox, oy] of NEIGHBOUR_CELLS) {
+      for (const j of grid.get(cellKey(gx + ox, gy + oy)) ?? []) if (j > i) pushPair(dots, i, j, keep, v)
+    }
+  }
+}
+
+/** The 3x3 cells round a cell, itself included, in the order they are visited (x, then y). */
+const NEIGHBOUR_CELLS: readonly [number, number][] = [-1, 0, 1].flatMap((ox) => [-1, 0, 1].map((oy) => [ox, oy] as [number, number]))
+
+/** The dots by grid cell (cellKey), each cell's dots in index order. */
+function cellGrid(dots: DotLayout[], cell: number): Map<number, number[]> {
   const grid = new Map<number, number[]>()
   for (let i = 0; i < dots.length; i++) {
     const k = cellKey(Math.floor(dots[i].x / cell), Math.floor(dots[i].y / cell))
@@ -564,15 +652,7 @@ function pushApart(dots: DotLayout[], cell: number, keep: number, v: Forces): vo
     if (list) list.push(i)
     else grid.set(k, [i])
   }
-  for (let i = 0; i < dots.length; i++) {
-    const gx = Math.floor(dots[i].x / cell)
-    const gy = Math.floor(dots[i].y / cell)
-    for (let ox = -1; ox <= 1; ox++) {
-      for (let oy = -1; oy <= 1; oy++) {
-        for (const j of grid.get(cellKey(gx + ox, gy + oy)) ?? []) if (j > i) pushPair(dots, i, j, keep, v)
-      }
-    }
-  }
+  return grid
 }
 
 function pushPair(dots: DotLayout[], i: number, j: number, keep: number, v: Forces): void {
@@ -732,6 +812,18 @@ export const BUNDLE_SPREAD = 14
  */
 export function bundleEdges(layout: GraphLayout, shown: Set<string> | null = null): BundleLayout[] {
   const areaById = new Map(layout.areas.map((a) => [a.id, a]))
+  const out = [...crossAreaLinks(layout, shown)].sort((x, y) => cmp(x[0], y[0])).map(([key, c]) => bundleEnds(layout, areaById, key, c))
+  spreadBundleEnds(out, areaById)
+  for (const bl of out) {
+    const others = layout.areas.filter((x) => x.id !== bl.a && x.id !== bl.b)
+    bl.d = rimPath(areaById.get(bl.a)!, bl.angleA, areaById.get(bl.b)!, bl.angleB, others)
+  }
+  return out
+}
+
+/** The links (not mentions) between pages of two different areas, both pages shown: per pair of
+ *  areas (key "a\0b", a < b), how many and their summed strength. */
+function crossAreaLinks(layout: GraphLayout, shown: Set<string> | null): Map<string, { count: number; weight: number }> {
   const counts = new Map<string, { count: number; weight: number }>()
   for (const { edge } of layout.edges) {
     if (edge.kind === 'mention') continue
@@ -746,35 +838,40 @@ export function bundleEdges(layout: GraphLayout, shown: Set<string> | null = nul
     c.weight += edge.strength
     counts.set(key, c)
   }
-  const out: BundleLayout[] = []
-  for (const [key, { count, weight }] of [...counts].sort((x, y) => cmp(x[0], y[0]))) {
-    const [a, b] = key.split('\u0000')
-    const A = areaById.get(a)!
-    const B = areaById.get(b)!
-    // A first route from rim to rim (centre line) says where the line has to go: each end faces
-    // its first bend, or the other area when the way is clear.
-    const others = layout.areas.filter((x) => x.id !== a && x.id !== b)
-    const facing = Math.atan2(B.y - A.y, B.x - A.x)
-    const rough = routeAround(
-      { x: A.x + Math.cos(facing) * A.r, y: A.y + Math.sin(facing) * A.r },
-      { x: B.x - Math.cos(facing) * B.r, y: B.y - Math.sin(facing) * B.r },
-      others,
-    )
-    const first = rough[1]
-    const last = rough[rough.length - 2]
-    out.push({ a, b, count, weight, angleA: Math.atan2(first.y - A.y, first.x - A.x), angleB: Math.atan2(last.y - B.y, last.x - B.x), d: '' })
-  }
-  // Spread the ends per area, then draw.
+  return counts
+}
+
+/** One topic line before its ends are spread: a first route from rim to rim (centre line) says
+ *  where the line has to go, so each end faces its first bend, or the other area when the way is
+ *  clear. Not drawn yet (d ''). */
+function bundleEnds(layout: GraphLayout, areaById: Map<string, AreaLayout>, key: string, c: { count: number; weight: number }): BundleLayout {
+  const [a, b] = key.split('\u0000')
+  const A = areaById.get(a)!
+  const B = areaById.get(b)!
+  const others = layout.areas.filter((x) => x.id !== a && x.id !== b)
+  const facing = Math.atan2(B.y - A.y, B.x - A.x)
+  const rough = routeAround(
+    { x: A.x + Math.cos(facing) * A.r, y: A.y + Math.sin(facing) * A.r },
+    { x: B.x - Math.cos(facing) * B.r, y: B.y - Math.sin(facing) * B.r },
+    others,
+  )
+  const first = rough[1]
+  const last = rough[rough.length - 2]
+  return { a, b, count: c.count, weight: c.weight, angleA: Math.atan2(first.y - A.y, first.x - A.x), angleB: Math.atan2(last.y - B.y, last.x - B.x), d: '' }
+}
+
+/** Lines that would leave an area at almost the same spot are spread along its rim (spreadEnds),
+ *  per area; the lines' angles are set in place. */
+function spreadBundleEnds(out: BundleLayout[], areaById: Map<string, AreaLayout>): void {
   const ends = new Map<string, { angle: number; set: (x: number) => void }[]>()
+  const add = (id: string, angle: number, set: (x: number) => void) => {
+    const list = ends.get(id) ?? []
+    list.push({ angle, set })
+    ends.set(id, list)
+  }
   for (const bl of out) {
-    for (const [id, get, set] of [
-      [bl.a, () => bl.angleA, (x: number) => (bl.angleA = x)],
-      [bl.b, () => bl.angleB, (x: number) => (bl.angleB = x)],
-    ] as const) {
-      const list = ends.get(id) ?? []
-      list.push({ angle: get(), set })
-      ends.set(id, list)
-    }
+    add(bl.a, bl.angleA, (x) => (bl.angleA = x))
+    add(bl.b, bl.angleB, (x) => (bl.angleB = x))
   }
   for (const [id, list] of ends) {
     const spread = spreadEnds(
@@ -783,11 +880,6 @@ export function bundleEdges(layout: GraphLayout, shown: Set<string> | null = nul
     )
     list.forEach((e, i) => e.set(spread[i]))
   }
-  for (const bl of out) {
-    const others = layout.areas.filter((x) => x.id !== bl.a && x.id !== bl.b)
-    bl.d = rimPath(areaById.get(bl.a)!, bl.angleA, areaById.get(bl.b)!, bl.angleB, others)
-  }
-  return out
 }
 
 /** Room kept between a topic line and an area it goes around (world px). */
@@ -881,13 +973,28 @@ export function spreadEnds(angles: number[], min: number): number[] {
   const norm = (x: number) => ((x % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)
   const out = angles.map(norm)
   // The circle is cut at its widest gap, so a group around angle 0 stays one group.
-  const sorted = [...out].sort((p, q) => p - q)
+  const cut = widestGapEnd(out)
+  const order = out.map((x, i) => ({ x: cut + norm(x - cut), i })).sort((p, q) => p.x - q.x || p.i - q.i)
+  for (const g of spreadGroups(order, step)) g.items.forEach((it, k) => (out[it.i] = g.start + k * step))
+  // Lone angles keep their exact input value.
+  return out.map((x, i) => (Math.abs(x - norm(angles[i])) < 1e-12 ? angles[i] : x))
+}
+
+/** The angle (0..2pi) that ends the widest gap between the given angles (2 or more): where the
+ *  circle is cut so a group around it stays together. The first one on a tie. */
+function widestGapEnd(angles: number[]): number {
+  const sorted = [...angles].sort((p, q) => p - q)
+  const n = sorted.length
   let cut = sorted[0]
   let widest = sorted[0] + Math.PI * 2 - sorted[n - 1]
   for (let k = 1; k < n; k++) if (sorted[k] - sorted[k - 1] > widest) [widest, cut] = [sorted[k] - sorted[k - 1], sorted[k]]
-  const order = out.map((x, i) => ({ x: cut + norm(x - cut), i })).sort((p, q) => p.x - q.x || p.i - q.i)
-  // Groups placed `step` apart, each starting where the mean of its members wants it; a group that
-  // reaches the one before it merges with it (one pass, exact: no group ends closer than step).
+  return cut
+}
+
+/** Groups placed `step` apart, each starting where the mean of its members wants it; a group that
+ *  reaches the one before it merges with it (one pass, exact: no group ends closer than step).
+ *  `order`: the angles from the cut on, ascending. */
+function spreadGroups(order: { x: number; i: number }[], step: number): { items: { x: number; i: number }[]; start: number }[] {
   const groups: { items: { x: number; i: number }[]; start: number }[] = []
   for (const o of order) {
     groups.push({ items: [o], start: o.x })
@@ -900,9 +1007,7 @@ export function spreadEnds(angles: number[], min: number): number[] {
       groups.splice(groups.length - 2, 2, { items, start })
     }
   }
-  for (const g of groups) g.items.forEach((it, k) => (out[it.i] = g.start + k * step))
-  // Lone angles keep their exact input value.
-  return out.map((x, i) => (Math.abs(x - norm(angles[i])) < 1e-12 ? angles[i] : x))
+  return groups
 }
 
 /** Smooth curve from the rim of A at angle aa to the rim of B at angle ab, around the circles in
@@ -1010,6 +1115,14 @@ export function nominalFit(bounds: Bounds, aspect: number): number {
  */
 export function layoutGraph(model: GraphModel, opts: LayoutOptions = {}, index: GraphIndex = buildIndex(model)): GraphLayout {
   const aspect = opts.aspect && opts.aspect > 0 ? opts.aspect : 1.45
+  const layout = layoutWithNameRoom(model, aspect, index)
+  if (layout.areas.length) placeGroupNames(layout, index, aspect)
+  return layout
+}
+
+/** Laid out once; then again, at most three more times, while the fitted map shows a name larger
+ *  than the room it was laid out with. */
+function layoutWithNameRoom(model: GraphModel, aspect: number, index: GraphIndex): GraphLayout {
   let scale = 1
   let layout = layoutOnce(model, aspect, index, scale)
   for (let pass = 0; pass < 3 && layout.areas.length; pass++) {
@@ -1018,33 +1131,26 @@ export function layoutGraph(model: GraphModel, opts: LayoutOptions = {}, index: 
     scale = Math.min(MAX_NAME_SCALE, 1 / (k * NAME_SCALE_MARGIN))
     layout = layoutOnce(model, aspect, index, scale)
   }
-  // Group names (the Tags grouping) are placed last, at the size they really have on the fitted
-  // map: on a small map, fitted zoomed in, a name covers less of the layout than one unit per
-  // pixel, and a name sized for more would stand far from its pages.
-  if (layout.areas.length) {
-    const unit = 1 / (nominalFit(layout.bounds, aspect) * NAME_SCALE_MARGIN)
-    for (const area of layout.areas) {
-      const pages = area.pageIds.map((id) => index.pageById.get(id)!)
-      if (!isGrouped(pages)) continue
-      const groups = groupLabels(area, pages, pages.map((p) => layout.dotById.get(p.id)!), unit)
-      if (groups.length) area.groups = groups
-    }
-  }
   return layout
 }
 
-function layoutOnce(model: GraphModel, aspect: number, index: GraphIndex, slotScale: number): GraphLayout {
-  const ordered = topicOrder(model.topics).filter((t) => (index.pagesByArea.get(t.id)?.length ?? 0) > 0)
-  const areaIds: (string)[] = ordered.map((t) => t.id)
-  if (index.pagesByArea.has(UNFILED_ID)) areaIds.push(UNFILED_ID)
+/** Group names (the Tags grouping) are placed last, at the size they really have on the fitted
+ *  map: on a small map, fitted zoomed in, a name covers less of the layout than one unit per pixel,
+ *  and a name sized for more would stand far from its pages. */
+function placeGroupNames(layout: GraphLayout, index: GraphIndex, aspect: number): void {
+  const unit = 1 / (nominalFit(layout.bounds, aspect) * NAME_SCALE_MARGIN)
+  for (const area of layout.areas) {
+    const pages = area.pageIds.map((id) => index.pageById.get(id)!)
+    if (!isGrouped(pages)) continue
+    const groups = groupLabels(area, pages, pages.map((p) => layout.dotById.get(p.id)!), unit)
+    if (groups.length) area.groups = groups
+  }
+}
 
-  const nameOf = (id: string) => index.topicById.get(id)?.name ?? 'Unfiled'
-  const radii = areaIds.map((id) =>
-    areaRadius((index.pagesByArea.get(id) ?? []).map((pid) => dotRadius(index.pageById.get(pid)!)), id === UNFILED_ID ? MIN_UNFILED_R : MIN_AREA_R, nameOf(id), slotScale),
-  )
-  const slot = new Map(areaIds.map((id, i) => [id, i]))
-  const targets = areaIds.map((id) => {
-    // Nearest ancestor that has its own area: subtopics sit next to their parent.
+/** Per area, the nearest ancestor that has its own area (its index in `slot`), or null: subtopics
+ *  sit next to their parent. */
+function areaParents(areaIds: string[], index: GraphIndex, slot: Map<string, number>): (number | null)[] {
+  return areaIds.map((id) => {
     let parent = index.topicById.get(id)?.parent ?? null
     while (parent !== null) {
       const s = slot.get(parent)
@@ -1053,10 +1159,12 @@ function layoutOnce(model: GraphModel, aspect: number, index: GraphIndex, slotSc
     }
     return null
   })
-  const outer = areaIds.map((id) => id === UNFILED_ID)
-  // Summed link strength between areas (pages in their primary topic): linked topics are placed
-  // next to each other, so their line needs no other topic out of the way.
-  const links = areaIds.map(() => areaIds.map(() => 0))
+}
+
+/** Summed link strength between areas (pages in their primary topic): linked topics are placed
+ *  next to each other, so their line needs no other topic out of the way. */
+function areaLinks(model: GraphModel, index: GraphIndex, slot: Map<string, number>, n: number): number[][] {
+  const links = Array.from({ length: n }, () => Array.from({ length: n }, () => 0))
   for (const e of onePerPair(model.edges)) {
     if (e.kind === 'mention') continue
     const pa = index.pageById.get(e.from)
@@ -1068,6 +1176,12 @@ function layoutOnce(model: GraphModel, aspect: number, index: GraphIndex, slotSc
     links[i][j] += e.strength
     links[j][i] += e.strength
   }
+  return links
+}
+
+/** The areas' circles, in the areas' order: packed in link order (packOrder), parents and links
+ *  carried over to that order. */
+function packedCircles(radii: number[], targets: (number | null)[], links: number[][], outer: boolean[], aspect: number): Circle[] {
   const order = packOrder(targets, links, outer)
   const at = new Map(order.map((orig, k) => [orig, k]))
   const packed = packAreas(
@@ -1078,43 +1192,45 @@ function layoutOnce(model: GraphModel, aspect: number, index: GraphIndex, slotSc
     order.map((o) => outer[o]),
     order.map((o) => order.map((p) => links[o][p])),
   )
-  const circles = areaIds.map((_, i) => packed[at.get(i)!])
+  return radii.map((_, i) => packed[at.get(i)!])
+}
 
-  const areas: AreaLayout[] = areaIds.map((id, i) => {
-    const topic = index.topicById.get(id) ?? null
-    const count = index.pagesByArea.get(id)?.length ?? 0
-    const total = topic ? Math.max(topic.pageCount, count) : count
-    const subjects = topic?.subjects ?? 'pages without a topic yet'
-    return {
-      id,
-      topic,
-      name: topic ? topic.name : 'Unfiled',
-      sub: `${total} ${total === 1 ? 'page' : 'pages'}${subjects ? ` · ${subjects}` : ''}`,
-      x: round(circles[i].x),
-      y: round(circles[i].y),
-      r: round(circles[i].r),
-      pageIds: index.pagesByArea.get(id) ?? [],
-      // The name's room includes its page count: the stage shows the count of the pages drawn,
-      // never more than this (stageModel.ts stageLabels), so it never needs more room.
-      slot: labelSlot(nameOf(id), circles[i].r, slotScale, count),
-    }
-  })
-  const centre = new Map(areas.map((a) => [a.id, { x: a.x, y: a.y }]))
-
-  const dots: DotLayout[] = []
-  for (const area of areas) {
-    const pages = area.pageIds.map((id) => index.pageById.get(id)!)
-    dots.push(...placeDots(area, pages, index, centre))
+function areaLayout(id: string, circle: Circle, index: GraphIndex, slotScale: number): AreaLayout {
+  const topic = index.topicById.get(id) ?? null
+  const count = index.pagesByArea.get(id)?.length ?? 0
+  const total = topic ? Math.max(topic.pageCount, count) : count
+  const subjects = topic?.subjects ?? 'pages without a topic yet'
+  const name = topic ? topic.name : 'Unfiled'
+  return {
+    id,
+    topic,
+    name,
+    sub: `${total} ${total === 1 ? 'page' : 'pages'}${subjects ? ` · ${subjects}` : ''}`,
+    x: round(circle.x),
+    y: round(circle.y),
+    r: round(circle.r),
+    pageIds: index.pagesByArea.get(id) ?? [],
+    // The name's room includes its page count: the stage shows the count of the pages drawn,
+    // never more than this (stageModel.ts stageLabels), so it never needs more room.
+    slot: labelSlot(name, circle.r, slotScale, count),
   }
-  const dotById = new Map(dots.map((d) => [d.id, d]))
+}
 
+/** The page-to-page lines between placed dots, one per pair. */
+function pageEdges(model: GraphModel, dotById: Map<string, DotLayout>): EdgeLayout[] {
   const edges: EdgeLayout[] = []
   for (const e of onePerPair(model.edges)) {
     const a = dotById.get(e.from)
     const b = dotById.get(e.to)
     if (a && b) edges.push({ edge: e, d: edgePath(a.x, a.y, b.x, b.y) })
   }
+  return edges
+}
 
+/** The world rectangle that holds every area (with room for a name under one at the bottom edge,
+ *  view.ts placeAreaLabels), padded; a fixed rectangle for a map without areas. */
+function layoutBounds(areas: AreaLayout[]): Bounds {
+  if (!areas.length) return { x: 0, y: 0, w: 1100, h: 760 }
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
@@ -1123,12 +1239,29 @@ function layoutOnce(model: GraphModel, aspect: number, index: GraphIndex, slotSc
     minX = Math.min(minX, a.x - a.r)
     maxX = Math.max(maxX, a.x + a.r)
     minY = Math.min(minY, a.y - a.r - LABEL_SPACE)
-    // Room for a topic name placed under its area (view.ts placeAreaLabels) at the bottom edge.
     maxY = Math.max(maxY, a.y + a.r + LABEL_SPACE)
   }
   const pad = 24
-  const bounds: Bounds = areas.length
-    ? { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 }
-    : { x: 0, y: 0, w: 1100, h: 760 }
-  return { areas, dots, dotById, edges, bounds }
+  return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 }
+}
+
+function layoutOnce(model: GraphModel, aspect: number, index: GraphIndex, slotScale: number): GraphLayout {
+  const ordered = topicOrder(model.topics).filter((t) => (index.pagesByArea.get(t.id)?.length ?? 0) > 0)
+  const areaIds: string[] = ordered.map((t) => t.id)
+  if (index.pagesByArea.has(UNFILED_ID)) areaIds.push(UNFILED_ID)
+
+  const nameOf = (id: string) => index.topicById.get(id)?.name ?? 'Unfiled'
+  const radii = areaIds.map((id) =>
+    areaRadius((index.pagesByArea.get(id) ?? []).map((pid) => dotRadius(index.pageById.get(pid)!)), id === UNFILED_ID ? MIN_UNFILED_R : MIN_AREA_R, nameOf(id), slotScale),
+  )
+  const slot = new Map(areaIds.map((id, i) => [id, i]))
+  const outer = areaIds.map((id) => id === UNFILED_ID)
+  const circles = packedCircles(radii, areaParents(areaIds, index, slot), areaLinks(model, index, slot, areaIds.length), outer, aspect)
+  const areas = areaIds.map((id, i) => areaLayout(id, circles[i], index, slotScale))
+
+  const centre = new Map(areas.map((a) => [a.id, { x: a.x, y: a.y }]))
+  const dots: DotLayout[] = []
+  for (const area of areas) dots.push(...placeDots(area, area.pageIds.map((id) => index.pageById.get(id)!), index, centre))
+  const dotById = new Map(dots.map((d) => [d.id, d]))
+  return { areas, dots, dotById, edges: pageEdges(model, dotById), bounds: layoutBounds(areas) }
 }

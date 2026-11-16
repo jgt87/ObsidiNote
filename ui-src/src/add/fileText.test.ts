@@ -299,6 +299,14 @@ describe('PDF', () => {
     expect(r.text).toBe('File: l.pdf\n\nLanterns glow\nsoftly\natnight')
   })
 
+  it('treats tokens named like object properties as unknown operators', async () => {
+    // The operators are looked up in a Map: "__proto__" or "constructor" in a damaged stream must
+    // neither throw nor act like a text operator.
+    const content = 'BT (Quarterly figures for the board) Tj __proto__ constructor toString (ignored) hasOwnProperty T* (second line) Tj ET'
+    const r = await readFileText('p.pdf', 'application/pdf', makePdf([['/Length {len}', latin1(content)]]))
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.text.endsWith('\nQuarterly figures for the board\nsecond line')).toBe(true)
+  })
   it('says a PDF with only an image has no readable text', async () => {
     const img = latin1('ÿØÿà not really a jpeg')
     const page = await compress(enc.encode('q 100 0 0 100 0 0 cm /Im1 Do Q'), 'deflate')

@@ -1,7 +1,7 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { splitLinks, webUrl } from '../model/links'
-import { answerShares, citeTarget, combinedLine, confidenceLabel, pathChips, sentencesPerSource, sharePercent, sourceAnchor, sourceOrigin } from './askModel'
-import type { AskResult, AskSource } from './types'
+import { answerShares, citeChipView, citeTarget, combinedLine, confidenceLabel, droppedCitationsNote, pathChips, sentencesPerSource, sharePercent, sourceAnchor, sourceOrigin } from './askModel'
+import type { AskResult, AskSentence, AskSource, AskStaleLink } from './types'
 import './Ask.css'
 
 export interface AskAnswerActions {
@@ -51,15 +51,15 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
   const anchor = (n: number) => sourceAnchor(result.conversationId, result.turn, n)
   const byNumber = new Map(result.sources.map((s) => [s.n, s]))
   const stale = new Map(result.staleLinks.map((l) => [l.id, l]))
-  const dropped = result.invalidCitations.length
   // What the answer was made from (operator, 2026-11-14): pages and topics, sentences per page,
   // and the pages read but not used.
-  const combined = combinedLine(result.sources)
-  const used = sentencesPerSource(result.answer?.paragraphs ?? [])
-  const shares = answerShares(result.answer?.paragraphs ?? [])
+  const paragraphs = result.answer?.paragraphs ?? []
+  const used = sentencesPerSource(paragraphs)
+  const shares = answerShares(paragraphs)
   // The source the pointer (or keyboard focus) is on: its sentences in the answer turn to the accent
   // (operator, 2026-11-14). Session state of this card only.
   const [lit, setLit] = useState<number | null>(null)
+  const cite = (n: number) => <CiteChip key={n} n={n} source={byNumber.get(n)} anchor={anchor(n)} onOpenPage={actions.onOpenPage} />
   return (
     <div className="ask">
       <div>
@@ -67,56 +67,7 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
         <h2 className="ask-question">{result.question}</h2>
       </div>
 
-      <section className="card" aria-label="Answer">
-        <p className="ask-label">Answer</p>
-        {combined && <p className="ask-muted ask-combined">{combined}</p>}
-        {result.answer?.paragraphs.map((p, i) => (
-          <p key={i} className="ask-paragraph">
-            {p.sentences.map((s, j) => (
-              <Fragment key={j}>
-                {j > 0 ? ' ' : null}
-                <span
-                  className={s.unsupported ? 'ask-unsupported' : undefined}
-                  data-lit={lit !== null && s.cites.includes(lit) ? '' : undefined}
-                  title={s.unsupported ? 'No source was read for this sentence' : undefined}
-                >
-                  <LinkedText text={s.text} />
-                </span>
-                {s.unsupported && <span className="visually-hidden"> (no source)</span>}
-                {s.cites.map((n) => {
-                  const src = byNumber.get(n)
-                  const go = citeTarget(src, Boolean(actions.onOpenPage))
-                  const name = `Source ${n}: ${src?.title ?? ''}`
-                  // design (operator, 2026-11-15: "a reference like [1] being clicked should open that topic
-                  // card or direct link, whichever is most relevant"): a link page opens its own address,
-                  // a page of the active vault its page window, a page of another notebook OneNote.
-                  if (go.kind === 'url' || go.kind === 'onenote')
-                    return (
-                      <a key={n} className="ask-cite" href={go.href} target={go.kind === 'url' ? '_blank' : undefined} rel={go.kind === 'url' ? 'noopener noreferrer' : undefined} title={go.kind === 'url' ? go.href : 'Open in OneNote'} aria-label={`${name}, ${go.kind === 'url' ? 'opens the link' : 'opens in OneNote'}`}>
-                        {n}
-                      </a>
-                    )
-                  if (go.kind === 'page' && src)
-                    return (
-                      <button key={n} type="button" className="ask-cite" title={`Open ${src.title}`} aria-label={`${name}, opens the page`} onClick={() => actions.onOpenPage?.(src.id)}>
-                        {n}
-                      </button>
-                    )
-                  return (
-                    <a key={n} className="ask-cite" href={`#${anchor(n)}`} aria-label={name}>
-                      {n}
-                    </a>
-                  )
-                })}
-              </Fragment>
-            ))}
-          </p>
-        ))}
-        <p className="ask-muted ask-answer__meta">
-          {confidenceLabel(result.answer?.confidence)}
-          {dropped > 0 && ` ${dropped === 1 ? 'One citation pointed' : `${dropped} citations pointed`} to a page that was not read and ${dropped === 1 ? 'was' : 'were'} left out.`}
-        </p>
-      </section>
+      <AnswerCard result={result} lit={lit} cite={cite} />
 
       {/* The actions follow the answer directly; the sources and the path explain it below. */}
       <AskActions {...actions} />
@@ -124,82 +75,165 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
       <section className="card" aria-label="Sources">
         <p className="ask-label">Sources</p>
         <ol className="ask-sources">
-          {result.sources.map((s) => {
-            const st = stale.get(s.id)
-            const origin = sourceOrigin(s)
-            return (
-              <li
-                key={s.n}
-                id={anchor(s.n)}
-                className="ask-src"
-                tabIndex={-1}
-                onMouseEnter={() => setLit(s.n)}
-                onMouseLeave={() => setLit((v) => (v === s.n ? null : v))}
-                onFocus={() => setLit(s.n)}
-                onBlur={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setLit((v) => (v === s.n ? null : v))
-                }}
-              >
-                <span className="ask-muted">{s.n}</span>
-                <div className="ask-src__main">
-                  <SourceTitle source={s} onShowPage={actions.onShowPage} />
-                  <div className="ask-muted">
-                    {s.path}
-                    {origin && ` · ${origin}`}
-                    {s.archived && ' · archived'}
-                  </div>
-                  {shares.get(s.n) ? (
-                    // How much of the answer came from this page (answerShares): one bar in the accent,
-                    // the percent in text beside it; the sentence count stays in words.
-                    <ShareBar share={shares.get(s.n)!} sentences={used.get(s.n) ?? 0} />
-                  ) : null}
-                  {st && (
-                    <div className="ask-stale">
-                      <span className="ask-muted">{st.label}</span>
-                      {actions.onUpdateLink && (
-                        <button type="button" className="btn btn--sm" onClick={() => actions.onUpdateLink?.(s.id)}>
-                          Update
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <span className="ask-muted ask-src__age">
-                  {s.age}
-                  {s.link && (
-                    <>
-                      {s.age ? ' · ' : ''}
-                      <a className="ask-src__onenote" href={s.link} aria-label={`Open "${s.title}" in OneNote`}>
-                        OneNote
-                      </a>
-                    </>
-                  )}
-                </span>
-              </li>
-            )
-          })}
+          {result.sources.map((s) => (
+            <SourceRow key={s.n} source={s} id={anchor(s.n)} share={shares.get(s.n)} sentences={used.get(s.n) ?? 0} stale={stale.get(s.id)} setLit={setLit} onShowPage={actions.onShowPage} onUpdateLink={actions.onUpdateLink} />
+          ))}
         </ol>
       </section>
 
-      {result.unused.length > 0 && (
-        // Pages Ask read that the answer does not cite: shows nothing relevant was skipped unseen.
-        <details className="card ask-unused">
-          <summary className="ask-label ask-unused__summary">
-            Also read, not used ({result.unused.length})
-          </summary>
-          <ul className="ask-unused__list">
-            {result.unused.map((s) => (
-              <li key={s.key} className="ask-unused__row">
-                <SourceTitle source={s} onShowPage={actions.onShowPage} />
-                <span className="ask-muted"> · {s.path}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
+      <UnusedSources sources={result.unused} onShowPage={actions.onShowPage} />
 
       <AskPathCard result={result} />
     </div>
+  )
+}
+
+/** The answer: what it was made from, its paragraphs with their citations, how sure it is and
+ *  which citations were left out. Without an answer only the confidence line stays. */
+function AnswerCard({ result, lit, cite }: { result: AskResult; lit: number | null; cite: (n: number) => ReactNode }) {
+  const combined = combinedLine(result.sources)
+  return (
+    <section className="card" aria-label="Answer">
+      <p className="ask-label">Answer</p>
+      {combined && <p className="ask-muted ask-combined">{combined}</p>}
+      {result.answer?.paragraphs.map((p, i) => (
+        <p key={i} className="ask-paragraph">
+          {p.sentences.map((s, j) => (
+            <Fragment key={j}>
+              {j > 0 ? ' ' : null}
+              <AnswerSentence sentence={s} lit={lit} />
+              {s.cites.map(cite)}
+            </Fragment>
+          ))}
+        </p>
+      ))}
+      <p className="ask-muted ask-answer__meta">
+        {confidenceLabel(result.answer?.confidence)}
+        {droppedCitationsNote(result.invalidCitations.length)}
+      </p>
+    </section>
+  )
+}
+
+/** One sentence of the answer; lit while the pointer or focus is on a source it cites. */
+function AnswerSentence({ sentence: s, lit }: { sentence: AskSentence; lit: number | null }) {
+  return (
+    <>
+      <span
+        className={s.unsupported ? 'ask-unsupported' : undefined}
+        data-lit={lit !== null && s.cites.includes(lit) ? '' : undefined}
+        title={s.unsupported ? 'No source was read for this sentence' : undefined}
+      >
+        <LinkedText text={s.text} />
+      </span>
+      {s.unsupported && <span className="visually-hidden"> (no source)</span>}
+    </>
+  )
+}
+
+/**
+ * A citation [n]. design (operator, 2026-11-15: "a reference like [1] being clicked should open that
+ * topic card or direct link, whichever is most relevant"): a link page opens its own address, a page
+ * of the active vault its page window, a page of another notebook OneNote; else it jumps to the
+ * source in the list.
+ */
+function CiteChip({ n, source: src, anchor, onOpenPage }: { n: number; source: AskSource | undefined; anchor: string; onOpenPage?: (pageId: string) => void }) {
+  const v = citeChipView(n, src?.title, citeTarget(src, Boolean(onOpenPage)), anchor)
+  if (v.tag === 'button')
+    return (
+      <button type="button" className="ask-cite" title={v.title} aria-label={v.label} onClick={() => src && onOpenPage?.(src.id)}>
+        {n}
+      </button>
+    )
+  return (
+    <a className="ask-cite" href={v.href} target={v.newTab ? '_blank' : undefined} rel={v.newTab ? 'noopener noreferrer' : undefined} title={v.title} aria-label={v.label}>
+      {n}
+    </a>
+  )
+}
+
+interface SourceRowProps {
+  source: AskSource
+  /** The row's anchor id, the target of a citation that has nowhere else to go. */
+  id: string
+  /** Its share of the answer (answerShares), when it has one. */
+  share: number | undefined
+  sentences: number
+  stale: AskStaleLink | undefined
+  setLit: Dispatch<SetStateAction<number | null>>
+  onShowPage?: (pageId: string) => void
+  onUpdateLink?: (pageId: string) => void
+}
+
+/** One source in the list: number, title, where it is, its share of the answer, an old summary's
+ *  Update, its age and OneNote link. Pointing at it (or focusing it) lights its sentences. */
+function SourceRow({ source: s, id, share, sentences, stale: st, setLit, onShowPage, onUpdateLink }: SourceRowProps) {
+  const origin = sourceOrigin(s)
+  const unlight = () => setLit((v) => (v === s.n ? null : v))
+  return (
+    <li
+      id={id}
+      className="ask-src"
+      tabIndex={-1}
+      onMouseEnter={() => setLit(s.n)}
+      onMouseLeave={unlight}
+      onFocus={() => setLit(s.n)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) unlight()
+      }}
+    >
+      <span className="ask-muted">{s.n}</span>
+      <div className="ask-src__main">
+        <SourceTitle source={s} onShowPage={onShowPage} />
+        <div className="ask-muted">
+          {s.path}
+          {origin && ` · ${origin}`}
+          {s.archived && ' · archived'}
+        </div>
+        {/* How much of the answer came from this page: one bar in the accent, the percent in text
+            beside it; the sentence count stays in words. */}
+        {share ? <ShareBar share={share} sentences={sentences} /> : null}
+        {st && (
+          <div className="ask-stale">
+            <span className="ask-muted">{st.label}</span>
+            {onUpdateLink && (
+              <button type="button" className="btn btn--sm" onClick={() => onUpdateLink(s.id)}>
+                Update
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      <span className="ask-muted ask-src__age">
+        {s.age}
+        {s.link && (
+          <>
+            {s.age ? ' · ' : ''}
+            <a className="ask-src__onenote" href={s.link} aria-label={`Open "${s.title}" in OneNote`}>
+              OneNote
+            </a>
+          </>
+        )}
+      </span>
+    </li>
+  )
+}
+
+/** Pages Ask read that the answer does not cite: shows nothing relevant was skipped unseen. */
+function UnusedSources({ sources, onShowPage }: { sources: AskSource[]; onShowPage?: (pageId: string) => void }) {
+  if (!sources.length) return null
+  return (
+    <details className="card ask-unused">
+      <summary className="ask-label ask-unused__summary">Also read, not used ({sources.length})</summary>
+      <ul className="ask-unused__list">
+        {sources.map((s) => (
+          <li key={s.key} className="ask-unused__row">
+            <SourceTitle source={s} onShowPage={onShowPage} />
+            <span className="ask-muted"> · {s.path}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   )
 }
 

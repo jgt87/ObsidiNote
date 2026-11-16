@@ -5,6 +5,11 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.1] - 2026-11-16
+
+### Changed
+- **Inside the interface**: the code behind the knowledge graph, the page window, the Add and Ask results, the search, the Filter panel, pasting and adding a file is split into smaller parts, each with its own tests. Nothing you see or do changes; every screen was compared before and after.
+
 ## [v0.12.0] - 2026-11-16
 
 ### Added

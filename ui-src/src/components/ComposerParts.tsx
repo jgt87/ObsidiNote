@@ -3,7 +3,28 @@
 import type { Mode } from '../api'
 import type { IntentLine as IntentLineData } from '../model/intentWording'
 import { ORIGINS, TYPED_LABEL } from '../model/origins'
-import { AddIcon, AskIcon, InfoIcon } from './icons'
+import type { FileNote } from '../add/fileNotes'
+import { AddIcon, AskIcon, InfoIcon, WarnIcon } from './icons'
+
+/** What the box says about a file it took: that a kept link was dropped, and the file's note
+ *  (reading, found in OneDrive, or a problem as an alert). */
+export function FileStatus({ linkDropped, note }: { linkDropped: boolean; note: FileNote | null }) {
+  return (
+    <>
+      {linkDropped && (
+        <p className="composer__file-note" role="status">
+          The file's link is no longer kept: the text in the box is not the file's any more. Choose "File" under From to keep it.
+        </p>
+      )}
+      {note && (
+        <p className={note.error ? 'composer__file-note composer__file-note--error' : 'composer__file-note'} role={note.error ? 'alert' : 'status'}>
+          {note.error && <WarnIcon />}
+          {note.text}
+        </p>
+      )}
+    </>
+  )
+}
 
 /** Where the text came from (model/origins.ts); '' = typed. */
 export function FromChoice({ origin, onChange }: { origin: string; onChange: (origin: string) => void }) {

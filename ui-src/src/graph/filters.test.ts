@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { archivedHidden, emptyFilter, filterOptions, focusNeighbourhood, isFilterActive, pruneFilter, topicDescendants, typeOf, visiblePageIds, type GraphFilter } from './filters'
+import { archivedHidden, emptyFilter, filterOptions, filterParts, focusNeighbourhood, isFilterActive, pruneFilter, topicDescendants, typeOf, visiblePageIds, type GraphFilter } from './filters'
 import { buildIndex } from './graphIndex'
 import { normalizeGraph, UNFILED_ID, type GraphPage } from './model'
+
+describe('filterParts', () => {
+  it('names each active choice once, in a fixed order, topics by name', () => {
+    expect(filterParts(emptyFilter(), (id) => id)).toEqual([])
+    const all: GraphFilter = { types: new Set(['note']), topics: new Set(['t1', 't2']), tags: new Set(['a', 'b']), unlinkedOnly: true, showArchived: true, staleBefore: '2026-01-01', focus: { id: 'p1', depth: 1 } }
+    expect(filterParts(all, (id) => `T${id}`)).toEqual(['type: note', 'topic: Tt1, Tt2', 'tag: a, b', 'without links', 'old link summaries (select them in the List to update)', 'archived shown'])
+  })
+})
 
 // a - b - c - d (links), e alone, f archived, g mentions a (no link).
 function sample() {

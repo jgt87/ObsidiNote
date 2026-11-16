@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NotebookSummary } from '../api'
-import { addTargetFor, askSourceChoices, graphRefFor, pickActiveVault, switcherGroups } from './notebooks'
+import { activeVaultNotice, addTargetFor, askSourceChoices, findSourceId, graphRefFor, pickActiveVault, switcherGroups } from './notebooks'
 import { isNotebookId } from './preferences'
 
 const A = '{11111111-1111-1111-1111-111111111111}{1}{B0}'
@@ -65,6 +65,18 @@ describe('addTargetFor', () => {
   })
   it('names the vault an Add goes to while another notebook is shown', () => {
     expect(addTargetFor(list, A, R)).toEqual({ vaultName: 'ObsidiNote', shownName: 'Reading notes' })
+  })
+})
+
+describe('findSourceId and activeVaultNotice', () => {
+  it('a vault is found by its vault id, a notebook or a vault without one by the notebook id', () => {
+    expect(findSourceId({ ...list[0], vaultId: 'v-1' })).toBe('v-1')
+    expect(findSourceId(list[0])).toBe(A)
+    expect(findSourceId({ ...list[2], vaultId: 'v-2' })).toBe(R)
+  })
+  it('names the new active vault, with a warning when there is one', () => {
+    expect(activeVaultNotice('Team wiki')).toBe('Team wiki is your active vault now.')
+    expect(activeVaultNotice('Team wiki', 'Made in the default folder.')).toBe('Team wiki is your active vault now. Made in the default folder.')
   })
 })
 

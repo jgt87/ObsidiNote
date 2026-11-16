@@ -55,113 +55,168 @@ const DEMO_SOURCES: Record<string, Omit<GraphSourceArea, 'pageCount'>> = {
 }
 const REASONS = ['core concept this implements', 'the check it relies on', 'replaces it', 'same project', 'background reading', 'decided in this meeting', 'owner of this', 'example of the method']
 
+/** The random draws, in order: every helper below takes from this one generator, so the same seed
+ *  gives the same model only while the draws stay in the same order. */
+type Rnd = () => number
+const pickOf = <T,>(rnd: Rnd, list: T[]): T => list[Math.floor(rnd() * list.length)]
+
+/** The topics: the named ones first (one is a subtopic), then "Topic N"; and each one's weight
+ *  (its share of the pages; a random one past the named). */
+function makeTopics(count: number, rnd: Rnd): { topics: GraphTopic[]; weights: number[] } {
+  const topics: GraphTopic[] = []
+  const weights: number[] = []
+  for (let i = 0; i < count; i++) {
+    const named = NAMED[i]
+    const parentIdx = named?.parent
+    const parent = parentIdx !== undefined && parentIdx < i ? topics[parentIdx] : null
+    const name = named?.name ?? `Topic ${i + 1}`
+    topics.push({ id: `t${i + 1}`, name, path: parent ? `${parent.path} / ${name}` : name, parent: parent ? parent.id : null, pageCount: 0, subjects: named?.subjects ?? `subject ${i + 1}a, subject ${i + 1}b` })
+    weights.push(named?.weight ?? 6 + rnd() * 18)
+  }
+  return { topics, weights }
+}
+
+/** Pages per topic, proportional to the weights; each topic gets at least one when there are
+ *  enough; what rounding leaves goes one by one from the first topic on. */
+function pagesPerTopic(weights: number[], filed: number): number[] {
+  const topicCount = weights.length
+  const wsum = weights.reduce((a, b) => a + b, 0)
+  const counts = weights.map((w) => (filed >= topicCount ? 1 : 0) + Math.floor(((filed - (filed >= topicCount ? topicCount : 0)) * w) / wsum))
+  let left = filed - counts.reduce((a, b) => a + b, 0)
+  for (let i = 0; left > 0; i = (i + 1) % topicCount, left--) counts[i]++
+  return counts
+}
+
+// Page fields derived from the page's number (n: how many pages came before) and kind, without
+// random draws, so the seeded pages stay the same.
+const demoTags = (n: number): string[] => (n % 11 === 3 ? ['follow up'] : n % 9 === 4 ? ['licensing'] : n % 31 === 7 ? ['licensing', 'key reference'] : [])
+const demoSite = (kind: string, n: number): string => (kind === 'link-web' ? `site${n % 3}.example` : kind === 'link-internal' ? 'team.example' : '')
+const demoUrl = (kind: string, n: number): string => (kind === 'link-web' ? `https://site${n % 3}.example/page-${n}` : kind === 'link-internal' ? `https://team.example/sites/demo/page-${n}` : '')
+/** As the server would place it (lib/GraphModel.psm1): internal links spread over Microsoft 365
+ *  apps, web links by site, files on OneDrive, the rest without an address. */
+function demoSourceId(kind: string, n: number, readOnly: boolean): string {
+  if (kind === 'link-web') return `web/site${n % 3}.example`
+  if (kind === 'link-internal') return DEMO_INTERNAL[n % DEMO_INTERNAL.length]
+  if (kind === 'file') return 'onedrive'
+  return readOnly ? 'onenote' : 'obsidinote'
+}
+
+const DEMO_DAY = Date.UTC(2026, 10, 12, 12, 0)
+
+/** The pages and links being made, with the two ways to add to them. */
+interface DemoBuilder {
+  pages: GraphPage[]
+  edges: GraphEdge[]
+  /** A page; a hub sits in 00 Index, any other page gets a random section. Draws: the section
+   *  (not for a hub), then the day it changed. */
+  addPage: (title: string, topicIds: string[], hub: boolean) => GraphPage
+  /** A link (with a random reason) or a mention between pages a and b; none from a page to itself. */
+  link: (a: number, b: number, s: Strength, kind?: 'link' | 'mention') => void
+}
+
+function demoBuilder(rnd: Rnd, readOnly: boolean): DemoBuilder {
+  const pages: GraphPage[] = []
+  const edges: GraphEdge[] = []
+  const addPage = (title: string, topicIds: string[], hub: boolean): GraphPage => {
+    const n = pages.length
+    const [bucket, kind] = hub ? ['00 Index', 'hub'] : pickOf(rnd, BUCKETS)
+    const page: GraphPage = {
+      id: `p${n + 1}`, title, topicIds, bucket, section: bucket, tags: demoTags(n), kind, links: 0, linkedFrom: 0, weight: 0, isHub: false, unlinked: false,
+      summary: `Example summary for “${title}”: invented text for the demo.`,
+      onenoteUrl: `onenote:#example-page-${n + 1}`,
+      modified: new Date(DEMO_DAY - Math.floor(rnd() * 90) * 86_400_000).toISOString(),
+      readOnly,
+      aliases: hub ? [] : n % 7 === 3 ? [`${title.split(' ')[0]} (alias)`] : [],
+      site: demoSite(kind, n),
+      archived: !hub && n % 23 === 22,
+      url: demoUrl(kind, n),
+      sourceId: demoSourceId(kind, n, readOnly),
+      origin: '',
+    }
+    pages.push(page)
+    return page
+  }
+  const link = (a: number, b: number, s: Strength, kind: 'link' | 'mention' = 'link'): void => {
+    if (a === b) return
+    edges.push({ from: pages[a].id, to: pages[b].id, strength: s, kind, reason: kind === 'link' ? pickOf(rnd, REASONS) : undefined })
+  }
+  return { pages, edges, addPage, link }
+}
+
+/** One topic's n pages (the first a hub when there are more than three), each but the first linked
+ *  into the topic (a loose topic's last page left unlinked), a few also under another topic.
+ *  Returns the index of its first page. */
+function fillTopic(b: DemoBuilder, rnd: Rnd, topics: GraphTopic[], ti: number, n: number): number {
+  const t = topics[ti]
+  const first = b.pages.length
+  const named = NAMED[ti]
+  for (let k = 0; k < n; k++) {
+    const title = named?.titles[k] ?? `${t.name} page ${k + 1}`
+    const extra = k > 2 && rnd() < 0.08 ? [pickOf(rnd, topics).id] : []
+    b.addPage(title, [t.id, ...extra.filter((x) => x !== t.id)], k === 0 && n > 3)
+    const loose = (named?.loose ?? ti % 3 === 1) && k === n - 1 && n > 2
+    if (k > 0 && !loose) {
+      const to = k < 6 ? first : first + Math.floor(rnd() * k)
+      b.link(first + k, to, (1 + Math.floor(rnd() * 3)) as Strength)
+      if (rnd() < 0.35) b.link(first + k, first + Math.floor(rnd() * k), 1)
+    }
+  }
+  return first
+}
+
+/** Links between topics: hubs to hubs (each topic to the one before it), then a few page-to-page
+ *  across topics, then mentions (shown only with that filter on). */
+function crossTopicLinks(b: DemoBuilder, rnd: Rnd, counts: number[], firstOf: number[], filed: number, total: number): void {
+  for (let i = 1; i < counts.length; i++) {
+    if (counts[i] && counts[i - 1]) b.link(firstOf[i - 1], firstOf[i], (1 + Math.floor(rnd() * 3)) as Strength)
+  }
+  const cross = Math.round(filed * 0.18)
+  for (let c = 0; c < cross && filed > 1; c++) {
+    const x = Math.floor(rnd() * filed)
+    const y = Math.floor(rnd() * filed)
+    if (b.pages[x].topicIds[0] !== b.pages[y].topicIds[0]) b.link(x, y, rnd() < 0.7 ? 1 : 2)
+  }
+  const mentions = Math.round(total * 0.06)
+  for (let c = 0; c < mentions && total > 1; c++) b.link(Math.floor(rnd() * total), Math.floor(rnd() * total), 1, 'mention')
+}
+
+/** One edge per kind and pair of pages (the first one made). */
+function uniqueEdges(edges: GraphEdge[]): GraphEdge[] {
+  const seen = new Set<string>()
+  return edges.filter((e) => {
+    const k = `${e.kind}:${e.from < e.to ? e.from + '|' + e.to : e.to + '|' + e.from}`
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
+}
+
+/** Each topic's page count; a parent's count includes its subtopics' pages, as in the index. */
+function countTopicPages(topics: GraphTopic[], pages: GraphPage[]): void {
+  for (const p of pages) for (const t of p.topicIds) topics.find((x) => x.id === t)!.pageCount++
+  for (const t of [...topics].reverse()) if (t.parent) topics.find((x) => x.id === t.parent)!.pageCount += t.pageCount
+}
+
 export function syntheticGraph(opts: SyntheticOptions = {}): GraphModel {
   const total = Math.max(0, Math.floor(opts.pages ?? 100))
   const topicCount = Math.max(1, Math.floor(opts.topics ?? 6))
   const unfiled = Math.min(total, Math.max(0, Math.floor(opts.unfiled ?? (total >= 20 ? 2 : 0))))
   const rnd = seeded(opts.seed ?? 7)
   const readOnly = opts.readOnly === true
-  const pick = <T,>(list: T[]): T => list[Math.floor(rnd() * list.length)]
 
-  const topics: GraphTopic[] = []
-  const weights: number[] = []
-  for (let i = 0; i < topicCount; i++) {
-    const named = NAMED[i]
-    const id = `t${i + 1}`
-    const parentIdx = named?.parent
-    const parent = parentIdx !== undefined && parentIdx < i ? topics[parentIdx] : null
-    const name = named?.name ?? `Topic ${i + 1}`
-    topics.push({ id, name, path: parent ? `${parent.path} / ${name}` : name, parent: parent ? parent.id : null, pageCount: 0, subjects: named?.subjects ?? `subject ${i + 1}a, subject ${i + 1}b` })
-    weights.push(named?.weight ?? 6 + rnd() * 18)
-  }
-
-  // Pages per topic, proportional to the weights; each topic gets at least one.
+  const { topics, weights } = makeTopics(topicCount, rnd)
   const filed = total - unfiled
-  const wsum = weights.reduce((a, b) => a + b, 0)
-  const counts = weights.map((w) => (filed >= topicCount ? 1 : 0) + Math.floor(((filed - (filed >= topicCount ? topicCount : 0)) * w) / wsum))
-  let left = filed - counts.reduce((a, b) => a + b, 0)
-  for (let i = 0; left > 0; i = (i + 1) % topicCount, left--) counts[i]++
-
-  const pages: GraphPage[] = []
-  const edges: GraphEdge[] = []
-  const firstOf: number[] = []
-  const day = Date.UTC(2026, 10, 12, 12, 0)
-  const addPage = (title: string, topicIds: string[], hub: boolean): GraphPage => {
-    const [bucket, kind] = hub ? ['00 Index', 'hub'] : pick(BUCKETS)
-    const id = `p${pages.length + 1}`
-    const page: GraphPage = {
-      id, title, topicIds, bucket, section: bucket, tags: pages.length % 11 === 3 ? ['follow up'] : pages.length % 9 === 4 ? ['licensing'] : pages.length % 31 === 7 ? ['licensing', 'key reference'] : [], kind, links: 0, linkedFrom: 0, weight: 0, isHub: false, unlinked: false,
-      summary: `Example summary for “${title}”: invented text for the demo.`,
-      onenoteUrl: `onenote:#example-page-${pages.length + 1}`,
-      modified: new Date(day - Math.floor(rnd() * 90) * 86_400_000).toISOString(),
-      readOnly,
-      // Derived without extra random draws, so the seeded pages stay the same.
-      aliases: hub ? [] : pages.length % 7 === 3 ? [`${title.split(' ')[0]} (alias)`] : [],
-      site: kind === 'link-web' ? `site${pages.length % 3}.example` : kind === 'link-internal' ? 'team.example' : '',
-      archived: !hub && pages.length % 23 === 22,
-      url: kind === 'link-web' ? `https://site${pages.length % 3}.example/page-${pages.length}` : kind === 'link-internal' ? `https://team.example/sites/demo/page-${pages.length}` : '',
-      // As the server would place it (lib/GraphModel.psm1): internal links spread over Microsoft 365
-      // apps, web links by site, files on OneDrive, the rest without an address.
-      sourceId:
-        kind === 'link-web' ? `web/site${pages.length % 3}.example`
-        : kind === 'link-internal' ? DEMO_INTERNAL[pages.length % DEMO_INTERNAL.length]
-        : kind === 'file' ? 'onedrive'
-        : readOnly ? 'onenote' : 'obsidinote',
-      origin: '',
-    }
-    pages.push(page)
-    return page
-  }
-  const link = (a: number, b: number, s: Strength, kind: 'link' | 'mention' = 'link') => {
-    if (a === b) return
-    edges.push({ from: pages[a].id, to: pages[b].id, strength: s, kind, reason: kind === 'link' ? pick(REASONS) : undefined })
-  }
-
-  topics.forEach((t, ti) => {
-    const first = pages.length
-    firstOf.push(first)
-    const named = NAMED[ti]
-    const n = counts[ti]
-    for (let k = 0; k < n; k++) {
-      const title = named?.titles[k] ?? `${t.name} page ${k + 1}`
-      const extra = k > 2 && rnd() < 0.08 ? [pick(topics).id] : []
-      addPage(title, [t.id, ...extra.filter((x) => x !== t.id)], k === 0 && n > 3)
-      const loose = (named?.loose ?? ti % 3 === 1) && k === n - 1 && n > 2
-      if (k > 0 && !loose) {
-        const to = k < 6 ? first : first + Math.floor(rnd() * k)
-        link(first + k, to, (1 + Math.floor(rnd() * 3)) as Strength)
-        if (rnd() < 0.35) link(first + k, first + Math.floor(rnd() * k), 1)
-      }
-    }
-  })
-  for (let k = 0; k < unfiled; k++) addPage(`Unfiled item ${k + 1}`, [], false)
-
-  // Links between topics: hubs to hubs, and a few page-to-page.
-  for (let i = 1; i < topics.length; i++) {
-    if (counts[i] && counts[i - 1]) link(firstOf[i - 1], firstOf[i], (1 + Math.floor(rnd() * 3)) as Strength)
-  }
-  const cross = Math.round(filed * 0.18)
-  for (let c = 0; c < cross && filed > 1; c++) {
-    const a = Math.floor(rnd() * filed)
-    const b = Math.floor(rnd() * filed)
-    if (pages[a].topicIds[0] !== pages[b].topicIds[0]) link(a, b, rnd() < 0.7 ? 1 : 2)
-  }
-  // Mentions, not linked (shown only with that filter on).
-  const mentions = Math.round(total * 0.06)
-  for (let c = 0; c < mentions && total > 1; c++) link(Math.floor(rnd() * total), Math.floor(rnd() * total), 1, 'mention')
+  const counts = pagesPerTopic(weights, filed)
+  const b = demoBuilder(rnd, readOnly)
+  const firstOf = topics.map((_, ti) => fillTopic(b, rnd, topics, ti, counts[ti]))
+  for (let k = 0; k < unfiled; k++) b.addPage(`Unfiled item ${k + 1}`, [], false)
+  crossTopicLinks(b, rnd, counts, firstOf, filed, total)
 
   // Drop duplicate pairs, then weigh the pages as normalizeGraph does (weights.ts).
-  const seen = new Set<string>()
-  const unique = edges.filter((e) => {
-    const k = `${e.kind}:${e.from < e.to ? e.from + '|' + e.to : e.to + '|' + e.from}`
-    if (seen.has(k)) return false
-    seen.add(k)
-    return true
-  })
+  const pages = b.pages
+  const unique = uniqueEdges(b.edges)
   applyLinkWeights(pages, unique)
-  for (const p of pages) for (const t of p.topicIds) topics.find((x) => x.id === t)!.pageCount++
-  // A parent's count includes its subtopics' pages, as in the index.
-  for (const t of [...topics].reverse()) if (t.parent) topics.find((x) => x.id === t.parent)!.pageCount += t.pageCount
+  countTopicPages(topics, pages)
 
   return {
     source: readOnly

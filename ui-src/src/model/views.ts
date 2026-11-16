@@ -10,6 +10,11 @@ export const VIEWS: Record<View, { label: string; hash: string }> = {
 
 export const VIEW_ORDER: View[] = ['home', 'graph', 'history']
 
+/** The window title for a view: the app's name alone on the home page. */
+export function viewTitle(view: View): string {
+  return view === 'home' ? 'ObsidiNote' : `${VIEWS[view].label} - ObsidiNote`
+}
+
 export function viewFromHash(hash: string): View {
   const found = VIEW_ORDER.find((v) => v !== 'home' && VIEWS[v].hash === hash)
   return found ?? 'home'

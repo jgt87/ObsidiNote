@@ -81,74 +81,89 @@ interface Token {
   end: number
 }
 
+/** A quoted token starting at `start`: "..." (key '') or key:"..."; without a closing quote it runs
+ *  to the end of the input. */
+function quotedToken(input: string, start: number, key: string): Token {
+  const open = start + (key ? key.length + 1 : 0)
+  const close = input.indexOf('"', open + 1)
+  const end = close < 0 ? input.length : close + 1
+  return { text: input.slice(open + 1, close < 0 ? input.length : close), quoted: true, key, start, end }
+}
+
+/** The token that starts at `start` (not a space): quoted, key:"quoted", or up to the next space. */
+function tokenAt(input: string, start: number): Token {
+  if (input[start] === '"') return quotedToken(input, start, '')
+  const keyed = /^([A-Za-z]+):"/.exec(input.slice(start))
+  if (keyed) return quotedToken(input, start, keyed[1])
+  let end = start
+  while (end < input.length && !/\s/.test(input[end])) end++
+  return { text: input.slice(start, end), quoted: false, key: '', start, end }
+}
+
 function tokenize(input: string): Token[] {
   const tokens: Token[] = []
   let i = 0
-  const n = input.length
-  while (i < n) {
-    while (i < n && /\s/.test(input[i])) i++
-    if (i >= n) break
-    const start = i
-    if (input[i] === '"') {
-      const close = input.indexOf('"', i + 1)
-      const end = close < 0 ? n : close + 1
-      tokens.push({ text: input.slice(i + 1, close < 0 ? n : close), quoted: true, key: '', start, end })
-      i = end
-      continue
-    }
-    const keyed = /^([A-Za-z]+):"/.exec(input.slice(i))
-    if (keyed) {
-      const open = i + keyed[1].length + 1
-      const close = input.indexOf('"', open + 1)
-      const end = close < 0 ? n : close + 1
-      tokens.push({ text: input.slice(open + 1, close < 0 ? n : close), quoted: true, key: keyed[1], start, end })
-      i = end
-      continue
-    }
-    while (i < n && !/\s/.test(input[i])) i++
-    tokens.push({ text: input.slice(start, i), quoted: false, key: '', start, end: i })
+  for (;;) {
+    while (i < input.length && /\s/.test(input[i])) i++
+    if (i >= input.length) return tokens
+    const t = tokenAt(input, i)
+    tokens.push(t)
+    i = t.end
   }
-  return tokens
 }
 
-/** The filter a key and value make, or null when it is not a valid filter (then: a free word). */
+/** A filter's value in the form it is compared in: paths without spaces round "/", a bare host,
+ *  else lower case without accents. */
+function filterValue(key: FilterKey, label: string): string {
+  if (key === 'topic' || key === 'section') return normalizePath(label)
+  if (key === 'site') return normalizeSite(label)
+  return collapse(normalizeText(label))
+}
+
+/** Dates must be real months and days, is: one of its words; any other value is accepted. */
+function acceptedValue(key: FilterKey, value: string): boolean {
+  if (key === 'after' || key === 'before') return validDate(value)
+  if (key === 'is') return IS_VALUES.includes(value as IsValue)
+  return true
+}
+
+/** The filter a key and value make; null when it is not a valid filter (then: a free word);
+ *  'empty' for a filter without a value (then: ignored). */
 function toFilter(rawKey: string, rawValue: string, start: number, end: number): QueryFilter | null | 'empty' {
   const key = rawKey.toLowerCase() as FilterKey
   if (!FILTER_KEYS.includes(key)) return null
   const label = collapse(rawValue)
   if (!label) return 'empty'
-  let value: string
-  if (key === 'topic' || key === 'section') value = normalizePath(label)
-  else if (key === 'site') value = normalizeSite(label)
-  else value = collapse(normalizeText(label))
-  if ((key === 'after' || key === 'before') && !validDate(value)) return null
-  if (key === 'is' && !IS_VALUES.includes(value as IsValue)) return null
+  const value = filterValue(key, label)
+  if (!acceptedValue(key, value)) return null
   if (!value) return 'empty'
   return { key, value, label, start, end }
+}
+
+/** What one token adds to the query: a filter, a free word (a string), or nothing. A key:"value"
+ *  that is no filter stays a word with its key; a quoted phrase is always a word. */
+function readToken(t: Token): QueryFilter | string | null {
+  if (t.key) {
+    const f = toFilter(t.key, t.text, t.start, t.end)
+    if (f === 'empty') return null
+    return f ?? `${t.key}:${t.text}`
+  }
+  const colon = t.quoted ? -1 : t.text.indexOf(':')
+  if (colon > 0) {
+    const f = toFilter(t.text.slice(0, colon), t.text.slice(colon + 1), t.start, t.end)
+    if (f === 'empty') return null
+    if (f) return f
+  }
+  return t.text
 }
 
 export function parseQuery(input: string): ParsedQuery {
   const terms: string[] = []
   const filters: QueryFilter[] = []
   for (const t of tokenize(input)) {
-    if (t.key) {
-      const f = toFilter(t.key, t.text, t.start, t.end)
-      if (f && f !== 'empty') filters.push(f)
-      else if (f === null) pushTerm(terms, `${t.key}:${t.text}`)
-      continue
-    }
-    if (!t.quoted) {
-      const colon = t.text.indexOf(':')
-      if (colon > 0) {
-        const f = toFilter(t.text.slice(0, colon), t.text.slice(colon + 1), t.start, t.end)
-        if (f === 'empty') continue
-        if (f) {
-          filters.push(f)
-          continue
-        }
-      }
-    }
-    pushTerm(terms, t.text)
+    const r = readToken(t)
+    if (typeof r === 'string') pushTerm(terms, r)
+    else if (r) filters.push(r)
   }
   return { terms, filters }
 }
@@ -282,6 +297,16 @@ function pageTier(p: PreparedPage, terms: string[]): number | null {
   return null
 }
 
+/** A topic's rank for the words, on the page scale: 0 the name starts with them, 1 every word
+ *  starts a word of the name, 2 the name holds every word, 4 the path does; null: no match. */
+function topicTier(t: PreparedTopic, terms: string[]): number | null {
+  if (t.name.startsWith(terms.join(' '))) return 0
+  if (terms.every((w) => startsWord(t.name, w))) return 1
+  if (allIn(terms, t.name)) return 2
+  if (allIn(terms, t.path)) return 4
+  return null
+}
+
 function topicIdsFor(prep: Prepared, values: string[]): Set<string> {
   const ids = new Set<string>()
   const stack: string[] = []
@@ -297,34 +322,41 @@ function topicIdsFor(prep: Prepared, values: string[]): Set<string> {
   return ids
 }
 
-/** A predicate for the filters of a query; null when it has none. */
+const IS_TESTS: Record<IsValue, (p: GraphPage) => boolean> = {
+  archived: (p) => p.archived,
+  hub: (p) => p.isHub,
+  unlinked: (p) => p.unlinked,
+}
+
+/** Per key, whether a page passes that key's values: repeated type:, site:, section: and tag: mean
+ *  any of them; after:, before: and is: must all hold. topic: is resolved to topic ids first
+ *  (filterPredicate). */
+const PAGE_TESTS: Record<Exclude<FilterKey, 'topic'>, (p: PreparedPage, values: string[]) => boolean> = {
+  type: (p, vs) => vs.some((v) => p.kind.startsWith(v) || p.bucket.startsWith(v)),
+  site: (p, vs) => vs.some((v) => p.site === v || p.site.endsWith(`.${v}`)),
+  section: (p, vs) => vs.includes(p.section),
+  tag: (p, vs) => vs.some((v) => p.tags.includes(v)),
+  after: (p, vs) => vs.every((v) => !!p.date && p.date >= v),
+  before: (p, vs) => vs.every((v) => !!p.date && p.date < v),
+  is: (p, vs) => vs.every((v) => IS_TESTS[v as IsValue](p.page)),
+}
+
+/** A predicate for the filters of a query (every key used must pass); null when it has none. */
 function filterPredicate(prep: Prepared, filters: QueryFilter[]): ((p: PreparedPage) => boolean) | null {
   if (!filters.length) return null
-  const of = (k: FilterKey) => filters.filter((f) => f.key === k).map((f) => f.value)
-  const types = of('type')
-  const sites = of('site')
-  const sections = of('section')
-  const tags = of('tag')
-  const after = of('after')
-  const before = of('before')
-  const is = of('is')
-  const topicValues = of('topic')
-  const topicIds = topicValues.length ? topicIdsFor(prep, topicValues) : null
-  return (p) => {
-    if (types.length && !types.some((v) => p.kind.startsWith(v) || p.bucket.startsWith(v))) return false
-    if (sites.length && !sites.some((v) => p.site === v || p.site.endsWith(`.${v}`))) return false
-    if (sections.length && !sections.includes(p.section)) return false
-    if (tags.length && !tags.some((v) => p.tags.includes(v))) return false
-    if (topicIds && !p.page.topicIds.some((id) => topicIds.has(id))) return false
-    if (after.some((v) => !p.date || p.date < v)) return false
-    if (before.some((v) => !p.date || p.date >= v)) return false
-    for (const v of is) {
-      if (v === 'archived' && !p.page.archived) return false
-      if (v === 'hub' && !p.page.isHub) return false
-      if (v === 'unlinked' && !p.page.unlinked) return false
+  const byKey = new Map<FilterKey, string[]>()
+  for (const f of filters) byKey.set(f.key, [...(byKey.get(f.key) ?? []), f.value])
+  const tests: ((p: PreparedPage) => boolean)[] = []
+  for (const [key, values] of byKey) {
+    if (key === 'topic') {
+      const ids = topicIdsFor(prep, values)
+      tests.push((p) => p.page.topicIds.some((id) => ids.has(id)))
+    } else {
+      const test = PAGE_TESTS[key]
+      tests.push((p) => test(p, values))
     }
-    return true
   }
+  return (p) => tests.every((t) => t(p))
 }
 
 export interface RankedPage {
@@ -334,19 +366,36 @@ export interface RankedPage {
 
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
+interface Hit {
+  id: string
+  tier: number
+  /** What ties are ordered by: a page's title, a topic's path. */
+  name: string
+}
+
+/** Best first: the lower tier, then the name in locale order, then the id. */
+function bestFirst(hits: Hit[]): { id: string; tier: number }[] {
+  hits.sort((a, b) => a.tier - b.tier || collator.compare(a.name, b.name) || (a.id < b.id ? -1 : 1))
+  return hits.map((h) => ({ id: h.id, tier: h.tier }))
+}
+
+/** A page's tier for the query; null when it does not match. Filters alone match at tier 0. */
+function pageHit(p: PreparedPage, q: ParsedQuery, keep: ((p: PreparedPage) => boolean) | null): number | null {
+  if (keep && !keep(p)) return null
+  return q.terms.length ? pageTier(p, q.terms) : 0
+}
+
 /** Pages that match, best first. An empty query matches nothing; filters alone match by title order. */
 export function rankPages(index: GraphIndex, q: ParsedQuery): RankedPage[] {
   if (isEmptyQuery(q)) return []
   const prep = prepare(index)
   const keep = filterPredicate(prep, q.filters)
-  const hits: { p: PreparedPage; tier: number }[] = []
+  const hits: Hit[] = []
   for (const p of prep.pages) {
-    if (keep && !keep(p)) continue
-    const tier = q.terms.length ? pageTier(p, q.terms) : 0
-    if (tier !== null) hits.push({ p, tier })
+    const tier = pageHit(p, q, keep)
+    if (tier !== null) hits.push({ id: p.page.id, tier, name: p.page.title })
   }
-  hits.sort((a, b) => a.tier - b.tier || collator.compare(a.p.page.title, b.p.page.title) || (a.p.page.id < b.p.page.id ? -1 : 1))
-  return hits.map((h) => ({ id: h.p.page.id, tier: h.tier }))
+  return bestFirst(hits)
 }
 
 export interface RankedTopic {
@@ -358,18 +407,12 @@ export interface RankedTopic {
 export function rankTopics(index: GraphIndex, q: ParsedQuery): RankedTopic[] {
   if (!q.terms.length || q.filters.length) return []
   const prep = prepare(index)
-  const phrase = q.terms.join(' ')
-  const hits: { t: PreparedTopic; tier: number }[] = []
+  const hits: Hit[] = []
   for (const t of prep.topics) {
-    let tier: number | null = null
-    if (t.name.startsWith(phrase)) tier = 0
-    else if (q.terms.every((w) => startsWord(t.name, w))) tier = 1
-    else if (allIn(q.terms, t.name)) tier = 2
-    else if (allIn(q.terms, t.path)) tier = 4
-    if (tier !== null) hits.push({ t, tier })
+    const tier = topicTier(t, q.terms)
+    if (tier !== null) hits.push({ id: t.topic.id, tier, name: t.topic.path })
   }
-  hits.sort((a, b) => a.tier - b.tier || collator.compare(a.t.topic.path, b.t.topic.path) || (a.t.topic.id < b.t.topic.id ? -1 : 1))
-  return hits.map((h) => ({ id: h.t.topic.id, tier: h.tier }))
+  return bestFirst(hits)
 }
 
 export type FindItem = { kind: 'topic'; id: string } | { kind: 'page'; id: string }

@@ -34,6 +34,19 @@ export function emptyFilter(): GraphFilter {
   return { types: new Set(), topics: new Set(), tags: new Set(), unlinkedOnly: false, showArchived: false, staleBefore: null, focus: null }
 }
 
+/** The active choices in words, for the one-line summary under the map ("type: note · without
+ *  links"); topic ids are named by `topicName`. The focus is not one of them (it has its own part). */
+export function filterParts(f: GraphFilter, topicName: (id: string) => string): string[] {
+  const parts: string[] = []
+  if (f.types.size) parts.push(`type: ${[...f.types].join(', ')}`)
+  if (f.topics.size) parts.push(`topic: ${[...f.topics].map(topicName).join(', ')}`)
+  if (f.tags.size) parts.push(`tag: ${[...f.tags].join(', ')}`)
+  if (f.unlinkedOnly) parts.push('without links')
+  if (f.staleBefore !== null) parts.push('old link summaries (select them in the List to update)')
+  if (f.showArchived) parts.push('archived shown')
+  return parts
+}
+
 /** True when the filter hides anything beyond archived pages (the default). */
 export function isFilterActive(f: GraphFilter): boolean {
   return f.types.size > 0 || f.topics.size > 0 || f.tags.size > 0 || f.unlinkedOnly || f.showArchived || f.staleBefore !== null || f.focus !== null

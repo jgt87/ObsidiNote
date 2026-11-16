@@ -16,6 +16,20 @@ export function citeTarget(source: Pick<AskSource, 'url' | 'link' | 'readOnly'> 
   return { kind: 'list' }
 }
 
+/** What a citation [n] is: a link (its address, a new tab for a web address) or a button that opens
+ *  the page window; its tooltip and its name for a screen reader. `title` is the cited source's
+ *  title, undefined when the number names no source read. */
+export type CiteChipView =
+  | { tag: 'a'; href: string; newTab: boolean; title?: string; label: string }
+  | { tag: 'button'; title: string; label: string }
+export function citeChipView(n: number, title: string | undefined, go: CiteTarget, anchor: string): CiteChipView {
+  const name = `Source ${n}: ${title ?? ''}`
+  if (go.kind === 'url') return { tag: 'a', href: go.href, newTab: true, title: go.href, label: `${name}, opens the link` }
+  if (go.kind === 'onenote') return { tag: 'a', href: go.href, newTab: false, title: 'Open in OneNote', label: `${name}, opens in OneNote` }
+  if (go.kind === 'page' && title !== undefined) return { tag: 'button', title: `Open ${title}`, label: `${name}, opens the page` }
+  return { tag: 'a', href: `#${anchor}`, newTab: false, label: name }
+}
+
 /** Windows PowerShell can hand a one-item or empty list over as an object or null. */
 export function list<T>(value: T[] | T | null | undefined): T[] {
   if (value == null) return []
@@ -99,6 +113,13 @@ export function confidenceLabel(c: string | undefined): string {
   if (c === 'high') return 'The pages answer this directly.'
   if (c === 'medium') return 'The pages answer this in part; some reading between the lines.'
   return 'The pages give only a partial answer.'
+}
+
+/** The note after the confidence line when citations to pages that were not read were dropped
+ *  (with its leading space), else ''. */
+export function droppedCitationsNote(dropped: number): string {
+  if (dropped <= 0) return ''
+  return ` ${dropped === 1 ? 'One citation pointed' : `${dropped} citations pointed`} to a page that was not read and ${dropped === 1 ? 'was' : 'were'} left out.`
 }
 
 /** Where a source comes from, when it is not the active vault. */

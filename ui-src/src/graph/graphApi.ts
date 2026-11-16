@@ -17,6 +17,32 @@ export class GraphLoadError extends Error {
   }
 }
 
+const NOT_ANSWERING = 'ObsidiNote is not answering. Is it still running?'
+
+/** The request, with ObsidiNote's header. A network failure becomes GraphLoadError status 0 (the
+ *  server is gone); with `passAbort`, a cancelled request's AbortError is passed on as it is. */
+async function send(url: string, init: RequestInit, fetcher: typeof fetch, passAbort = false): Promise<Response> {
+  try {
+    return await fetcher(url, { ...init, headers: { 'X-ObsidiNote': '1', ...(init.headers as Record<string, string> | undefined) } })
+  } catch (e) {
+    if (passAbort && e instanceof DOMException && e.name === 'AbortError') throw e
+    throw new GraphLoadError(NOT_ANSWERING, 0)
+  }
+}
+
+/** The answer's JSON object, or {} when it has none. */
+async function answerOf(res: Response): Promise<Record<string, unknown>> {
+  const data: unknown = await res.json().catch(() => null)
+  return (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
+}
+
+/** A refusal with the server's message, or which status it answered. */
+function refusal(res: Response, b: Record<string, unknown>): GraphLoadError {
+  return new GraphLoadError(b.error ? String(b.error) : `The server answered ${res.status}.`, res.status)
+}
+
+const POST_JSON = { method: 'POST', headers: { 'Content-Type': 'application/json' } }
+
 export function graphUrl(ref: GraphSourceRef = {}, route = GRAPH_ROUTE): string {
   const q = new URLSearchParams()
   if ('vault' in ref && ref.vault) q.set('vault', ref.vault)
@@ -26,13 +52,7 @@ export function graphUrl(ref: GraphSourceRef = {}, route = GRAPH_ROUTE): string 
 }
 
 export async function fetchGraph(ref: GraphSourceRef = {}, signal?: AbortSignal, fetcher: typeof fetch = fetch): Promise<GraphModel> {
-  let res: Response
-  try {
-    res = await fetcher(graphUrl(ref), { headers: { 'X-ObsidiNote': '1' }, cache: 'no-store', signal })
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'AbortError') throw e
-    throw new GraphLoadError('ObsidiNote is not answering. Is it still running?', 0)
-  }
+  const res = await send(graphUrl(ref), { cache: 'no-store', signal }, fetcher, true)
   const body: unknown = await res.json().catch(() => null)
   if (res.status !== 200) {
     const msg = body && typeof body === 'object' && 'error' in body ? String((body as { error: unknown }).error) : `The server answered ${res.status}.`
@@ -52,16 +72,9 @@ export async function fetchPageBody(page: string, source: { vault?: string; note
   const q = new URLSearchParams({ page })
   if (source.vault) q.set('vault', source.vault)
   if (source.notebook) q.set('notebook', source.notebook)
-  let res: Response
-  try {
-    res = await fetcher(`${PAGE_BODY_ROUTE}?${q}`, { headers: { 'X-ObsidiNote': '1' }, cache: 'no-store', signal })
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'AbortError') throw e
-    throw new GraphLoadError('ObsidiNote is not answering. Is it still running?', 0)
-  }
-  const data: unknown = await res.json().catch(() => null)
-  const b = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
-  if (res.status !== 200) throw new GraphLoadError(b.error ? String(b.error) : `The server answered ${res.status}.`, res.status)
+  const res = await send(`${PAGE_BODY_ROUTE}?${q}`, { cache: 'no-store', signal }, fetcher, true)
+  const b = await answerOf(res)
+  if (res.status !== 200) throw refusal(res, b)
   return { markdown: typeof b.markdown === 'string' ? b.markdown : '', truncated: b.truncated === true }
 }
 
@@ -73,28 +86,15 @@ export const PAGE_EDIT_ROUTE = '/api/page/edit'
  * wrong, 409 read only or another source, 404 not in the index).
  */
 export async function editPage(req: PageEditRequest, fetcher: typeof fetch = fetch): Promise<'edited' | 'unchanged'> {
-  let res: Response
-  try {
-    res = await fetcher(PAGE_EDIT_ROUTE, { method: 'POST', headers: { 'X-ObsidiNote': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(req) })
-  } catch {
-    throw new GraphLoadError('ObsidiNote is not answering. Is it still running?', 0)
-  }
-  const body: unknown = await res.json().catch(() => null)
-  const b = (body && typeof body === 'object' ? body : {}) as { status?: unknown; error?: unknown }
-  if (res.status !== 200) throw new GraphLoadError(b.error ? String(b.error) : `The server answered ${res.status}.`, res.status)
+  const b = await postJson(PAGE_EDIT_ROUTE, req, fetcher)
   return b.status === 'unchanged' ? 'unchanged' : 'edited'
 }
 
+/** POST a JSON body; the answer's object on 200, else a refusal with the server's message. */
 async function postJson(route: string, body: unknown, fetcher: typeof fetch): Promise<Record<string, unknown>> {
-  let res: Response
-  try {
-    res = await fetcher(route, { method: 'POST', headers: { 'X-ObsidiNote': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-  } catch {
-    throw new GraphLoadError('ObsidiNote is not answering. Is it still running?', 0)
-  }
-  const data: unknown = await res.json().catch(() => null)
-  const b = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
-  if (res.status !== 200) throw new GraphLoadError(b.error ? String(b.error) : `The server answered ${res.status}.`, res.status)
+  const res = await send(route, { ...POST_JSON, body: JSON.stringify(body) }, fetcher)
+  const b = await answerOf(res)
+  if (res.status !== 200) throw refusal(res, b)
   return b
 }
 
@@ -129,16 +129,10 @@ export type RetireAnswer = { kind: 'plan'; plan: RetirePlan } | { kind: 'result'
  * server's message otherwise (400 nothing that can be done, 409 read only or another vault).
  */
 export async function retirePages(action: RetireAction, ids: string[], vault: string, confirm: boolean, fetcher: typeof fetch = fetch): Promise<RetireAnswer> {
-  let res: Response
-  try {
-    res = await fetcher(RETIRE_ROUTES[action], { method: 'POST', headers: { 'X-ObsidiNote': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, ...(vault ? { vault } : {}), ...(confirm ? { confirm: true } : {}) }) })
-  } catch {
-    throw new GraphLoadError('ObsidiNote is not answering. Is it still running?', 0)
-  }
-  const data: unknown = await res.json().catch(() => null)
-  const b = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
+  const res = await send(RETIRE_ROUTES[action], { ...POST_JSON, body: JSON.stringify({ ids, ...(vault ? { vault } : {}), ...(confirm ? { confirm: true } : {}) }) }, fetcher)
+  const b = await answerOf(res)
   if (res.status === 409 && b.needsConfirm === true) return { kind: 'plan', plan: parsePlan(b.plan) }
-  if (res.status !== 200) throw new GraphLoadError(b.error ? String(b.error) : `The server answered ${res.status}.`, res.status)
+  if (res.status !== 200) throw refusal(res, b)
   return { kind: 'result', result: parseResult(b, action) }
 }
 
@@ -152,18 +146,6 @@ export type LinkAddStatus = 'linked' | 'already-linked'
  * GraphLoadError with the server's message otherwise.
  */
 export async function addLink(req: { from: string; to: string; vault?: string }, fetcher: typeof fetch = fetch): Promise<LinkAddStatus> {
-  let res: Response
-  try {
-    res = await fetcher(LINK_ADD_ROUTE, {
-      method: 'POST',
-      headers: { 'X-ObsidiNote': '1', 'Content-Type': 'application/json' },
-      body: JSON.stringify(req.vault ? req : { from: req.from, to: req.to }),
-    })
-  } catch {
-    throw new GraphLoadError('ObsidiNote is not answering. Is it still running?', 0)
-  }
-  const body: unknown = await res.json().catch(() => null)
-  const b = (body && typeof body === 'object' ? body : {}) as { status?: unknown; error?: unknown }
-  if (res.status !== 200) throw new GraphLoadError(b.error ? String(b.error) : `The server answered ${res.status}.`, res.status)
+  const b = await postJson(LINK_ADD_ROUTE, req.vault ? req : { from: req.from, to: req.to }, fetcher)
   return b.status === 'already-linked' ? 'already-linked' : 'linked'
 }

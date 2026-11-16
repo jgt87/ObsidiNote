@@ -7,16 +7,16 @@
 // layer with one attribute and redraws the focused dot and its neighbours in a small layer on top.
 // What is named, drawn on top and done on a key is decided in stageModel.ts.
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
-import { plural } from './format'
+import { memo, useCallback, useMemo, useRef, type RefObject } from 'react'
 import { indexPath, type GraphIndex } from './graphIndex'
 import { HoverCard } from './HoverCard'
 import { bundleEdges, restingBundles, type BundleLayout, type DotLayout, type GraphLayout } from './layout'
 import { primaryTopic } from './model'
 import { StageLegend, StageToolbar } from './StageChrome'
-import { areaAt, drawnAtRest, edgeClass, focusEdgeClass, focusEdgeList, sharpDots, stageKey, stageLabels, type StageKeyAction } from './stageModel'
+import { areaBundles, drawnAtRest, edgeClass, focusEdgeClass, focusEdgeList, sharpDots, stageAnnouncement, stageLabels } from './stageModel'
+import { useStageKeyboard, useStagePointer } from './useStageInput'
 import { useStageView } from './useStageView'
-import { lineMode, pan, toScreen } from './view'
+import { lineMode } from './view'
 
 export interface Filters {
   links: boolean
@@ -86,15 +86,8 @@ function dotClass(d: DotLayout, extra = ''): string {
   return `kg-dot${d.unlinked ? ' kg-dot--unlinked' : d.hub ? ' kg-dot--hub' : ''}${extra}`
 }
 
-const idOf = (t: EventTarget | null): string | null => (t instanceof Element ? t.getAttribute('data-id') : null)
-
 export function GraphStage({ index, layout, filters, matches, active, onActive, onOpen, stageRef, label, shown = null, onFocusPage, areaWord = 'topic' }: Props) {
   const { size, v, fit, setView, layerRef, current, preview, commit, zoomBy } = useStageView(stageRef, layout)
-  const [dragging, setDragging] = useState(false)
-  /** The topic area under the pointer (its name is hidden while it is). */
-  const [hoverArea, setHoverArea] = useState<string | null>(null)
-  const drag = useRef<{ x: number; y: number; id: string | null; moved: boolean; pointer: number } | null>(null)
-  const pointerFocus = useRef(false)
   const toolbarRef = useRef<HTMLButtonElement>(null)
 
   const matchSet = useMemo(() => (matches ? new Set(matches) : null), [matches])
@@ -107,127 +100,10 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   const activeDot = active && isShown(active.id) ? layout.dotById.get(active.id) ?? null : null
   const viaKeyboard = active?.via === 'keyboard'
 
-  // Keyboard focus keeps the active dot on screen.
-  useEffect(() => {
-    if (!activeDot || !viaKeyboard || !size.w) return
-    const [sx, sy] = toScreen(v, activeDot.x, activeDot.y)
-    const m = 48
-    if (sx < m || sy < m || sx > size.w - m || sy > size.h - m) {
-      setView({ k: v.k, x: activeDot.x - size.w / 2 / v.k, y: activeDot.y - size.h / 2 / v.k })
-    }
-  }, [activeDot, active?.via]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ---------- pointer ----------
-  const keyboardMode = useRef(false)
-  useEffect(() => {
-    if (viaKeyboard) keyboardMode.current = true
-  }, [active]) // eslint-disable-line react-hooks/exhaustive-deps
-  // A click anywhere outside the map closes a card the keyboard left open (a pointer card closes
-  // when the pointer leaves its dot). Not while the page window is open: it sits on top.
-  useEffect(() => {
-    if (!viaKeyboard) return
-    const onDown = (e: PointerEvent) => {
-      const el = stageRef.current
-      const t = e.target as Node | null
-      const insideMap = !!t && !!el?.contains(t)
-      if (!el || insideMap || document.querySelector('dialog[open]')) return
-      onActive(null)
-    }
-    window.addEventListener('pointerdown', onDown)
-    return () => window.removeEventListener('pointerdown', onDown)
-  }, [viaKeyboard, onActive, stageRef])
-
-  const onPointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
-    if (e.button !== 0) return
-    pointerFocus.current = true
-    drag.current = { x: e.clientX, y: e.clientY, id: idOf(e.target), moved: false, pointer: e.pointerId }
-  }
-  const trackHoverArea = (e: ReactPointerEvent<SVGSVGElement>) => {
-    // The area under the pointer: its name gives way so it never covers the pages.
-    const box = e.currentTarget.getBoundingClientRect()
-    const over = areaAt(layout.areas, current(), e.clientX - box.left, e.clientY - box.top)
-    if (over !== hoverArea) setHoverArea(over)
-  }
-  const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
-    keyboardMode.current = false
-    if (!drag.current?.moved) trackHoverArea(e)
-    const d = drag.current
-    if (!d || d.pointer !== e.pointerId) return
-    const dx = e.clientX - d.x
-    const dy = e.clientY - d.y
-    if (!d.moved && dx * dx + dy * dy < 16) return
-    if (!d.moved) {
-      d.moved = true
-      setDragging(true)
-      e.currentTarget.setPointerCapture(e.pointerId)
-      if (active?.via === 'pointer') onActive(null)
-    }
-    d.x = e.clientX
-    d.y = e.clientY
-    preview(pan(current(), dx, dy), 400)
-  }
-  const onPointerUp = (e: ReactPointerEvent<SVGSVGElement>) => {
-    const d = drag.current
-    drag.current = null
-    // Focus from this click (if any) has happened by now; a later keyboard focus must count.
-    pointerFocus.current = false
-    if (!d || d.pointer !== e.pointerId) return
-    if (d.moved) {
-      setDragging(false)
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
-      commit()
-      return
-    }
-    if (d.id && isShown(d.id)) onOpen(d.id, 'pointer')
-    // A click on an empty spot closes a preview card, also one the keyboard left open (2026-11-13).
-    else if (active) onActive(null)
-  }
-  const onPointerOver = (e: ReactPointerEvent<SVGSVGElement>) => {
-    // A resting pointer "enters" new dots when the keyboard redraws the focus layer under it;
-    // hover takes over only after the pointer really moves.
-    if (drag.current?.moved || keyboardMode.current) return
-    const id = idOf(e.target)
-    if (id && isShown(id) && active?.id !== id) onActive({ id, via: 'pointer' })
-  }
-  const onPointerOut = (e: ReactPointerEvent<SVGSVGElement>) => {
-    const id = idOf(e.target)
-    if (!id || drag.current?.moved) return
-    if (idOf(e.relatedTarget) === id) return
-    if (active?.via === 'pointer' && active.id === id) onActive(null)
-  }
-
-  // ---------- keyboard ----------
+  // Pointer and keyboard (useStageInput.ts).
+  const { dragging, hoverArea, pointerFocus, svgHandlers } = useStagePointer({ layout, stageRef, current, preview, commit, active, onActive, onOpen, isShown })
   const order = useMemo(() => layout.dots.filter((d) => visible(d.id)), [layout.dots, visible])
-  const runKeyAction = (a: StageKeyAction) => {
-    if (a.kind === 'activate') onActive({ id: a.id, via: 'keyboard' })
-    else if (a.kind === 'open') onOpen(a.id)
-    else if (a.kind === 'focusPage') onFocusPage?.(a.id)
-    else if (a.kind === 'zoom') zoomBy(a.factor)
-    else if (a.kind === 'fit') setView(fit)
-    else {
-      onActive(null)
-      toolbarRef.current?.focus()
-    }
-  }
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.target !== e.currentTarget) return
-    const r = stageKey(e, { activeDot, hasActive: !!active, order, dots: layout.dots, visible, canFocusPage: !!onFocusPage })
-    if (!r) return
-    if (r.prevent) e.preventDefault()
-    if (r.action) runKeyAction(r.action)
-  }
-  const onFocus = (e: FocusEvent<HTMLDivElement>) => {
-    if (e.target !== e.currentTarget) return
-    if (pointerFocus.current) {
-      pointerFocus.current = false
-      return
-    }
-    if (!active && order[0]) onActive({ id: order[0].id, via: 'keyboard' })
-    else if (active) onActive({ id: active.id, via: 'keyboard' })
-  }
-  const onBlur = (e: FocusEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget && viaKeyboard) onActive(null)
-  }
+  const keys = useStageKeyboard({ layout, active, activeDot, order, visible, onActive, onOpen, onFocusPage, zoomBy, fit, v, size, setView, toolbarRef, pointerFocus })
 
   // ---------- focus layer and names ----------
   const activeId = activeDot?.id ?? null
@@ -242,16 +118,11 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
   const allLines = lineMode(v.k, fit.k) === 'all'
   const resting = useMemo(() => (allLines ? bundles : restingBundles(bundles)), [bundles, allLines])
   // Pointing at a page shows every topic line of its area (under the areas, not faded).
-  const focusBundles = useMemo(
-    () => (activeDot && filters.links ? bundles.filter((b) => b.a === activeDot.area || b.b === activeDot.area) : []),
-    [bundles, activeDot, filters.links],
-  )
+  const focusBundles = useMemo(() => areaBundles(bundles, activeDot?.area ?? null, filters.links), [bundles, activeDot, filters.links])
 
   const world = `matrix(${v.k} 0 0 ${v.k} ${-v.x * v.k} ${-v.y * v.k})`
   const page = activeDot ? index.pageById.get(activeDot.id) : undefined
-  const announce = page
-    ? `${page.title}, ${indexPath(index, primaryTopic(page))}, ${plural(near.length, 'linked page')}. Enter opens${onFocusPage ? ', F focuses on this page' : ''}.`
-    : ''
+  const announce = page ? stageAnnouncement(page.title, indexPath(index, primaryTopic(page)), near.length, !!onFocusPage) : ''
 
   return (
     <div
@@ -263,24 +134,12 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
       aria-label={label ?? 'Knowledge graph'}
       aria-describedby="kg-stage-help"
       data-dragging={dragging}
-      onKeyDown={onKeyDown}
-      onFocus={onFocus}
-      onBlur={onBlur}
+      onKeyDown={keys.onKeyDown}
+      onFocus={keys.onFocus}
+      onBlur={keys.onBlur}
     >
       <div ref={layerRef} className="kg-layer">
-      <svg
-        className="kg-svg"
-        width={size.w}
-        height={size.h}
-        aria-hidden="true"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onPointerOver={onPointerOver}
-        onPointerOut={onPointerOut}
-        onPointerLeave={() => setHoverArea(null)}
-      >
+      <svg className="kg-svg" width={size.w} height={size.h} aria-hidden="true" {...svgHandlers}>
         <g transform={world}>
           <g className="kg-focus-bundles">
             {focusBundles.map((b) => (

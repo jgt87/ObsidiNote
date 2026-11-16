@@ -28,6 +28,13 @@ export function isFindKey(e: KeyLike): boolean {
   return e.code === 'KeyK' || e.key.toLowerCase() === 'k'
 }
 
+/** Ctrl+Shift+V (Cmd+Shift+V on a Mac): the browser's "paste as plain text"; the composer then
+ *  keeps the paste as it is, without turning its structure into Markdown. Matched on the key's
+ *  code, as the browser's own shortcut is. Alt is not looked at, as before. */
+export function isPlainPasteKey(e: KeyLike): boolean {
+  return (e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'KeyV'
+}
+
 /** Enter sends; Shift+Enter adds a line; never during IME composition. */
 export function isSendKey(e: KeyLike): boolean {
   return e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing

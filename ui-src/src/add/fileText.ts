@@ -250,6 +250,15 @@ interface XmlTextRules {
   local?: boolean
 }
 
+/** What a tag adds to the text outside skipped elements: a line break at a paragraph's end, a tab,
+ *  or a line break for a break element; '' for any other tag. */
+function tagText(rules: XmlTextRules, name: string, closing: boolean, selfClosing: boolean): string {
+  if (rules.para?.has(name) && (closing || selfClosing)) return '\n'
+  if (rules.tab?.has(name) && !closing) return '\t'
+  if (rules.br?.has(name) && !closing) return '\n'
+  return ''
+}
+
 /** Text inside the given XML elements; paragraph ends give line breaks. Pure string work. */
 function xmlText(xml: string, rules: XmlTextRules): string {
   const re = /<!\[CDATA\[([\s\S]*?)\]\]>|<[!?][^>]*>|<(\/?)([A-Za-z_][\w:.-]*)[^>]*?(\/?)>|([^<]+)/g
@@ -258,30 +267,19 @@ function xmlText(xml: string, rules: XmlTextRules): string {
   let skip = 0
   let m: RegExpExecArray | null
   while ((m = re.exec(xml))) {
-    if (m[1] !== undefined) {
-      if (inText > 0 && skip === 0) out += m[1]
-      continue
-    }
-    if (m[5] !== undefined) {
-      if (inText > 0 && skip === 0) out += decodeEntities(m[5])
+    const reading = inText > 0 && skip === 0
+    if (m[1] !== undefined || m[5] !== undefined) {
+      if (reading) out += m[1] !== undefined ? m[1] : decodeEntities(m[5])
       continue
     }
     if (m[3] === undefined) continue
     const closing = m[2] === '/'
     const selfClosing = m[4] === '/'
+    const step = selfClosing ? 0 : closing ? -1 : 1
     const name = rules.local ? m[3].replace(/^[^:]*:/, '') : m[3]
-    if (rules.skip?.has(name)) {
-      if (!selfClosing) skip += closing ? -1 : 1
-      continue
-    }
-    if (rules.text.has(name)) {
-      if (!selfClosing) inText = Math.max(0, inText + (closing ? -1 : 1))
-      continue
-    }
-    if (skip > 0) continue
-    if (rules.para?.has(name) && (closing || selfClosing)) out += '\n'
-    else if (rules.tab?.has(name) && !closing) out += '\t'
-    else if (rules.br?.has(name) && !closing) out += '\n'
+    if (rules.skip?.has(name)) skip += step
+    else if (rules.text.has(name)) inText = Math.max(0, inText + step)
+    else if (skip === 0) out += tagText(rules, name, closing, selfClosing)
   }
   return out
 }
@@ -343,16 +341,35 @@ interface Zip {
   budget: { left: number }
 }
 
+/** The end-of-central-directory record: searched backwards over the last 64 KB (its comment). */
+function findEndRecord(bytes: Uint8Array): number {
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 22 - 0xffff); i--) {
+    if (u32(bytes, i) === 0x06054b50) return i
+  }
+  throw new Error('not a zip')
+}
+
+/** One central-directory entry at `p`, and where the next one starts. Refuses ZIP64 sizes and
+ *  encrypted entries with a message the person can act on. */
+function readCentralEntry(bytes: Uint8Array, p: number): { entry: ZipEntry; next: number } {
+  if (p + 46 > bytes.length || u32(bytes, p) !== 0x02014b50) throw new Error('bad central directory')
+  const flags = u16(bytes, p + 8)
+  const method = u16(bytes, p + 10)
+  const compSize = u32(bytes, p + 20)
+  const size = u32(bytes, p + 24)
+  const nameLen = u16(bytes, p + 28)
+  const extraLen = u16(bytes, p + 30)
+  const commentLen = u16(bytes, p + 32)
+  const localOffset = u32(bytes, p + 42)
+  const name = new TextDecoder('utf-8').decode(bytes.subarray(p + 46, p + 46 + nameLen)).replace(/\\/g, '/')
+  if (compSize === 0xffffffff || size === 0xffffffff || localOffset === 0xffffffff) throw new FileTextError(MSG_ZIP64)
+  if (flags & 1) throw new FileTextError(MSG_PASSWORD)
+  return { entry: { name, method, compSize, size, localOffset }, next: p + 46 + nameLen + extraLen + commentLen }
+}
+
 function openZip(bytes: Uint8Array): Zip {
   if (isCfb(bytes)) throw new FileTextError(MSG_PASSWORD)
-  let eocd = -1
-  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 22 - 0xffff); i--) {
-    if (u32(bytes, i) === 0x06054b50) {
-      eocd = i
-      break
-    }
-  }
-  if (eocd < 0) throw new Error('not a zip')
+  const eocd = findEndRecord(bytes)
   if (eocd >= 20 && u32(bytes, eocd - 20) === 0x07064b50) throw new FileTextError(MSG_ZIP64)
   const count = u16(bytes, eocd + 10)
   const cdOffset = u32(bytes, eocd + 16)
@@ -361,22 +378,11 @@ function openZip(bytes: Uint8Array): Zip {
   let declared = 0
   let p = cdOffset
   for (let i = 0; i < count; i++) {
-    if (p + 46 > bytes.length || u32(bytes, p) !== 0x02014b50) throw new Error('bad central directory')
-    const flags = u16(bytes, p + 8)
-    const method = u16(bytes, p + 10)
-    const compSize = u32(bytes, p + 20)
-    const size = u32(bytes, p + 24)
-    const nameLen = u16(bytes, p + 28)
-    const extraLen = u16(bytes, p + 30)
-    const commentLen = u16(bytes, p + 32)
-    const localOffset = u32(bytes, p + 42)
-    const name = new TextDecoder('utf-8').decode(bytes.subarray(p + 46, p + 46 + nameLen)).replace(/\\/g, '/')
-    if (compSize === 0xffffffff || size === 0xffffffff || localOffset === 0xffffffff) throw new FileTextError(MSG_ZIP64)
-    if (flags & 1) throw new FileTextError(MSG_PASSWORD)
-    declared += size
+    const { entry, next } = readCentralEntry(bytes, p)
+    declared += entry.size
     if (declared > MAX_UNPACKED_BYTES) throw new FileTextError(MSG_BOMB)
-    entries.set(name.toLowerCase(), { name, method, compSize, size, localOffset })
-    p += 46 + nameLen + extraLen + commentLen
+    entries.set(entry.name.toLowerCase(), entry)
+    p = next
   }
   return { bytes, entries, budget: { left: MAX_UNPACKED_BYTES } }
 }
@@ -458,58 +464,72 @@ function attr(attrs: string, name: string): string | null {
   return m ? m[1] : null
 }
 
-async function readXlsx(bytes: Uint8Array): Promise<Extracted> {
-  const zip = openZip(bytes)
+/** The workbook's shared strings, in order (an empty <si/> keeps its place). */
+async function readSharedStrings(zip: Zip): Promise<string[]> {
   const shared: string[] = []
   const sst = await zipText(zip, 'xl/sharedStrings.xml')
-  if (sst) {
-    const si = /<(?:\w+:)?si\b[^>]*?(?:\/>|>([\s\S]*?)<\/(?:\w+:)?si>)/g
-    let m: RegExpExecArray | null
-    while ((m = si.exec(sst))) shared.push(m[1] ? xmlText(m[1], CELL_TEXT) : '')
+  if (!sst) return shared
+  const si = /<(?:\w+:)?si\b[^>]*?(?:\/>|>([\s\S]*?)<\/(?:\w+:)?si>)/g
+  let m: RegExpExecArray | null
+  while ((m = si.exec(sst))) shared.push(m[1] ? xmlText(m[1], CELL_TEXT) : '')
+  return shared
+}
+
+/** A cell's text by its type: shared string, inline string, boolean or plain value; on one line. */
+function cellValue(attrs: string, inner: string, shared: string[]): string {
+  const type = attr(attrs, 't')
+  const v = /<(?:\w+:)?v\b[^>]*>([\s\S]*?)<\/(?:\w+:)?v>/.exec(inner)?.[1]
+  let value = ''
+  if (type === 's') value = shared[Number(v)] ?? ''
+  else if (type === 'inlineStr') value = xmlText(inner, CELL_TEXT)
+  else if (type === 'b') value = v === '1' ? 'TRUE' : v === '0' ? 'FALSE' : ''
+  else if (v !== undefined) value = decodeEntities(v)
+  return value.replace(/\s*\n\s*/g, ' ').trim()
+}
+
+/** A row's cells, each in its column (by its reference; empty columns kept), trailing empties cut. */
+function rowCells(rowXml: string, shared: string[]): string[] {
+  const cells: string[] = []
+  const cellRe = /<(?:\w+:)?c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:\w+:)?c>)/g
+  let c: RegExpExecArray | null
+  while ((c = cellRe.exec(rowXml))) {
+    const value = cellValue(c[1], c[2] ?? '', shared)
+    const ref = attr(c[1], 'r')
+    const col = ref ? columnIndex(ref) : -1
+    if (col < 0 || col >= 16384) {
+      cells.push(value)
+      continue
+    }
+    while (cells.length < col) cells.push('')
+    cells[col] = value
   }
+  while (cells.length && !cells[cells.length - 1]) cells.pop()
+  return cells
+}
+
+/** A sheet's non-empty rows as "a | b | c" lines, at most MAX_SHEET_ROWS; `cut` when there were more. */
+function sheetLines(xml: string, shared: string[]): { lines: string[]; cut: boolean } {
+  const lines: string[] = []
+  const rowRe = /<(?:\w+:)?row\b[^>]*?(?:\/>|>([\s\S]*?)<\/(?:\w+:)?row>)/g
+  let r: RegExpExecArray | null
+  while ((r = rowRe.exec(xml))) {
+    const cells = r[1] ? rowCells(r[1], shared) : []
+    if (!cells.length) continue
+    if (lines.length >= MAX_SHEET_ROWS) return { lines, cut: true }
+    lines.push(cells.join(' | '))
+  }
+  return { lines, cut: false }
+}
+
+async function readXlsx(bytes: Uint8Array): Promise<Extracted> {
+  const zip = openZip(bytes)
+  const shared = await readSharedStrings(zip)
   const sheets = numbered(zip, /^xl\/worksheets\/sheet(\d+)\.xml$/i)
   if (!sheets.length) throw new Error('no sheets')
   const parts: string[] = []
   const notes: string[] = []
   for (const s of sheets) {
-    const xml = (await zipText(zip, s.name)) ?? ''
-    const lines: string[] = []
-    const rowRe = /<(?:\w+:)?row\b[^>]*?(?:\/>|>([\s\S]*?)<\/(?:\w+:)?row>)/g
-    let r: RegExpExecArray | null
-    let rows = 0
-    let cut = false
-    while ((r = rowRe.exec(xml))) {
-      if (!r[1]) continue
-      const cells: string[] = []
-      const cellRe = /<(?:\w+:)?c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:\w+:)?c>)/g
-      let c: RegExpExecArray | null
-      while ((c = cellRe.exec(r[1]))) {
-        const attrs = c[1]
-        const inner = c[2] ?? ''
-        const type = attr(attrs, 't')
-        const v = /<(?:\w+:)?v\b[^>]*>([\s\S]*?)<\/(?:\w+:)?v>/.exec(inner)?.[1]
-        let value = ''
-        if (type === 's') value = shared[Number(v)] ?? ''
-        else if (type === 'inlineStr') value = xmlText(inner, CELL_TEXT)
-        else if (type === 'b') value = v === '1' ? 'TRUE' : v === '0' ? 'FALSE' : ''
-        else if (v !== undefined) value = decodeEntities(v)
-        value = value.replace(/\s*\n\s*/g, ' ').trim()
-        const ref = attr(attrs, 'r')
-        const col = ref ? columnIndex(ref) : -1
-        if (col >= 0 && col < 16384) {
-          while (cells.length < col) cells.push('')
-          cells[col] = value
-        } else cells.push(value)
-      }
-      while (cells.length && !cells[cells.length - 1]) cells.pop()
-      if (!cells.length) continue
-      if (rows >= MAX_SHEET_ROWS) {
-        cut = true
-        break
-      }
-      lines.push(cells.join(' | '))
-      rows++
-    }
+    const { lines, cut } = sheetLines((await zipText(zip, s.name)) ?? '', shared)
     if (cut) {
       lines.push('[Cut at 2,000 rows.]')
       notes.push(`Sheet ${s.n} was cut at 2,000 rows.`)
@@ -520,6 +540,49 @@ async function readXlsx(bytes: Uint8Array): Promise<Extracted> {
 }
 
 // ---------------------------------------------------------------- PDF
+
+/** Where a stream's data ends: at its direct /Length when "endstream" follows there, else at the
+ *  next "endstream" less the line end before it; -1 when there is none (a truncated file). */
+function pdfStreamEnd(s: string, start: number, dict: string): number {
+  const len = /\/Length\s+(\d+)(?!\d)(?!\s+\d+\s+R)/.exec(dict)
+  if (len) {
+    const e = start + Number(len[1])
+    if (/^\s*endstream/.test(s.slice(e, e + 20))) return e
+  }
+  let end = s.indexOf('endstream', start)
+  if (end < 0) return -1
+  while (end > start && (s[end - 1] === '\n' || s[end - 1] === '\r')) end--
+  return end
+}
+
+/** Streams that never hold page text: images, fonts, cross-reference and object streams, metadata,
+ *  forms, and predictor-coded data. */
+const PDF_NOT_TEXT = /\/Subtype\s*\/Image|\/FontFile|\/Length1|\/Type\s*\/(XRef|ObjStm|Metadata|XObject)|\/Predictor/
+
+/** A stream's data as a binary string: as stored, or inflated for a single /FlateDecode; null for
+ *  other filters or data that does not inflate. `used`: the bytes it took from the budget. */
+async function pdfStreamData(data: Uint8Array, dict: string, budget: number): Promise<{ content: string; used: number } | null> {
+  const filters = /\/Filter\s*(\[[^\]]*\]|\/\w+)/.exec(dict)?.[1].match(/\/\w+/g) ?? []
+  if (filters.length > 1 || (filters.length === 1 && filters[0] !== '/FlateDecode')) return null
+  if (!filters.length) return { content: latin1(data), used: 0 }
+  try {
+    const out = await inflate(data, 'deflate', budget, true)
+    return { content: latin1(out), used: out.length }
+  } catch (e) {
+    if (e instanceof FileTextError) throw e
+    return null
+  }
+}
+
+/** The text read from a PDF, or a refusal when it has too few letters or too much junk to be
+ *  text (a scan, or fonts whose codes are not letters). */
+function readablePdfText(pieces: string[]): string {
+  const text = pieces.join('\n\n')
+  const letters = text.match(/\p{L}/gu)?.length ?? 0
+  const junk = text.match(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f�]/g)?.length ?? 0
+  if (letters < MIN_PDF_LETTERS || junk > text.length * 0.1) throw new FileTextError(MSG_PDF_NO_TEXT)
+  return text
+}
 
 async function readPdf(bytes: Uint8Array): Promise<Extracted> {
   const s = latin1(bytes)
@@ -534,46 +597,38 @@ async function readPdf(bytes: Uint8Array): Promise<Extracted> {
     const start = m.index + m[0].length
     const objAt = s.lastIndexOf('obj', m.index)
     const dict = s.slice(objAt < 0 ? Math.max(0, m.index - 2000) : objAt, m.index)
-    let end = -1
-    const len = /\/Length\s+(\d+)(?!\d)(?!\s+\d+\s+R)/.exec(dict)
-    if (len) {
-      const e = start + Number(len[1])
-      if (/^\s*endstream/.test(s.slice(e, e + 20))) end = e
-    }
-    if (end < 0) {
-      const e = s.indexOf('endstream', start)
-      if (e < 0) break
-      end = e
-      while (end > start && (s[end - 1] === '\n' || s[end - 1] === '\r')) end--
-    }
+    const end = pdfStreamEnd(s, start, dict)
+    if (end < 0) break
     re.lastIndex = end
-    if (/\/Subtype\s*\/Image|\/FontFile|\/Length1|\/Type\s*\/(XRef|ObjStm|Metadata|XObject)|\/Predictor/.test(dict)) continue
-    const filters = /\/Filter\s*(\[[^\]]*\]|\/\w+)/.exec(dict)?.[1].match(/\/\w+/g) ?? []
-    let data = bytes.subarray(start, end)
-    if (filters.length > 1 || (filters.length === 1 && filters[0] !== '/FlateDecode')) continue
-    if (filters.length === 1) {
-      try {
-        data = await inflate(data, 'deflate', budget, true)
-      } catch (e) {
-        if (e instanceof FileTextError) throw e
-        continue
-      }
-      budget -= data.length
-    }
-    const content = latin1(data)
-    if (!/\bBT\b/.test(content)) continue
-    const text = pdfContentText(content)
+    if (PDF_NOT_TEXT.test(dict)) continue
+    const data = await pdfStreamData(bytes.subarray(start, end), dict, budget)
+    if (!data) continue
+    budget -= data.used
+    if (!/\bBT\b/.test(data.content)) continue
+    const text = pdfContentText(data.content)
     if (text.trim()) pieces.push(text)
   }
-  const text = pieces.join('\n\n')
-  const letters = text.match(/\p{L}/gu)?.length ?? 0
-  const junk = text.match(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f�]/g)?.length ?? 0
-  if (letters < MIN_PDF_LETTERS || junk > text.length * 0.1) throw new FileTextError(MSG_PDF_NO_TEXT)
-  return { text, notes: [] }
+  return { text: readablePdfText(pieces), notes: [] }
 }
 
 const PDF_DELIM = new Set(['(', ')', '<', '>', '[', ']', '{', '}', '/', '%'])
 const isPdfSpace = (ch: string): boolean => ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t' || ch === '\f' || ch === '\0'
+
+const PDF_ESCAPES: Record<string, string> = { n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', '(': '(', ')': ')', '\\': '\\' }
+
+/** The escape whose letter `nx` follows a backslash, with the rest of it read from `i` (octal
+ *  digits, a line end after a backslash-CR): its text and the index after it. */
+function pdfEscape(c: string, nx: string, i: number): [string, number] {
+  if (PDF_ESCAPES[nx] !== undefined) return [PDF_ESCAPES[nx], i]
+  if (nx >= '0' && nx <= '7') {
+    let oct = nx
+    while (oct.length < 3 && c[i] >= '0' && c[i] <= '7') oct += c[i++]
+    return [String.fromCharCode(parseInt(oct, 8) & 0xff), i]
+  }
+  // A backslash at a line end continues the string on the next line.
+  if (nx === '\r') return ['', c[i] === '\n' ? i + 1 : i]
+  return [nx === '\n' ? '' : nx, i]
+}
 
 /** A PDF literal string starting at `(`; returns its text and the index after the closing `)`. */
 function readPdfString(c: string, at: number): [string, number] {
@@ -584,17 +639,13 @@ function readPdfString(c: string, at: number): [string, number] {
     const ch = c[i]
     if (ch === '\\') {
       const nx = c[i + 1]
-      i += 2
-      if (nx === undefined) break
-      const simple: Record<string, string> = { n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', '(': '(', ')': ')', '\\': '\\' }
-      if (simple[nx] !== undefined) out += simple[nx]
-      else if (nx >= '0' && nx <= '7') {
-        let oct = nx
-        while (oct.length < 3 && c[i] >= '0' && c[i] <= '7') oct += c[i++]
-        out += String.fromCharCode(parseInt(oct, 8) & 0xff)
-      } else if (nx === '\r') {
-        if (c[i] === '\n') i++
-      } else if (nx !== '\n') out += nx
+      if (nx === undefined) {
+        i += 2
+        break
+      }
+      const [text, next] = pdfEscape(c, nx, i + 2)
+      out += text
+      i = next
       continue
     }
     if (ch === '(') depth++
@@ -612,132 +663,149 @@ function decodePdfText(s: string): string {
 
 type PdfOperand = string | number | string[] | null
 
+/** A content stream being read: the text so far, the operands since the last operator, and the
+ *  last text matrix's y (a change of it starts a new line). */
+interface PdfTextState {
+  out: string
+  ops: PdfOperand[]
+  lastY: number | null
+}
+
+function pdfNewline(st: PdfTextState): void {
+  if (st.out && !st.out.endsWith('\n')) st.out += '\n'
+}
+
+const pdfLastOperand = (st: PdfTextState): PdfOperand | undefined => st.ops[st.ops.length - 1]
+
+function pdfShowString(st: PdfTextState): void {
+  const v = pdfLastOperand(st)
+  st.out += typeof v === 'string' ? v : ''
+}
+
+function pdfNextLineShow(st: PdfTextState): void {
+  pdfNewline(st)
+  pdfShowString(st)
+}
+
+function pdfMoveLine(st: PdfTextState): void {
+  const ty = pdfLastOperand(st)
+  if (typeof ty === 'number' && ty !== 0) pdfNewline(st)
+}
+
+/** The text operators that show text or move to a new line; every other operator only clears the
+ *  operands. A Map, so a token such as "__proto__" in a damaged stream finds nothing. */
+const PDF_TEXT_OPS = new Map<string, (st: PdfTextState) => void>([
+  ['Tj', pdfShowString],
+  ["'", pdfNextLineShow],
+  ['"', pdfNextLineShow],
+  ['TJ', (st) => {
+    const arr = pdfLastOperand(st)
+    if (Array.isArray(arr)) st.out += arr.join('')
+  }],
+  ['Td', pdfMoveLine],
+  ['TD', pdfMoveLine],
+  ['Tm', (st) => {
+    const y = pdfLastOperand(st)
+    if (typeof y !== 'number') return
+    if (st.lastY !== null && y !== st.lastY) pdfNewline(st)
+    st.lastY = y
+  }],
+  ['T*', pdfNewline],
+  ['ET', pdfNewline],
+])
+
+/** A TJ array starting at `[`: its strings, with a space for a large move to the right (a word
+ *  gap); hex strings left out. Returns the parts and the index after the closing `]`. */
+function readPdfArray(c: string, at: number): [string[], number] {
+  const n = c.length
+  const parts: string[] = []
+  let i = at + 1
+  while (i < n && c[i] !== ']') {
+    const a = c[i]
+    if (a === '(') {
+      const [str, j] = readPdfString(c, i)
+      parts.push(str)
+      i = j
+    } else if (a === '<') {
+      const j = c.indexOf('>', i)
+      i = j < 0 ? n : j + 1
+    } else if (a === '-' || a === '.' || (a >= '0' && a <= '9')) {
+      let j = i + 1
+      while (j < n && /[0-9.]/.test(c[j])) j++
+      // A large move to the right inside TJ is a word gap.
+      if (Number(c.slice(i, j)) < -180) parts.push(' ')
+      i = j
+    } else i++
+  }
+  return [parts, i + 1]
+}
+
+/** After `BI`: the index after the inline image's data, at its `EI` (one that stands alone). */
+function skipPdfInlineImage(c: string, i: number): number {
+  const n = c.length
+  const id = c.indexOf('ID', i)
+  let k = id < 0 ? n : id + 2
+  for (;;) {
+    k = c.indexOf('EI', k)
+    if (k < 0) return n
+    if (isPdfSpace(c[k - 1] ?? ' ') && (k + 2 >= n || isPdfSpace(c[k + 2]))) return Math.min(n, k + 2)
+    k += 2
+  }
+}
+
+/** The end of a name or an operator token starting at `i`. */
+function pdfTokenEnd(c: string, i: number): number {
+  while (i < c.length && !isPdfSpace(c[i]) && !PDF_DELIM.has(c[i])) i++
+  return i
+}
+
+/** A bare token at `i`: a number goes onto the operands; an operator acts (PDF_TEXT_OPS, or `BI`
+ *  skips its inline image) and clears them. Returns the index after it. */
+function pdfOperator(c: string, i: number, st: PdfTextState): number {
+  const j = pdfTokenEnd(c, i)
+  const tok = c.slice(i, j)
+  if (/^[+-]?(\d+\.?\d*|\.\d+)$/.test(tok)) {
+    st.ops.push(Number(tok))
+    return j
+  }
+  let next = j
+  if (tok === 'BI') next = skipPdfInlineImage(c, j)
+  else PDF_TEXT_OPS.get(tok)?.(st)
+  st.ops.length = 0
+  return next
+}
+
 /** Text shown by a content stream's text operators, with line breaks from line moves. */
 function pdfContentText(c: string): string {
-  let out = ''
-  const ops: PdfOperand[] = []
-  let lastY: number | null = null
-  const newline = (): void => {
-    if (out && !out.endsWith('\n')) out += '\n'
-  }
-  const lastString = (): string => {
-    const v = ops[ops.length - 1]
-    return typeof v === 'string' ? v : ''
-  }
-  let i = 0
+  const st: PdfTextState = { out: '', ops: [], lastY: null }
   const n = c.length
+  let i = 0
   while (i < n) {
     const ch = c[i]
-    if (isPdfSpace(ch)) {
-      i++
-    } else if (ch === '(') {
+    if (isPdfSpace(ch)) i++
+    else if (ch === '(') {
       const [str, j] = readPdfString(c, i)
-      ops.push(str)
+      st.ops.push(str)
       i = j
-    } else if (ch === '<') {
-      if (c[i + 1] === '<') {
-        i += 2
-        continue
-      }
+    } else if (ch === '<' && c[i + 1] === '<') i += 2
+    else if (ch === '<') {
       // A hex string: glyph ids of an embedded font, not readable without the font. Left out.
       const j = c.indexOf('>', i)
-      ops.push(null)
+      st.ops.push(null)
       i = j < 0 ? n : j + 1
     } else if (ch === '[') {
-      const parts: string[] = []
-      i++
-      while (i < n && c[i] !== ']') {
-        const a = c[i]
-        if (a === '(') {
-          const [str, j] = readPdfString(c, i)
-          parts.push(str)
-          i = j
-        } else if (a === '<') {
-          const j = c.indexOf('>', i)
-          i = j < 0 ? n : j + 1
-        } else if (a === '-' || a === '.' || (a >= '0' && a <= '9')) {
-          let j = i + 1
-          while (j < n && /[0-9.]/.test(c[j])) j++
-          // A large move to the right inside TJ is a word gap.
-          if (Number(c.slice(i, j)) < -180) parts.push(' ')
-          i = j
-        } else i++
-      }
-      ops.push(parts)
-      i++
+      const [parts, j] = readPdfArray(c, i)
+      st.ops.push(parts)
+      i = j
     } else if (ch === '%') {
       while (i < n && c[i] !== '\n' && c[i] !== '\r') i++
     } else if (ch === '/') {
-      i++
-      while (i < n && !isPdfSpace(c[i]) && !PDF_DELIM.has(c[i])) i++
-      ops.push(null)
-    } else if (PDF_DELIM.has(ch)) {
-      i++
-    } else {
-      let j = i
-      while (j < n && !isPdfSpace(c[j]) && !PDF_DELIM.has(c[j])) j++
-      const tok = c.slice(i, j)
-      i = j
-      if (/^[+-]?(\d+\.?\d*|\.\d+)$/.test(tok)) {
-        ops.push(Number(tok))
-        continue
-      }
-      switch (tok) {
-        case 'Tj':
-          out += lastString()
-          break
-        case "'":
-          newline()
-          out += lastString()
-          break
-        case '"':
-          newline()
-          out += lastString()
-          break
-        case 'TJ': {
-          const arr = ops[ops.length - 1]
-          if (Array.isArray(arr)) out += arr.join('')
-          break
-        }
-        case 'Td':
-        case 'TD': {
-          const ty = ops[ops.length - 1]
-          if (typeof ty === 'number' && ty !== 0) newline()
-          break
-        }
-        case 'Tm': {
-          const y = ops[ops.length - 1]
-          if (typeof y === 'number') {
-            if (lastY !== null && y !== lastY) newline()
-            lastY = y
-          }
-          break
-        }
-        case 'T*':
-        case 'ET':
-          newline()
-          break
-        case 'BI': {
-          // Inline image data: skip to its EI.
-          const id = c.indexOf('ID', i)
-          let k = id < 0 ? n : id + 2
-          for (;;) {
-            k = c.indexOf('EI', k)
-            if (k < 0) {
-              k = n
-              break
-            }
-            if (isPdfSpace(c[k - 1] ?? ' ') && (k + 2 >= n || isPdfSpace(c[k + 2]))) break
-            k += 2
-          }
-          i = Math.min(n, k + 2)
-          break
-        }
-      }
-      ops.length = 0
-    }
+      i = pdfTokenEnd(c, i + 1)
+      st.ops.push(null)
+    } else if (PDF_DELIM.has(ch)) i++
+    else i = pdfOperator(c, i, st)
   }
-  return out
+  return st.out
 }
 
 // ---------------------------------------------------------------- Outlook .msg (OLE compound file)
@@ -761,22 +829,11 @@ interface CfbEntry {
 const END_OF_CHAIN = 0xfffffffe
 const NO_STREAM = 0xffffffff
 
-/** The streams directly under the root storage, by lower-case name. */
-function readCfbRootStreams(b: Uint8Array): Map<string, Uint8Array> {
-  const ss = 1 << u16(b, 0x1e)
-  if (ss !== 512 && ss !== 4096) throw new Error('bad sector size')
-  const mss = 1 << u16(b, 0x20)
+/** The sectors that hold the FAT: up to 109 listed in the header, the rest in the DIFAT chain. */
+function cfbFatSectors(b: Uint8Array, ss: number, sector: (n: number) => Uint8Array): number[] {
   const nFat = u32(b, 0x2c)
-  const dirStart = u32(b, 0x30)
-  const cutoff = u32(b, 0x38)
-  const miniFatStart = u32(b, 0x3c)
   const difatStart = u32(b, 0x44)
   const nDifat = u32(b, 0x48)
-  const sector = (n: number): Uint8Array => {
-    const o = (n + 1) * ss
-    if (o >= b.length) throw new Error('sector out of range')
-    return b.subarray(o, o + ss)
-  }
   const fatSectors: number[] = []
   for (let i = 0; i < 109 && fatSectors.length < nFat; i++) {
     const s = u32(b, 0x4c + 4 * i)
@@ -792,7 +849,58 @@ function readCfbRootStreams(b: Uint8Array): Map<string, Uint8Array> {
     }
     d = u32(sec, ss - 4)
   }
-  const fat = concat(fatSectors.map(sector))
+  return fatSectors
+}
+
+/** The directory entries, 128 bytes each. */
+function parseCfbDirectory(dir: Uint8Array): CfbEntry[] {
+  const entries: CfbEntry[] = []
+  for (let o = 0; o + 128 <= dir.length; o += 128) {
+    const nameLen = Math.min(64, u16(dir, o + 64))
+    entries.push({
+      name: decodeWith(dir.subarray(o, o + Math.max(0, nameLen - 2)), 'utf-16le'),
+      type: dir[o + 66],
+      left: u32(dir, o + 68),
+      right: u32(dir, o + 72),
+      child: u32(dir, o + 76),
+      start: u32(dir, o + 116),
+      size: u32(dir, o + 120),
+    })
+  }
+  return entries
+}
+
+/** The streams among the root's children (a red-black tree walked by its left/right links, each
+ *  entry once), by lower-case name. */
+function rootStreams(entries: CfbEntry[], root: CfbEntry, readStream: (e: CfbEntry) => Uint8Array): Map<string, Uint8Array> {
+  const out = new Map<string, Uint8Array>()
+  const seen = new Set<number>()
+  const stack = [root.child]
+  while (stack.length) {
+    const id = stack.pop() as number
+    if (id === NO_STREAM || id >= entries.length || seen.has(id)) continue
+    seen.add(id)
+    const e = entries[id]
+    stack.push(e.left, e.right)
+    if (e.type === 2) out.set(e.name.toLowerCase(), readStream(e))
+  }
+  return out
+}
+
+/** The streams directly under the root storage, by lower-case name. */
+function readCfbRootStreams(b: Uint8Array): Map<string, Uint8Array> {
+  const ss = 1 << u16(b, 0x1e)
+  if (ss !== 512 && ss !== 4096) throw new Error('bad sector size')
+  const mss = 1 << u16(b, 0x20)
+  const dirStart = u32(b, 0x30)
+  const cutoff = u32(b, 0x38)
+  const miniFatStart = u32(b, 0x3c)
+  const sector = (n: number): Uint8Array => {
+    const o = (n + 1) * ss
+    if (o >= b.length) throw new Error('sector out of range')
+    return b.subarray(o, o + ss)
+  }
+  const fat = concat(cfbFatSectors(b, ss, sector).map(sector))
   const fatAt = (n: number): number => (4 * n + 3 < fat.length ? u32(fat, 4 * n) : END_OF_CHAIN)
   const chain = (start: number, next: (n: number) => number, limit: number): number[] => {
     const out: number[] = []
@@ -807,20 +915,7 @@ function readCfbRootStreams(b: Uint8Array): Map<string, Uint8Array> {
     const data = concat(chain(start, fatAt, maxSectors).map(sector))
     return size === undefined ? data : data.subarray(0, size)
   }
-  const dir = readFat(dirStart)
-  const entries: CfbEntry[] = []
-  for (let o = 0; o + 128 <= dir.length; o += 128) {
-    const nameLen = Math.min(64, u16(dir, o + 64))
-    entries.push({
-      name: decodeWith(dir.subarray(o, o + Math.max(0, nameLen - 2)), 'utf-16le'),
-      type: dir[o + 66],
-      left: u32(dir, o + 68),
-      right: u32(dir, o + 72),
-      child: u32(dir, o + 76),
-      start: u32(dir, o + 116),
-      size: u32(dir, o + 120),
-    })
-  }
+  const entries = parseCfbDirectory(readFat(dirStart))
   const root = entries[0]
   if (!root || root.type !== 5) throw new Error('no root entry')
   if (root.size > MAX_UNPACKED_BYTES) throw new Error('mini stream too large')
@@ -835,18 +930,7 @@ function readCfbRootStreams(b: Uint8Array): Map<string, Uint8Array> {
     }
     return readFat(e.start, e.size)
   }
-  const out = new Map<string, Uint8Array>()
-  const seen = new Set<number>()
-  const stack = [root.child]
-  while (stack.length) {
-    const id = stack.pop() as number
-    if (id === NO_STREAM || id >= entries.length || seen.has(id)) continue
-    seen.add(id)
-    const e = entries[id]
-    stack.push(e.left, e.right)
-    if (e.type === 2) out.set(e.name.toLowerCase(), readStream(e))
-  }
-  return out
+  return rootStreams(entries, root, readStream)
 }
 
 function msgProperty(streams: Map<string, Uint8Array>, tag: string): string {
@@ -916,6 +1000,17 @@ function partText(part: MimePart): string {
   return charset ? decodeWith(bytes, charset.toLowerCase()) : utf8OrAnsi(bytes)
 }
 
+/** The parts of a multipart body, in order, up to its closing boundary; none without a boundary. */
+function multipartChildren(body: string, boundary: string): MimePart[] {
+  if (!boundary) return []
+  const out: MimePart[] = []
+  for (const piece of body.split(`--${boundary}`).slice(1)) {
+    if (piece.startsWith('--')) break
+    out.push(parseMime(piece.replace(/^[ \t]*\r?\n/, '')))
+  }
+  return out
+}
+
 /** The first text/plain and first text/html part (attachments left out). */
 function findTextParts(part: MimePart, found: { plain?: string; html?: string }, depth: number): void {
   if (depth > 10 || (found.plain !== undefined && found.html !== undefined)) return
@@ -923,13 +1018,7 @@ function findTextParts(part: MimePart, found: { plain?: string; html?: string },
   const type = ct.split(';')[0].trim().toLowerCase() || 'text/plain'
   if (depth > 0 && /^\s*attachment/i.test(part.headers.get('content-disposition') ?? '')) return
   if (type.startsWith('multipart/')) {
-    const boundary = headerParam(ct, 'boundary')
-    if (!boundary) return
-    const pieces = part.body.split(`--${boundary}`)
-    for (const piece of pieces.slice(1)) {
-      if (piece.startsWith('--')) break
-      findTextParts(parseMime(piece.replace(/^[ \t]*\r?\n/, '')), found, depth + 1)
-    }
+    for (const child of multipartChildren(part.body, headerParam(ct, 'boundary'))) findTextParts(child, found, depth + 1)
     return
   }
   if (type === 'message/rfc822') {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildIndex } from './graphIndex'
 import { layoutGraph } from './layout'
-import { areaAt, drawnAtRest, edgeClass, focusEdgeClass, focusEdgeList, sharpDots, stageKey, stageLabels, type StageKeyState } from './stageModel'
+import { areaAt, areaBundles, stageAnnouncement, drawnAtRest, edgeClass, focusEdgeClass, focusEdgeList, sharpDots, stageKey, stageLabels, type StageKeyState } from './stageModel'
 import { syntheticGraph } from './synthetic'
 import { FIT_BOTTOM, fitViewport, labelRect, placeLabels } from './view'
 
@@ -164,6 +164,19 @@ describe('stageLabels', () => {
     const { labels } = stageLabels({ ...base, v: { ...fit, k: fit.k * 3 } })
     expect(labels.length).toBeGreaterThan(0)
     expect(new Set(labels.map((l) => l.id)).size).toBe(labels.length)
+  })
+})
+
+describe('areaBundles and stageAnnouncement', () => {
+  const lines = [{ a: 'A', b: 'B' }, { a: 'B', b: 'C' }, { a: 'C', b: 'D' }]
+  it('a focused page shows every topic line of its area, while links are shown', () => {
+    expect(areaBundles(lines, 'B', true)).toEqual([{ a: 'A', b: 'B' }, { a: 'B', b: 'C' }])
+    expect(areaBundles(lines, 'B', false)).toEqual([])
+    expect(areaBundles(lines, null, true)).toEqual([])
+  })
+  it('a screen reader hears the page, where it is, its links and the keys', () => {
+    expect(stageAnnouncement('Zero trust', 'Index › Security', 3, true)).toBe('Zero trust, Index › Security, 3 linked pages. Enter opens, F focuses on this page.')
+    expect(stageAnnouncement('Alone', 'Index › Unfiled', 1, false)).toBe('Alone, Index › Unfiled, 1 linked page. Enter opens.')
   })
 })
 

@@ -19,6 +19,16 @@ export function graphRefFor(entry: NotebookSummary | undefined): { vault: string
 
 /** The read-only sources Ask can include besides the active vault: other vaults and notebooks.
  *  The id is what the server takes in sources: a vault id, or a notebook id. */
+/** The id the graph knows a notebook by in a FindRequest: a vault's vault id, else the notebook's. */
+export function findSourceId(entry: NotebookSummary): string {
+  return entry.vault && entry.vaultId ? entry.vaultId : entry.id
+}
+
+/** What the window says when a vault became the active one (made or set up). */
+export function activeVaultNotice(name: string, warning = ''): string {
+  return `${name} is your active vault now.${warning ? ` ${warning}` : ''}`
+}
+
 export function askSourceChoices(list: NotebookSummary[], activeId: string | null): { id: string; label: string }[] {
   return list
     .filter((n) => n.id !== activeId)

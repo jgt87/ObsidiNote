@@ -54,44 +54,47 @@ function RelatedPages({ pages }: { pages: PageRef[] }) {
  *  History (AGENTS.md: delete always asks). */
 function AddActionRow({ view, busy, a }: { view: AddResultView; busy: boolean; a: AddResultActions }) {
   const [askUndo, setAskUndo] = useState(false)
-  if (askUndo) {
-    return (
-      <div className="add-actions">
-        <span className="add-text">Undo this page? It goes to OneNote's Deleted Pages.</span>
-        <button type="button" className="btn" onClick={() => setAskUndo(false)} disabled={busy}>
-          Keep
-        </button>
-        <button type="button" className="btn btn--danger" onClick={a.onUndo} disabled={busy}>
-          Undo
-        </button>
-      </div>
-    )
-  }
+  if (askUndo) return <ConfirmUndo busy={busy} onKeep={() => setAskUndo(false)} onUndo={a.onUndo} />
   return (
     <div className="add-actions">
       <button type="button" className="btn" onClick={a.onDone} disabled={busy}>
         Done
       </button>
-      {view.editPlacement && a.onEditLinks && (
-        <button type="button" className="btn" onClick={a.onEditLinks} disabled={busy}>
-          Edit links
-        </button>
-      )}
-      {view.editPlacement && a.onMoveInIndex && (
-        <button type="button" className="btn" onClick={a.onMoveInIndex} disabled={busy}>
-          Move in index
-        </button>
-      )}
-      {view.updateLink && a.onUpdateLink && (
-        <button type="button" className="btn" onClick={a.onUpdateLink} disabled={busy}>
-          Update
-        </button>
-      )}
+      {OPTIONAL_ACTIONS.map(([shown, action, label]) => {
+        const run = a[action]
+        return view[shown] && run ? (
+          <button key={label} type="button" className="btn" onClick={run} disabled={busy}>
+            {label}
+          </button>
+        ) : null
+      })}
       {view.undo && a.onUndo && (
         <button type="button" className="btn" onClick={() => setAskUndo(true)} disabled={busy}>
           Undo
         </button>
       )}
+    </div>
+  )
+}
+
+/** The buttons between Done and Undo, in their order: when the view offers them, and when the screen
+ *  passed the action. */
+const OPTIONAL_ACTIONS: [keyof AddResultView & ('editPlacement' | 'updateLink'), 'onEditLinks' | 'onMoveInIndex' | 'onUpdateLink', string][] = [
+  ['editPlacement', 'onEditLinks', 'Edit links'],
+  ['editPlacement', 'onMoveInIndex', 'Move in index'],
+  ['updateLink', 'onUpdateLink', 'Update'],
+]
+
+function ConfirmUndo({ busy, onKeep, onUndo }: { busy: boolean; onKeep: () => void; onUndo?: () => void }) {
+  return (
+    <div className="add-actions">
+      <span className="add-text">Undo this page? It goes to OneNote's Deleted Pages.</span>
+      <button type="button" className="btn" onClick={onKeep} disabled={busy}>
+        Keep
+      </button>
+      <button type="button" className="btn btn--danger" onClick={onUndo} disabled={busy}>
+        Undo
+      </button>
     </div>
   )
 }
@@ -169,64 +172,22 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
 
   return (
     <div className="add-result">
-      <div className="add-result__top">
-        <h1 className="add-result__title">{resultHeading(r.status, r.page?.title ?? '')}</h1>
-        {v.written && (
-          <div role="status" className="add-muted add-result__status">
-            <CheckIcon />
-            Written to OneNote · {formatSeconds(r.timings.totalMs)}
-          </div>
-        )}
-      </div>
+      <ResultTop r={r} written={v.written} />
 
       {/* design (review 2026-11-14): the actions sit right under the heading, so "glance, accept,
           leave" needs no scroll. None is primary: the box's Send above is the view's one primary
           button (code review 2026-11-15: Send and Done were both). */}
       {v.actions && <AddActionRow view={v} busy={busy} a={a} />}
 
-      {v.failed && (
-        <Notice error title="Not added">
-          <p>{r.message}</p>
-          {r.inbox?.status === 'failed' && <p className="add-muted">The item is kept in your Intake with this reason, so nothing is lost.</p>}
-          {r.related.length > 0 && (
-            <p>
-              Already there: <RelatedPages pages={r.related} />
-            </p>
-          )}
-        </Notice>
-      )}
+      {v.failed && <FailedNotice r={r} />}
 
-      {isWaitingStatus(r.status) && <WaitingCard status={r.status} message={r.message} busy={busy} onCheck={r.inboxId ? a.onCheckAnswer : undefined} onDone={a.onDone} />}
+      <Waiting r={r} busy={busy} a={a} />
 
-      {v.askInstead && (
-        <section className="add-card add-actions">
-          <p className="add-text add-actions__text">{r.message}</p>
-          {a.onAddAnyway && (
-            <button type="button" className="btn" onClick={a.onAddAnyway} disabled={busy}>
-              Add anyway
-            </button>
-          )}
-          {a.onAsk && (
-            <button type="button" className="btn" onClick={a.onAsk} disabled={busy}>
-              Ask it
-            </button>
-          )}
-        </section>
-      )}
+      {v.askInstead && <AskInsteadCard message={r.message} busy={busy} onAddAnyway={a.onAddAnyway} onAsk={a.onAsk} />}
 
-      {(v.text || v.placed) && (
-        <section className="add-card add-card--parts">
-          {v.placed && r.page && <PlacedGroup page={r.page} chips={r.chips} />}
-          {v.text && <AddedText r={r} linkSummary={v.linkSummary} />}
-        </section>
-      )}
+      <AddedParts r={r} v={v} />
 
-      {v.update && r.update && <LinkUpdateView update={r.update} status={r.status} />}
-      {v.couldNotUpdate && (
-        <section className="add-card" role="status">
-          <p className="add-text">{r.message}</p>
-        </section>
-      )}
+      <UpdateParts r={r} v={v} />
 
       {v.links && <LinksCard links={r.links} backlinks={r.backlinks} title={v.linksTitle} />}
 
@@ -236,19 +197,109 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
         </p>
       )}
 
-      {r.warnings.length > 0 && (
-        <ul className="add-warnings" aria-label="Notes">
-          {r.warnings.map((w, i) => (
-            <li key={i} className="add-muted">
-              {w}
-            </li>
-          ))}
-        </ul>
-      )}
+      <Warnings warnings={r.warnings} />
 
-      {v.confirm && r.confirm && a.onDecide && (
-        <ConfirmReplaceDialog request={r.confirm} open busy={busy} onDecide={a.onDecide} onCancel={a.onCancelDecision ?? a.onDone} />
+      <ConfirmReplace r={r} v={v} busy={busy} a={a} />
+    </div>
+  )
+}
+
+/** Copilot is still at it: the item waits in the Intake; "Check for the answer" once it has an id. */
+function Waiting({ r, busy, a }: { r: AddResultData; busy: boolean; a: AddResultActions }) {
+  if (!isWaitingStatus(r.status)) return null
+  return <WaitingCard status={r.status} message={r.message} busy={busy} onCheck={r.inboxId ? a.onCheckAnswer : undefined} onDone={a.onDone} />
+}
+
+/** A link page read again: the old and new summary, or why it could not be read. */
+function UpdateParts({ r, v }: { r: AddResultData; v: AddResultView }) {
+  return (
+    <>
+      {v.update && r.update && <LinkUpdateView update={r.update} status={r.status} />}
+      {v.couldNotUpdate && (
+        <section className="add-card" role="status">
+          <p className="add-text">{r.message}</p>
+        </section>
+      )}
+    </>
+  )
+}
+
+/** A summary edited by hand would be replaced: the person decides (cancel = Done when the screen has
+ *  no cancel of its own). */
+function ConfirmReplace({ r, v, busy, a }: { r: AddResultData; v: AddResultView; busy: boolean; a: AddResultActions }) {
+  if (!v.confirm || !r.confirm || !a.onDecide) return null
+  return <ConfirmReplaceDialog request={r.confirm} open busy={busy} onDecide={a.onDecide} onCancel={a.onCancelDecision ?? a.onDone} />
+}
+
+/** The heading, and "Written to OneNote" with the time it took once something was written. */
+function ResultTop({ r, written }: { r: AddResultData; written: boolean }) {
+  return (
+    <div className="add-result__top">
+      <h1 className="add-result__title">{resultHeading(r.status, r.page?.title ?? '')}</h1>
+      {written && (
+        <div role="status" className="add-muted add-result__status">
+          <CheckIcon />
+          Written to OneNote · {formatSeconds(r.timings.totalMs)}
+        </div>
       )}
     </div>
+  )
+}
+
+/** Why nothing was added; that the item waits in the Intake; pages it matched that were there. */
+function FailedNotice({ r }: { r: AddResultData }) {
+  return (
+    <Notice error title="Not added">
+      <p>{r.message}</p>
+      {r.inbox?.status === 'failed' && <p className="add-muted">The item is kept in your Intake with this reason, so nothing is lost.</p>}
+      {r.related.length > 0 && (
+        <p>
+          Already there: <RelatedPages pages={r.related} />
+        </p>
+      )}
+    </Notice>
+  )
+}
+
+/** The text reads as a question: add it anyway, or ask it. */
+function AskInsteadCard({ message, busy, onAddAnyway, onAsk }: { message: string; busy: boolean; onAddAnyway?: () => void; onAsk?: () => void }) {
+  return (
+    <section className="add-card add-actions">
+      <p className="add-text add-actions__text">{message}</p>
+      {onAddAnyway && (
+        <button type="button" className="btn" onClick={onAddAnyway} disabled={busy}>
+          Add anyway
+        </button>
+      )}
+      {onAsk && (
+        <button type="button" className="btn" onClick={onAsk} disabled={busy}>
+          Ask it
+        </button>
+      )}
+    </section>
+  )
+}
+
+/** Where the page was filed and what was added, in one card; nothing when neither shows. */
+function AddedParts({ r, v }: { r: AddResultData; v: AddResultView }) {
+  if (!v.text && !v.placed) return null
+  return (
+    <section className="add-card add-card--parts">
+      {v.placed && r.page && <PlacedGroup page={r.page} chips={r.chips} />}
+      {v.text && <AddedText r={r} linkSummary={v.linkSummary} />}
+    </section>
+  )
+}
+
+function Warnings({ warnings }: { warnings: string[] }) {
+  if (!warnings.length) return null
+  return (
+    <ul className="add-warnings" aria-label="Notes">
+      {warnings.map((w, i) => (
+        <li key={i} className="add-muted">
+          {w}
+        </li>
+      ))}
+    </ul>
   )
 }
