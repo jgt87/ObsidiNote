@@ -277,7 +277,33 @@ function Open-DevVault($Ctx, $Adapter) {
     else { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Dev vault index' $u.error }
     $model = if ($u.ok) { $u.value.model } else { $null }
     $record = @{ vaultId = "$(Get-KitProp $vault 'vaultId' '')"; name = $name; rootId = "$($vault.rootId)"; indexSectionId = "$($vault.indexSectionId)" }
-    [pscustomobject]@{ vault = $record; lease = $lease; model = $model }
+    [pscustomobject]@{ vault = $record; lease = $lease; model = $model; getLease = (New-DevLeaseGetter $Adapter "$($vault.indexSectionId)" $lease) }
+}
+
+function Get-DevGetLease($Dev) {
+    <# The dev vault's lease getter (New-DevLeaseGetter); a dev record without one (the kit's tests
+       build it from an in-memory vault) gets one that hands back its lease as it is. #>
+    if ($Dev.PSObject.Properties['getLease'] -and $Dev.getLease) { return $Dev.getLease }
+    $l = $Dev.lease
+    { $l }.GetNewClosure()
+}
+
+function New-DevLeaseGetter($Adapter, [string]$IndexSectionId, $Lease) {
+    <# The write steps' GetLease: the dev vault's lease, renewed with the same session when less than 60 s
+       are left, as the app's start renews its lease every minute. The kit took it once and never
+       renewed it: on the target machine (2026-11-17, v0.12.8) "Check for the answer" waited 92 s and
+       every write step after it was refused as "Read only" (TTL 120 s). One holder for all steps, so a
+       renewal is seen by every store. Made outside any Measure-KitStep block (see Invoke-DevLinkIt). #>
+    $holder = @{ lease = $Lease }
+    $req = Get-Command Request-WriterLease
+    $a = $Adapter; $isid = $IndexSectionId
+    {
+        $l = $holder.lease
+        if ($l -and $l.mode -eq 'writer' -and ([datetime]$l.expires).ToUniversalTime() -lt [datetime]::UtcNow.AddSeconds(60)) {
+            try { $holder.lease = & $req -Adapter $a -IndexSectionId $isid -SessionId $l.sessionId } catch { }
+        }
+        $holder.lease
+    }.GetNewClosure()
 }
 
 function Get-AddWhy($Step, [string]$Status, [string]$Expected) {
@@ -300,8 +326,8 @@ function Invoke-DevAdd($Ctx, $Adapter, $Dev, $Bridge) {
     $send = Get-Command Send-CopilotPrompt
     $b = $Bridge
     $ask = { param($Prompt) $r = & $send -Bridge $b -Text $Prompt -TimeoutSec 240; if ("$($r.Result)" -ne 'Success') { throw "Copilot did not answer ($($r.Result))." }; "$($r.Text)" }.GetNewClosure()
-    $lease = $Dev.lease
-    $getLease = { $lease }.GetNewClosure()   # made here, not inside Measure-KitStep's block (see Invoke-DevLinkIt)
+    $getLease = Get-DevGetLease $Dev   # renewed while the steps run (New-DevLeaseGetter)
+    $lease = & $getLease
     $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = $getLease; AppRoot = $Ctx.AppRoot } }
     if (-not $s.ok -or -not $Dev.model) { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Add and Undo' "the store could not be made: $(if ($s.ok) { 'no index model' } else { $s.error })"; return }
     $store = $s.value
@@ -333,8 +359,8 @@ function Invoke-DevAnswerCheck($Ctx, $Adapter, $Dev, $Bridge) {
     $askShort = { param($Prompt) & $send -Bridge $b -Text $Prompt -TimeoutSec 1 -MaxTimeoutSec 1 -StallSec 0 -LeaveRunning -BusyWaitSec 120 }.GetNewClosure()
     $askNormal = { param($Prompt) & $send -Bridge $b -Text $Prompt -TimeoutSec 240 -StallSec 120 -LeaveRunning -BusyWaitSec 120 }.GetNewClosure()
     $readChat = { param($ChatUrl) & $read -Bridge $b -ChatUrl $ChatUrl }.GetNewClosure()
-    $lease = $Dev.lease
-    $getLease = { $lease }.GetNewClosure()   # made here, not inside Measure-KitStep's block (see Invoke-DevLinkIt)
+    $getLease = Get-DevGetLease $Dev   # renewed while the steps run (New-DevLeaseGetter)
+    $lease = & $getLease
     $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = $getLease; AppRoot = $Ctx.AppRoot } }
     if (-not $s.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' $name "the store could not be made: $($s.error)"; return }
     $store = $s.value
@@ -444,10 +470,10 @@ function Invoke-DevLinkIt($Ctx, $Adapter, $Dev) {
     Import-AppModules $Ctx.AppRoot $script:Needs.add
     $builder = Find-KitCommand $script:StoreBuilders
     if (-not $builder -or -not (Get-Command Add-PageLink -ErrorAction SilentlyContinue)) { Add-ValidationResult $Ctx 'V6' 'SKIP' $name 'not in this version yet'; return }
-    $lease = $Dev.lease
-    # The closure is made here, not inside Measure-KitStep's block: made there, it did not see $lease
-    # when the kit ran under Pester (the store then reported "Read only").
-    $getLease = { $lease }.GetNewClosure()
+    # The getter is made outside Measure-KitStep's block (New-DevLeaseGetter): a closure made inside it
+    # did not see the function's variables, and the store then reported "Read only".
+    $getLease = Get-DevGetLease $Dev
+    $lease = & $getLease
     $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = $getLease; AppRoot = $Ctx.AppRoot } }
     if (-not $s.ok -or -not $Dev.model) { Add-ValidationResult $Ctx 'V6' 'FAIL' $name "the store could not be made: $(if ($s.ok) { 'no index model' } else { $s.error })"; return }
     $store = $s.value
@@ -484,8 +510,8 @@ function New-DevStore($Ctx, $Adapter, $Dev, [string]$Name, [string]$NeedsCommand
     Import-AppModules $Ctx.AppRoot $script:Needs.add
     $builder = Find-KitCommand $script:StoreBuilders
     if (-not $builder -or -not (Get-Command $NeedsCommand -ErrorAction SilentlyContinue)) { Add-ValidationResult $Ctx 'V6' 'SKIP' $Name 'not in this version yet'; return $null }
-    $lease = $Dev.lease
-    $getLease = { $lease }.GetNewClosure()   # made here, not inside Measure-KitStep's block (see Invoke-DevLinkIt)
+    $getLease = Get-DevGetLease $Dev   # renewed while the steps run (New-DevLeaseGetter)
+    $lease = & $getLease
     $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = $getLease; AppRoot = $Ctx.AppRoot } }
     if (-not $s.ok -or -not $Dev.model) { Add-ValidationResult $Ctx 'V6' 'FAIL' $Name "the store could not be made: $(if ($s.ok) { 'no index model' } else { $s.error })"; return $null }
     $s.value
@@ -729,8 +755,8 @@ function Invoke-DevUpgrade($Ctx, $Adapter, $Dev) {
     if ($miss.Count) { Add-ValidationResult $Ctx 'V6' 'SKIP' $name "not in this version yet ($($miss -join ', ') missing)"; return }
     Import-AppModules $Ctx.AppRoot (@($script:Needs.add) + 'Upgrade')
     $builder = Find-KitCommand $script:StoreBuilders
-    $lease = $Dev.lease
-    $getLease = { $lease }.GetNewClosure()
+    $getLease = Get-DevGetLease $Dev   # renewed while the steps run (New-DevLeaseGetter)
+    $lease = & $getLease
     $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = $getLease; AppRoot = $Ctx.AppRoot } }
     if (-not $s.ok -or -not $Dev.model) { Add-ValidationResult $Ctx 'V6' 'FAIL' $name "the store could not be made: $(if ($s.ok) { 'no index model' } else { $s.error })"; return }
     $store = $s.value

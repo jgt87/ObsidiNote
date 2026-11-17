@@ -5,6 +5,11 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.9] - 2026-11-17
+
+### Fixed
+- Validation kit: the V6 write tests keep their writer lease alive. The lease ran out about two minutes into the run, while "Check for the answer" waited, and every write step after it reported "Read only".
+
 ## [v0.12.8] - 2026-11-17
 
 ### Added

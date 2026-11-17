@@ -623,6 +623,28 @@ Describe 'V6 closures are made outside Measure-KitStep blocks (target machine, 2
     }
 }
 
+Describe 'V6 write steps keep the dev vault''s lease alive (target machine, 2026-11-17, v0.12.8)' {
+    # The kit took its 120 s lease once; "Check for the answer" waited 92 s and every write step after
+    # it was refused as "Read only". The getter renews it with the same session when under 60 s are left.
+    foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'Linker', 'LinkCapture', 'Ingest') { Import-Module (Join-Path $root "lib\$m.psm1") -Global }
+    . (Join-Path $here 'SyntheticVault.ps1')
+    $w = New-SyntheticVault
+    $isid = [string]$w.open.vault.indexSectionId
+    $short = Request-WriterLease -Adapter $w.a -IndexSectionId $isid -SessionId ([string]$w.open.lease.sessionId) -TtlSec 30
+    $get = & (Get-Module StageVault) { param($a, $i, $l) New-DevLeaseGetter $a $i $l } $w.a $isid $short
+    It 'renews a lease with less than 60 s left, with the same session, and keeps it a writer lease' {
+        $short.mode | Should Be 'writer'
+        $l = & $get
+        $l.mode | Should Be 'writer'
+        $l.sessionId | Should Be $short.sessionId
+        ([datetime]$l.expires).ToUniversalTime() -gt [datetime]::UtcNow.AddSeconds(60) | Should Be $true
+    }
+    It 'hands the same renewed lease to every later call' {
+        $a1 = & $get; $a2 = & $get
+        $a1.expires | Should Be $a2.expires
+    }
+}
+
 Describe 'V6 "Link it" in the dev vault (in-memory OneNote, no Copilot)' {
     foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'Linker', 'LinkCapture', 'Ingest') { Import-Module (Join-Path $root "lib\$m.psm1") -Global }
     . (Join-Path $here 'SyntheticVault.ps1')
