@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeSubmitResult } from '../api'
-import { addLabel, defaultPicks, readableLabel, rowStateFromAdd, rowStateText, runSummary, todayIso, type Meeting } from './meetingsModel'
+import { addLabel, defaultPicks, meetingSubline, readableLabel, rowStateFromAdd, rowStateText, runSummary, todayIso, type Meeting } from './meetingsModel'
 
 const meeting = (over: Partial<Meeting> = {}): Meeting => ({
   title: 'Garden sync',
@@ -18,6 +18,12 @@ describe('meetings model', () => {
   it('says what Copilot can read of a meeting', () => {
     expect(readableLabel(meeting({ hasTranscript: true, hasNotes: true, readable: true }))).toBe('Transcript, notes')
     expect(readableLabel(meeting())).toBe('Nothing Copilot can read')
+  })
+
+  it('writes the line under a meeting, one person or several', () => {
+    expect(meetingSubline(meeting({ attendees: 1 }))).toBe('10:00 · Nothing Copilot can read · 1 person')
+    expect(meetingSubline(meeting({ attendees: 5, hasTranscript: true, readable: true }))).toBe('10:00 · Transcript · 5 people')
+    expect(meetingSubline(meeting({ attendees: 0, time: '' }))).toBe('Nothing Copilot can read')
   })
 
   it('ticks the meetings Copilot can read something of', () => {

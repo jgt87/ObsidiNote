@@ -119,7 +119,7 @@ Your own labels, to relate pages that nothing else relates. Add them in the page
 ### Journal
 ![Journal searched on a topic: the day's journal entries and every other page about the topic, by day](docs/screenshots/journal.png)
 
-Your journal, one page per day: everything Copilot files as a journal entry (what happened, what you did or decided) goes into that day's page, with its time. Search it by topic or words to see everything about that topic from all your sources and all days, not only journal entries. With a topic chosen, **Decisions** lists the topic's decision pages with the pages each came from, and **Find decisions with Copilot** asks Copilot to find decisions written inside other pages (read only, citing them).
+Your journal, one page per day: everything Copilot files as a journal entry (what happened, what you did or decided) goes into that day's page, with its time. Your meeting pages are listed too, on the day they were added. Search it by topic or words to see everything about that topic from all your sources and all days, not only journal entries. With a topic chosen, **Decisions** lists the topic's decision pages with the pages each came from, and **Find decisions with Copilot** asks Copilot to find decisions written inside other pages (read only, citing them).
 
 ### More
 - **Find** (`Ctrl+K`): jump to any page or topic.

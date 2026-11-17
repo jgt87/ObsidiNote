@@ -1,6 +1,9 @@
 // The Journal (operator, 2026-11-17): one page per day, and a topic search across everything.
 // - Without a search it lists the journal itself: the entries of each day page, newest day first,
-//   plus journal pages written before day pages existed (one page per entry), each as one item.
+//   plus journal pages written before day pages existed (one page per entry), each as one item, and
+//   meeting pages on the day they were added (operator, 2026-11-17: "the meetings are imported, they
+//   are by default not visible under journal"; no time: the page knows when it was added, not when
+//   the meeting was).
 // - With a topic (its subtopics included) or words, it lists everything relevant across all sources
 //   and all days: the entries of day pages that match, and every other page that matches, on the day
 //   it was made.
@@ -62,6 +65,9 @@ const DATE_TITLE = /^\d{4}-\d{2}-\d{2}$/
 /** A page of the journal: Copilot's type "log". A day page also has entries. */
 const isJournal = (p: GraphPage) => p.kind === 'log'
 
+/** A meeting page (Today's meetings, or a pasted meeting): listed in the journal too. */
+const isMeeting = (p: GraphPage) => p.kind === 'meeting'
+
 /** Whether $ids touch the topic $topicId or one of its subtopics. */
 export function inTopic(ids: string[], topicId: string): boolean {
   if (!topicId) return true
@@ -98,11 +104,11 @@ export function buildJournal(model: GraphModel, filter: JournalFilter): JournalD
       }
       continue
     }
-    if (!searching && !isJournal(p)) continue
+    if (!searching && !isJournal(p) && !isMeeting(p)) continue
     if (!inTopic(p.topicIds, filter.topicId) || !hasWords(`${p.title} ${p.summary} ${p.aliases.join(' ')}`, words)) continue
     const day = pageDay(p)
     if (!day.date) continue
-    items.push({ key: p.id, pageId: p.id, date: day.date, time: day.time, title: p.title, summary: p.summary, kind: isJournal(p) ? 'journal' : 'page', type: p.kind, topicIds: p.topicIds })
+    items.push({ key: p.id, pageId: p.id, date: day.date, time: isMeeting(p) ? '' : day.time, title: p.title, summary: p.summary, kind: isJournal(p) ? 'journal' : 'page', type: p.kind, topicIds: p.topicIds })
   }
   const byDay = new Map<string, JournalItem[]>()
   for (const { date, ...item } of items) {
@@ -170,7 +176,7 @@ export function shortDate(date: string): string {
 export function journalCaption(filter: JournalFilter, topic: GraphTopic | undefined, days: JournalDay[]): string {
   const n = days.reduce((s, d) => s + d.items.length, 0)
   const what = n === 1 ? '1 item' : `${n} items`
-  if (!filter.topicId && !filter.text.trim()) return `Your journal: ${what}, one page per day, newest first.`
+  if (!filter.topicId && !filter.text.trim()) return `Your journal and meetings: ${what}, newest day first.`
   const about = [topic ? `topic "${topic.path}"` : '', filter.text.trim() ? `"${filter.text.trim()}"` : ''].filter(Boolean).join(' and ')
   return `Everything about ${about}, from all sources and all days: ${what}.`
 }

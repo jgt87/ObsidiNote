@@ -36,6 +36,12 @@ export function readableLabel(m: Meeting): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
+/** The line under a meeting's title: time, what Copilot can read, how many people. */
+export function meetingSubline(m: Meeting): string {
+  const people = m.attendees === 1 ? '1 person' : m.attendees > 1 ? `${m.attendees} people` : ''
+  return [m.time, readableLabel(m), people].filter(Boolean).join(' · ')
+}
+
 /** The meetings ticked when the list comes: every one Copilot can read something of. */
 export function defaultPicks(meetings: Meeting[]): Set<number> {
   return new Set(meetings.flatMap((m, i) => (m.readable ? [i] : [])))

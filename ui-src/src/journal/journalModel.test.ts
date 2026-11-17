@@ -28,6 +28,17 @@ describe('the journal without a search', () => {
     expect(days[0].items.map((i) => i.kind)).toEqual(['entry', 'entry'])
     expect(days[0].items[0].pageId).toBe('p201')
   })
+  it('lists a meeting page on the day it was added, without a time (operator, 2026-11-17)', () => {
+    const m = model()
+    const other = m.pages.find((p) => p.kind !== 'log' && p.kind !== 'decision')!
+    m.pages.push({ ...other, id: 'p299', title: 'Meeting: garden sync', kind: 'meeting', created: '2026-11-17T21:34:00.000Z', archived: false })
+    const day = buildJournal(m, { topicId: '', text: '' }).find((d) => d.date === localParts('2026-11-17T21:34:00.000Z').date)!
+    const item = day.items.find((i) => i.pageId === 'p299')!
+    expect(item.time).toBe('')
+    expect(item.kind).toBe('page')
+    expect(item.type).toBe('meeting')
+    expect(buildJournal(m, { topicId: '', text: '' }).flatMap((d) => d.items).some((i) => i.pageId === other.id)).toBe(false)
+  })
   it('leaves archived pages out', () => {
     const m = model()
     m.pages.find((p) => p.id === 'p202')!.archived = true
@@ -80,7 +91,7 @@ describe('wording and helpers', () => {
   it('says what the list shows', () => {
     const m = model()
     const all = buildJournal(m, { topicId: '', text: '' })
-    expect(journalCaption({ topicId: '', text: '' }, undefined, all)).toBe('Your journal: 3 items, one page per day, newest first.')
+    expect(journalCaption({ topicId: '', text: '' }, undefined, all)).toBe('Your journal and meetings: 3 items, newest day first.')
     const t = m.topics.find((x) => x.id === 'Projects')
     expect(journalCaption({ topicId: 'Projects', text: '' }, t, buildJournal(m, { topicId: 'Projects', text: '' }))).toBe('Everything about topic "Projects", from all sources and all days: 4 items.')
   })

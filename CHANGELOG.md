@@ -5,6 +5,14 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.10] - 2026-11-17
+
+### Changed
+- The **Journal** also lists your meeting pages, on the day they were added, so meetings from Today's meetings show next to your journal entries without searching.
+
+### Fixed
+- Today's meetings says "1 person", not "1 people".
+
 ## [v0.12.9] - 2026-11-17
 
 ### Fixed
