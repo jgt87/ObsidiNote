@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { ALL_LABELS_UP_TO, ALL_LINES_ZOOM, areaLabelSize, cardPosition, labelMode, lineMode, needsSharp, placeAreaLabels, placeLabels, SHARP_AT, SHARP_EVERY_MS, type AreaLabelInput } from './view'
+import type { DotLayout } from './layout'
+import { ALL_LABELS_UP_TO, ALL_LINES_ZOOM, areaLabelSize, cardPosition, directionScore, labelMode, lineMode, needsSharp, nextInDirection, placeAreaLabels, placeLabels, SHARP_AT, SHARP_EVERY_MS, type AreaLabelInput } from './view'
+
+describe('nextInDirection: an arrow key moves to the nearest dot that way', () => {
+  // Invented dots: a cross around o, and one far off to the right but straight ahead.
+  const dot = (id: string, x: number, y: number) => ({ id, x, y }) as unknown as DotLayout
+  const o = dot('o', 100, 100)
+  const dots = [o, dot('r', 140, 110), dot('rFar', 300, 100), dot('l', 60, 100), dot('u', 100, 50), dot('d', 105, 160), dot('diag', 160, 170)]
+  it('picks the nearest dot in each direction, and none where there is none', () => {
+    expect(['left', 'right', 'up', 'down'].map((d) => nextInDirection(dots, o, d as 'left')?.id)).toEqual(['l', 'r', 'u', 'd'])
+    expect(nextInDirection([o, dot('r', 140, 110)], o, 'left')).toBeNull()
+  })
+  it('leaves out the dot it starts from and dots that are not shown', () => {
+    expect(nextInDirection(dots, o, 'right', (id) => id !== 'r')?.id).toBe('rFar')
+    expect(nextInDirection([o], o, 'right')).toBeNull()
+  })
+  it('scores along plus twice across, and nothing outside the 90 degree cone', () => {
+    expect(directionScore({ x: 0, y: 0 }, { x: 40, y: 10 }, [1, 0])).toBe(60)
+    expect(directionScore({ x: 0, y: 0 }, { x: 10, y: 40 }, [1, 0])).toBeNull()
+    expect(directionScore({ x: 0, y: 0 }, { x: -5, y: 0 }, [1, 0])).toBeNull()
+    expect(directionScore({ x: 0, y: 0 }, { x: 0, y: -30 }, [0, -1])).toBe(30)
+  })
+})
 
 describe('needsSharp: a running zoom-in is drawn again before it turns to coarse pixels', () => {
   it('draws again once the picture is stretched by 15 percent, at most every 60 ms', () => {

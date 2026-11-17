@@ -81,8 +81,9 @@ function useGraphLoad(load: (signal: AbortSignal) => Promise<GraphModel>, source
   return { state, refresh, retry }
 }
 
-/** The view's title and one message in place of the map (an error is an alert), with its action. */
-function GraphMessage({ title, heading, text, alert = false, children }: { title: string; heading: string; text: string; alert?: boolean; children?: ReactNode }) {
+/** The view's title and one message in place of the map (an error is an alert), with its action.
+ *  Exported for its test (GraphView.test.tsx). */
+export function GraphMessage({ title, heading, text, alert = false, children }: { title: string; heading: string; text: string; alert?: boolean; children?: ReactNode }) {
   return (
     <div className="kg">
       {title && <h1 className="kg-title">{title}</h1>}

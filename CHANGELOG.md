@@ -5,6 +5,11 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.6] - 2026-11-17
+
+### Changed
+- **Inside the interface**: the map's arrow-key moves and the hover card's placement are split into smaller parts, and the graph view and the graph demo get their own tests. Nothing you see or do changes; the map, the page window and every rendered check were compared before and after.
+
 ## [v0.12.5] - 2026-11-17
 
 ### Added

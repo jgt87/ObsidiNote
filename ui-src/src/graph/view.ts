@@ -96,23 +96,33 @@ export type Direction = 'left' | 'right' | 'up' | 'down'
  * preferring dots straight ahead. Null when there is none.
  */
 export function nextInDirection(dots: DotLayout[], from: DotLayout, dir: Direction, visible?: (id: string) => boolean): DotLayout | null {
-  const [ux, uy] = dir === 'left' ? [-1, 0] : dir === 'right' ? [1, 0] : dir === 'up' ? [0, -1] : [0, 1]
+  const unit = DIRECTION_UNIT[dir]
   let best: DotLayout | null = null
   let bestScore = Infinity
   for (const d of dots) {
     if (d.id === from.id || (visible && !visible(d.id))) continue
-    const dx = d.x - from.x
-    const dy = d.y - from.y
-    const along = dx * ux + dy * uy
-    const across = Math.abs(dx * uy - dy * ux)
-    if (along <= 0 || across > along) continue
-    const score = along + across * 2
-    if (score < bestScore) {
+    const score = directionScore(from, d, unit)
+    if (score !== null && score < bestScore) {
       bestScore = score
       best = d
     }
   }
   return best
+}
+
+/** Each arrow key as a unit step on the map (y grows downwards). */
+const DIRECTION_UNIT: Record<Direction, readonly [number, number]> = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] }
+
+/** How far dot `to` lies in direction `unit` from `from` (lower is nearer and straighter), or null
+ *  when it is outside the 90 degree cone in that direction: the distance along the direction plus
+ *  twice the distance across it. */
+export function directionScore(from: { x: number; y: number }, to: { x: number; y: number }, [ux, uy]: readonly [number, number]): number | null {
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const along = dx * ux + dy * uy
+  const across = Math.abs(dx * uy - dy * ux)
+  if (along <= 0 || across > along) return null
+  return along + across * 2
 }
 
 /** Search: free words and filters (src/search/query.ts), best match first; [] for an empty query. */
@@ -252,9 +262,8 @@ export function cardPosition(
   let best = spots[0]
   let bestScore = Infinity
   for (const s of spots) {
-    const out = s.left < m || s.top < m || s.left + size.w > stage.w - m || s.top + size.h > stage.h - m
-    const covered = near.filter((p) => p.x > s.left - 6 && p.x < s.left + size.w + 6 && p.y > s.top - 6 && p.y < s.top + size.h + 6).length
-    const score = (out ? 1000 : 0) + covered
+    // Off the stage costs more than any number of covered pages.
+    const score = (offStage(s, size, stage, m) ? 1000 : 0) + coveredCount(near, s, size)
     if (score < bestScore) {
       bestScore = score
       best = s
@@ -264,6 +273,16 @@ export function cardPosition(
     left: Math.max(m, Math.min(best.left, stage.w - size.w - m)),
     top: Math.max(m, Math.min(best.top, stage.h - size.h - m)),
   }
+}
+
+/** Whether a card at `spot` would reach past the stage's `margin`. */
+function offStage(spot: { left: number; top: number }, size: { w: number; h: number }, stage: { w: number; h: number }, margin: number): boolean {
+  return spot.left < margin || spot.top < margin || spot.left + size.w > stage.w - margin || spot.top + size.h > stage.h - margin
+}
+
+/** How many of the points `near` a card at `spot` would cover (6 px around it count too). */
+function coveredCount(near: { x: number; y: number }[], spot: { left: number; top: number }, size: { w: number; h: number }): number {
+  return near.filter((p) => p.x > spot.left - 6 && p.x < spot.left + size.w + 6 && p.y > spot.top - 6 && p.y < spot.top + size.h + 6).length
 }
 
 /** The focused page and its direct neighbours (the set that stays sharp). */

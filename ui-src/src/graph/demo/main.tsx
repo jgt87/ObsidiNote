@@ -6,16 +6,15 @@ import { createRoot } from 'react-dom/client'
 import '../../../../src/styles/tokens.css'
 import { GraphView } from '../GraphView'
 import { layoutGraph } from '../layout'
-import type { PageEditRequest } from '../editModel'
-import type { GraphModel, GraphPage } from '../model'
-import type { PageBodyResult } from '../PageBody'
+import type { GraphModel } from '../model'
 import { syntheticGraph } from '../synthetic'
+import { createDemoServer } from './demoServer'
 import { QuickSwitcher } from '../../search/QuickSwitcher'
 import type { FindRequest } from '../../search/switcherModel'
 import './demo.css'
 
 // Quick switcher (Ctrl+K) on the same synthetic model.
-const loadFind = () => new Promise<GraphModel>((resolve) => setTimeout(() => resolve(model), 150))
+const loadFind = () => new Promise<GraphModel>((resolve) => setTimeout(() => resolve(demo.model()), 150))
 
 const q = new URLSearchParams(location.search)
 const pages = Number(q.get('pages') ?? 100)
@@ -26,73 +25,8 @@ const state = q.get('state') ?? ''
 const bench = q.get('bench') === '1'
 if (q.get('theme')) document.documentElement.dataset.theme = q.get('theme')!
 
-let model = syntheticGraph({ pages: state === 'empty' ? 0 : pages, topics, seed, readOnly })
-
-// ---------- stand-ins for the server: never the real routes (the dev server proxies /api to a
-// running app). Each ?<name>=fail shows that call's error. ----------
-
-const WRITER_ELSEWHERE = 'Read only: another ObsidiNote is writing in this vault.'
-
-/** After `ms`, fails with `message` when ?<param>=fail, else runs `ok` and resolves. */
-function afterOrFail(param: string, message: string, ms: number, ok: () => void): Promise<void> {
-  return new Promise<void>((resolve, reject) =>
-    setTimeout(() => {
-      if (q.get(param) === 'fail') return reject(new Error(message))
-      ok()
-      resolve()
-    }, ms),
-  )
-}
-
-/** Edit: the title and summary change in the demo's own model. ?edit=fail shows the error in the form. */
-function editPage(req: PageEditRequest, log: (s: string) => void): Promise<void> {
-  return afterOrFail('edit', WRITER_ELSEWHERE, 400, () => {
-    model = { ...model, pages: model.pages.map((p) => (p.id === req.id ? { ...p, title: req.title ?? p.title, summary: req.summary ?? p.summary } : p)) }
-    log(`Edit: ${JSON.stringify(req)}`)
-  })
-}
-
-/** "Link it" on a mention. ?link=fail shows the error; ?link=slow keeps the button busy for a minute. */
-function linkMention(a: GraphPage, b: GraphPage, log: (s: string) => void): Promise<void> {
-  return afterOrFail('link', WRITER_ELSEWHERE, q.get('link') === 'slow' ? 60_000 : 400, () => log(`Link it: ${a.title} → ${b.title}`))
-}
-
-/** Tags change in the demo's own model. ?tag=fail shows the error. */
-async function tagPages(ids: string[], add: string[], remove: string[], log: (s: string) => void): Promise<void> {
-  if (q.get('tag') === 'fail') throw new Error(WRITER_ELSEWHERE)
-  model = { ...model, pages: model.pages.map((p) => (ids.includes(p.id) ? { ...p, tags: [...p.tags.filter((t) => !remove.includes(t)), ...add.filter((t) => !p.tags.includes(t))] } : p)) }
-  log(`Tag ${ids.length} page(s): +[${add.join(', ')}] -[${remove.join(', ')}]`)
-}
-
-/** An invented page text: headings, lists, a task list, a table, a web link and a link to another
- *  page of the map. */
-function demoPageText(id: string): string {
-  const other = model.pages.find((p) => p.id !== id)
-  return [
-    '# Overview',
-    'An invented page text for the demo: it checks **who** asks and *from where*, as [the guide](https://example.com/guide) says.',
-    '## Steps',
-    '1. Plan\n2. Roll **out**\n3. Review',
-    `See ${other ? `[${other.title}](obsn:${other.id})` : 'another page'} for the background.`,
-    '- Check the user\n    - with a second factor\n- Check the device',
-    '- [ ] ask the network team\n- [x] read the guide',
-    '| Name | Use |\n| --- | --- |\n| Proxy | checks every request |\n| `vpn` | the old way |',
-    '## Your notes',
-    'My own words stay.',
-  ].join('\n\n')
-}
-
-/** The page's text. ?body=fail|empty|long shows the other states. */
-function loadBody(id: string): Promise<PageBodyResult> {
-  return new Promise((resolve, reject) =>
-    setTimeout(() => {
-      const body = q.get('body')
-      if (body === 'fail') return reject(new Error('The page could not be read from OneNote. Try again.'))
-      if (body === 'empty') return resolve({ markdown: '', truncated: false })
-      resolve({ truncated: body === 'long', markdown: demoPageText(id) })
-    }, 300),
-  )
-}
+// The stand-ins for the server, over the demo's own model (demoServer.ts).
+const demo = createDemoServer(q, syntheticGraph({ pages: state === 'empty' ? 0 : pages, topics, seed, readOnly }))
 
 function Demo() {
   const [log, setLog] = useState('')
@@ -102,7 +36,7 @@ function Demo() {
     (signal: AbortSignal) =>
       new Promise<GraphModel>((resolve, reject) => {
         if (state === 'loading') return // stays in the skeleton
-        const t = setTimeout(() => (fail ? reject(new Error('ObsidiNote is not answering. Is it still running?')) : resolve(model)), 250)
+        const t = setTimeout(() => (fail ? reject(new Error('ObsidiNote is not answering. Is it still running?')) : resolve(demo.model())), 250)
         signal.addEventListener('abort', () => clearTimeout(t))
       }),
     [fail],
@@ -112,10 +46,10 @@ function Demo() {
       <GraphView
         load={load}
         onAsk={(p) => setLog(`Ask about this: ${p.title}`)}
-        onEditPage={(req) => editPage(req, setLog)}
-        onLinkMention={(a, b) => linkMention(a, b, setLog)}
-        onTagPages={(ids, add, remove) => tagPages(ids, add, remove, setLog)}
-        loadBody={loadBody}
+        onEditPage={(req) => demo.editPage(req, setLog)}
+        onLinkMention={(a, b) => demo.linkMention(a, b, setLog)}
+        onTagPages={(ids, add, remove) => demo.tagPages(ids, add, remove, setLog)}
+        loadBody={demo.loadBody}
         onAdd={() => setLog('Add')}
         request={find}
         onRequestDone={() => setFind(null)}
@@ -165,7 +99,7 @@ async function timeFrames(n: number, act: (i: number) => void, after?: (i: numbe
 /** The layout alone, then the first paint of the map (waiting for its first dot). */
 async function benchFirstPaint(out: Record<string, unknown>) {
   const l0 = performance.now()
-  layoutGraph(model)
+  layoutGraph(demo.model())
   out.layoutMs = +(performance.now() - l0).toFixed(1)
   // wait for the map (the loader resolves after 250 ms)
   while (!document.querySelector('.kg-stage svg circle.kg-dot')) await frame()
@@ -212,7 +146,8 @@ async function benchButtons(out: Record<string, unknown>) {
 }
 
 async function runBench() {
-  const out: Record<string, unknown> = { pages: model.pages.length, topics: model.topics.length, edges: model.edges.length }
+  const m = demo.model()
+  const out: Record<string, unknown> = { pages: m.pages.length, topics: m.topics.length, edges: m.edges.length }
   await benchFirstPaint(out)
   await benchHover(out)
   await benchWheel(out, document.querySelector<HTMLElement>('.kg-stage')!)
