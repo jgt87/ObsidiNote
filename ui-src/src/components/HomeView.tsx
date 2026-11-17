@@ -115,6 +115,8 @@ function FlowArea({ home, connect, onOpenPage }: { home: Home; connect: React.JS
         onCancelDecision={home.add.onDone}
         onAsk={() => home.add.onAsk(r)}
         onAddAnyway={() => home.add.onAddAnyway(r)}
+        onAddDuplicate={r.duplicateOf ? () => home.add.onAddDuplicate(r) : undefined}
+        onOpenPage={onOpenPage}
       />
     )
   }

@@ -5,6 +5,19 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.7] - 2026-11-17
+
+### Added
+- **Journal** (in the menu): your journal, one page per day, newest day first. Search it by topic or words to see everything about that topic from all sources and all days, not only journal entries. With a topic chosen, **Decisions** lists the decision pages of that topic, each with the pages it came from, and **Find decisions with Copilot** asks Copilot to find decisions written inside other pages (read only, with the pages it cites).
+- **Possible duplicates** in the map's Filter: pages that share a title or an alias with another page, so you can open them side by side and link, edit or archive one.
+- **Add anyway** and **Open it** when Add finds a page with the same title and type: open the page that is there, or add yours beside it.
+- **Validation kit, journal day page**: the write tests now check that two journal entries land on one day page in OneNote and that Undo takes out only one of them.
+- **Validation kit, open checks** (`Run Open Checks.cmd`): one double-click for everything the last run on a business tenant left open: Copilot and its Work IQ switch, today's meetings, which notebook OneNote shows, and the write tests in ObsidiNote-Validation (Add, "Check for the answer", Ask, and a link in another page after Archive). It asks nothing and writes only into the test notebook.
+
+### Changed
+- **Journal entries go into one page per day.** Whatever Copilot files as a journal entry is added to that day's page (titled with the date) as a timed entry, instead of a page of its own. Undo, also from History, takes out only that entry; the page goes to Deleted Pages when it was the day's only entry. Journal pages you already have stay as they are: they are listed in the Journal as they were made, so no upgrade step is needed.
+- **Web links open in your default browser**, in a new tab, instead of in ObsidiNote's own Edge window: link pages, Ask's sources and answers, links in a page's text and the page window's Open link. OneNote links still open OneNote.
+
 ## [v0.12.6] - 2026-11-17
 
 ### Changed

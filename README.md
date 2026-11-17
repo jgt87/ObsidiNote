@@ -76,6 +76,8 @@ One box does both. In **Auto** it says before you send whether it will add or as
 - Copilot picks the type, the topics and the related pages; ObsidiNote writes the page into the right section of your vault, adds links to related pages ("Linked from" on theirs) and updates the index.
 - A pasted **link** becomes one summary page (SharePoint, OneDrive, Teams and Loop under `Internal links`, the rest under `Web links`). The same link again updates its page; **Update** reads the source again and shows old against new. Your own "Your notes" part of a page is never changed.
 - **Undo** moves the page to OneNote's Deleted Pages and takes its links out of the pages that pointed to it.
+- A **journal entry** (what happened, what you did or decided) goes into that day's journal page, one page per day; its Undo takes out only that entry.
+- When a page with the same title and type is already there, nothing is added: **Open it**, or **Add anyway** to add yours beside it.
 - When Copilot needs longer than about two minutes (a large SharePoint page), nothing is lost: the item waits under **Waiting for Copilot** and **Check for the answer** finishes it later.
 
 ### Ask
@@ -90,7 +92,7 @@ The map above shows every page as a dot in its topic's area. Bigger dots have mo
 
 - Point at a dot for a preview, click it for the page window. `/` searches; search understands `type:meeting`, `topic:"Security / Networking"`, `tag:licensing`, `site:example.org`, `after:2026-03`, `is:unlinked`.
 - **Topics | Sources | Tags** groups the dots by topic, by where they came from (each SharePoint site, OneDrive, Teams, web sites), or by your tags.
-- **Filter** narrows by type, topic and tag, finds link summaries older than the days set in Settings, shows or hides links, mentions and archived pages, and can name only the topic areas ("Labels: hubs only").
+- **Filter** narrows by type, topic and tag, finds possible duplicates (pages that share a title or an alias) and link summaries older than the days set in Settings, shows or hides links, mentions and archived pages, and can name only the topic areas ("Labels: hubs only").
 - **Focus on this page** (`F`) shows a page and its neighbours one or two steps out. **Mentions, not linked** finds pages that name each other without a link; **Link it** links them.
 - **List** shows every page in one table: sort by any column, group by topic, type, site or year, tick rows to tag them together.
 
@@ -109,9 +111,15 @@ The map above shows every page as a dot in its topic's area. Bigger dots have mo
 
 Your own labels, to relate pages that nothing else relates. Add them in the page window, or tick rows in the List and tag them together (the same ticked rows can be archived, restored, deleted, or have their link summaries read again with **Update summaries**). In the **Tags** view each tag is an area, with the pages of each topic together under the topic's name, so you see which topics a tag connects. Rename, merge or remove a tag under **Settings**. Copilot never sets or changes tags.
 
+### Journal
+![Journal searched on a topic: the day's journal entries and every other page about the topic, by day](docs/screenshots/journal.png)
+
+Your journal, one page per day: everything Copilot files as a journal entry (what happened, what you did or decided) goes into that day's page, with its time. Search it by topic or words to see everything about that topic from all your sources and all days, not only journal entries. With a topic chosen, **Decisions** lists the topic's decision pages with the pages each came from, and **Find decisions with Copilot** asks Copilot to find decisions written inside other pages (read only, citing them).
+
 ### More
 - **Find** (`Ctrl+K`): jump to any page or topic.
 - **History**: everything Add did, with **Open** and **Undo**.
+- **Web links** (link pages, Ask's sources, links in a page's text) open in a new tab of your default browser; OneNote links open OneNote.
 - **Export as Markdown**: one page, a topic or the whole vault as Markdown files with `[[links]]`, for any Markdown editor. It goes to your downloads; nothing is kept.
 - **Several vaults**: the **Notebook** switcher in the side bar lists your vaults and other open notebooks. One vault is active and written to; everything else is only read.
 - **Read only**: when a vault cannot be changed from this window (another PC is writing in it, or you are looking at another vault or notebook), a banner above the content says why and what to do.

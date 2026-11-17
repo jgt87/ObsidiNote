@@ -42,7 +42,9 @@ $script:TypeHints = [ordered]@{
     'project-part'  = 'a part of a project (plan, risks)'
     'meeting'       = 'meeting notes; title "yyyy-mm-dd subject"'
     'decision'      = 'a decision record; title "Decision: subject"'
-    'log'           = 'a journal entry for one day; title "yyyy-mm-dd"'
+    # One page per day since 2026-11-17: the entry goes into that day's page (titled with the date by
+    # ObsidiNote), so its own title names the entry.
+    'log'           = 'a journal entry: what happened, was done or decided today; title: a short name for the entry'
     'file'          = 'a file; title is the file name without extension'
 }
 

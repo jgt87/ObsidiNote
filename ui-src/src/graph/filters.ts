@@ -6,6 +6,7 @@
 // - topics: topic ids; a topic includes its subtopics; UNFILED_ID = pages without a topic.
 // - tags: tags set by hand; a page with any of the chosen tags stays; empty = no tag filter.
 // - unlinkedOnly: only pages without links.
+// - duplicatesOnly: only pages that share a title or an alias with another page (duplicates.ts).
 // - showArchived: archived pages are hidden unless this is on.
 // - staleBefore: only link pages whose summary was read before this ISO time, or never
 //   (linkUpdateRun.ts isStale); null = no such filter. Set from the vault's linkStaleDays.
@@ -15,6 +16,7 @@
 
 import type { GraphIndex } from './graphIndex'
 import { UNFILED_ID, type GraphPage } from './model'
+import { duplicateIds } from './duplicates'
 import { isStale } from './linkUpdateRun'
 import { tagCounts, type TagCount } from './tags'
 
@@ -25,13 +27,14 @@ export interface GraphFilter {
   topics: Set<string>
   tags: Set<string>
   unlinkedOnly: boolean
+  duplicatesOnly: boolean
   showArchived: boolean
   staleBefore: string | null
   focus: { id: string; depth: FocusDepth } | null
 }
 
 export function emptyFilter(): GraphFilter {
-  return { types: new Set(), topics: new Set(), tags: new Set(), unlinkedOnly: false, showArchived: false, staleBefore: null, focus: null }
+  return { types: new Set(), topics: new Set(), tags: new Set(), unlinkedOnly: false, duplicatesOnly: false, showArchived: false, staleBefore: null, focus: null }
 }
 
 /** The active choices in words, for the one-line summary under the map ("type: note · without
@@ -42,6 +45,7 @@ export function filterParts(f: GraphFilter, topicName: (id: string) => string): 
   if (f.topics.size) parts.push(`topic: ${[...f.topics].map(topicName).join(', ')}`)
   if (f.tags.size) parts.push(`tag: ${[...f.tags].join(', ')}`)
   if (f.unlinkedOnly) parts.push('without links')
+  if (f.duplicatesOnly) parts.push('possible duplicates (open one to link, edit or archive it)')
   if (f.staleBefore !== null) parts.push('old link summaries (select them in the List to update)')
   if (f.showArchived) parts.push('archived shown')
   return parts
@@ -49,7 +53,7 @@ export function filterParts(f: GraphFilter, topicName: (id: string) => string): 
 
 /** True when the filter hides anything beyond archived pages (the default). */
 export function isFilterActive(f: GraphFilter): boolean {
-  return f.types.size > 0 || f.topics.size > 0 || f.tags.size > 0 || f.unlinkedOnly || f.showArchived || f.staleBefore !== null || f.focus !== null
+  return f.types.size > 0 || f.topics.size > 0 || f.tags.size > 0 || f.unlinkedOnly || f.duplicatesOnly || f.showArchived || f.staleBefore !== null || f.focus !== null
 }
 
 /**
@@ -128,6 +132,7 @@ function expandTopics(index: GraphIndex, topics: Set<string>): Set<string> {
 export function visiblePageIds(index: GraphIndex, f: GraphFilter): Set<string> {
   const wanted = f.topics.size ? expandTopics(index, f.topics) : null
   const near = f.focus ? focusNeighbourhood(index, f.focus.id, f.focus.depth) : null
+  const dups = f.duplicatesOnly ? duplicateIds(index.model.pages, f.showArchived) : null
   const shown = new Set<string>()
   for (const p of index.model.pages) {
     if (near && p.id === f.focus!.id) {
@@ -140,6 +145,7 @@ export function visiblePageIds(index: GraphIndex, f: GraphFilter): Set<string> {
     if (wanted && !underTopics(p, wanted)) continue
     if (f.tags.size && !p.tags.some((t) => f.tags.has(t))) continue
     if (f.unlinkedOnly && !isUnlinked(index, p)) continue
+    if (dups && !dups.has(p.id)) continue
     if (f.staleBefore !== null && !isStale(p, f.staleBefore)) continue
     shown.add(p.id)
   }

@@ -115,6 +115,8 @@ export interface UndoRecord {
   id: string
   pageId: string
   targets: string[]
+  /** A journal entry's request reference: Undo takes out only that entry of the day page. */
+  entry?: string
 }
 
 export interface Timings {
@@ -139,6 +141,9 @@ export interface AddResult {
   links: ResultLink[]
   backlinks: number
   related: PageRef[]
+  /** Not added because a page with the same title and type exists: its id (also in related), so the
+   *  result offers "Open it" and "Add anyway". '' otherwise. */
+  duplicateOf: string
   dropped: Dropped[]
   warnings: string[]
   timings: Timings
@@ -200,6 +205,7 @@ export function normalizeAddResult(raw: Loose<AddResult>): AddResult {
     links: asList(r.links),
     backlinks: r.backlinks ?? 0,
     related: asList(r.related),
+    duplicateOf: typeof r.duplicateOf === 'string' ? r.duplicateOf : '',
     dropped: asList(r.dropped),
     warnings: asList(r.warnings),
     timings: r.timings ?? { totalMs: 0, inboxMs: 0, copilotMs: 0, writeMs: 0, indexMs: 0 },

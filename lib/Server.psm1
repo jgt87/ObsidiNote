@@ -132,7 +132,33 @@ function New-ServerState {
     $h.StopReason = ''
     $h.VaultDetail = $VaultDetail
     $h.SettingsUnreadable = $SettingsUnreadable
+    # POST /api/open: a list here (tests) records the addresses instead of opening the browser.
+    $h.OpenedUrls = $null
     $h
+}
+
+function Test-WebAddress([string]$Url) {
+    <# An address POST /api/open may hand to the default browser: absolute http(s), no spaces or
+       control characters, at most 2000 characters. Never a file, onenote: or script address. #>
+    if (-not $Url -or $Url.Length -gt 2000 -or $Url -match '[\s\x00-\x1f"<>]') { return $false }
+    $u = $null
+    if (-not [Uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$u)) { return $false }
+    ($u.Scheme -eq 'https' -or $u.Scheme -eq 'http') -and [bool]$u.Host
+}
+
+function Invoke-OpenUrlRoute($State, [string]$Body) {
+    <# POST /api/open {url}: opens a web address in a new tab of the person's default browser
+       (operator, 2026-11-17: web links open there, not in ObsidiNote's own Edge window). The window
+       cannot pick the browser itself; this asks Windows to open the address. http(s) only; nothing
+       is written or kept; the log says only that an address was opened. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $url = "$(Get-BodyValue $b 'url' '')"
+    if (-not (Test-WebAddress $url)) { return @{ status = 400; body = @{ error = 'url must be a web address (http or https).' } } }
+    if ($null -ne $State.OpenedUrls) { $null = $State.OpenedUrls.Add($url); return @{ status = 200; body = @{ opened = $true } } }
+    try { Start-Process -FilePath $url | Out-Null }
+    catch { return @{ status = 500; body = @{ error = "The browser could not be opened: $($_.Exception.Message)" } } }
+    Write-AppLog info server 'Web address opened in the default browser' @{}
+    @{ status = 200; body = @{ opened = $true } }
 }
 
 function Get-AppVersionText([string]$AppRoot) {
@@ -940,7 +966,9 @@ function Invoke-SubmitRoute($State, [string]$Body) {
     $u = Use-ActiveVault $State
     if (-not $u.ok) { return @{ status = $u.status; body = @{ intent = $route.intent; error = $u.error } } }
     if ($route.intent -eq 'add') {
-        $r = Invoke-AddRequest -Request @{ text = $text; mode = $route.ingestMode; origin = $origin; fileUrl = $fileUrl } -Store (New-ServerStore $State $u) -Ask (Get-AddCopilot $State) -Options (Get-AddOptions $State)
+        # allowDuplicate: "Add anyway" after Add found a page with the same title and type (2026-11-17).
+        $dupOk = (Get-BodyValue $b 'allowDuplicate' $false) -eq $true
+        $r = Invoke-AddRequest -Request @{ text = $text; mode = $route.ingestMode; origin = $origin; fileUrl = $fileUrl; allowDuplicate = $dupOk } -Store (New-ServerStore $State $u) -Ask (Get-AddCopilot $State) -Options (Get-AddOptions $State)
         $r['intent'] = 'add'
         return @{ status = 200; body = $r }
     }
@@ -1208,7 +1236,7 @@ function Get-ActivityRoute($State) {
     # Only the Intake section is read (its id, then its pages), never the whole vault at page scope.
     $pages = @(Read-ObsnIntakePages -Adapter $u.adapter -RootId ([string]$v.rootId))
     $index = @{}
-    foreach ($p in @($u.model.pages.Values)) { $index[[string]$p.key] = @{ title = [string]$p.title; type = [string]$p.type } }
+    foreach ($p in @($u.model.pages.Values)) { $index[[string]$p.key] = @{ title = [string]$p.title; type = [string]$p.type; entries = @(if ($p.ContainsKey('entries')) { @($p.entries) | Where-Object { $_ } | ForEach-Object { @{ ref = [string]$_['ref'] } } }) } }
     $items = Get-ActivityList -Pages $pages -Index $index   # returns , @(...): assign as is
     # vaultId: the vault these items belong to; the window sends it back as `vault` with Undo, Remove
     # and "Check for the answer", so an item listed before a vault switch is never applied to another.
@@ -1297,6 +1325,7 @@ function Invoke-ApiRoute {
         # A new start on this PC asks this one to end (lib/Startup.psm1 Invoke-ReplaceRunning). The
         # answer is sent first; `stop` then ends the request loop (Invoke-ServerRequest), and
         # obsidinote.ps1's finally gives the writer lease back and disconnects, as on Ctrl+C.
+        'POST /api/open' { return (Invoke-OpenUrlRoute $State $Body) }
         'POST /api/shutdown' { return @{ status = 200; body = @{ stopping = $true }; stop = $true } }
         'POST /api/vault/check-lease' { return (Invoke-LeaseCheckRoute $State) }
     }

@@ -22,8 +22,9 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return data as T
 }
 
-export async function addItem(text: string, mode: 'add' | 'auto' = 'add'): Promise<AddResult> {
-  return normalizeAddResult(await post('/api/submit', { text, mode }))
+/** allowDuplicate: "Add anyway" after Add found a page with the same title and type. */
+export async function addItem(text: string, mode: 'add' | 'auto' = 'add', allowDuplicate = false): Promise<AddResult> {
+  return normalizeAddResult(await post('/api/submit', { text, mode, ...(allowDuplicate ? { allowDuplicate: true } : {}) }))
 }
 
 /** vault: the vault the item was listed in (History); the server refuses when another is active. */

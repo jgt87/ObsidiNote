@@ -3,7 +3,16 @@ import { normalizeActivity, stateLine, waitedFor, waitingItems, type ActivityIte
 
 const item = (over: Partial<ActivityItem>): ActivityItem => ({
   inboxId: 'i1', title: 'Item', state: 'added', kind: 'text', requestKind: 'classify', updated: '2026-11-14T08:00:00Z', since: '', reason: '',
-  filedAs: '', filedTitle: '', filedType: '', canCheck: false, canRemove: false, canUndo: false, ...over,
+  filedAs: '', filedTitle: '', filedType: '', entry: '', canCheck: false, canRemove: false, canUndo: false, ...over,
+})
+
+describe('a journal entry in History (one page per day)', () => {
+  it('names the day page and keeps the entry for Undo', () => {
+    expect(stateLine(item({ entry: 'ra1b2c3d4', filedTitle: '2026-11-17' }))).toBe('An entry in the journal of 2026-11-17.')
+    const list = normalizeActivity({ items: [{ inboxId: 'i9', state: 'added', filedAs: 'p201', filedTitle: '2026-11-17', entry: 'ra1b2c3d4' }] })
+    expect(list.items[0].entry).toBe('ra1b2c3d4')
+    expect(normalizeActivity({ items: [{ inboxId: 'i8' }] }).items[0].entry).toBe('')
+  })
 })
 
 describe('activity', () => {

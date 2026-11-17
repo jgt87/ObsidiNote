@@ -51,8 +51,9 @@ function Add-IndexTopic {
 
 function New-PageRecord {
     param([hashtable]$From = @{})
-    $r = @{ key = ''; id = ''; title = ''; type = ''; bucket = ''; section = ''; oneNoteId = ''; link = ''; summary = ''; topics = @(); aliases = @(); status = ''; url = ''; host = ''; kind = ''; summarizedAt = ''; archivedFrom = ''; links = @(); updated = ''; owner = 'obsn'; level = 1; parent = ''; origin = ''; tags = @() }
+    $r = @{ key = ''; id = ''; title = ''; type = ''; bucket = ''; section = ''; oneNoteId = ''; link = ''; summary = ''; topics = @(); aliases = @(); status = ''; url = ''; host = ''; kind = ''; summarizedAt = ''; archivedFrom = ''; links = @(); updated = ''; created = ''; entries = @(); owner = 'obsn'; level = 1; parent = ''; origin = ''; tags = @() }
     foreach ($k in @($From.Keys)) { $r[$k] = $From[$k] }
+    $r.entries = @(@($r.entries) | Where-Object { $_ })
     $r.tags = @(@($r.tags) | Where-Object { $_ } | ForEach-Object { [string]$_ })
     $r.topics = @(@($r.topics) | Where-Object { $_ } | ForEach-Object { ConvertTo-TopicPath ([string]$_) } | Where-Object { $_ })
     $r.aliases = @(@($r.aliases) | Where-Object { $_ })
@@ -191,7 +192,7 @@ function Get-PageRecordFromHierarchy {
        section itself is the user's). #>
     param([Parameter(Mandatory)][hashtable]$HPage)
     $bucket = Get-BucketOfSection $HPage.section
-    $base = @{ oneNoteId = $HPage.id; title = $HPage.title; section = $HPage.section; updated = $HPage.updated; level = $HPage.level }
+    $base = @{ oneNoteId = $HPage.id; title = $HPage.title; section = $HPage.section; updated = $HPage.updated; created = $(if ($HPage.ContainsKey('created')) { [string]$HPage.created } else { '' }); level = $HPage.level }
     $id = [string]$HPage.meta['obsn.id']
     if ($bucket -and (Test-ObsnId $id)) {
         $r = ConvertFrom-ObsnMeta -Meta $HPage.meta
@@ -615,7 +616,7 @@ function ConvertFrom-ForeignTree {
             $lvl = [int]$p.level; if ($lvl -lt 1) { $lvl = 1 }
             $parent = ''
             for ($l = $lvl - 1; $l -ge 1; $l--) { if ($stack.ContainsKey($l)) { $parent = $stack[$l]; break } }
-            $r = Add-IndexPage -Model $m -Page @{ oneNoteId = $p.id; title = $p.title; section = $s.full; topics = @($s.full); updated = $p.updated; level = $lvl; parent = $parent; owner = 'foreign' }
+            $r = Add-IndexPage -Model $m -Page @{ oneNoteId = $p.id; title = $p.title; section = $s.full; topics = @($s.full); updated = $p.updated; created = $(if ($p.ContainsKey('created')) { [string]$p.created } else { '' }); level = $lvl; parent = $parent; owner = 'foreign' }
             $stack[$lvl] = $r.key
             foreach ($k in @($stack.Keys)) { if ($k -gt $lvl) { $stack.Remove($k) } }
         }

@@ -662,6 +662,58 @@ function Invoke-DevTags($Ctx, $Adapter, $Dev) {
     }
 }
 
+function Get-DevBodyLineCount($Adapter, [string]$PageId) {
+    <# The top-level lines of a page's body outline (obsn.role = body): one per journal entry. #>
+    [xml]$d = $Adapter.GetPageContent($PageId)
+    $ns = New-Object Xml.XmlNamespaceManager $d.NameTable
+    $ns.AddNamespace('one', $d.DocumentElement.NamespaceURI)
+    foreach ($o in @($d.DocumentElement.SelectNodes('one:Outline', $ns))) {
+        $r = $o.SelectSingleNode('one:Meta[@name="obsn.role"]', $ns)
+        if ($r -and $r.GetAttribute('content') -eq 'body') { return @($o.SelectNodes('one:OEChildren/one:OE', $ns)).Count }
+    }
+    -1
+}
+
+function Invoke-DevJournal($Ctx, $Adapter, $Dev) {
+    <# The journal's day page (2026-11-17, one page per day): two Adds typed as journal entries go into
+       one page for today, the second is added to that page's text in OneNote, Undo takes out only the
+       second, then the first (the day page goes to Deleted Pages). Copilot is not needed here: its two
+       replies are fixed synthetic text, so what is checked is OneNote keeping the day page right. Only
+       in ObsidiNote-Validation. Counts and statuses only. #>
+    $name = 'Journal day page'
+    $store = New-DevStore $Ctx $Adapter $Dev $name 'Undo-AddRequest'
+    if (-not $store) { return }
+    if (-not $store.ContainsKey('JournalEntry')) { Add-ValidationResult $Ctx 'V6' 'SKIP' $name 'not in this version yet'; return }
+    $replies = @(
+        '{"title": "Validation entry one", "summary": "Synthetic journal entry of the validation kit.", "type": "log", "topics": [{"new": "Validation kit"}], "links": [], "aliases": [], "intent": "add"}',
+        '{"title": "Validation entry two", "summary": "Second synthetic journal entry of the validation kit.", "type": "log", "topics": [{"new": "Validation kit"}], "links": [], "aliases": [], "intent": "add"}'
+    )
+    $q = @{ n = 0 }
+    $ask = { param($Prompt) $r = $replies[$q.n]; $q.n++; $r }.GetNewClosure()
+    $a = $null; $b = $null
+    try {
+        $s1 = Measure-KitStep { Invoke-AddRequest -Request @{ text = 'Validation entry one. Synthetic text from the validation kit.'; mode = 'add' } -Store $store -Ask $ask }
+        $a = $s1.value
+        $s2 = Measure-KitStep { Invoke-AddRequest -Request @{ text = 'Validation entry two. Synthetic text from the validation kit.'; mode = 'add' } -Store $store -Ask $ask }
+        $b = $s2.value
+        $sameDay = $s1.ok -and $s2.ok -and $a -and $b -and "$(Get-KitProp $a 'status' '')" -eq 'added' -and "$(Get-KitProp $b 'status' '')" -eq 'added' -and $a.page.id -eq $b.page.id
+        $lines = if ($sameDay) { Get-DevBodyLineCount $Adapter ([string]$b.undo.pageId) } else { -1 }
+        Add-ValidationResult $Ctx 'V6' $(if ($sameDay -and $lines -eq 2) { 'OK' } else { 'FAIL' }) $name "two entries on one day page: $(Format-YesNo $sameDay); entry lines in its text: $lines (expected 2); $($s1.ms + $s2.ms) ms$(if (-not $sameDay) { "; $(Get-KitProp $b 'message' (Get-KitProp $a 'message' ''))" })"
+        if (-not $sameDay) { return }
+        $u2 = Measure-KitStep { Undo-AddRequest -Store $store -Undo $b.undo }
+        $left = Get-DevBodyLineCount $Adapter ([string]$b.undo.pageId)
+        $ok2 = $u2.ok -and "$(Get-KitProp $u2.value 'status' '')" -eq 'undone' -and $left -eq 1
+        Add-ValidationResult $Ctx 'V6' $(if ($ok2) { 'OK' } else { 'FAIL' }) "$name (undo one entry)" "status $(Get-KitProp $u2.value 'status' 'error'); entry lines left: $left (expected 1); $($u2.ms) ms$(if (-not $ok2) { "; $(Get-KitProp $u2.value 'message' '')" })"
+        $b = $null
+    } finally {
+        foreach ($x in @($b, $a)) {
+            if (-not $x -or -not $x.undo) { continue }
+            $u = Measure-KitStep { Undo-AddRequest -Store $store -Undo $x.undo }
+            Add-ValidationResult $Ctx 'V6' $(if ($u.ok -and "$(Get-KitProp $u.value 'status' '')" -eq 'undone') { 'OK' } else { 'WARN' }) "$name (undo)" "status $(Get-KitProp $u.value 'status' 'error') (the last entry: the day page to OneNote's Deleted Pages)"
+        }
+    }
+}
+
 function Invoke-DevUpgrade($Ctx, $Adapter, $Dev) {
     <# The upgrade's page move (lib/Upgrade.psm1, lib/VaultStore.psm1 MovePage; probes/p9-move.ps1):
        a synthetic link page with a company-tenant address, filed under Web links as an older version
@@ -764,7 +816,7 @@ function Invoke-DevAsk($Ctx, $Adapter, $Dev, $Bridge) {
 
 function Invoke-DevVaultChecks($Ctx, $Adapter) {
     if (-not (Get-KitFlag $Ctx 'WriteTest')) {
-        foreach ($n in 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Undo of a linked page', 'Tags', 'Archive, restore and delete', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n 'write tests not run' 'Add -WriteTest; they write only into the notebook ObsidiNote-Validation.' }
+        foreach ($n in 'Dev vault', 'Add and Undo', 'Check for the answer', 'Link it', 'Undo of a linked page', 'Tags', 'Journal day page', 'Archive, restore and delete', 'Upgrade move', 'Ask') { Add-ValidationResult $Ctx 'V6' 'SKIP' $n 'write tests not run' 'Add -WriteTest; they write only into the notebook ObsidiNote-Validation.' }
         return
     }
     $dev = $null
@@ -778,6 +830,7 @@ function Invoke-DevVaultChecks($Ctx, $Adapter) {
         Invoke-DevLinkIt $Ctx $Adapter $dev
         Invoke-DevUndoLinked $Ctx $Adapter $dev
         Invoke-DevTags $Ctx $Adapter $dev
+        Invoke-DevJournal $Ctx $Adapter $dev
         Invoke-DevRetire $Ctx $Adapter $dev
         Invoke-DevUpgrade $Ctx $Adapter $dev
         Invoke-DevAsk $Ctx $Adapter $dev $bridge

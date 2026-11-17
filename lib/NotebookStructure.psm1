@@ -387,7 +387,9 @@ function Get-SectionNodePages {
         $meta = @{}
         foreach ($m in @($p.ChildNodes)) { if ($m.NodeType -eq 'Element' -and $m.LocalName -eq 'Meta') { $meta[$m.GetAttribute('name')] = $m.GetAttribute('content') } }
         $lvl = 1; [void][int]::TryParse($p.GetAttribute('pageLevel'), [ref]$lvl)
-        $null = $pages.Add(@{ id = $p.GetAttribute('ID'); title = $p.GetAttribute('name'); level = $lvl; updated = $p.GetAttribute('lastModifiedTime'); section = $Full; meta = $meta })
+        # created: OneNote's own page date (dateTime), for the Journal's timeline (2026-11-17); read at
+        # every load, so no upgrade step: older pages have it already.
+        $null = $pages.Add(@{ id = $p.GetAttribute('ID'); title = $p.GetAttribute('name'); level = $lvl; updated = $p.GetAttribute('lastModifiedTime'); created = $p.GetAttribute('dateTime'); section = $Full; meta = $meta })
     }
     , $pages
 }

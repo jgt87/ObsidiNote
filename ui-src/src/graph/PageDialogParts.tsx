@@ -1,6 +1,7 @@
 // The parts of the page window (PageDialog.tsx): its header, the three tab panels and the footer.
 // Render only; the window holds the state.
 import type { ReactNode } from 'react'
+import { WebLink } from '../components/WebLink'
 import { ExportButton } from '../export/ExportButton'
 import type { ExportRequest } from '../export/exportApi'
 import { summaryProblem, titleProblem, type PageEditRequest } from './editModel'
@@ -347,9 +348,9 @@ export function DialogFooter({ page, editing, readOnly, why, src, onAsk, canEdit
       {/* design: one primary per view. While the Edit form is open its Save is the primary, so the
           footer's goes quiet. */}
       {open.link && (
-        <a className={open.link.primary ? 'btn btn--primary' : 'btn'} href={open.link.href} target="_blank" rel="noopener noreferrer" title={open.link.href}>
+        <WebLink className={open.link.primary ? 'btn btn--primary' : 'btn'} href={open.link.href} title={open.link.href}>
           Open link
-        </a>
+        </WebLink>
       )}
       {open.onenote &&
         (open.onenote.href ? (

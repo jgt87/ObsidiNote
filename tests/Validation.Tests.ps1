@@ -651,6 +651,15 @@ Describe 'V6 "Undo of a linked page" and "Tags" in the dev vault (in-memory OneN
         (@($t.Results | ForEach-Object { $_.name }) -join ',') | Should Be 'Tags,Tags (rename),Tags (remove),Tags (undo)'
         (@($w.open.model.pages.Keys | Sort-Object) -join ',') | Should Be $before
     }
+    $j = New-TestCtx -Flags @{ WriteTest = $true }
+    & (Get-Module StageVault) { param($c, $a, $d) Invoke-DevJournal $c $a $d } $j $w.a $dev
+    It 'puts two journal entries on one day page, takes out one, then the other (2026-11-17)' {
+        (@($j.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'Journal day page=OK,Journal day page (undo one entry)=OK,Journal day page (undo)=OK'
+        $j.Results[0].detail | Should Match '^two entries on one day page: yes; entry lines in its text: 2 \(expected 2\)'
+        $j.Results[1].detail | Should Match 'entry lines left: 1 \(expected 1\)'
+        (@($w.open.model.pages.Keys | Sort-Object) -join ',') | Should Be $before
+        @($j.Results | ForEach-Object { $_.detail } | Where-Object { $_ -match 'Validation entry' }).Count | Should Be 0
+    }
     It 'logs counts and statuses only: no page title, no tag text' {
         $lines = @(foreach ($x in $c.Results) { "$($x.name) $($x.detail)" }) + @(foreach ($x in $t.Results) { "$($x.name) $($x.detail)" })
         $lines.Count | Should Be 6
@@ -662,7 +671,7 @@ Describe 'V6 "Undo of a linked page" and "Tags" in the dev vault (in-memory OneN
     It 'lists both in the read-only plan (no -WriteTest)' {
         $r = New-TestCtx
         & (Get-Module StageVault) { param($c, $a) Invoke-DevVaultChecks $c $a } $r $w.a
-        (@($r.Results | ForEach-Object { $_.name }) -join ',') | Should Be 'Dev vault,Add and Undo,Check for the answer,Link it,Undo of a linked page,Tags,Archive, restore and delete,Upgrade move,Ask'
+        (@($r.Results | ForEach-Object { $_.name }) -join ',') | Should Be 'Dev vault,Add and Undo,Check for the answer,Link it,Undo of a linked page,Tags,Journal day page,Archive, restore and delete,Upgrade move,Ask'
         @($r.Results | Where-Object { $_.status -ne 'SKIP' }).Count | Should Be 0
     }
     It 'takes the company names for the upgrade plan from Get-LinkRules' {
@@ -895,6 +904,15 @@ Describe 'The kit on disk' {
             "$($c.Name): $($code[0].Trim()) .. $($code[-2].Trim()) $($code[-1].Trim())" | Should Be "$($c.Name): ( .. exit /b )"
             "$($c.Name): $([IO.File]::ReadAllText($f) -match "[^`r]`n")" | Should Be "$($c.Name): False"
         }
+    }
+    # The checks still open after the target machine's v0.12.4 run (operator, 2026-11-17: "if there are
+    # items still to be confirmed then create a new scoped cmd for them"): Copilot, today's meetings, the
+    # notebook selection probe and the write tests, nothing else. It is the one probe launcher that writes,
+    # and only through -WriteTest (the test notebooks); V5 stays narrowed to P10, so no P3 marker page.
+    It 'Run Open Checks.cmd runs only the open checks, asking nothing' {
+        $run = @([IO.File]::ReadAllLines((Join-Path $kit 'Run Open Checks.cmd')) | Where-Object { $_ -match 'Run-Validation\.ps1' })
+        $run.Count | Should Be 1
+        $run[0].Trim().EndsWith('Run-Validation.ps1" -Stage V3,V5,V6 -Probe P10 -NoPrompt -MeetingDay today -WriteTest -SelectNotebooks %*') | Should Be $true
     }
     It 'Run Meeting Probe.cmd runs only the meetings probe, asking nothing' {
         $t = [IO.File]::ReadAllText((Join-Path $kit 'Run Meeting Probe.cmd'))

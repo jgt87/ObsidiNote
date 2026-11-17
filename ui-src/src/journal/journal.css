@@ -1,0 +1,43 @@
+/* design: the Journal reuses History's card (.act, activity.css): one container per day, its name as
+   the heading, rows on one grid (time | text | type). Each row is one button that opens the page. */
+.jr { display: flex; flex-direction: column; gap: var(--space-5); }
+.jr__caption { margin: 0; font-size: var(--text-body); color: var(--muted); }
+.jr__empty { margin: 0; color: var(--muted); }
+.jr__search { display: flex; flex-direction: column; gap: var(--space-2); }
+.jr__label { font-size: var(--text-meta); font-weight: 600; color: var(--ink); }
+.jr__field { width: 100%; }
+.jr__suggest { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.jr__topic { margin: 0; font-size: var(--text-body); color: var(--ink); }
+.jr__tabs { align-self: flex-start; }
+.jr__row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-3) var(--space-5);
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+/* Decisions: the first column holds a date ("16 Nov 2026"), not a time. */
+.jr__row--dated { grid-template-columns: 96px minmax(0, 1fr) auto; }
+@media (hover: hover) { .jr__row:hover { background: var(--hover); } }
+.jr .act__list > li + li { border-top: 1px solid var(--border); }
+.jr__time { font-size: var(--text-meta); color: var(--muted); font-variant-numeric: tabular-nums; padding-top: var(--space-1); }
+.jr__main { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.jr__type { font-size: var(--text-meta); color: var(--muted); white-space: nowrap; padding-top: var(--space-1); }
+.jr__ask { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.jr__ask .jr__caption { flex: 1 1 320px; }
+.jr__from { margin: 0; padding: 0 var(--space-5) var(--space-3) calc(96px + var(--space-4) + var(--space-5)); font-size: var(--text-meta); color: var(--muted); }
+/* Phone: the type goes under the text, the time stays in front. */
+@media (max-width: 640px) {
+  .jr__row { grid-template-columns: 40px minmax(0, 1fr); }
+  .jr__row--dated { grid-template-columns: 76px minmax(0, 1fr); }
+  .jr__type { grid-column: 2; padding-top: 0; }
+  .jr__type:empty { display: none; }
+  .jr__from { padding-left: calc(76px + var(--space-4) + var(--space-5)); }
+}

@@ -9,6 +9,7 @@
 # in .Navigations (never in .Writes), makes that notebook the current one (GetCurrentNotebookId) and,
 # while .RevealOnNavigate, takes it out of .Hidden. .GuidIds = $true before the first Add gives ids
 # in OneNote's own shape ({GUID}{1}{B0}), which the server's id checks accept.
+# A page's dateTime (when it was made) is .Nodes[<id>].created, lastModifiedTime is .modified.
 
 function New-FakeOneNote {
     $f = [pscustomobject]@{ Kind = 'fake'; Nodes = @{}; Roots = (New-Object System.Collections.ArrayList); Seq = 0; Writes = (New-Object System.Collections.ArrayList); Calls = @{}; Reads = (New-Object System.Collections.ArrayList)
@@ -37,7 +38,7 @@ function New-FakeOneNote {
     $f | Add-Member ScriptMethod AddNode { param([string]$Kind, [string]$ParentId, [string]$Name)
         $id = $this.NewId($Kind.Substring(0, 2).ToUpperInvariant())
         $path = if ($ParentId) { $this.Nodes[$ParentId].path + $Name + $(if ($Kind -eq 'Section') { '.one' } else { '/' }) } else { "https://example.invalid/docs/$Name/" }
-        $n = @{ kind = $Kind; id = $id; name = $Name; path = $path; parent = $ParentId; children = (New-Object System.Collections.ArrayList); meta = [ordered]@{}; title = $Name; outlines = (New-Object System.Collections.ArrayList); level = 1; recycle = $false; guid = [guid]::NewGuid().ToString(); modified = '2026-01-02T03:04:05.000Z' }
+        $n = @{ kind = $Kind; id = $id; name = $Name; path = $path; parent = $ParentId; children = (New-Object System.Collections.ArrayList); meta = [ordered]@{}; title = $Name; outlines = (New-Object System.Collections.ArrayList); level = 1; recycle = $false; guid = [guid]::NewGuid().ToString(); modified = '2026-01-02T03:04:05.000Z'; created = '2026-01-01T09:00:00.000Z' }
         $this.Nodes[$id] = $n
         if ($ParentId) { $null = $this.Nodes[$ParentId].children.Add($id) } else { $null = $this.Roots.Add($id) }
         $id
@@ -64,7 +65,7 @@ function New-FakeOneNote {
             'Notebook' { $a += ' nickname="' + [Security.SecurityElement]::Escape($n.name) + '" path="' + $n.path + '"' }
             'SectionGroup' { $a += ' path="' + $n.path + '"'; if ($n.recycle) { $a += ' isRecycleBin="true"' } }
             'Section' { $a += ' path="' + $n.path + '"'; if ($n.recycle) { $a += ' isInRecycleBin="true" isDeletedPages="true"' } }
-            'Page' { $a = ' ID="' + $n.id + '" name="' + [Security.SecurityElement]::Escape($n.title) + '" lastModifiedTime="' + $n.modified + '" pageLevel="' + $n.level + '"'; if ($n.recycle) { $a += ' isInRecycleBin="true"' } }
+            'Page' { $a = ' ID="' + $n.id + '" name="' + [Security.SecurityElement]::Escape($n.title) + '" dateTime="' + $n.created + '" lastModifiedTime="' + $n.modified + '" pageLevel="' + $n.level + '"'; if ($n.recycle) { $a += ' isInRecycleBin="true"' } }
         }
         $inner = ''
         $hide = $this.HiddenMode($Id)

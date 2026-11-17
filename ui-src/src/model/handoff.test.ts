@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { AskPageSpec } from '../ask/types'
-import { askAboutText, pageSpecToText } from './handoff'
+import { askAboutText, decisionsAskText, pageSpecToText } from './handoff'
+
+describe('decisionsAskText', () => {
+  it('asks for the decisions of a topic with their dates and sources', () => {
+    expect(decisionsAskText('Projects / Portal')).toBe('What was decided about "Projects / Portal"? List each decision with its date and the pages it comes from.')
+  })
+})
 
 const base: AskPageSpec = { type: 'note', openQuestion: false, origin: 'ask', title: 'How is a request checked?', topics: [], body: {}, links: [], references: [] }
 

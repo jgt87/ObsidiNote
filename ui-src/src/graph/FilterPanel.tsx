@@ -3,6 +3,7 @@
 // active, with the focus steps toggle, "Show all" and "Clear". The rules are in filters.ts.
 
 import { useEffect, useId, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { duplicateIds } from './duplicates'
 import { emptyFilter, filterOptions, filterParts, isFilterActive, type FocusDepth, type GraphFilter } from './filters'
 import { plural } from './format'
 import type { GraphIndex } from './graphIndex'
@@ -41,7 +42,7 @@ function toggle(set: Set<string>, key: string): Set<string> {
 
 /** Number of choices made in the panel (the button shows it). */
 function choiceCount(f: GraphFilter): number {
-  return f.types.size + f.topics.size + f.tags.size + (f.unlinkedOnly ? 1 : 0) + (f.showArchived ? 1 : 0) + (f.staleBefore !== null ? 1 : 0)
+  return f.types.size + f.topics.size + f.tags.size + (f.unlinkedOnly ? 1 : 0) + (f.duplicatesOnly ? 1 : 0) + (f.showArchived ? 1 : 0) + (f.staleBefore !== null ? 1 : 0)
 }
 
 /**
@@ -94,7 +95,8 @@ function usePageCounts(index: GraphIndex, staleDays: number, showArchived: boole
     const cut = staleCutoff(staleDays, Date.now())
     return index.model.pages.filter((p) => (showArchived || !p.archived) && isStale(p, cut)).length
   }, [index, staleDays, showArchived])
-  return { archived, hasLinks, stale }
+  const duplicates = useMemo(() => duplicateIds(index.model.pages, showArchived).size, [index, showArchived])
+  return { archived, hasLinks, stale, duplicates }
 }
 
 /** One checkbox row: its name, a count when there is one, indented by topic depth (at most 4). */
@@ -182,6 +184,9 @@ function PageStateBoxes({ filter, set, counts, staleDays }: { filter: GraphFilte
   return (
     <div className="kg-fp__set">
       <Box label="Only pages without links" checked={filter.unlinkedOnly} onToggle={() => set({ unlinkedOnly: !filter.unlinkedOnly })} />
+      {(counts.duplicates > 0 || filter.duplicatesOnly) && (
+        <Box label="Possible duplicates (same title or alias)" count={counts.duplicates} checked={filter.duplicatesOnly} onToggle={() => set({ duplicatesOnly: !filter.duplicatesOnly })} />
+      )}
       {counts.hasLinks && (
         <Box label={`Link summaries older than ${staleDays} days`} count={counts.stale} checked={stale} onToggle={() => set({ staleBefore: stale ? null : staleCutoff(staleDays, Date.now()) })} />
       )}

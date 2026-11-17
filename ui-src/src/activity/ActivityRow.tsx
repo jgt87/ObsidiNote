@@ -39,7 +39,8 @@ export function ActivityRow({ item, canChange, vaultId, onChanged, onOpen }: { i
   const remove = () => run(() => removeIntakeItem(item.inboxId, vaultId))
   const undo = () =>
     run(async () => {
-      const r = await undoAdd({ id: item.filedAs, pageId: '', targets: [] }, vaultId)
+      // A journal entry names itself, so only it leaves its day page.
+      const r = await undoAdd({ id: item.filedAs, pageId: '', targets: [], ...(item.entry ? { entry: item.entry } : {}) }, vaultId)
       return r.message || (r.status === 'undone' ? 'Undone.' : 'Undo did not work.')
     })
 

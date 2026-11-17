@@ -64,6 +64,8 @@ function ConvertTo-IngestPage {
         url = $Page.url; archivedFrom = $(if ($Page.ContainsKey('archivedFrom')) { [string]$Page.archivedFrom } else { '' })
         origin = $(if ($Page.ContainsKey('origin')) { [string]$Page.origin } else { '' })
         tags = @(if ($Page.ContainsKey('tags')) { @($Page.tags) | Where-Object { $_ } | ForEach-Object { [string]$_ } })
+        entries = @(if ($Page.ContainsKey('entries')) { @($Page.entries) | Where-Object { $_ } })
+        created = $(if ($Page.ContainsKey('created')) { [string]$Page.created } else { '' })
     }
 }
 
@@ -275,6 +277,23 @@ function Invoke-VsUpdatePage {
     Write-ObsnPage @a
 }
 
+function Invoke-VsJournalEntry {
+    <# A journal day page (operator, 2026-11-17: one page per day). -Lines: the entry to append (line
+       model: its heading line with the entry's text as children). -Index/-Heading: the entry to take out
+       (Remove-ObsnBodyEntry; refused when the page was changed in OneNote). Then $Meta (the day page's
+       topics, links, summary and entries after the change) and its props outline, through
+       Invoke-VsUpdatePage. Only ObsidiNote's own body outline is changed, never "Your notes" or lines
+       the person wrote outside it. #>
+    param([hashtable]$Ctx, [string]$PageId, [object[]]$Lines = @(), [int]$Index = -1, [string]$Heading = '', [hashtable]$Meta = @{})
+    Assert-VsWritable $Ctx
+    $xml = $Ctx.Adapter.GetPageContent($PageId)
+    $r = if ($Index -ge 0) { Remove-ObsnBodyEntry -Xml $xml -Index $Index -Heading $Heading }
+         else { Add-ObsnBodyEntry -Xml $xml -Lines (ConvertTo-OutlineLines -Lines @($Lines)) }
+    if (-not $r.ok) { throw "The day page was not changed: $($r.reason)." }
+    $Ctx.Adapter.UpdatePageContent($r.xml)
+    Invoke-VsUpdatePage -Ctx $Ctx -PageId $PageId -Meta $Meta -Outlines @()
+}
+
 function Invoke-VsSetLinkedFrom {
     param([hashtable]$Ctx, [string]$Id, [object[]]$Sources)
     Assert-VsWritable $Ctx
@@ -327,7 +346,9 @@ function Invoke-VsIndexAddPage {
     $old = if ($Ctx.Model.pages.Contains($id)) { $Ctx.Model.pages[$id] } else { $null }
     $rec = @{}
     if ($old) { foreach ($k in @($old.Keys)) { $rec[$k] = $old[$k] } }
-    foreach ($k in 'id', 'title', 'type', 'summary', 'topics', 'aliases', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'link', 'section', 'origin', 'tags') { if ($Page.ContainsKey($k)) { $rec[$k] = $Page[$k] } }
+    foreach ($k in 'id', 'title', 'type', 'summary', 'topics', 'aliases', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'link', 'section', 'origin', 'tags', 'entries') { if ($Page.ContainsKey($k)) { $rec[$k] = $Page[$k] } }
+    # A page made in this session has no OneNote date in the model until the next scan: now.
+    if (-not $rec['created']) { $rec.created = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z') }
     if ($Page.ContainsKey('pageId') -and $Page['pageId']) { $rec.oneNoteId = [string]$Page['pageId'] }
     $rec.key = $id
     if ($rec.ContainsKey('section') -and $rec.section) { $b = Get-BucketOfSection ([string]$rec.section); $rec.bucket = $(if ($b) { $b } else { [string]$Page['bucket'] }) } elseif ($Page.ContainsKey('bucket')) { $rec.bucket = $Page['bucket'] }
@@ -473,6 +494,7 @@ function Invoke-VaultStoreCall {
         'CreatePage' { return (Invoke-VsCreatePage -Ctx $Ctx @Arguments) }
         'ReadPage' { return (Invoke-VsReadPage -Ctx $Ctx @Arguments) }
         'UpdatePage' { return (Invoke-VsUpdatePage -Ctx $Ctx @Arguments) }
+        'JournalEntry' { return (Invoke-VsJournalEntry -Ctx $Ctx @Arguments) }
         'SetLinkedFrom' { return (Invoke-VsSetLinkedFrom -Ctx $Ctx @Arguments) }
         'DeletePage' { return (Invoke-VsDeletePage -Ctx $Ctx @Arguments) }
         'IndexAddPage' { return (Invoke-VsIndexAddPage -Ctx $Ctx @Arguments) }
@@ -522,6 +544,8 @@ function New-VaultStore {
         IndexRemovePage = { param([string]$Id) & $call $ctx 'IndexRemovePage' @{ Id = $Id } }.GetNewClosure()
         RewriteBodyLinks = { param([string]$PageId, [string]$TargetLink, [string]$Text) & $call $ctx 'RewriteBodyLinks' @{ PageId = $PageId; TargetLink = $TargetLink; Text = $Text } }.GetNewClosure()
         RepairBodyLinks = { param([string]$Id) & $call $ctx 'RepairBodyLinks' @{ Id = $Id } }.GetNewClosure()
+        # Journal day pages (2026-11-17): append an entry (-Lines) or take one out (-Index/-Heading).
+        JournalEntry    = { param([string]$PageId, [object[]]$Lines = @(), [int]$Index = -1, [string]$Heading = '', [hashtable]$Meta = @{}) & $call $ctx 'JournalEntry' @{ PageId = $PageId; Lines = $Lines; Index = $Index; Heading = $Heading; Meta = $Meta } }.GetNewClosure()
         # Optional (Ingest falls back to IndexUpdatePage per page): many records, one Index write.
         IndexUpdatePages = { param([object[]]$Pages) & $call $ctx 'IndexUpdatePages' @{ Pages = $Pages } }.GetNewClosure()
         # Upgrade steps (lib/Upgrade.psm1), not part of Ingest's contract.

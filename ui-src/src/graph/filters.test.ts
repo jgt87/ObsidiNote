@@ -6,8 +6,27 @@ import { normalizeGraph, UNFILED_ID, type GraphPage } from './model'
 describe('filterParts', () => {
   it('names each active choice once, in a fixed order, topics by name', () => {
     expect(filterParts(emptyFilter(), (id) => id)).toEqual([])
-    const all: GraphFilter = { types: new Set(['note']), topics: new Set(['t1', 't2']), tags: new Set(['a', 'b']), unlinkedOnly: true, showArchived: true, staleBefore: '2026-01-01', focus: { id: 'p1', depth: 1 } }
-    expect(filterParts(all, (id) => `T${id}`)).toEqual(['type: note', 'topic: Tt1, Tt2', 'tag: a, b', 'without links', 'old link summaries (select them in the List to update)', 'archived shown'])
+    const all: GraphFilter = { types: new Set(['note']), topics: new Set(['t1', 't2']), tags: new Set(['a', 'b']), unlinkedOnly: true, duplicatesOnly: true, showArchived: true, staleBefore: '2026-01-01', focus: { id: 'p1', depth: 1 } }
+    expect(filterParts(all, (id) => `T${id}`)).toEqual(['type: note', 'topic: Tt1, Tt2', 'tag: a, b', 'without links', 'possible duplicates (open one to link, edit or archive it)', 'old link summaries (select them in the List to update)', 'archived shown'])
+  })
+})
+
+describe('possible duplicates filter', () => {
+  it('shows only pages that share a title or an alias with another page', () => {
+    const ix = buildIndex(
+      normalizeGraph({
+        topics: [],
+        pages: [
+          { id: 'a', title: 'Zero trust', topicIds: [], bucket: 'Notes', kind: 'concept' },
+          { id: 'b', title: 'Proxy', aliases: ['zero-trust'], topicIds: [], bucket: 'Notes', kind: 'concept' },
+          { id: 'c', title: 'Other', topicIds: [], bucket: 'Notes', kind: 'concept' },
+        ],
+        edges: [],
+      }),
+    )
+    const f = { ...emptyFilter(), duplicatesOnly: true }
+    expect([...visiblePageIds(ix, f)]).toEqual(['a', 'b'])
+    expect(isFilterActive(f)).toBe(true)
   })
 })
 

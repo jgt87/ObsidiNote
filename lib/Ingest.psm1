@@ -24,6 +24,7 @@ Import-Module (Join-Path $PSScriptRoot 'MarkdownLines.psm1')
 Import-Module (Join-Path $PSScriptRoot 'NotebookStructure.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Log.psm1')
 Import-Module (Join-Path $PSScriptRoot 'PageMeta.psm1')   # ConvertTo-TagList: the one tag normal form
+Import-Module (Join-Path $PSScriptRoot 'Journal.psm1')    # one journal page per day (2026-11-17)
 
 $script:StoreContract = @(
     'AssertWritable', 'VaultName', 'GetIndex', 'TypeList', 'BucketForType', 'LinkBucket', 'NormalizeUrl',
@@ -385,7 +386,7 @@ function Invoke-AddRequest {
             $oc = Resolve-OriginId (Get-LkProp $Request 'origin' $null)
             if (-not $oc.ok -and -not $Resume) { $r.message = "Nothing was added: $($oc.error)"; return (Complete-AddResult $r $sw) }
             $origin = $oc.origin
-            $r = Invoke-TextAdd -Text $text -Mode $mode -Store $Store -Ask $Ask -Options $Options -Result $r -Resume $Resume -Origin $origin
+            $r = Invoke-TextAdd -Text $text -Mode $mode -Store $Store -Ask $Ask -Options $Options -Result $r -Resume $Resume -Origin $origin -AllowDuplicate:((Get-LkProp $Request 'allowDuplicate' $false) -eq $true)
         }
     } catch {
         $r.status = 'failed'
@@ -395,7 +396,7 @@ function Invoke-AddRequest {
 }
 
 function Invoke-TextAdd {
-    param([string]$Text, [string]$Mode, $Store, [scriptblock]$Ask, [hashtable]$Options, $Result, $Resume = $null, [string]$Origin = '')
+    param([string]$Text, [string]$Mode, $Store, [scriptblock]$Ask, [hashtable]$Options, $Result, $Resume = $null, [string]$Origin = '', [switch]$AllowDuplicate)
     $r = $Result
     $r.text = $Text
     $now = Get-IngestNow $Options
@@ -419,11 +420,12 @@ function Invoke-TextAdd {
     if (-not $json.ok) { $r.message = $json.error; Set-InboxFailed $Store $inbox $json.error $r; return $r }
     $rc = Test-ReplyRef -Reply $json.value -Ref $ref -Required:([bool]$Resume)
     if (-not $rc.ok) { $r.message = $rc.error; if ($Resume) { $r.status = 'mismatch' }; Set-InboxFailed $Store $inbox $rc.error $r; return $r }
-    $v = Test-LinkReply -Reply $json.value -Index $idx -Shortlist $sl -Text $Text -Types $types
+    $v = Test-LinkReply -Reply $json.value -Index $idx -Shortlist $sl -Text $Text -Types $types -SkipDuplicateTitle:$AllowDuplicate
     $r.dropped = @($v.dropped)
     if (-not $v.ok) {
         $r.message = ($v.errors -join ' ')
-        if ($v.duplicateOf) { $r.related = @(@{ id = $v.duplicateOf; title = [string](Get-LkProp (Get-IndexPageMap $idx)[$v.duplicateOf] 'title' ''); link = [string](Get-LkProp (Get-IndexPageMap $idx)[$v.duplicateOf] 'link' '') }) }
+        # duplicateOf: the window offers "Open it" and "Add anyway" (allowDuplicate; 2026-11-17).
+        if ($v.duplicateOf) { $r.duplicateOf = [string]$v.duplicateOf; $r.related = @(@{ id = $v.duplicateOf; title = [string](Get-LkProp (Get-IndexPageMap $idx)[$v.duplicateOf] 'title' ''); link = [string](Get-LkProp (Get-IndexPageMap $idx)[$v.duplicateOf] 'link' '') }) }
         Set-InboxFailed $Store $inbox $r.message $r
         return $r
     }
@@ -433,6 +435,11 @@ function Invoke-TextAdd {
         $r.status = 'ask-instead'
         $r.message = 'This looks like a question. Ask it instead?'
         return $r
+    }
+    # A journal entry goes into today's page (operator, 2026-11-17: one page per day). A store without
+    # JournalEntry (an older kit) files it as its own page, as before.
+    if ($val.type -eq 'log' -and (Get-LkProp $Store 'JournalEntry' $null) -is [scriptblock]) {
+        return (Invoke-JournalAdd -Store $Store -Index $idx -Value $val -Text $Text -Ref $ref -Now $now -Origin $Origin -Inbox $inbox -Result $r -Shortlist $sl -Options $Options)
     }
 
     $t1 = [Diagnostics.Stopwatch]::StartNew()
@@ -472,6 +479,92 @@ function Invoke-TextAdd {
     $r.related = Get-RelatedPages -Shortlist $sl -Links $val.links -Count (Get-IngestOption $Options 'RelatedCount' 3)
     $r.undo = @{ id = $id; pageId = $page.pageId; targets = $targets }
     $r
+}
+
+function Invoke-JournalAdd {
+    <# The journal step of a text Add: the entry goes into today's day page (made when there is none
+       yet). Its links get "Linked from" on their targets (only targets the day did not link before), the
+       day's index record is replaced, the Intake item is filed with the day page's id. The undo record
+       names the entry (entry = its request reference), so Undo takes out only this entry. #>
+    param($Store, $Index, $Value, [string]$Text, [string]$Ref, [datetime]$Now, [string]$Origin, $Inbox, $Result, $Shortlist, [hashtable]$Options)
+    $r = $Result
+    $t1 = [Diagnostics.Stopwatch]::StartNew()
+    $entry = New-JournalEntry -Ref $Ref -Now $Now -Value $Value
+    $lines = New-JournalEntryLines -Entry $entry -Body (Add-AnchorLinks -Lines (ConvertTo-BodyLines $Text) -Links $Value.links)
+    $title = Get-JournalDayTitle -Now $Now
+    $day = Find-JournalDay -Pages @(Get-LkProp $Index 'pages' @()) -Title $title
+    $before = if ($day) { @(Get-JournalTargets @(Get-LkProp $day 'links' @())) } else { @() }
+    $entries = @(if ($day) { @(Get-LkProp $day 'entries' @()) }) + @($entry)
+    $m = Merge-JournalDay -Entries $entries
+    try {
+        if ($day) {
+            Invoke-Store $Store 'JournalEntry' @{ PageId = [string]$day['pageId']; Lines = $lines; Meta = @{ topics = $m.topics; links = $m.links; summary = $m.summary; entries = $entries } } | Out-Null
+            $page = @{}
+            foreach ($k in @($day.Keys)) { $page[$k] = $day[$k] }
+            $page.topics = $m.topics; $page.links = $m.links; $page.summary = $m.summary; $page.entries = $entries
+        } else {
+            $id = [string](Invoke-Store $Store 'NewId')
+            $bucket = [string](Invoke-Store $Store 'BucketForType' @{ Type = 'log' })
+            $page = @{ id = $id; type = 'log'; bucket = $bucket; title = $title; summary = $m.summary; topics = $m.topics; aliases = @(); links = $m.links; status = ''; origin = $Origin; entries = $entries; outlines = @(@{ role = 'body'; lines = $lines }) }
+            $cp = Invoke-Store $Store 'CreatePage' @{ Page = $page }
+            $page.pageId = [string]$cp['pageId']; $page.link = [string]$cp['link']; $page.section = [string]$cp['section']
+            $page.Remove('outlines')
+        }
+    } catch { $r.message = "Could not write the journal page: $($_.Exception.Message)"; Set-InboxFailed $Store $Inbox $r.message $r; return $r }
+    $id = [string]$page['id']
+    $new = @(Get-JournalTargets @($entry.links) | Where-Object { $before -notcontains $_ })
+    $bl = Update-Backlinks -Store $Store -Index $Index -Targets $new -ExcludeId $id -Add @{ id = $id; title = $title; link = [string]$page['link'] }
+    $r.backlinks = $bl.count
+    $r.warnings = @($r.warnings) + @($bl.warnings)
+    $r.timings.writeMs = [int]$t1.ElapsedMilliseconds
+    $t2 = [Diagnostics.Stopwatch]::StartNew()
+    try { Invoke-Store $Store 'IndexAddPage' @{ Page = $page } | Out-Null }
+    catch { $r.warnings = @($r.warnings) + "The index was not updated; the next start reads the day page again ($($_.Exception.Message))." }
+    $r.timings.indexMs = [int]$t2.ElapsedMilliseconds
+    try { Invoke-Store $Store 'SetInboxStatus' @{ PageId = $Inbox['pageId']; Status = 'linked'; Reason = ''; Id = $id } | Out-Null; $r.inbox = @{ pageId = $Inbox['pageId']; status = 'linked' } }
+    catch { $r.warnings = @($r.warnings) + "The Intake item was not marked as filed: $($_.Exception.Message)" }
+    $r.status = 'added'
+    $r.message = "Added to the journal of ${title}: $($entry.title)"
+    $r.page = Get-PageView -Page $page -Vault ([string](Invoke-Store $Store 'VaultName'))
+    $r.chips = Get-Chips -Type 'log' -Aliases $Value.aliases -Topics $Value.topics
+    $r.links = ConvertTo-LinkResult $Value.links
+    $r.related = Get-RelatedPages -Shortlist $Shortlist -Links $Value.links -Count (Get-IngestOption $Options 'RelatedCount' 3)
+    $r.undo = @{ id = $id; pageId = [string]$page['pageId']; targets = $new; entry = $Ref }
+    $r.journal = @{ day = $title; entry = $Ref; entries = $entries.Count; newDay = (-not $day) }
+    $r
+}
+
+function Undo-JournalEntry {
+    <# Undo of one journal entry: when the day page has other entries, only this entry leaves the page
+       (Remove-ObsnBodyEntry: only when its line is still where it was written), the day's topics, links
+       and summary are worked out again, and the targets the day no longer links lose it from their
+       "Linked from". Returns $null when this entry is the day's only one (the caller removes the page). #>
+    param($Store, $Index, [string]$Id, [string]$Entry, $Result)
+    $rec = (Get-IndexPageMap $Index)[$Id]
+    if (-not $rec) { return $null }
+    $entries = @(Get-LkProp $rec 'entries' @())
+    $i = Get-JournalEntryIndex -Entries $entries -Ref $Entry
+    if ($i -lt 0) { $Result.message = 'This entry is no longer on its day page.'; return $Result }
+    if ($entries.Count -le 1) { return $null }
+    $gone = $entries[$i]
+    $rest = @(for ($k = 0; $k -lt $entries.Count; $k++) { if ($k -ne $i) { $entries[$k] } })
+    $m = Merge-JournalDay -Entries $rest
+    $heading = Get-ObsnEntryHeading -At ([string](Get-LkProp $gone 'at' '')) -Title ([string](Get-LkProp $gone 'title' ''))
+    Invoke-Store $Store 'JournalEntry' @{ PageId = [string](Get-LkProp $rec 'pageId' ''); Index = $i; Heading = $heading; Meta = @{ topics = $m.topics; links = $m.links; summary = $m.summary; entries = $rest } } | Out-Null
+    $page = @{}
+    foreach ($k in @($rec.Keys)) { $page[$k] = $rec[$k] }
+    $page.topics = $m.topics; $page.links = $m.links; $page.summary = $m.summary; $page.entries = $rest
+    $keep = @(Get-JournalTargets $m.links)
+    $dropped = @(Get-JournalTargets @(Get-LkProp $rec 'links' @()) | Where-Object { $keep -notcontains $_ })
+    $bl = Update-Backlinks -Store $Store -Index $Index -Targets $dropped -ExcludeId $Id
+    try { Invoke-Store $Store 'IndexAddPage' @{ Page = $page } | Out-Null }
+    catch { $Result.warnings = @($Result.warnings) + "The index was not updated; the next start reads the day page again ($($_.Exception.Message))." }
+    $Result.backlinks = $bl.count
+    $Result.warnings = @($Result.warnings) + @($bl.warnings)
+    $Result.status = 'undone'
+    $Result.entry = $Entry
+    $Result.message = "Undone. The entry was taken out of the journal of $([string](Get-LkProp $rec 'title' ''))."
+    $Result
 }
 
 function Invoke-Relink {
@@ -744,9 +837,15 @@ function Undo-AddRequest {
     $id = Get-LkString $Undo 'id'
     $pageId = Get-LkString $Undo 'pageId'
     $targets = @(@(Get-LkProp $Undo 'targets' @()) | Where-Object { $_ } | ForEach-Object { [string]$_ })
+    $entry = Get-LkString $Undo 'entry'
     $r = [ordered]@{ status = 'failed'; message = ''; id = $id; backlinks = 0; unlinked = 0; rewritten = 0; warnings = @(); ms = 0 }
     try {
         Invoke-Store $Store 'AssertWritable' | Out-Null
+        # One entry of a journal day page: only that entry leaves (the page itself when it was the only one).
+        if ($entry) {
+            $j = Undo-JournalEntry -Store $Store -Index (Invoke-Store $Store 'GetIndex') -Id $id -Entry $entry -Result $r
+            if ($j) { $r.ms = [int]$sw.ElapsedMilliseconds; return $r }
+        }
         $x = Invoke-PageRemoval -Store $Store -Id $id -PageId $pageId -Targets $targets
         $r.backlinks = $x.backlinks; $r.unlinked = $x.unlinked; $r.rewritten = $x.rewritten
         $r.warnings = @($x.warnings)

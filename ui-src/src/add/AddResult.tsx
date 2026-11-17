@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Notice } from '../components/Notice'
+import { WebLink } from '../components/WebLink'
 import { webUrl } from '../model/links'
 import { addResultView, type AddResultView } from './addResultView'
 import { ConfirmReplaceDialog, type ReplaceDecision } from './ConfirmReplaceDialog'
@@ -27,6 +28,10 @@ export interface AddResultActions {
   onUpdateLink?: () => void
   /** Waiting for Copilot: read its answer from the chat (POST /api/add/fetch). */
   onCheckAnswer?: () => void
+  /** Not added as a duplicate: add it as a second page with that title (allowDuplicate). */
+  onAddDuplicate?: () => void
+  /** Not added as a duplicate: open the page that is already there in the page window. */
+  onOpenPage?: (pageId: string) => void
 }
 
 function CheckIcon() {
@@ -150,9 +155,9 @@ function AddedText({ r, linkSummary }: { r: AddResultData; linkSummary: boolean 
       <p className="add-label">{r.kind === 'link' ? 'The link' : 'What you added'}</p>
       {url ? (
         <p className="add-text add-text--pre">
-          <a className="add-a" href={url} target="_blank" rel="noopener noreferrer">
+          <WebLink className="add-a" href={url}>
             {r.text.trim()}
-          </a>
+          </WebLink>
         </p>
       ) : (
         <p className="add-text add-text--pre">{r.text}</p>
@@ -179,7 +184,7 @@ export function AddResult({ result, busy = false, ...a }: { result: AddResultDat
           button (code review 2026-11-15: Send and Done were both). */}
       {v.actions && <AddActionRow view={v} busy={busy} a={a} />}
 
-      {v.failed && <FailedNotice r={r} />}
+      {v.failed && <FailedNotice r={r} busy={busy} a={a} />}
 
       <Waiting r={r} busy={busy} a={a} />
 
@@ -246,10 +251,26 @@ function ResultTop({ r, written }: { r: AddResultData; written: boolean }) {
   )
 }
 
-/** Why nothing was added; that the item waits in the Intake; pages it matched that were there. */
-function FailedNotice({ r }: { r: AddResultData }) {
+/** Why nothing was added; that the item waits in the Intake; pages it matched that were there. A
+ *  page with the same title and type (duplicateOf) can be opened, or this one added anyway. */
+function FailedNotice({ r, busy, a }: { r: AddResultData; busy: boolean; a: AddResultActions }) {
+  const dup = r.duplicateOf
+  const actions = dup && (a.onOpenPage || a.onAddDuplicate) ? (
+    <>
+      {a.onOpenPage && (
+        <button type="button" className="btn btn--sm" onClick={() => a.onOpenPage?.(dup)} disabled={busy}>
+          Open it
+        </button>
+      )}
+      {a.onAddDuplicate && (
+        <button type="button" className="btn btn--sm" onClick={a.onAddDuplicate} disabled={busy}>
+          Add anyway
+        </button>
+      )}
+    </>
+  ) : undefined
   return (
-    <Notice error title="Not added">
+    <Notice error title="Not added" actions={actions}>
       <p>{r.message}</p>
       {r.inbox?.status === 'failed' && <p className="add-muted">The item is kept in your Intake with this reason, so nothing is lost.</p>}
       {r.related.length > 0 && (

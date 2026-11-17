@@ -76,6 +76,19 @@ function Get-GraphSources {
     @{ of = $ids; list = $list }
 }
 
+function ConvertTo-GraphEntries($Page) {
+    <# A day page's entries for the window: @{ ref; at; title; summary; topicIds; links [{to; strength; why}] }. #>
+    if (-not $Page.ContainsKey('entries')) { return }
+    foreach ($e in @($Page['entries'] | Where-Object { $_ })) {
+        [ordered]@{
+            ref = [string](Get-JsonProp $e 'ref' ''); at = [string](Get-JsonProp $e 'at' '')
+            title = [string](Get-JsonProp $e 'title' ''); summary = [string](Get-JsonProp $e 'summary' '')
+            topicIds = [string[]]@(@(Get-JsonProp $e 'topics' @()) | Where-Object { $_ } | ForEach-Object { [string]$_ })
+            links = @(@(Get-JsonProp $e 'links' @()) | Where-Object { $_ } | ForEach-Object { [ordered]@{ to = [string](Get-JsonProp $_ 'target' ''); strength = [int](Get-JsonProp $_ 'strength' 1); why = [string](Get-JsonProp $_ 'why' '') } })
+        }
+    }
+}
+
 function ConvertTo-GraphModel {
     <# GraphModel from an index model. $Source: @{ kind (vault|notebook); id; name; readOnly }.
        $LinkRules: @{ InternalHosts; CompanyNames } as the vault store files links (Sources view). #>
@@ -127,6 +140,11 @@ function ConvertTo-GraphModel {
             # page the person made in OneNote, which is listed and never changed (operator, 2026-11-16:
             # Delete was offered on such a page and failed).
             own = ([string]$p.owner -eq 'obsn')
+            # created: OneNote's own page date ('' when the model does not know it); entries: a journal
+            # day page's entries (operator, 2026-11-17), [] for every other page. The Journal view reads
+            # both; entry links are page keys like the page's own links.
+            created = $(if ($p.ContainsKey('created')) { [string]$p['created'] } else { '' })
+            entries = @(ConvertTo-GraphEntries $p)
         }
     })
     # The tags of the shown source with their page counts, sorted by name (ordinal).

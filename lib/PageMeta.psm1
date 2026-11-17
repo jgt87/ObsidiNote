@@ -21,12 +21,15 @@ Import-Module (Join-Path $PSScriptRoot 'OneNote.psm1')
 # Get-OriginList; set at Add from the paste or by the person, changeable in Edit; 2026-11-14).
 # tags: set by hand only (2026-11-15), never by Copilot; a JSON array of normal-form tags
 # (ConvertTo-TagList). A page that never had a tag has no obsn.tags Meta; '' = all were removed.
-$script:MetaKeys = @('id', 'type', 'topics', 'aliases', 'summary', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'linkSummary', 'summaryHash', 'history', 'seenAt', 'checkStatus', 'origin', 'tags')
+# entries: a journal day page's entries (operator, 2026-11-17: one page per day), a JSON array of
+# { r: request ref, at: yyyy-MM-ddTHH:mm, t: title, s: summary, p: topic paths, l: links } in the order of
+# the body outline's top-level lines (Add-ObsnBodyEntry). Only on day pages; '' or absent elsewhere.
+$script:MetaKeys = @('id', 'type', 'topics', 'aliases', 'summary', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'linkSummary', 'summaryHash', 'history', 'seenAt', 'checkStatus', 'origin', 'tags', 'entries')
 $script:ListKeys = @('topics', 'aliases', 'tags')
 $script:MaxTagLength = 40
 $script:MaxTagsPerPage = 12
 # Values that can grow past one Meta tag: always written with their obsn.X.n part count.
-$script:SplitKeys = @('linkSummary', 'history')
+$script:SplitKeys = @('linkSummary', 'history', 'entries')
 # Outlines ObsidiNote owns (obsn.role). body: the item as added; checked: when a link was summarized
 # and its earlier summaries; notes: "Your notes" on a link page, written once when the page is made
 # and never again (Write-ObsnPage refuses it on an existing page).
@@ -150,6 +153,7 @@ function ConvertTo-ObsnMeta {
         elseif ($k -eq 'aliases') { $v = ConvertTo-CompactJson -Value @(@($v) | Where-Object { $_ } | ForEach-Object { [string]$_ }) }
         elseif ($k -eq 'tags') { $tg = @(@($v) | Where-Object { $_ } | ForEach-Object { [string]$_ }); $v = if ($tg.Count) { ConvertTo-CompactJson -Value $tg } else { '' } }
         elseif ($k -eq 'links') { $v = ConvertTo-ObsnLinksValue -Links @($v) }
+        elseif ($k -eq 'entries') { $v = ConvertTo-ObsnEntriesValue -Entries @($v) }
         elseif ($null -eq $v) { $v = '' }
         if ($script:SplitKeys -contains $k) {
             # Long values are split (OneNote refuses a Meta value over about 100k characters).
@@ -170,9 +174,38 @@ function ConvertFrom-ObsnMeta {
         $v = Join-ObsnMetaValue -Meta $Meta -Name "obsn.$k"
         if ($k -in $script:ListKeys) { $r[$k] = @(ConvertFrom-JsonList $v | ForEach-Object { [string]$_ }) }
         elseif ($k -eq 'links') { $r[$k] = ConvertFrom-ObsnLinksValue $v }
+        elseif ($k -eq 'entries') { $r[$k] = @(ConvertFrom-ObsnEntriesValue $v) }
         else { $r[$k] = if ($null -eq $v) { '' } else { [string]$v } }
     }
     $r
+}
+
+function ConvertTo-ObsnEntriesValue {
+    <# @(@{ ref; at; title; summary; topics; links }) -> the obsn.entries JSON ('' when there are none). #>
+    param([object[]]$Entries = @())
+    $list = @(foreach ($e in @($Entries)) {
+        if ($null -eq $e) { continue }
+        [ordered]@{
+            r = [string](Get-JsonProp $e 'ref' ''); at = [string](Get-JsonProp $e 'at' ''); t = [string](Get-JsonProp $e 'title' ''); s = [string](Get-JsonProp $e 'summary' '')
+            p = @(@(Get-JsonProp $e 'topics' @()) | Where-Object { $_ } | ForEach-Object { ConvertTo-TopicPath ([string]$_) } | Where-Object { $_ })
+            l = @(@(Get-JsonProp $e 'links' @()) | Where-Object { $_ } | ForEach-Object { [ordered]@{ t = [string](Get-JsonProp $_ 'target' ''); s = [Math]::Min(3, [Math]::Max(1, [int](Get-JsonProp $_ 'strength' 1))); w = [string](Get-JsonProp $_ 'why' '') } })
+        }
+    })
+    if (-not $list.Count) { return '' }
+    ConvertTo-CompactJson -Value $list
+}
+
+function ConvertFrom-ObsnEntriesValue {
+    <# The obsn.entries JSON -> @(@{ ref; at; title; summary; topics; links }); nothing for ''/invalid.
+       Wrap calls in @(). Pure. #>
+    param([AllowEmptyString()][AllowNull()][string]$Text)
+    foreach ($e in @(ConvertFrom-JsonList $Text)) {
+        @{
+            ref = [string](Get-JsonProp $e 'r' ''); at = [string](Get-JsonProp $e 'at' ''); title = [string](Get-JsonProp $e 't' ''); summary = [string](Get-JsonProp $e 's' '')
+            topics = @(@(Get-JsonProp $e 'p' @()) | Where-Object { $_ } | ForEach-Object { [string]$_ })
+            links = @(@(Get-JsonProp $e 'l' @()) | Where-Object { $_ } | ForEach-Object { @{ target = [string](Get-JsonProp $_ 't' ''); strength = [int](Get-JsonProp $_ 's' 1); why = [string](Get-JsonProp $_ 'w' '') } })
+        }
+    }
 }
 
 function Split-ObsnMetaValue {
@@ -497,6 +530,72 @@ function Edit-ObsnBodyAnchors {
     @{ count = $state.n; xml = $sb.ToString() }
 }
 
+# ---------------------------------------------------------------- journal day pages (operator, 2026-11-17)
+# One page per day: each journal Add is one entry = one top-level OE of the page's body outline (a bold
+# "HH:mm  title" line with the entry's text under it), and one item of the page's obsn.entries Meta, in
+# the same order. Both helpers send the body outline whole by its objectID, with the other entries as
+# read (their own objectIDs), the way Edit-ObsnBodyAnchors rewrites links (verified live 2026-11-16).
+
+function Get-ObsnBodyOutline($Doc, $Ns) {
+    foreach ($o in @($Doc.DocumentElement.SelectNodes('one:Outline', $Ns))) {
+        $r = $o.SelectSingleNode('one:Meta[@name="obsn.role"]', $Ns)
+        if ($r -and $r.GetAttribute('content') -eq 'body') { return $o }
+    }
+    $null
+}
+
+function New-ObsnBodyUpdateXml($Doc, $Outline, [System.Collections.IDictionary]$Meta) {
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.Append('<?xml version="1.0"?>')
+    [void]$sb.Append("<one:Page xmlns:one=""$(Get-OneNoteSchemaNs)"" ID=""$(ConvertTo-XmlAttr $Doc.DocumentElement.GetAttribute('ID'))"">")
+    foreach ($k in @($Meta.Keys)) { [void]$sb.Append("<one:Meta name=""$(ConvertTo-XmlAttr ([string]$k))"" content=""$(ConvertTo-XmlAttr ([string]$Meta[$k]))"" />") }
+    [void]$sb.Append($Outline.OuterXml)
+    [void]$sb.Append('</one:Page>')
+    $sb.ToString()
+}
+
+function Get-ObsnEntryHeading {
+    <# The first line of a journal entry, as plain text: "HH:mm  title". Pure. #>
+    param([string]$At, [string]$Title)
+    $hm = if ($At -match 'T(\d\d:\d\d)') { $Matches[1] } else { '' }
+    (($hm + '  ' + $Title).Trim())
+}
+
+function Add-ObsnBodyEntry {
+    <# Appends one entry (New-OneLine objects: the heading line with the entry's lines as its children)
+       to the end of the page's body outline. Returns @{ ok; reason; xml (the update for UpdatePageContent:
+       $Meta and the body outline whole) }. Pure. #>
+    param([Parameter(Mandatory)][string]$Xml, [Parameter(Mandatory)][object[]]$Lines, [System.Collections.IDictionary]$Meta = @{})
+    [xml]$doc = $Xml
+    $ns = New-OneNoteNsManager $doc
+    $o = Get-ObsnBodyOutline $doc $ns
+    if (-not $o) { return @{ ok = $false; reason = 'the day page has no text outline of ObsidiNote''s'; xml = '' } }
+    $kids = $o.SelectSingleNode('one:OEChildren', $ns)
+    if (-not $kids) { $kids = $o.AppendChild($doc.CreateElement('one', 'OEChildren', (Get-OneNoteSchemaNs))) }
+    $frag = [xml]("<x xmlns:one=""$(Get-OneNoteSchemaNs)"">" + (ConvertTo-OEXml @($Lines)) + '</x>')
+    foreach ($n in @($frag.DocumentElement.ChildNodes)) { $null = $kids.AppendChild($doc.ImportNode($n, $true)) }
+    @{ ok = $true; reason = ''; xml = (New-ObsnBodyUpdateXml $doc $o $Meta) }
+}
+
+function Remove-ObsnBodyEntry {
+    <# Takes entry number $Index (0-based, the order of obsn.entries) out of the body outline, only when
+       that top-level line still starts with $Heading; else nothing (the page was changed in OneNote: its
+       lines no longer match the entries). Returns @{ ok; reason; xml }. Pure. #>
+    param([Parameter(Mandatory)][string]$Xml, [Parameter(Mandatory)][int]$Index, [Parameter(Mandatory)][string]$Heading, [System.Collections.IDictionary]$Meta = @{})
+    [xml]$doc = $Xml
+    $ns = New-OneNoteNsManager $doc
+    $o = Get-ObsnBodyOutline $doc $ns
+    $oes = if ($o) { @($o.SelectNodes('one:OEChildren/one:OE', $ns)) } else { @() }
+    if ($Index -lt 0 -or $Index -ge $oes.Count) { return @{ ok = $false; reason = 'the entry is not on the day page any more'; xml = '' } }
+    $t = $oes[$Index].SelectSingleNode('one:T', $ns)
+    $text = if ($t) { [System.Net.WebUtility]::HtmlDecode(($t.InnerText -replace '<[^>]+>', '')).Trim() } else { '' }
+    $norm = { param($s) ($s -replace '\s+', ' ').Trim() }
+    if (-not (& $norm $text).StartsWith((& $norm $Heading))) { return @{ ok = $false; reason = 'the day page was changed in OneNote, so the entry was not found where it was written'; xml = '' } }
+    $null = $oes[$Index].ParentNode.RemoveChild($oes[$Index])
+    if (-not @($o.SelectNodes('one:OEChildren/one:OE', $ns)).Count) { $null = $o.SelectSingleNode('one:OEChildren', $ns).AppendChild($doc.ImportNode(([xml]("<x xmlns:one=""$(Get-OneNoteSchemaNs)"">" + (ConvertTo-OEXml @('')) + '</x>')).DocumentElement.FirstChild, $true)) }
+    @{ ok = $true; reason = ''; xml = (New-ObsnBodyUpdateXml $doc $o $Meta) }
+}
+
 function Read-ObsnPage {
     <# Reads a page through the adapter and parses it (page XML stays in memory). #>
     param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)][string]$PageId)
@@ -525,4 +624,4 @@ function Write-ObsnPage {
     $Adapter.UpdatePageContent((New-ObsnPageXml @args2))
 }
 
-Export-ModuleMember -Function Get-ObsnRoles, Get-ObsnMetaKeys, ConvertTo-Base36, ConvertFrom-Base36, New-ObsnId, Test-ObsnId, Get-ObsnIdNumber, ConvertTo-TopicPath, Format-TopicPath, ConvertTo-CompactJson, Get-JsonProp, ConvertFrom-JsonList, ConvertTo-ObsnLinksValue, ConvertFrom-ObsnLinksValue, ConvertTo-ObsnMeta, ConvertFrom-ObsnMeta, Split-ObsnMetaValue, Join-ObsnMetaValue, ConvertTo-OneHtml, New-OneLink, New-OneLine, New-ObsnOutlineXml, New-ObsnPageXml, ConvertFrom-ObsnPageXml, ConvertFrom-ObsnPageText, Get-PropertiesLines, Get-LinkedFromLines, Read-ObsnPage, Write-ObsnPage, ConvertTo-TagList, Convert-ObsnBodyLinks, Repair-ObsnBodyLinks, Get-OneLinkPageGuid
+Export-ModuleMember -Function Get-ObsnRoles, Get-ObsnMetaKeys, ConvertTo-Base36, ConvertFrom-Base36, New-ObsnId, Test-ObsnId, Get-ObsnIdNumber, ConvertTo-TopicPath, Format-TopicPath, ConvertTo-CompactJson, Get-JsonProp, ConvertFrom-JsonList, ConvertTo-ObsnLinksValue, ConvertFrom-ObsnLinksValue, ConvertTo-ObsnMeta, ConvertFrom-ObsnMeta, Split-ObsnMetaValue, Join-ObsnMetaValue, ConvertTo-OneHtml, New-OneLink, New-OneLine, New-ObsnOutlineXml, New-ObsnPageXml, ConvertFrom-ObsnPageXml, ConvertFrom-ObsnPageText, Get-PropertiesLines, Get-LinkedFromLines, Read-ObsnPage, Write-ObsnPage, ConvertTo-TagList, Convert-ObsnBodyLinks, Repair-ObsnBodyLinks, Get-OneLinkPageGuid, ConvertTo-ObsnEntriesValue, ConvertFrom-ObsnEntriesValue, Get-ObsnEntryHeading, Add-ObsnBodyEntry, Remove-ObsnBodyEntry

@@ -24,6 +24,7 @@ knowledge graph's data, Add and Ask.
 | Link it | Makes two made-up pages in the test vault, links the first to the second as "Link it" does in the window, checks that a second "Link it" writes nothing, then undoes both pages. No Copilot needed | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Undo of a linked page | Makes two made-up pages, the first with a link to the second (in its properties and as a link in its own text), undoes the second, then checks that the first has no link to it left and that its text says "(deleted: ...)" where the link was; then undoes the first. No Copilot needed | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Tags | Makes one made-up page, gives it a tag, reads the page back, renames the tag, removes it, then undoes the page. No Copilot needed; the log holds counts only, never the tag | Only `ObsidiNote-Validation`, with `-WriteTest` |
+| Journal day page | Adds two made-up journal entries (with fixed made-up answers, so no Copilot), checks that both are on one page for today with two entry lines, undoes the second (one line left), then the first (the page goes to Deleted Pages) | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Archive plan, Archive, Archive (link in another page), Restore, Delete | Makes two made-up pages, the first with a link to the second (in its properties and in its own text). Asks what Archive would do (nothing written), archives the second page (it must be found again under Archive), then follows the link in the first page's text in OneNote: OneNote jumps to a page in `ObsidiNote-Validation` and back. "opens the archived page: no" is a `[WARN]` that tells us links in other pages' text must be rewritten on Archive. Then restores the page to its own section, deletes it (to OneNote's Deleted Pages; the first page's link becomes "(deleted: ...)"), and undoes the first page. No Copilot needed | Only `ObsidiNote-Validation`, with `-WriteTest` |
 | Ask (synthetic) | Asks "What do my notes say about tidal gardens?" against the test vault | No (Ask never writes) |
 
@@ -117,6 +118,10 @@ knowledge graph's data, Add and Ask.
        `[OK] Tags (rename)  status renamed; pages changed 1; the page has the new name: True`, then
        `[OK] Tags (remove)  status tagged; tags left on the page: 0`, then `[OK] Tags (undo)  status
        undone`. The log never shows the tag itself.
+     - `[OK] Journal day page  two entries on one day page: yes; entry lines in its text: 2 (expected
+       2); ... ms`, then `[OK] Journal day page (undo one entry)  status undone; entry lines left: 1
+       (expected 1)`, then `[OK] Journal day page (undo)  status undone`. A `[FAIL]` line with another
+       count means OneNote did not keep the day page's text as written: send the files.
      - `[OK] Upgrade move  status done; moved 1 of 1; found again in Internal links: True; ... ms`, then
        `[OK] Upgrade move (undo)  status undone`.
      - `[OK] Ask (synthetic)  status ...; writes 0`

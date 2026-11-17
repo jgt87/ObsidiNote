@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { ActivityView } from './activity/ActivityView'
 import { AppDialogs, type AppDialog } from './components/AppDialogs'
 import { HomeView } from './components/HomeView'
+import { JournalView } from './journal/JournalView'
 import { Rail } from './components/Rail'
 import { GraphView } from './graph'
 import { useAskChoices, useCopilotRetry, useGraphNavigation, useHashView, useVaultAccess } from './hooks/useAppShell'
@@ -68,6 +69,17 @@ export function App() {
             onAdd={() => goto('home')}
             onAsk={(page) => {
               home.askAbout(askAboutText(page.title))
+              goto('home')
+            }}
+          />
+        )}
+        {view === 'journal' && (
+          <JournalView
+            vaultKey={nav.findKey}
+            load={nav.loadFind}
+            onOpen={(id) => nav.openPage(nav.activeEntry, id)}
+            onAsk={(question) => {
+              home.askAbout(question)
               goto('home')
             }}
           />

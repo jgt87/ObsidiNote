@@ -1,4 +1,5 @@
 import { Fragment, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { WebLink } from '../components/WebLink'
 import { splitLinks, webUrl } from '../model/links'
 import { answerShares, citeChipView, citeTarget, combinedLine, confidenceLabel, droppedCitationsNote, pathChips, sentencesPerSource, sharePercent, sourceAnchor, sourceOrigin } from './askModel'
 import type { AskResult, AskSentence, AskSource, AskStaleLink } from './types'
@@ -145,8 +146,15 @@ function CiteChip({ n, source: src, anchor, onOpenPage }: { n: number; source: A
         {n}
       </button>
     )
+  // A web address opens in the default browser (WebLink); an onenote: link opens OneNote itself.
+  if (v.newTab)
+    return (
+      <WebLink className="ask-cite" href={v.href} title={v.title} label={v.label}>
+        {n}
+      </WebLink>
+    )
   return (
-    <a className="ask-cite" href={v.href} target={v.newTab ? '_blank' : undefined} rel={v.newTab ? 'noopener noreferrer' : undefined} title={v.title} aria-label={v.label}>
+    <a className="ask-cite" href={v.href} title={v.title} aria-label={v.label}>
       {n}
     </a>
   )
@@ -258,9 +266,9 @@ function LinkedText({ text }: { text: string }) {
     <>
       {splitLinks(text).map((p, i) =>
         p.href ? (
-          <a key={i} className="ask-weblink" href={p.href} target="_blank" rel="noopener noreferrer">
+          <WebLink key={i} className="ask-weblink" href={p.href}>
             {p.text}
-          </a>
+          </WebLink>
         ) : (
           <Fragment key={i}>{p.text}</Fragment>
         ),
@@ -275,9 +283,9 @@ function SourceTitle({ source: s, onShowPage }: { source: AskSource; onShowPage?
   const url = webUrl(s.url)
   if (url)
     return (
-      <a href={url} target="_blank" rel="noopener noreferrer" title={url}>
+      <WebLink href={url} title={url}>
         {s.title}
-      </a>
+      </WebLink>
     )
   if (onShowPage && !s.readOnly)
     return (

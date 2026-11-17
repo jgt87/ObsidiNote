@@ -53,9 +53,9 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
   const fail = (question: string, e: unknown, asking: boolean) =>
     setFlow(asking ? { kind: 'ask', view: { kind: 'error', question, message: message(e), copilot: needsCopilot(e) } } : { kind: 'notice', text: `Not sent: ${message(e)} Your text stays in the box.`, error: true, copilot: needsCopilot(e) })
 
-  const addText = useCallback((text: string) => {
+  const addText = useCallback((text: string, allowDuplicate = false) => {
     setFlow({ kind: 'adding', text })
-    addItem(text, 'add').then(showAdd, (e: unknown) => fail(text, e, false))
+    addItem(text, 'add', allowDuplicate).then(showAdd, (e: unknown) => fail(text, e, false))
   }, [])
 
   const askNew = useCallback((question: string) => {
@@ -120,6 +120,8 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
     onDecide: (r: AddResult, d: ReplaceDecision) => { if (r.confirm) withAddBusy(updateLink(r.confirm.id, d, r.confirm.proposed)) },
     onAsk: (r: AddResult) => askNew(r.text),
     onAddAnyway: (r: AddResult) => addText(r.text),
+    // A page with the same title and type is there: add this one beside it (2026-11-17).
+    onAddDuplicate: (r: AddResult) => addText(r.text, true),
   }
 
   const askActions = (r: AskResult) => ({

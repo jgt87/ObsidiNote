@@ -1,0 +1,31 @@
+{
+  "about": "What GET /api/graph sends per page for the Journal (lib/GraphModel.psm1, 2026-11-17): created = OneNote's own page date (the hierarchy's dateTime), entries = a journal day page's entries (obsn.entries), [] for every other page. Invented data. tests/Journal.Tests.ps1 builds these pages in the in-memory OneNote (obsn.id, obsn.type = kind, obsn.topics = topicIds, obsn.links = links, obsn.entries from entries, the page date = created) and asserts the produced pages equal this file; the interface's journal tests (ui-src/src/journal/journalModel.test.ts) build their model from the same pages and edges.",
+  "topics": ["Projects", "Projects/Portal", "Finance"],
+  "pages": [
+    {
+      "id": "p201", "title": "2026-11-17", "kind": "log", "section": "Journal/2026", "created": "2026-11-17T08:00:00.000Z",
+      "topicIds": ["Projects/Portal", "Finance"],
+      "links": [{ "to": "p203", "strength": 2, "why": "same project" }],
+      "entries": [
+        { "ref": "ra1b2c3d4", "at": "2026-11-17T09:30", "title": "Supplier call", "summary": "Called the supplier about the portal.", "topicIds": ["Projects/Portal"], "links": [{ "to": "p203", "strength": 2, "why": "same project" }] },
+        { "ref": "re5f6g7h8", "at": "2026-11-17T11:05", "title": "Budget agreed", "summary": "The budget for next year was agreed.", "topicIds": ["Finance"], "links": [] }
+      ]
+    },
+    {
+      "id": "p202", "title": "Stand-up", "kind": "log", "section": "Journal/2026", "created": "2026-11-10T09:00:00.000Z",
+      "topicIds": ["Projects/Portal"], "links": [], "entries": []
+    },
+    {
+      "id": "p203", "title": "Portal plan", "kind": "concept", "section": "Notes", "created": "2026-11-12T14:00:00.000Z",
+      "topicIds": ["Projects/Portal"], "links": [], "entries": []
+    },
+    {
+      "id": "p204", "title": "Decision: portal vendor", "kind": "decision", "section": "Decisions", "created": "2026-11-15T10:00:00.000Z",
+      "topicIds": ["Projects/Portal"], "links": [{ "to": "p203", "strength": 3, "why": "chosen from the plan" }], "entries": []
+    },
+    {
+      "id": "p205", "title": "Office move", "kind": "concept", "section": "Notes", "created": "2026-11-16T07:00:00.000Z",
+      "topicIds": ["Finance"], "links": [], "entries": []
+    }
+  ]
+}

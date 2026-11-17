@@ -25,6 +25,12 @@ export function pageSpecToText(spec: AskPageSpec): string {
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
+/** The question the Journal's "Find decisions with Copilot" puts in the composer for a topic: Ask
+ *  reads the topic's pages and lists what was decided, citing them (read only, like every Ask). */
+export function decisionsAskText(topicPath: string): string {
+  return `What was decided about "${topicPath}"? List each decision with its date and the pages it comes from.`
+}
+
 /** The question "Ask about this" puts in the composer for a page of the map. */
 export function askAboutText(title: string): string {
   return `What do my notes say about "${title}"?`

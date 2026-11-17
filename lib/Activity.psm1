@@ -21,17 +21,22 @@ function Get-ActivityList {
         $rk = & $m $p 'obsn.requestKind'
         $filed = & $m $p 'obsn.filedAs'
         $rec = if ($filed -and $Index.ContainsKey($filed)) { $Index[$filed] } else { $null }
+        # A journal entry is filed as its day page (2026-11-17): it is gone when its undo took it out of
+        # the day's entries, and its Undo names the entry (the request reference) so only it leaves.
+        $ref = & $m $p 'obsn.requestRef'
+        $dayEntries = @(if ($rec -and $rec.ContainsKey('entries')) { @($rec.entries) | Where-Object { $_ } })
+        $entry = if ($dayEntries.Count -and $ref -and @($dayEntries | Where-Object { [string]$_['ref'] -eq $ref }).Count) { $ref } else { '' }
         $state = switch ($status) {
             'waiting' { 'waiting' }
             'failed' { 'failed' }
-            'linked' { if (-not $rec) { 'gone' } elseif ($script:UpdateKinds -contains $rk) { 'updated' } else { 'added' } }
+            'linked' { if (-not $rec -or ($dayEntries.Count -and -not $entry)) { 'gone' } elseif ($script:UpdateKinds -contains $rk) { 'updated' } else { 'added' } }
             default { 'working' }
         }
         [ordered]@{
             inboxId = [string]$p.id; title = [string]$p.title; state = $state
             kind = (& $m $p 'obsn.inboxKind'); requestKind = $rk
             updated = [string]$p.updated; since = (& $m $p 'obsn.waitingSince'); reason = (& $m $p 'obsn.statusReason')
-            filedAs = $filed
+            filedAs = $filed; entry = $entry
             filedTitle = $(if ($rec) { [string]$rec.title } else { '' })
             filedType = $(if ($rec) { [string]$rec.type } else { '' })
             canCheck = ($state -eq 'waiting')

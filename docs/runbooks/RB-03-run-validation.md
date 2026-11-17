@@ -38,6 +38,7 @@ The files to double-click in the `validation` folder:
 |---|---|
 | `Run Validation.cmd` | All stages, read only. |
 | `Run Validation with write tests.cmd` | All stages with `-WriteTest`. Run it once before the OneNote search probe: it makes the marker page. |
+| `Run Open Checks.cmd` | Only what is still open after the v0.12.4 run of 2026-11-16: `-Stage V3,V5,V6 -Probe P10 -NoPrompt -MeetingDay today -WriteTest -SelectNotebooks`. Copilot and its Work IQ switch, today's meetings, the notebook selection probe (OneNote switches notebooks, then shows your page again), and the write tests in ObsidiNote-Validation (Add, "Check for the answer", Ask, a link in another page after Archive). It asks nothing. Run it on a day with meetings, after at least one of them has ended. |
 | `Run Meeting Probe.cmd` | Only the meetings probe, for today's meetings: `-Stage V5 -Probe P10 -NoPrompt -MeetingDay today`. It asks nothing and writes nothing (RB-04, step 4). |
 | `Run Notebook Selection Probe.cmd` | Only the vault checks plus the selection probe: `-Stage V6 -NoCopilot -NoPrompt -SelectNotebooks`. OneNote switches notebooks while it runs; nothing is written (RB-05, step 3b). |
 | `Run OneNote Search Probe.cmd` | Only P3: `-Stage V5 -Probe P3 -NoPrompt`. Run it 1 hour and 24 hours after the write tests. It asks nothing and writes nothing (RB-04, step 6). |

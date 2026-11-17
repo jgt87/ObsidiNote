@@ -253,6 +253,12 @@ export function getIntent(text: string, mode: Mode, signal?: AbortSignal): Promi
   return call<IntentResult>('/api/intent', postJson(text, mode, signal))
 }
 
+/** Opens a web address in a new tab of the person's default browser (POST /api/open; operator,
+ *  2026-11-17: not in ObsidiNote's own Edge window). Throws when the server could not. */
+export async function openInBrowser(url: string): Promise<void> {
+  await call<{ opened: boolean }>('/api/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) })
+}
+
 /** Add or Ask by mode and intent (the server decides auto). 503 = Copilot is not connected, 409 = no
  *  active vault: both throw ApiError with the server's message. */
 export async function submit(req: SubmitRequest, signal?: AbortSignal): Promise<SubmitResult> {

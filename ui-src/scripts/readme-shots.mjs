@@ -200,6 +200,7 @@ async function main() {
   await go('/graph-demo.html?pages=100', '.kg-dot')
   graph = realTitles(JSON.parse(await js(`import('/src/graph/synthetic.ts').then((m) => JSON.stringify(m.syntheticGraph({ pages: 110, topics: 6, seed: 7 })))`)))
   graph.source = { ...graph.source, id: 'v1', kind: 'vault', name: 'Work wiki', readOnly: false, readOnlyReason: '' }
+  addJournal(graph)
 
   // 1 home: a question typed, the box says what it will do
   await go('/#/', '.recent__row')
@@ -249,6 +250,39 @@ async function main() {
   await js(`[...document.querySelectorAll('.seg__btn')].find((b) => b.textContent.trim() === 'List').click()`)
   await wait(900)
   await shot('list')
+
+  // 8 journal: one page per day, searched on a topic (everything about it, all sources and days)
+  await go('/#/journal', '.jr__row')
+  const topic = graph.topics.find((t) => t.name === 'Projects') ?? graph.topics[0]
+  await js(`(() => { const i = document.querySelector('.jr__field'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(i, 'proj'); i.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  await wait(300)
+  await js(`[...document.querySelectorAll('.jr__suggest button')].find((b) => b.textContent.endsWith(${JSON.stringify(topic.path)}))?.click()`)
+  await wait(500)
+  await shot('journal')
+}
+
+// Journal day pages of the last days and a decision page with the pages it came from (invented).
+function addJournal(g) {
+  const proj = g.topics.find((t) => t.name === 'Projects') ?? g.topics[0]
+  const sec = g.topics.find((t) => t.name === 'Security') ?? g.topics[1] ?? proj
+  const pad = (n) => String(n).padStart(2, '0')
+  const dayOf = (back) => { const d = new Date(Date.now() - back * 86400000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }
+  const days = [
+    [0, [['08:40', 'Stand-up: migration wave 2', 'Wave 2 starts Monday; two teams still need laptops.', proj], ['13:15', 'Call with the proxy vendor', 'Licences for partners are included; support hours to confirm.', sec], ['16:50', 'Budget for the office move agreed', 'Finance agreed the move budget; movers booked for May.', proj]]],
+    [1, [['09:05', 'Steering group', 'Partner portal goes first; VPN off for partners at the end of March.', proj], ['15:30', 'Phishing drill debrief', 'Click rate down to 4%; repeat in June.', sec]]],
+    [3, [['10:00', 'Workshop: onboarding portal', 'Three journeys chosen for the first release.', proj]]],
+  ]
+  for (const [back, entries] of days) {
+    const date = dayOf(back)
+    g.pages.push({
+      id: `pj${back}`, title: date, kind: 'log', bucket: 'Journal', section: `Journal/${date.slice(0, 4)}`, topicIds: [...new Set(entries.map((e) => e[3].id))], tags: [], aliases: [],
+      summary: `${entries.length} entries`, created: `${date}T07:00:00.000Z`,
+      entries: entries.map(([hm, title, summary, t], i) => ({ ref: `r${back}${i}`, at: `${date}T${hm}`, title, summary, topicIds: [t.id], links: [] })),
+    })
+  }
+  const pick = (title) => g.pages.find((p) => p.title === title)?.id
+  g.pages.push({ id: 'pjd', title: 'Decision: partners leave the VPN first', kind: 'decision', bucket: 'Decisions', section: 'Decisions', topicIds: [proj.id], tags: [], aliases: [], summary: 'The partner portal moves to the identity-aware proxy before staff do.', created: new Date(Date.now() - 86400000).toISOString() })
+  for (const t of ['Partner portal', 'VPN retirement plan', 'Identity-aware proxies']) if (pick(t)) g.edges.push({ from: 'pjd', to: pick(t), strength: 3 })
 }
 
 try {

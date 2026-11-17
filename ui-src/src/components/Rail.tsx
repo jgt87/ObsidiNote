@@ -4,14 +4,14 @@ import type { NotebooksState, NotebookState } from '../hooks/useServerData'
 import type { AttentionNote } from '../model/attention'
 import { plural } from '../model/format'
 import { VIEW_ORDER, VIEWS, type View } from '../model/views'
-import { GraphIcon, HistoryIcon, PlusIcon, SettingsIcon, WarnIcon } from './icons'
+import { GraphIcon, HistoryIcon, JournalIcon, PlusIcon, SettingsIcon, WarnIcon } from './icons'
 import { RetryButton } from './RetryButton'
 import { NotebookSwitcher } from './NotebookSwitcher'
 import { SectionTree } from './SectionTree'
 import { ThemeSwitch } from './ThemeSwitch'
 import './Rail.css'
 
-const NAV_ICONS: Record<View, () => React.JSX.Element> = { home: PlusIcon, graph: GraphIcon, history: HistoryIcon }
+const NAV_ICONS: Record<View, () => React.JSX.Element> = { home: PlusIcon, graph: GraphIcon, journal: JournalIcon, history: HistoryIcon }
 
 interface Props {
   view: View

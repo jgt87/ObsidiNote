@@ -18,6 +18,9 @@ export interface ActivityItem {
   filedAs: string
   filedTitle: string
   filedType: string
+  /** A journal entry (one page per day, 2026-11-17): its request reference, so Undo takes out only
+   *  this entry of the day page; '' for anything else. */
+  entry: string
   canCheck: boolean
   canRemove: boolean
   canUndo: boolean
@@ -52,6 +55,7 @@ export function normalizeActivity(raw: unknown): ActivityList {
       filedAs: str(i.filedAs),
       filedTitle: str(i.filedTitle),
       filedType: str(i.filedType),
+      entry: str(i.entry),
       canCheck: i.canCheck === true,
       canRemove: i.canRemove === true,
       canUndo: i.canUndo === true,
@@ -73,6 +77,7 @@ export const STATE_LABEL: Record<ActivityState, string> = {
 export function stateLine(i: ActivityItem): string {
   switch (i.state) {
     case 'added':
+      if (i.entry) return i.filedTitle ? `An entry in the journal of ${i.filedTitle}.` : ''
       return i.filedTitle ? `Now the page ${i.filedTitle}.` : ''
     case 'updated':
       return i.filedTitle ? `The link page ${i.filedTitle}.` : ''

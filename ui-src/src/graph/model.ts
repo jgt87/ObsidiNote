@@ -89,6 +89,24 @@ export interface GraphPage {
   /** One of ObsidiNote's own pages (it can be edited, archived and deleted); false for a page the
    *  person made in OneNote, which is listed and never changed. Absent = true (older server). */
   own?: boolean
+  /** When the page was made, ISO (OneNote's own page date); '' when the server does not know it. */
+  created?: string
+  /** A journal day page's entries, oldest first (one page per day, 2026-11-17); [] for other pages. */
+  entries?: JournalEntry[]
+}
+
+/** One entry of a journal day page (lib/GraphModel.psm1 ConvertTo-GraphEntries). */
+export interface JournalEntry {
+  /** The request reference of the Add that wrote it; names it for Undo. */
+  ref: string
+  /** Local time it was written, "yyyy-MM-ddTHH:mm". */
+  at: string
+  title: string
+  summary: string
+  /** The entry's own topic ids (the page's topics are the union of its entries'). */
+  topicIds: string[]
+  /** The pages the entry links to. */
+  links: { to: string; strength: Strength; why: string }[]
 }
 
 export interface GraphEdge {
@@ -250,7 +268,25 @@ function normalizePage(p: Record<string, unknown>, id: string, topicIds: Set<str
     own: p.own !== false,
     sourceId: str(p.sourceId),
     origin: validOrigin(p.origin),
+    created: str(p.created),
+    entries: normalizeEntries(p.entries),
   }
+}
+
+/** A day page's entries: lists repaired, strengths clamped, an entry without a title or time dropped. */
+function normalizeEntries(v: unknown): JournalEntry[] {
+  return records(v)
+    .map((e) => ({
+      ref: str(e.ref),
+      at: str(e.at),
+      title: str(e.title),
+      summary: str(e.summary),
+      topicIds: asList(e.topicIds as string[]).map((x) => str(x)).filter(Boolean),
+      links: records(e.links)
+        .map((l) => ({ to: str(l.to), strength: clampStrength(l.strength), why: str(l.why) }))
+        .filter((l) => l.to),
+    }))
+    .filter((e) => e.title && e.at)
 }
 
 /** The edges between known pages, no self-loops, once per kind and direction (the first wins),

@@ -15,8 +15,9 @@
 //  11 a read-only page window says why and shows Edit disabled
 //   9 the map's search shows its clear button whenever it holds text, without hover, and it clears
 //   8 during a long zoom-in with the wheel the map is drawn again before it is stretched 1.35 times
+//  20 the Journal: entries as rows, a topic search shows everything about it, Decisions with their sources, a row opens the page window, 44 px on touch
 // Views and states visited: home (idle, with waiting items, after an Add, with an Add that waits),
-// History, knowledge graph (map, List), page window, its Edit form.
+// History, Journal (no search, a topic, Decisions), knowledge graph (map, List), page window, its Edit form.
 //  17 every text field has its own edge or fill of at least 3:1 against what is behind it (home, graph, Edit; light and dark)
 //  18 the map's zoom toolbar and legend never overlap, in the app beside the side bar (1920, 1440, 1280, 1024)
 //  19 during a search, a page that is not a result still shows its card on hover and opens on click;
@@ -509,6 +510,45 @@ async function sectionRows({ js, go, expect }) {
   }
 }
 
+// 20 the Journal (2026-11-17): the day page's entries are rows; a topic picked from the search shows
+// everything about it (other pages too); Decisions lists the decision page with the page it came from;
+// a row opens the page window; at most one primary button; 44 px on touch.
+async function journalView({ js, list, size, go, click, expect, onePrimary }) {
+  const t0 = graph.topics[0]
+  const d = new Date(); const pad = (n) => String(n).padStart(2, '0')
+  const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  if (!graph.pages.some((p) => p.id === 'pj1')) {
+    graph.pages.push(
+      { id: 'pj1', title: day, kind: 'log', bucket: 'Journal', section: `Journal/${d.getFullYear()}`, topicIds: [t0.id], tags: [], aliases: [], summary: '2 entries', created: new Date().toISOString(),
+        entries: [{ ref: 'ra1', at: `${day}T09:30`, title: 'Supplier call', summary: 'Called the supplier.', topicIds: [t0.id], links: [] }, { ref: 'ra2', at: `${day}T11:05`, title: 'Budget agreed', summary: 'Agreed the budget.', topicIds: [], links: [] }] },
+      { id: 'pj2', title: 'Decision: supplier', kind: 'decision', bucket: 'Decisions', section: 'Decisions', topicIds: [t0.id], tags: [], aliases: [], summary: 'We chose the supplier.', created: new Date(Date.now() - 86400000).toISOString(), entries: [] },
+    )
+    graph.edges.push({ from: 'pj2', to: graph.pages.find((p) => p.topicIds?.includes(t0.id) && p.id !== 'pj1' && p.id !== 'pj2')?.id ?? graph.pages[0].id, strength: 2 })
+  }
+  await size(1440, 900); await go('/#/journal', '.jr__row')
+  const rows = await js(`document.querySelectorAll('.jr__row').length`)
+  expect(rows >= 2, `Journal: ${rows} rows without a search (expected the day page's 2 entries)`)
+  await onePrimary('Journal')
+  await js(`(() => { const i = document.querySelector('.jr__field'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(i, ${JSON.stringify(t0.name.slice(0, 4))}); i.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  await wait(300)
+  const picked = await js(`(() => { const b = [...document.querySelectorAll('.jr__suggest button')].find((e) => e.textContent.includes(${JSON.stringify(t0.path)})); if (b) b.click(); return !!b })()`)
+  await wait(300)
+  const caption = await js(`document.querySelector('.jr__caption')?.textContent ?? ''`)
+  const after = await js(`document.querySelectorAll('.jr__row').length`)
+  expect(picked && caption.startsWith('Everything about topic') && after > 1, `Journal topic search: suggestion picked ${picked}, caption "${caption}", ${after} rows`)
+  await click('Decisions'); await wait(300)
+  const dec = await js(`[...document.querySelectorAll('.jr__row .act__title')].map((e) => e.textContent).join('|')`)
+  const from = await js(`document.querySelector('.jr__from')?.textContent ?? ''`)
+  expect(dec.includes('Decision: supplier') && from.startsWith('From: '), `Journal decisions: rows "${dec}", sources "${from}"`)
+  await js(`document.querySelector('.jr__row')?.click()`); await wait(800)
+  const opened = await js(`!!document.querySelector('dialog[open]')`)
+  expect(opened, 'Journal: a row did not open the page window')
+  await size(390, 844, true); await go('/#/journal', '.jr__row')
+  const small = await list(SMALL)
+  expect(small.length === 0, `Journal on touch: under 44px: ${small.join(', ')}`)
+  await size(1440, 900, false)
+}
+
 // 1 (continued) the knowledge graph's one primary button
 async function onePrimaryOnGraph({ go, onePrimary }) {
   await go('/#/graph', '.kg-dot'); await onePrimary('knowledge graph')
@@ -610,7 +650,7 @@ async function searchHidesNothing({ S, js, list, size, go, expect }) {
 const RULES = [
   loadStubGraph, noDotUnderNames, hubsOnlyLabels, zoomNeverStretched, searchClearButton, tagsSetEverywhere, tagsGrouping,
   titleInPlace, pageTextShown, pageTextFails, pageTextLong, readOnlyPage, readOnlyBanner, fieldEdges, composerRow, askCitations,
-  onePrimaryPerView, sectionRows,
+  onePrimaryPerView, sectionRows, journalView,
   onePrimaryOnGraph, graphNoScroll, addBoxFirstScreen, touchTargets, toolbarLegendApart, searchHidesNothing,
 ]
 

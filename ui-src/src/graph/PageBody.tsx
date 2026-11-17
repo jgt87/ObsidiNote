@@ -5,6 +5,7 @@
 
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { Notice } from '../components/Notice'
+import { WebLink } from '../components/WebLink'
 import { bodyBlocks, type Block, type ListItem, type Part } from './bodyText'
 
 export interface PageBodyResult {
@@ -74,10 +75,16 @@ export function PageBody({ pageId, load, hasPage, onOpenPage }: Props) {
       )
     }
     if (p.href) {
-      // onenote: opens OneNote itself; a web or mail address opens outside this window.
-      const web = /^https?:/i.test(p.href)
+      // onenote: opens OneNote itself, mailto: the mail app; a web address opens in the default
+      // browser (WebLink, 2026-11-17).
+      if (/^https?:/i.test(p.href))
+        return (
+          <WebLink key={i} href={p.href}>
+            {node}
+          </WebLink>
+        )
       return (
-        <a key={i} href={p.href} target={web ? '_blank' : undefined} rel={web ? 'noreferrer' : undefined}>
+        <a key={i} href={p.href}>
           {node}
         </a>
       )
