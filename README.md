@@ -4,7 +4,7 @@
 
 **Our own web interface on top of OneNote: a personal wiki that files and links itself.** ObsidiNote is a small web portal that you host yourself. It runs on your own PC (a local server that only this PC can reach, opened in its own Edge window), and it uses a OneNote notebook of yours as its data store. OneNote holds the pages; ObsidiNote is the interface you work in.
 
-In that interface you paste a link, a mail, a file or a few lines. Microsoft 365 Copilot decides what it is, which topics it belongs to and which of your pages it relates to, and ObsidiNote writes it as a page into your notebook through desktop OneNote. Ask a question and the answer cites your own pages. A knowledge graph shows how everything connects. The pages stay ordinary OneNote pages: you can still open, read and edit them in OneNote itself.
+In that interface you paste a link, a mail, a file or a few lines, or pick today's Teams meetings. Microsoft 365 Copilot decides what it is, which topics it belongs to and which of your pages it relates to, and ObsidiNote writes it as a page into your notebook through desktop OneNote. Ask a question and the answer cites your own pages. A knowledge graph shows how everything connects. The pages stay ordinary OneNote pages: you can still open, read and edit them in OneNote itself.
 
 ![The knowledge graph: pages as dots in topic areas, links as lines, a page pointed at with its preview](docs/screenshots/map.png)
 
@@ -65,7 +65,7 @@ Next starts continue in that vault. To use a vault made on another PC, open its 
 ## Using ObsidiNote
 
 ### Add something, or ask
-![Home: one box with Auto, Add and Ask; the box says it will ask, and why](docs/screenshots/home.png)
+![Home: one box with Auto, Add and Ask; the box says it will ask, and why; under it Today's meetings and the recently changed pages](docs/screenshots/home.png)
 
 One box does both. In **Auto** it says before you send whether it will add or ask, and why; switch to **Add** or **Ask** yourself any time (`Ctrl+1`, `Ctrl+2`). `Enter` sends, `Shift+Enter` adds a line. The paperclip next to the mode switch adds a file.
 
@@ -79,7 +79,11 @@ One box does both. In **Auto** it says before you send whether it will add or as
 - A **journal entry** (what happened, what you did or decided) goes into that day's journal page, one page per day; its Undo takes out only that entry.
 - When a page with the same title and type is already there, nothing is added: **Open it**, or **Add anyway** to add yours beside it.
 - When Copilot needs longer than about two minutes (a large SharePoint page), nothing is lost: the item waits under **Waiting for Copilot** and **Check for the answer** finishes it later.
-- **Today's meetings** (under the box): **Fetch today's meetings** has Copilot list your Teams meetings of today and say which ones it can read (transcript, recap or notes). Tick the ones to keep and press **Add**. Each becomes a meeting page with attendees, summary, decisions and actions, added like any other Add, so it is linked, listed in History and can be undone. Nothing is written before **Add**.
+
+### Today's meetings
+![Today's meetings: the day's Teams meetings with what Copilot can read of each; one added, one waiting for Copilot](docs/screenshots/meetings.png)
+
+Under the box, **Fetch today's meetings** has Copilot list your Teams meetings of today (with Work IQ, so it sees your own calendar) and say which ones it can read: a transcript, a Copilot recap or meeting notes. Those are ticked for you. Press **Add**: each ticked meeting becomes a page under **Meetings** with its attendees, summary, decisions and actions. Each one is added like any other Add, so it is linked to your other pages, listed in **History** and can be undone. Each row says where it is ("reading", "adding", "Added as ...", or why it was not added). Nothing is written before you press **Add**.
 
 ### Ask
 ![Ask: the answer with numbered citations, its actions, and the pages it came from with their share of the answer](docs/screenshots/ask.png)
@@ -119,7 +123,7 @@ Your journal, one page per day: everything Copilot files as a journal entry (wha
 
 ### More
 - **Find** (`Ctrl+K`): jump to any page or topic.
-- **History**: everything Add did, with **Open** and **Undo**.
+- **History**: everything Add did (meetings included), with **Open** and **Undo**.
 - **Web links** (link pages, Ask's sources, links in a page's text) open in a new tab of your default browser; OneNote links open OneNote.
 - **Export as Markdown**: one page, a topic or the whole vault as Markdown files with `[[links]]`, for any Markdown editor. It goes to your downloads; nothing is kept.
 - **Several vaults**: the **Notebook** switcher in the side bar lists your vaults and other open notebooks. One vault is active and written to; everything else is only read.
@@ -151,7 +155,7 @@ If an update cannot be installed, ObsidiNote says so and starts the version you 
 Everything ObsidiNote knows lives in your own OneNote notebook: your pages, the intake, the index and its links. ObsidiNote keeps no copy on disk and reads the notebook while it runs, so the notebook's own protection (OneDrive or SharePoint, your organisation's labels and retention) covers all of it. Text you add is sent to Microsoft 365 Copilot in your own browser session; nothing goes to any other service. On disk ObsidiNote keeps only a small settings file, backups of its own program files, and logs without content, in `%LOCALAPPDATA%\ObsidiNote`. The Edge profile ObsidiNote uses for Copilot lives there too.
 
 ## Settings and options
-**Settings** (side bar) are kept in the vault, so every PC that opens it uses the same:
+**Settings** (in the menu) are kept in the vault, so every PC that opens it uses the same:
 - which company addresses count as internal links (Microsoft 365, company SaaS tenants and hosts with your company's name already do);
 - how many related pages Add links a new page to (3), how many pages Ask reads (20), after how many days Ask offers to update a link page (90);
 - whether Ask includes archived pages, and how the graph opens (Topics or Sources, "Labels: hubs only", archived pages);

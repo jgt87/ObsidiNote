@@ -59,6 +59,8 @@ function realTitles(g) {
 
 let graph = null
 let submitAnswer = null
+// Answers of POST /api/submit in turn (Today's meetings adds several); null = submitAnswer.
+let submitQueue = null
 const addResult = {
   intent: 'add', status: 'added', kind: 'link', message: 'Added.', inboxId: '', ref: 'r1a2b3c4d', text: 'https://contoso.example/sites/security/zero-trust-roadmap.docx',
   page: { id: 'p900', title: 'Zero-trust roadmap 2026', type: 'link-internal', bucket: 'Internal links', section: 'Internal links', link: 'onenote:x', url: 'https://contoso.example/sites/security/zero-trust-roadmap.docx', topicPath: 'Security/Networking', alsoUnder: ['Projects'], oneNotePath: ['Work wiki', 'Internal links', 'Zero-trust roadmap 2026'], unfiled: false },
@@ -105,6 +107,14 @@ const askResult = {
   unused: [src(0, 'Split tunnelling', 'Security / Networking', 'note', 'last week')],
   staleLinks: [], invalidCitations: [], notFound: null,
 }
+// Today's meetings as Copilot would list them (invented).
+const meeting = (time, title, attendees, t, r, n) => ({ title, start: `2026-03-10 ${time}`, time, attendees, hasTranscript: t, hasRecap: r, hasNotes: n, readable: t || r || n })
+const MEETINGS = [
+  meeting('09:00', 'Stand-up: migration wave 2', 7, true, false, false),
+  meeting('11:30', 'Partner portal: proxy go-live check', 5, true, true, false),
+  meeting('13:00', 'Lunch and learn: Shape Up', 18, false, false, false),
+  meeting('15:00', 'Office move: weekly planning', 6, false, false, true),
+]
 const BODY = [
   '# Why',
   'The VPN gives every signed-in device the whole network. An **identity-aware proxy** checks *who* asks and *from which device*, for every request, and only opens the one application.',
@@ -120,7 +130,7 @@ const BODY = [
 
 function answer(path) {
   switch (path) {
-    case '/api/status': return { app: 'ObsidiNote', version: 'v0.9.1', uiPort: 8767, oneNote: { state: 'window', running: true, notebookOpen: true, notebook: 'Work wiki' }, copilot: { state: 'connected', port: 9334 }, vault: { name: 'Work wiki', vaultId: 'v1', mode: 'writer', reason: '', since: '', detail: '' } }
+    case '/api/status': return { app: 'ObsidiNote', version: 'v0.12.9', uiPort: 8767, oneNote: { state: 'window', running: true, notebookOpen: true, notebook: 'Work wiki' }, copilot: { state: 'connected', port: 9334 }, vault: { name: 'Work wiki', vaultId: 'v1', mode: 'writer', reason: '', since: '', detail: '' } }
     case '/api/notebooks': return { notebooks: [notebook], message: '', activeVaultId: VAULT, mode: 'writer' }
     case '/api/notebook': return { available: true, message: '', notebook, sections: ['00 Index', '01 Intake', 'Notes', 'Internal links', 'Web links', 'People', 'Projects', 'Meetings', 'Decisions'].map((n, i) => section(n, [6, 2, 31, 14, 12, 9, 20, 14, 10][i])), totals: { sections: 9, pages: 118 },
       recent: [
@@ -128,12 +138,15 @@ function answer(path) {
         ['Beyond the perimeter', 'link-web', 'Web links'], ['Decision log template', 'concept', 'Notes'], ['Split tunnelling', 'decision', 'Decisions'],
       ].map(([t, type, sec], i) => ({ title: t, section: sec, modified: ago(50 * (i + 1) + i * i * 40), link: 'onenote:x', pageId: graph.pages.find((x) => x.title === t)?.id ?? graph.pages[i].id, type })) }
     case '/api/settings': return { settings: { internalHosts: [], graphView: 'topics', labelsHubsOnly: false, relatedCount: 3, linkStaleDays: 90, askIncludeArchived: false, graphShowArchived: false, askMaxPages: 20 }, canChange: true, message: '' }
-    case '/api/whats-new': return { version: 'v0.9.1', updated: false, notes: [] }
+    case '/api/whats-new': return { version: 'v0.12.9', updated: false, notes: [] }
     case '/api/activity': return { canChange: true, vaultId: 'v1', items: [] }
     case '/api/graph': return graph
     case '/api/intent': return { intent: 'ask', reason: 'it reads as a question (starts with "What", ends with "?")', rule: 1 }
     // The answer's sources carry the ids of the map's pages, as the server's do (a citation opens one).
-    case '/api/submit': return submitAnswer?.intent === 'ask' ? { ...submitAnswer, sources: submitAnswer.sources.map((s) => ({ ...s, id: graph.pages.find((p) => p.title === s.title)?.id ?? s.id })) } : submitAnswer
+    case '/api/submit': if (submitQueue?.length) return submitQueue.shift()
+      return submitAnswer?.intent === 'ask' ? { ...submitAnswer, sources: submitAnswer.sources.map((s) => ({ ...s, id: graph.pages.find((p) => p.title === s.title)?.id ?? s.id })) } : submitAnswer
+    case '/api/meetings/day': return { day: '', meetings: MEETINGS }
+    case '/api/meetings/notes': return { found: true, text: '# Meeting', attendees: 5, decisions: 2, actions: 3, basedOn: 'transcript' }
     case '/api/page/body': {
       const portal = graph.pages.find((p) => p.title === 'Partner portal')
       return { id: 'x', markdown: BODY.replace('PARTNER', portal ? portal.id : 'none'), truncated: false, length: BODY.length }
@@ -259,6 +272,20 @@ async function main() {
   await js(`[...document.querySelectorAll('.jr__suggest button')].find((b) => b.textContent.endsWith(${JSON.stringify(topic.path)}))?.click()`)
   await wait(500)
   await shot('journal')
+
+  // 9 today's meetings: the day's list, two added (one added, one still waiting for Copilot)
+  await go('/#/', '.mt')
+  await js(`[...document.querySelectorAll('.mt button')].find((b) => b.textContent.includes('Fetch')).click()`)
+  for (let k = 0; k < 50 && !(await js(`!!document.querySelector('.mt__row')`)); k++) await wait(100)
+  submitQueue = [{ intent: 'add', status: 'added', page: { title: 'Migration wave 2: two teams still need laptops' } }, { intent: 'add', status: 'waiting', inboxId: 'i2', message: '' }]
+  await js(`[...document.querySelectorAll('.mt__row input')][3].click()`)
+  await wait(200)
+  await js(`[...document.querySelectorAll('.mt button')].find((b) => b.textContent.startsWith('Add ')).click()`)
+  for (let k = 0; k < 80 && !(await js(`!!document.querySelector('.mt__foot [role=status]')`)); k++) await wait(100)
+  submitQueue = null
+  await js(`window.scrollTo(0, 0)`)
+  await wait(400)
+  await shot('meetings')
 }
 
 // Journal day pages of the last days and a decision page with the pages it came from (invented).
