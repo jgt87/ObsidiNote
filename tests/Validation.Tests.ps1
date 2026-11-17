@@ -606,6 +606,23 @@ Describe 'V6 Add lines say why an Add did not go as expected (target machine, 20
     }
 }
 
+Describe 'V6 closures are made outside Measure-KitStep blocks (target machine, 2026-11-17)' {
+    # A closure made inside a block that Measure-KitStep (another module) runs does not see the
+    # function's variables: GetLease returned nothing and Add reported "Read only" on the target
+    # machine, while every step that made its closure first passed.
+    It 'no kit module makes a closure inside a Measure-KitStep { ... } block' {
+        $bad = @()
+        foreach ($f in Get-ChildItem (Join-Path $root 'validation\lib') -Filter *.psm1) {
+            $n = 0
+            foreach ($line in [IO.File]::ReadAllLines($f.FullName)) {
+                $n++
+                if ($line -match 'Measure-KitStep\s*\{.*GetNewClosure\(\)') { $bad += "$($f.Name):$n" }
+            }
+        }
+        ($bad -join ', ') | Should Be ''
+    }
+}
+
 Describe 'V6 "Link it" in the dev vault (in-memory OneNote, no Copilot)' {
     foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'Linker', 'LinkCapture', 'Ingest') { Import-Module (Join-Path $root "lib\$m.psm1") -Global }
     . (Join-Path $here 'SyntheticVault.ps1')
@@ -717,7 +734,7 @@ Describe 'V6 "Archive, restore and delete" in the dev vault (in-memory OneNote, 
     It 'follows the link as it stands in the linking page''s text, once: Archive pointed it at the moved page' {
         $global:ObsnNav.Count | Should Be 1
         $global:ObsnNav[0] | Should Match '^onenote:'
-        $c.Results[2].detail | Should Match 'opens the archived page: yes; its OneNote link changed: yes; the text points at the new link: yes; pages re-pointed: 1'
+        $c.Results[2].detail | Should Match 'opens the archived page: yes; its OneNote link changed: yes; the text points at the new link: yes; the text still has the old link: no; OneNote''s link now is the index''s: yes; the text points at OneNote''s link now: yes; pages re-pointed: 1'
     }
     It 'logs statuses, counts and yes/no only: no page title, id or link' {
         $all = @(foreach ($x in $c.Results) { "$($x.name) $($x.detail)" }) -join ' '

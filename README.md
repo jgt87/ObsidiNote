@@ -79,6 +79,7 @@ One box does both. In **Auto** it says before you send whether it will add or as
 - A **journal entry** (what happened, what you did or decided) goes into that day's journal page, one page per day; its Undo takes out only that entry.
 - When a page with the same title and type is already there, nothing is added: **Open it**, or **Add anyway** to add yours beside it.
 - When Copilot needs longer than about two minutes (a large SharePoint page), nothing is lost: the item waits under **Waiting for Copilot** and **Check for the answer** finishes it later.
+- **Today's meetings** (under the box): **Fetch today's meetings** has Copilot list your Teams meetings of today and say which ones it can read (transcript, recap or notes). Tick the ones to keep and press **Add**. Each becomes a meeting page with attendees, summary, decisions and actions, added like any other Add, so it is linked, listed in History and can be undone. Nothing is written before **Add**.
 
 ### Ask
 ![Ask: the answer with numbered citations, its actions, and the pages it came from with their share of the answer](docs/screenshots/ask.png)

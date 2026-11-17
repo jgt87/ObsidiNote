@@ -254,6 +254,8 @@ $script:ServiceNames = [ordered]@{
 $script:Origins = @(
     [ordered]@{ id = 'outlook'; label = 'Outlook mail'; source = 'Outlook'; kind = 'm365' }
     [ordered]@{ id = 'teams'; label = 'Teams chat'; source = 'Teams'; kind = 'm365' }
+    # A Teams meeting's notes, read by Copilot (2026-11-17): the page is filed as a meeting.
+    [ordered]@{ id = 'meeting'; label = 'Teams meeting'; source = 'Teams'; kind = 'm365' }
     [ordered]@{ id = 'word'; label = 'Word document'; source = 'Word'; kind = 'm365' }
     [ordered]@{ id = 'onedrive'; label = 'OneDrive file'; source = 'OneDrive'; kind = 'm365' }
     [ordered]@{ id = 'sharepoint'; label = 'SharePoint page'; source = 'SharePoint'; kind = 'm365' }

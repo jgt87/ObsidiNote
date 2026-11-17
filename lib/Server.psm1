@@ -24,7 +24,8 @@ $script:Here = $PSScriptRoot
 # MarkdownExport: POST /api/export, the download the person asks for (built in memory).
 # WhatsNew: GET /api/whats-new, the running version's CHANGELOG.md lines (read only).
 # NotebookStructure: the company names for link buckets and the page types for editing.
-foreach ($m in 'Log', 'AppConfig', 'Startup', 'Intent', 'OneNoteHost', 'NotebookView', 'Update', 'Status', 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'AskSources', 'GraphModel', 'Ingest', 'Ask', 'MarkdownExport', 'WhatsNew', 'VaultSettings', 'Activity', 'SyncedFiles') {
+# Meetings: POST /api/meetings/day and /notes, Copilot's questions about a day's Teams meetings (read only).
+foreach ($m in 'Log', 'AppConfig', 'Startup', 'Intent', 'OneNoteHost', 'NotebookView', 'Update', 'Status', 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'AskSources', 'GraphModel', 'Ingest', 'Ask', 'MarkdownExport', 'WhatsNew', 'VaultSettings', 'Activity', 'SyncedFiles', 'Meetings') {
     Import-Module (Join-Path $PSScriptRoot "$m.psm1")
 }
 
@@ -159,6 +160,67 @@ function Invoke-OpenUrlRoute($State, [string]$Body) {
     catch { return @{ status = 500; body = @{ error = "The browser could not be opened: $($_.Exception.Message)" } } }
     Write-AppLog info server 'Web address opened in the default browser' @{}
     @{ status = 200; body = @{ opened = $true } }
+}
+
+function Get-MeetingDayValue($Body) {
+    <# The day of a meetings request: its "day" (yyyy-mm-dd), else today on this PC; $null when the
+       value given is not a date. #>
+    $d = "$(Get-BodyValue $Body 'day' '')".Trim()
+    if (-not $d) { return (Get-Date).ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) }
+    if (Test-MeetingDay $d) { return $d }
+    $null
+}
+
+function Send-MeetingQuestion($State, [string]$Prompt) {
+    <# One meetings question to Copilot (Ask's adapter: a slow answer is waited for, then stopped;
+       nothing waits in the Intake, as nothing is written). @{ ok; text; error }. #>
+    try { $c = Get-AskCopilotAdapter $State; return @{ ok = $true; text = [string](& $c.Send $Prompt); error = '' } }
+    catch { return @{ ok = $false; text = ''; error = "Copilot did not answer: $($_.Exception.Message)" } }
+}
+
+function Invoke-MeetingsDayRoute($State, [string]$Body) {
+    <# POST /api/meetings/day {day?}: the Teams meetings of one day (today when no day is sent), as
+       Copilot lists them with the person's own access (lib/Meetings.psm1). Read only: nothing is
+       written. 200 {day, meetings:[{title, start, time, attendees, hasTranscript, hasRecap,
+       hasNotes, readable}]}; 400 for a day that is no date; 503 without Copilot; 502 when Copilot's
+       answer cannot be used. The log gets counts only, never a title. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $day = Get-MeetingDayValue $b
+    if (-not $day) { return @{ status = 400; body = @{ error = 'day must be a date written yyyy-mm-dd.' } } }
+    if (-not (Test-CopilotReady $State)) { return (Get-CopilotMissing 'meetings') }
+    $ref = New-RequestRef
+    $a = Send-MeetingQuestion $State (New-MeetingDayPrompt -Day $day -Ref $ref)
+    if (-not $a.ok) { return @{ status = 502; body = @{ error = $a.error } } }
+    $x = ConvertFrom-MeetingDayReply -Reply $a.text -Day $day -Ref $ref
+    if (-not $x.ok) { return @{ status = 502; body = @{ error = "Copilot's list of meetings could not be read: $($x.error) Try again." } } }
+    Write-AppLog info server 'Meetings of a day listed' @{ meetings = @($x.meetings).Count; readable = @($x.meetings | Where-Object { $_.readable }).Count }
+    @{ status = 200; body = @{ day = $day; meetings = @($x.meetings) } }
+}
+
+function Invoke-MeetingsNotesRoute($State, [string]$Body) {
+    <# POST /api/meetings/notes {title, start?, time?, day?}: one meeting's notes, written by Copilot
+       from its transcript, recap or notes, as the text an Add files (lib/Meetings.psm1). Read only:
+       the window then sends that text to POST /api/submit with origin "meeting", so the page is made,
+       linked and undone like any Add. 200 {found:true, text, attendees, decisions, actions, basedOn}
+       (counts) or {found:false, message}; 400; 503 without Copilot; 502 when the answer cannot be
+       used. The log gets counts only. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $title = "$(Get-BodyValue $b 'title' '')".Trim()
+    if (-not $title -or $title.Length -gt 200) { return @{ status = 400; body = @{ error = 'title must be the meeting''s title (at most 200 characters).' } } }
+    $day = Get-MeetingDayValue $b
+    if (-not $day) { return @{ status = 400; body = @{ error = 'day must be a date written yyyy-mm-dd.' } } }
+    if (-not (Test-CopilotReady $State)) { return (Get-CopilotMissing 'meetings') }
+    $start = "$(Get-BodyValue $b 'start' '')".Trim()
+    $time = "$(Get-BodyValue $b 'time' '')".Trim()
+    if ($time -notmatch '^\d{1,2}:\d{2}$') { $time = '' }
+    $ref = New-RequestRef
+    $a = Send-MeetingQuestion $State (New-MeetingNotesPrompt -Title $title -Start $start -Ref $ref)
+    if (-not $a.ok) { return @{ status = 502; body = @{ error = $a.error } } }
+    $n = ConvertFrom-MeetingNotesReply -Reply $a.text -Day $day -Ref $ref
+    if (-not $n.ok) { return @{ status = 502; body = @{ error = $(if ($n.error -match 'Copilot answered with') { $n.error } else { "Copilot's notes could not be read: $($n.error) Try again." }) } } }
+    Write-AppLog info server 'Meeting notes read' @{ found = $n.found; decisions = @($n.decisions).Count; actions = @($n.actions).Count }
+    if (-not $n.found) { return @{ status = 200; body = @{ found = $false; message = 'Copilot could not read a transcript, recap or notes of this meeting.' } } }
+    @{ status = 200; body = @{ found = $true; text = (ConvertTo-MeetingNoteText -Title $title -Day $day -Time $time -Notes $n); attendees = @($n.attendees).Count; decisions = @($n.decisions).Count; actions = @($n.actions).Count; basedOn = $n.basedOn } }
 }
 
 function Get-AppVersionText([string]$AppRoot) {
@@ -1326,6 +1388,8 @@ function Invoke-ApiRoute {
         # answer is sent first; `stop` then ends the request loop (Invoke-ServerRequest), and
         # obsidinote.ps1's finally gives the writer lease back and disconnects, as on Ctrl+C.
         'POST /api/open' { return (Invoke-OpenUrlRoute $State $Body) }
+        'POST /api/meetings/day' { return (Invoke-MeetingsDayRoute $State $Body) }
+        'POST /api/meetings/notes' { return (Invoke-MeetingsNotesRoute $State $Body) }
         'POST /api/shutdown' { return @{ status = 200; body = @{ stopping = $true }; stop = $true } }
         'POST /api/vault/check-lease' { return (Invoke-LeaseCheckRoute $State) }
     }

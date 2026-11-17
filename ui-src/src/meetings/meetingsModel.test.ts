@@ -1,0 +1,50 @@
+import { describe, expect, it } from 'vitest'
+import { normalizeSubmitResult } from '../api'
+import { addLabel, defaultPicks, readableLabel, rowStateFromAdd, rowStateText, runSummary, todayIso, type Meeting } from './meetingsModel'
+
+const meeting = (over: Partial<Meeting> = {}): Meeting => ({
+  title: 'Garden sync',
+  start: '2031-04-09 10:00',
+  time: '10:00',
+  attendees: 4,
+  hasTranscript: false,
+  hasRecap: false,
+  hasNotes: false,
+  readable: false,
+  ...over,
+})
+
+describe('meetings model', () => {
+  it('says what Copilot can read of a meeting', () => {
+    expect(readableLabel(meeting({ hasTranscript: true, hasNotes: true, readable: true }))).toBe('Transcript, notes')
+    expect(readableLabel(meeting())).toBe('Nothing Copilot can read')
+  })
+
+  it('ticks the meetings Copilot can read something of', () => {
+    const picks = defaultPicks([meeting({ readable: true }), meeting(), meeting({ readable: true })])
+    expect([...picks]).toEqual([0, 2])
+  })
+
+  it('counts in the Add button', () => {
+    expect(addLabel(1)).toBe('Add 1 meeting')
+    expect(addLabel(3)).toBe('Add 3 meetings')
+    expect(addLabel(0)).toBe('Add meetings')
+  })
+
+  it('turns an Add answer into the row state', () => {
+    expect(rowStateFromAdd(normalizeSubmitResult({ intent: 'add', status: 'added', page: { title: 'Meeting: Garden sync' } }))).toEqual({ step: 'added', pageTitle: 'Meeting: Garden sync' })
+    expect(rowStateFromAdd(normalizeSubmitResult({ intent: 'add', status: 'waiting', inboxId: 'x' })).step).toBe('waiting')
+    expect(rowStateFromAdd(normalizeSubmitResult({ intent: 'add', status: 'failed', duplicateOf: 'p1', message: 'dup' })).step).toBe('skipped')
+    const f = rowStateFromAdd(normalizeSubmitResult({ intent: 'add', status: 'failed', message: 'Write refused.' }))
+    expect(rowStateText(f)).toBe('Not added: Write refused.')
+  })
+
+  it('sums up a run', () => {
+    expect(runSummary([{ step: 'added', pageTitle: '' }, { step: 'added', pageTitle: '' }, { step: 'waiting' }, { step: 'failed', message: 'x' }])).toBe('2 added, 1 waiting for Copilot, 1 not added.')
+    expect(runSummary([{ step: 'ready' }])).toBe('')
+  })
+
+  it('writes today as yyyy-mm-dd on this computer', () => {
+    expect(todayIso(new Date(2031, 3, 9, 23, 30))).toBe('2031-04-09')
+  })
+})

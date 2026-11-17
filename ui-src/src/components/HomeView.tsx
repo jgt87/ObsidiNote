@@ -11,6 +11,7 @@ import { Notice } from './Notice'
 import { RecentList } from './RecentList'
 import { WhatsNew } from './WhatsNew'
 import { WaitingList } from '../activity/WaitingList'
+import { MeetingsPanel } from '../meetings/MeetingsPanel'
 import './HomeView.css'
 
 type Home = ReturnType<typeof useHomeFlow>
@@ -54,6 +55,8 @@ export function HomeView({ home, addTarget, notebook, choices, onChoices, source
       <FlowArea home={home} connect={connect} onOpenPage={onOpenActive} />
       {/* design (round 2, 2026-11-15): after a send the result stands alone; what still waits for
           Copilot and what changed lately show while nothing was sent (and in History). */}
+      {/* Today's meetings stays mounted while a send's result shows, so a run of Adds is not lost. */}
+      <MeetingsPanel onAdded={home.refreshActivity} />
       {flow.kind === 'idle' && <WaitingList refreshKey={activityKey} onOpen={onOpenActive} />}
       {flow.kind === 'idle' && <RecentList notebook={notebook} onOpen={onOpenRecent} />}
     </div>

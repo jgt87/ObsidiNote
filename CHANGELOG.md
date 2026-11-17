@@ -5,6 +5,16 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.8] - 2026-11-17
+
+### Added
+- **Today's meetings** on the home page: Copilot lists your Teams meetings of today and says which ones it can read (transcript, recap or notes). Tick the ones to keep and press **Add**: each becomes a meeting page with its attendees, summary, decisions and actions, filed under Meetings and linked to your other pages like any Add. A slow one waits under "Waiting for Copilot", and each can be undone from History. Nothing is written before you press Add. No upgrade step: existing pages are not changed.
+
+### Fixed
+- Archive: a link to the archived page in another page's text now points at the page's final OneNote link. The link is read after the archive mark is written, because on a business tenant the link read just after the move did not open the page. No upgrade step: the next start cannot tell which old links are wrong. For a page archived before this version, Restore it and Archive it again.
+- Validation kit: the "Add (synthetic)" and "Check for the answer" steps of V6 no longer report "Read only" because of an error in the kit itself.
+- The Journal icon in the menu is sharper: its lines no longer run together into a grey band at normal screen sizes.
+
 ## [v0.12.7] - 2026-11-17
 
 ### Added

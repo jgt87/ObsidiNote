@@ -30,11 +30,13 @@ export const HistoryIcon = () => (
   </Icon>
 )
 
-/** The Journal: a day on a calendar (one page per day). */
+/** The Journal: a day on a calendar (one page per day). The rings stand above the
+ *  frame and the header line sits 4 px under its top, so the lines keep a clear gap at
+ *  16 px instead of running together into one grey band. */
 export const JournalIcon = () => (
   <Icon>
     <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" />
-    <path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" />
+    <path d="M2.5 7.5h11M5.5 1.5v2M10.5 1.5v2" />
   </Icon>
 )
 

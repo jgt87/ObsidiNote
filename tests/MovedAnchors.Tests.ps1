@@ -108,6 +108,30 @@ Describe 'Archive and Restore point the links in other pages'' text at the moved
     }
 }
 
+Describe 'Archive takes the moved page''s link after its last write (target machine, 2026-11-17)' {
+    # The kit's V6 found the linking page's text pointing at the link read right after the move, and
+    # that link did not open the archived page. Here the in-memory OneNote changes a moved page's
+    # link once more at its first write after the move (the archive mark).
+    $w = New-SyntheticVault
+    $w.f | Add-Member NoteProperty MoveChangesLink $true
+    $w.f | Add-Member NoteProperty LinkSettlesOnWrite $true
+    $linker = Add-LinkingPage $w 'p1'
+    $r = Invoke-PageRetire -Store $w.store -Action archive -Ids @('p1')
+    $rec = $w.open.model.pages['p1']
+    It 'archives the page' {
+        $r.status | Should Be 'done'
+        $rec.status | Should Be 'archived'
+    }
+    It 'points the text and the index at the link OneNote gives the page now' {
+        $fresh = [string]$w.f.GetHyperlinkToObject([string]$rec.oneNoteId)
+        Get-BodyHref $w $linker | Should Be $fresh
+        [string]$rec.link | Should Be $fresh
+    }
+    It 'writes the mark once, with the move' {
+        @($w.f.Writes | Where-Object { $_ -like "UpdatePageContent $($rec.oneNoteId)" }).Count | Should Be 1
+    }
+}
+
 Describe 'A move where OneNote keeps the page link changes nothing in other pages (real store)' {
     $w = New-SyntheticVault
     $linker = Add-LinkingPage $w 'p1'

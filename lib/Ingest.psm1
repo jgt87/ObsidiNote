@@ -430,6 +430,9 @@ function Invoke-TextAdd {
         return $r
     }
     $val = $v.value
+    # A Teams meeting's notes (origin "meeting", the window's Meetings, 2026-11-17) are a meeting page,
+    # whatever type Copilot proposed: the person picked a meeting, and Meetings is where it belongs.
+    if ($Origin -eq 'meeting' -and $types -contains 'meeting') { $val.type = 'meeting'; $val.intent = 'add' }
     if ($val.intent -eq 'ask' -and $Mode -eq 'auto') {
         try { Invoke-Store $Store 'DeletePage' @{ PageId = $inbox['pageId'] } | Out-Null; $r.inbox = @{ pageId = $inbox['pageId']; status = 'removed' } } catch { Set-InboxFailed $Store $inbox 'Looks like a question' $r }
         $r.status = 'ask-instead'
@@ -964,10 +967,13 @@ function Set-PageArchived {
        relinked (pages whose text now links to the new place); warnings }. Throws when the move or the
        mark fails. #>
     param($Store, [string]$Id, [string]$To, [string]$From, [switch]$Archive)
-    $m = Invoke-Store $Store 'MovePage' @{ Id = $Id; Bucket = $To; Type = '' }
-    $pageId = [string](Get-LkProp $m 'pageId' '')
     $meta = if ($Archive) { @{ status = 'archived'; archivedFrom = $From } } else { @{ status = ''; archivedFrom = '' } }
-    Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = $meta; Outlines = @(); Title = $null } | Out-Null
+    # The mark rides with the move, so the store reads the page's new link after its last write (the
+    # link read right after the move did not open the page on the target machine, 2026-11-17). A
+    # store whose MovePage takes no Meta (marked not set) gets the mark in a write of its own.
+    $m = Invoke-Store $Store 'MovePage' @{ Id = $Id; Bucket = $To; Type = ''; Meta = $meta }
+    $pageId = [string](Get-LkProp $m 'pageId' '')
+    if (-not (Get-LkProp $m 'marked' $false)) { Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = $meta; Outlines = @(); Title = $null } | Out-Null }
     Invoke-Store $Store 'IndexUpdatePage' @{ Page = (@{ id = $Id } + $meta) } | Out-Null
     $rec = (Get-IndexPageMap (Invoke-Store $Store 'GetIndex'))[$Id]
     @{

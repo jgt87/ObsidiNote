@@ -301,7 +301,8 @@ function Invoke-DevAdd($Ctx, $Adapter, $Dev, $Bridge) {
     $b = $Bridge
     $ask = { param($Prompt) $r = & $send -Bridge $b -Text $Prompt -TimeoutSec 240; if ("$($r.Result)" -ne 'Success') { throw "Copilot did not answer ($($r.Result))." }; "$($r.Text)" }.GetNewClosure()
     $lease = $Dev.lease
-    $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = { $lease }.GetNewClosure(); AppRoot = $Ctx.AppRoot } }
+    $getLease = { $lease }.GetNewClosure()   # made here, not inside Measure-KitStep's block (see Invoke-DevLinkIt)
+    $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = $getLease; AppRoot = $Ctx.AppRoot } }
     if (-not $s.ok -or -not $Dev.model) { Add-ValidationResult $Ctx 'V6' 'FAIL' 'Add and Undo' "the store could not be made: $(if ($s.ok) { 'no index model' } else { $s.error })"; return }
     $store = $s.value
     $add = Measure-KitStep { Invoke-AddRequest -Request @{ text = $script:AddText; mode = 'add' } -Store $store -Ask $ask }
@@ -333,7 +334,8 @@ function Invoke-DevAnswerCheck($Ctx, $Adapter, $Dev, $Bridge) {
     $askNormal = { param($Prompt) & $send -Bridge $b -Text $Prompt -TimeoutSec 240 -StallSec 120 -LeaveRunning -BusyWaitSec 120 }.GetNewClosure()
     $readChat = { param($ChatUrl) & $read -Bridge $b -ChatUrl $ChatUrl }.GetNewClosure()
     $lease = $Dev.lease
-    $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = { $lease }.GetNewClosure(); AppRoot = $Ctx.AppRoot } }
+    $getLease = { $lease }.GetNewClosure()   # made here, not inside Measure-KitStep's block (see Invoke-DevLinkIt)
+    $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = $getLease; AppRoot = $Ctx.AppRoot } }
     if (-not $s.ok) { Add-ValidationResult $Ctx 'V6' 'FAIL' $name "the store could not be made: $($s.error)"; return }
     $store = $s.value
     $add = Measure-KitStep { Invoke-AddRequest -Request @{ text = $script:WaitText; mode = 'add' } -Store $store -Ask $askShort }
@@ -558,7 +560,10 @@ function Invoke-DevRetire($Ctx, $Adapter, $Dev) {
             $now = Get-KitBodyLink $Adapter $a.pageId
             $opens = if ($now) { Test-ProbeLinkOpens -One (Get-KitOneNote -Ctx $Ctx) -Url $now -PageId $rec.oneNoteId -WaitMs ([int](Get-KitFlag $Ctx 'NavWaitMs' 1500)) } else { 'no link found' }
             $st = if ($opens -eq 'yes') { 'OK' } elseif ($opens -eq 'no') { 'FAIL' } else { 'INFO' }
-            $detail = "the link in the linking page's text opens the archived page: $opens; its OneNote link changed: $(Format-YesNo ($rec.link -ne $mk.value.link)); the text points at the new link: $(Format-YesNo ($now -and $now -eq $rec.link)); pages re-pointed: $(Get-KitProp $ar.value 'relinked' 0)"
+            # The link OneNote gives the page now, read again (2026-11-17: the text pointed at another
+            # link than the index's, which did not open the page): yes/no only, the log holds no links.
+            $fresh = try { [string]$Adapter.GetHyperlinkToObject([string]$rec.oneNoteId) } catch { '' }
+            $detail = "the link in the linking page's text opens the archived page: $opens; its OneNote link changed: $(Format-YesNo ($rec.link -ne $mk.value.link)); the text points at the new link: $(Format-YesNo ($now -and $now -eq $rec.link)); the text still has the old link: $(Format-YesNo ($now -and $now -eq $mk.value.link)); OneNote's link now is the index's: $(Format-YesNo ($fresh -and $fresh -eq $rec.link)); the text points at OneNote's link now: $(Format-YesNo ($fresh -and $now -eq $fresh)); pages re-pointed: $(Get-KitProp $ar.value 'relinked' 0)"
             Add-ValidationResult $Ctx 'V6' $st 'Archive (link in another page)' $detail $(if ($opens -eq 'no') { 'Send this log back: Archive should point links in other pages at the moved page.' } else { '' })
         }
 

@@ -94,3 +94,15 @@ took. The same holds for the markers, the prompts and Copilot's answers.
    - If not, send this: the Desktop files of each run.
 
 7. Send all Desktop files (RB-00).
+
+8. **Today's meetings in the window** (after the update that has it, late in a day with Teams
+   meetings that had transcription, a recap or notes). On the home page, under the box, press
+   **Fetch today's meetings**.
+   - What you should see: within about a minute, today's meetings with their time and what Copilot
+     can read ("Transcript", "Recap", "Notes" or "Nothing Copilot can read"); the ones it can read
+     are ticked. Untick all but one, press **Add 1 meeting**: the row says "Copilot is reading the
+     meeting...", then "Adding to your wiki...", then "Added as ..." (or "Waiting for Copilot").
+     The page is under **Meetings** in OneNote with attendees, summary, decisions and actions, and
+     **History** lists it with **Undo**. Undo it if it was only a test.
+   - If not, send this: the row's message word for word (it holds no meeting text), and the newest
+     `obsidinote.log` (counts only).

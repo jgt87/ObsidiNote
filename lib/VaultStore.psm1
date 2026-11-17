@@ -377,9 +377,12 @@ function Invoke-VsMovePage {
        lib/Upgrade.psm1): moves it in OneNote through the guarded adapter (it keeps its content, Meta,
        outlines and the page-id in its link, but gets a NEW hierarchy id, found again by its obsn.id;
        probes/p9-move.ps1), sets $Type when given (Meta + properties outline), and updates the index
-       record (id, section, link, type), which regenerates the affected Index pages. Returns
+       record (id, section, link, type), which regenerates the affected Index pages. $Meta: more Meta
+       for the moved page (Archive's mark), written with the type BEFORE its link is read: the link
+       read right after the move did not open the page on the target machine (kit V6 "Archive (link
+       in another page)", 2026-11-17), so the link is taken after the page's last write. Returns
        @{ moved; pageId; from; to; link }. Throws when the page is not ObsidiNote's or cannot be found. #>
-    param([hashtable]$Ctx, [string]$Id, [string]$Bucket, [string]$Type = '')
+    param([hashtable]$Ctx, [string]$Id, [string]$Bucket, [string]$Type = '', [hashtable]$Meta = @{})
     Assert-VsWritable $Ctx
     if (-not $Ctx.Model.pages.Contains($Id)) { throw "page $Id is not in the index" }
     $p = $Ctx.Model.pages[$Id]
@@ -396,7 +399,10 @@ function Invoke-VsMovePage {
     $sec = @($after.sections | Where-Object { $_.full -eq $target.name }) | Select-Object -First 1
     $newId = if ($sec) { [string](@($sec.pages | Where-Object { $_.meta['obsn.id'] -eq $Id } | ForEach-Object { $_.id }) | Select-Object -First 1) } else { '' }
     if (-not $newId) { throw "page $Id was moved to $($target.name) but could not be found there again" }
-    if ($Type) { Invoke-VsUpdatePage -Ctx $Ctx -PageId $newId -Meta @{ type = $Type } -Outlines @() }
+    $mark = @{}
+    foreach ($k in @($Meta.Keys)) { $mark[$k] = $Meta[$k] }
+    if ($Type) { $mark.type = $Type }
+    if ($mark.Count) { Invoke-VsUpdatePage -Ctx $Ctx -PageId $newId -Meta $mark -Outlines @() }
     $old = [string]$p.oneNoteId
     if ($old -and $Ctx.Model.byOneNoteId.ContainsKey($old)) { $Ctx.Model.byOneNoteId.Remove($old) }
     $oldLink = [string]$p.link
@@ -405,7 +411,7 @@ function Invoke-VsMovePage {
     if ($Type) { $rec.type = $Type }
     Invoke-VsIndexAddPage -Ctx $Ctx -Page $rec
     $re = Update-VsMovedAnchors -Ctx $Ctx -Id $Id -OldLink $oldLink -NewLink $link
-    @{ moved = $true; pageId = $newId; from = $from.full; to = $target.name; link = $link; relinked = $re.count; warnings = @($re.warnings) }
+    @{ moved = $true; pageId = $newId; from = $from.full; to = $target.name; link = $link; relinked = $re.count; warnings = @($re.warnings); marked = [bool]$Meta.Count }
 }
 
 function Invoke-VsRepairBodyLinks {
@@ -549,7 +555,7 @@ function New-VaultStore {
         # Optional (Ingest falls back to IndexUpdatePage per page): many records, one Index write.
         IndexUpdatePages = { param([object[]]$Pages) & $call $ctx 'IndexUpdatePages' @{ Pages = $Pages } }.GetNewClosure()
         # Upgrade steps (lib/Upgrade.psm1), not part of Ingest's contract.
-        MovePage        = { param([string]$Id, [string]$Bucket, [string]$Type) & $call $ctx 'MovePage' @{ Id = $Id; Bucket = $Bucket; Type = $Type } }.GetNewClosure()
+        MovePage        = { param([string]$Id, [string]$Bucket, [string]$Type, [hashtable]$Meta = @{}) & $call $ctx 'MovePage' @{ Id = $Id; Bucket = $Bucket; Type = $Type; Meta = $Meta } }.GetNewClosure()
         Model           = { & $call $ctx 'Model' }.GetNewClosure()
         LinkRules       = { @{ InternalHosts = $ctx.InternalHosts; CompanyNames = $ctx.CompanyNames } }.GetNewClosure()
     }

@@ -16,6 +16,8 @@ export interface Origin {
 export const ORIGINS: Origin[] = [
   { id: 'outlook', label: 'Outlook mail', source: 'Outlook', kind: 'm365' },
   { id: 'teams', label: 'Teams chat', source: 'Teams', kind: 'm365' },
+  // A Teams meeting's notes, read by Copilot (2026-11-17, meetings/): filed as a meeting page.
+  { id: 'meeting', label: 'Teams meeting', source: 'Teams', kind: 'm365' },
   { id: 'word', label: 'Word document', source: 'Word', kind: 'm365' },
   { id: 'onedrive', label: 'OneDrive file', source: 'OneDrive', kind: 'm365' },
   { id: 'sharepoint', label: 'SharePoint page', source: 'SharePoint', kind: 'm365' },

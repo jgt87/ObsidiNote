@@ -136,5 +136,7 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
 
   const askAbout = useCallback((text: string) => { setFollowUp(null); setPrefill({ text, mode: 'ask', key: ++n.current }) }, [])
 
-  return { flow, busy, send, retryAsk: lastAsk.again, changes, prefill, followUp, cancelFollowUp: () => setFollowUp(null), clearKey, add, askActions, askAbout }
+  // Today's meetings adds pages outside this flow: the waiting list and History read again after it.
+  const refreshActivity = () => setChanges((c) => c + 1)
+  return { flow, busy, send, retryAsk: lastAsk.again, changes, refreshActivity, prefill, followUp, cancelFollowUp: () => setFollowUp(null), clearKey, add, askActions, askAbout }
 }

@@ -422,6 +422,15 @@ Describe 'Where the text came from (origin, the "From:" choice)' {
         $null = Invoke-AddRequest -Request @{ text = $script:Text; mode = 'add'; origin = $null } -Store $v3.store -Ask (New-FakeCopilot @((Get-GoodReply))).ask -Options @{ Now = $script:Now }
         $v3.st.created['{NEW-p101}']['origin'] | Should Be ''
     }
+    It 'files a Teams meeting''s notes (origin meeting) as a meeting page, whatever type Copilot proposed (2026-11-17)' {
+        $v = New-FakeVault
+        $null = Invoke-AddRequest -Request @{ text = $script:Text; mode = 'add'; origin = 'meeting' } -Store $v.store -Ask (New-FakeCopilot @((Get-GoodReply))).ask -Options @{ Now = $script:Now }
+        $v.st.created['{NEW-p101}']['origin'] | Should Be 'meeting'
+        $v.st.created['{NEW-p101}']['type'] | Should Be 'meeting'
+        $v2 = New-FakeVault
+        $null = Invoke-AddRequest -Request @{ text = $script:Text; mode = 'add'; origin = 'teams' } -Store $v2.store -Ask (New-FakeCopilot @((Get-GoodReply))).ask -Options @{ Now = $script:Now }
+        $v2.st.created['{NEW-p101}']['type'] | Should Not Be 'meeting'
+    }
     It 'files a waiting item as typed when its stored origin is not a known id any more' {
         $v = New-FakeVault
         $w = Invoke-AddRequest -Request @{ text = $script:Text; mode = 'add'; origin = 'teams' } -Store $v.store -Ask (Get-PendingAsk) -Options @{ Now = $script:Now }

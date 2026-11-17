@@ -121,6 +121,10 @@ function New-FakeOneNote {
         $null = $this.Writes.Add("UpdatePageContent $id")
         if (-not $this.Nodes.ContainsKey($id)) { throw 'fake: 0x80042014 page not found' }
         $n = $this.Nodes[$id]
+        # LinkSettlesOnWrite: a moved page's link changes once more at its first write after the move
+        # (a guess at the target machine's 2026-11-17 kit result, where the text pointed at the link
+        # read right after the move and that link did not open the page).
+        if ($n.ContainsKey('settles') -and $n.settles) { $n.guid = [guid]::NewGuid().ToString(); $n.settles = $false }
         foreach ($c in @($d.DocumentElement.ChildNodes)) {
             if ($c.NodeType -ne 'Element') { continue }
             if ($c.LocalName -eq 'Meta') { $n.meta[$c.GetAttribute('name')] = $c.GetAttribute('content') }
@@ -167,6 +171,7 @@ function New-FakeOneNote {
         # also gets a new page-id in its link, so an old link no longer opens it. Off: as the consumer
         # PC's probe P9 saw (the page-id kept).
         if ($this.PSObject.Properties['MoveChangesLink'] -and $this.MoveChangesLink) { $n.guid = [guid]::NewGuid().ToString() }
+        if ($this.PSObject.Properties['LinkSettlesOnWrite'] -and $this.LinkSettlesOnWrite) { $n.settles = $true }
         $this.Nodes[$new] = $n
         $null = $this.Nodes[$ToSectionId].children.Add($new)
     }
