@@ -74,7 +74,7 @@ One box does both. In **Auto** it says before you send whether it will add or as
 
 - **Text**, a **link**, a **mail** or **chat** you paste, or a **file** you drop on the box (Word, PowerPoint, Excel, PDF with text, Outlook `.msg`, `.eml`, text, web pages).
 - Copilot picks the type, the topics and the related pages; ObsidiNote writes the page into the right section of your vault, adds links to related pages ("Linked from" on theirs) and updates the index.
-- A pasted **link** becomes one summary page (SharePoint, OneDrive, Teams and Loop under `Internal links`, the rest under `Web links`). The same link again updates its page; **Update** reads the source again and shows old against new. Your own "Your notes" part of a page is never changed.
+- A pasted **link** becomes one summary page (SharePoint, OneDrive, Teams and Loop under `Internal links`, the rest under `Web links`). The same link again updates its page; **Update** reads the source again and shows old against new. Your own "Your notes" part of a page is never changed. Paste a SharePoint, OneDrive or Teams link **with your own words** and you get both: the page's summary, and your words under "Your notes".
 - **Undo** moves the page to OneNote's Deleted Pages and takes its links out of the pages that pointed to it.
 - A **journal entry** (what happened, what you did or decided) goes into that day's journal page, one page per day; its Undo takes out only that entry.
 - When a page with the same title and type is already there, nothing is added: **Open it**, or **Add anyway** to add yours beside it.

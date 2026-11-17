@@ -140,6 +140,18 @@ Describe 'POST /api/meetings/day and /notes (stand-in Copilot; nothing is writte
     It 'refuses notes without a title' {
         (Invoke-ApiRoute -Method 'POST' -Path '/api/meetings/notes' -Body '{"title":"  "}' -State $state).status | Should Be 400
     }
+    It 'asks each question in a new chat with Work IQ on, before sending it (target machine, 2026-11-17)' {
+        $calls = New-Object System.Collections.ArrayList
+        $tc = @{
+            NewChat = { $null = $calls.Add('new') }.GetNewClosure()
+            WorkIq  = { $null = $calls.Add('workiq'); 'on' }.GetNewClosure()
+            Send    = { param([string]$Text) $null = $calls.Add('send'); $ref = [regex]::Match($Text, '"ref": "([a-z0-9]+)"').Groups[1].Value; '{"ref":"' + $ref + '","meetings":[]}' }.GetNewClosure()
+        }
+        $s = New-ServerState -AppRoot $app -Port 8767 -SessionId 'server' -TestCopilot $tc
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/meetings/day' -Body '{}' -State $s
+        $r.status | Should Be 200
+        ($calls -join ',') | Should Be 'new,workiq,send'
+    }
     It 'answers 503 without Copilot' {
         $none = New-ServerState -AppRoot $app -Port 8767 -SessionId 'server'
         $none.CopilotSkipped = $true

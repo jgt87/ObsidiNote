@@ -278,6 +278,63 @@ Describe 'A dropped file found in OneDrive becomes its link page (operator, 2026
     }
 }
 
+Describe 'A SharePoint link with your own words becomes its link page, the words in Your notes (operator, 2026-11-17)' {
+    $sp = 'https://contoso.sharepoint.com/sites/garden/SitePages/Tidal-beds.aspx'
+    $words = "Plan for the tidal beds.`nAsk Ada about pumps."
+    function Get-NotesTexts($Page) {
+        $o = @($Page['outlines'] | Where-Object { $_['role'] -eq 'notes' })[0]
+        @($o['lines'] | ForEach-Object { (@($_['parts']) | ForEach-Object { $_['text'] }) -join '' })
+    }
+    It 'asks Copilot to read the page and keeps the words in Your notes' {
+        $v = New-FakeVault
+        $c = New-FakeCopilot @('{"readable": false, "problem": "no-access"}')
+        $r = Invoke-AddRequest -Request @{ text = "$words`n$sp"; mode = 'add' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+        $r.kind | Should Be 'link'
+        $c.q.prompts[0] | Should Match ([regex]::Escape($sp))
+        $p = @($v.st.created.Values)[0]
+        $p['url'] | Should Match 'contoso\.sharepoint\.com'
+        (Get-NotesTexts $p) -join '|' | Should Be 'Your notes|Plan for the tidal beds.|Ask Ada about pumps.'
+        $v.st.inbox['{IN0}'].text | Should Be "$words`n$sp"
+    }
+    It 'adds a web address with words as text, and a pasted mail with a SharePoint link as text' {
+        $v = New-FakeVault
+        $r = Invoke-AddRequest -Request @{ text = "$words https://example.org/guide"; mode = 'add' } -Store $v.store -Ask (New-FakeCopilot @((Get-GoodReply))).ask -Options @{ Now = $script:Now }
+        $r.kind | Should Be 'text'
+        $v2 = New-FakeVault
+        $mail = "From: Ada Example`nSubject: Beds`n`nSee $sp"
+        (Invoke-AddRequest -Request @{ text = $mail; mode = 'add' } -Store $v2.store -Ask (New-FakeCopilot @((Get-GoodReply))).ask -Options @{ Now = $script:Now }).kind | Should Be 'text'
+    }
+    It 'keeps two different links as text' {
+        $v = New-FakeVault
+        $two = "$words $sp https://contoso.sharepoint.com/sites/garden/Other.aspx"
+        (Invoke-AddRequest -Request @{ text = $two; mode = 'add' } -Store $v.store -Ask (New-FakeCopilot @((Get-GoodReply))).ask -Options @{ Now = $script:Now }).kind | Should Be 'text'
+    }
+    It 'finds the words again when the answer is fetched later (Check for the answer)' {
+        $v = New-FakeVault
+        $w = Invoke-AddRequest -Request @{ text = "$words`n$sp"; mode = 'add' } -Store $v.store -Ask (Get-PendingAsk) -Options @{ Now = $script:Now }
+        $w.status | Should Be 'waiting'
+        $reply = Get-SummaryReply $w.ref $sp
+        $x = Receive-AddAnswer -Store $v.store -Ask (New-FakeCopilot @((Get-GoodReply))).ask -ReadChat (New-ChatReader $reply).read -InboxId $w.inboxId -Options @{ Now = $script:Now }
+        $x.status | Should Be 'added'
+        $p = @($v.st.created.Values)[0]
+        (Get-NotesTexts $p) -join '|' | Should Be 'Your notes|Plan for the tidal beds.|Ask Ada about pumps.'
+    }
+}
+
+Describe 'Get-LinkWithNotes (pure)' {
+    Import-Module (Join-Path $root 'lib\LinkCapture.psm1') -Global
+    It 'takes one address and the words around it' {
+        $x = Get-LinkWithNotes "See <https://contoso.sharepoint.com/a.aspx>. My take: good."
+        $x.url | Should Be 'https://contoso.sharepoint.com/a.aspx'
+        $x.notes | Should Be 'See . My take: good.'
+    }
+    It 'gives nothing for a bare link, no link, or only words over 4000 characters' {
+        Get-LinkWithNotes 'https://contoso.sharepoint.com/a.aspx' | Should Be $null
+        Get-LinkWithNotes 'just words' | Should Be $null
+        Get-LinkWithNotes ('x' * 4001 + ' https://contoso.sharepoint.com/a.aspx') | Should Be $null
+    }
+}
+
 Describe 'Copilot still answering (Pending): the item waits' {
     $v = New-FakeVault
     $r = New-WaitingItem $v

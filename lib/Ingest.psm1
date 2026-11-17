@@ -376,6 +376,21 @@ function Invoke-AddRequest {
         $r.message = "Nothing was added: $($_.Exception.Message)"
         return (Complete-AddResult $r $sw)
     }
+    # A SharePoint, OneDrive or Teams link with the person's own words (operator, 2026-11-17: "for
+    # SharePoint sites, I also want to fetch a Copilot summary of the content of that page; right now
+    # only my own notes are added"): the link's page, summarized by Copilot, with the words in "Your
+    # notes". Only internal links: a web address in a note is usually a reference, not the subject.
+    # The Intake item keeps the whole text, so "Check for the answer" finds the words again.
+    if (-not $url) {
+        $ln = Get-LinkWithNotes $text
+        if ($ln -and [string](Invoke-Store $Store 'LinkBucket' @{ Url = [string](Invoke-Store $Store 'NormalizeUrl' @{ Url = $ln.url }) }) -eq 'Internal links') {
+            $url = $ln.url
+            $Options = @{} + $Options
+            $Options['LinkNotes'] = $ln.notes
+            $Options['IntakeText'] = $text
+            $r.kind = 'link'
+        }
+    }
     try {
         if ($url) { $r = Invoke-LinkAdd -Url $url -Store $Store -Ask $Ask -Options $Options -Result $r -Resume $Resume }
         else {
@@ -601,9 +616,13 @@ function Invoke-LinkAdd {
         $r.message = "A page for this link exists already ($([string](Get-LkProp $existing 'id' ''))); use Update on it."
         return $r
     }
+    $notes = [string](Get-IngestOption $Options 'LinkNotes' '')
     if ($existing) {
-        # One page per link: pasting it again updates that page.
-        return (Update-LinkSummary -Store $Store -Ask $Ask -Id ([string](Get-LkProp $existing 'id' '')) -SeenAgain -Options $Options)
+        # One page per link: pasting it again updates that page. "Your notes" is written once, when
+        # the page is made, so words pasted with the link now are not written; the result says so.
+        $u = Update-LinkSummary -Store $Store -Ask $Ask -Id ([string](Get-LkProp $existing 'id' '')) -SeenAgain -Options $Options
+        if ($notes) { $u.warnings = @($u.warnings) + 'Your words were not added: this link has a page already, and its "Your notes" part is changed only by you, in OneNote.' }
+        return $u
     }
     $bucket = [string](Invoke-Store $Store 'LinkBucket' @{ Url = $norm })
     $type = if ($bucket -eq 'Internal links') { 'link-internal' } else { 'link-web' }
@@ -611,7 +630,8 @@ function Invoke-LinkAdd {
     $ref = if ($Resume) { [string]$Resume['ref'] } else { New-RequestRef }
 
     $t0 = [Diagnostics.Stopwatch]::StartNew()
-    $inbox = Get-StepInbox -Store $Store -Resume $Resume -Title (Get-InboxTitle $norm) -Text $Url -Kind 'link' -Ref $ref -RequestKind 'linkSummary'
+    $inboxText = [string](Get-IngestOption $Options 'IntakeText' '')
+    $inbox = Get-StepInbox -Store $Store -Resume $Resume -Title (Get-InboxTitle $norm) -Text $(if ($inboxText) { $inboxText } else { $Url }) -Kind 'link' -Ref $ref -RequestKind 'linkSummary'
     if ($inbox -is [string]) { $r.message = $inbox; return $r }
     $r.inbox = @{ pageId = $inbox['pageId']; status = $(if ($Resume) { 'waiting' } else { 'new' }) }
     $r.timings.inboxMs = [int]$t0.ElapsedMilliseconds
@@ -669,7 +689,7 @@ function Invoke-LinkAdd {
         outlines = @(
             @{ role = 'summary'; lines = $sumLines },
             @{ role = 'checked'; lines = (New-LinkCheckedLines -SummarizedAt $(if ($s) { $today } else { '' }) -CheckStatus $checkStatus) },
-            @{ role = 'notes'; lines = (New-LinkNotesLines) }
+            @{ role = 'notes'; lines = (New-LinkNotesLines -Text $notes) }
         )
     }
     try { $cp = Invoke-Store $Store 'CreatePage' @{ Page = $page } }

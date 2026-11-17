@@ -8,6 +8,12 @@ versions follow [SemVer](https://semver.org/).
 ## [v0.12.9] - 2026-11-17
 
 ### Fixed
+- Today's meetings found no meetings while there were some: each question now starts a new Copilot chat with Work IQ (your Microsoft 365 data) switched on, as the validation kit's meeting probe does.
+
+### Changed
+- A SharePoint, OneDrive or Teams link pasted together with your own words now becomes that link's page: Copilot reads the page and summarizes it, and your words go into the page's "Your notes" part. Before, only your words were added. This applies when the text holds one such link and is not a pasted mail; a web address with words is still added as your text. When the link has a page already, it is updated and your words are not added (its "Your notes" stays yours to change in OneNote). No upgrade step: pages added before keep their text.
+
+### Fixed
 - Validation kit: the V6 write tests keep their writer lease alive. The lease ran out about two minutes into the run, while "Check for the answer" waited, and every write step after it reported "Read only".
 
 ## [v0.12.8] - 2026-11-17

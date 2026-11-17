@@ -30,6 +30,29 @@ function Get-PastedUrl {
     ''
 }
 
+$script:MaxLinkNotes = 4000
+
+function Get-LinkWithNotes {
+    <# A link with the person's own words around it (operator, 2026-11-17: "for SharePoint sites, I
+       also want a Copilot summary of the page; right now only my own notes are added"): @{ url;
+       notes } when the text holds exactly one http(s) address (the same one may repeat) and other
+       words, is not a pasted mail (two or more header lines such as From: or Subject:), and the words
+       are at most 4000 characters; $null otherwise. The caller decides which links qualify (Add:
+       internal links only). Pure. #>
+    [CmdletBinding()]
+    param([AllowEmptyString()][AllowNull()][string]$Text)
+    if (-not $Text -or -not $Text.Trim()) { return $null }
+    $found = @([regex]::Matches($Text, '(?i)https?://[^\s<>"]+') | ForEach-Object { $_.Value.TrimEnd('.', ',', ';', ':', ')', ']', '!', '?') })
+    if (-not $found.Count -or @($found | Select-Object -Unique).Count -ne 1) { return $null }
+    $headers = [regex]::Matches($Text, '(?im)^\s*(From|To|Cc|Sent|Subject|Date|Van|Aan|Verzonden|Onderwerp|Datum):')
+    if ($headers.Count -ge 2) { return $null }
+    $notes = $Text
+    foreach ($m in [regex]::Matches($Text, '(?i)<?https?://[^\s<>"]+>?')) { $notes = $notes.Replace($m.Value, '') }
+    $notes = ([regex]::Replace($notes, '[ \t]+(\r?\n)', '$1')).Trim()
+    if (-not $notes -or $notes.Length -gt $script:MaxLinkNotes) { return $null }
+    @{ url = $found[0]; notes = $notes }
+}
+
 function New-LinkLine {
     <# A line of the outline line model. #>
     param([string]$Text = '', [string]$Href = '', [object[]]$Parts = @(), [object[]]$Children = @(), [switch]$Bold, [switch]$Collapsed)
@@ -232,10 +255,13 @@ function New-LinkCheckedLines {
 }
 
 function New-LinkNotesLines {
-    <# The "Your notes" outline, written once when the page is made and never again. #>
+    <# The "Your notes" outline, written once when the page is made and never again. $Text: the words
+       the person pasted with the link (Get-LinkWithNotes), one line each; empty: one empty line. #>
+    param([AllowEmptyString()][string]$Text = '')
     $head = New-LinkLine -Text 'Your notes' -Bold
-    $empty = New-LinkLine -Text ''
-    , @($head, $empty)
+    $lines = @(($Text -split '\r?\n') | ForEach-Object { New-LinkLine -Text $_.TrimEnd() })
+    if (-not $Text.Trim()) { $lines = @(New-LinkLine -Text '') }
+    , (@($head) + $lines)
 }
 
 function Compare-LinkSummary {
@@ -294,4 +320,4 @@ function ConvertTo-SummaryRecord {
     }
 }
 
-Export-ModuleMember -Function Get-PastedUrl, New-LinkLine, Get-LinesPlainText, Get-SummaryHash, Test-SummaryEdited, New-LinkSummaryPrompt, ConvertTo-LinkSummary, Get-LinkSummaryText, New-LinkSummaryLines, New-LinkCheckedLines, New-LinkNotesLines, Compare-LinkSummary, Add-SummaryHistory, ConvertFrom-LkJson, ConvertTo-LkJson, ConvertTo-SummaryRecord
+Export-ModuleMember -Function Get-PastedUrl, Get-LinkWithNotes, New-LinkLine, Get-LinesPlainText, Get-SummaryHash, Test-SummaryEdited, New-LinkSummaryPrompt, ConvertTo-LinkSummary, Get-LinkSummaryText, New-LinkSummaryLines, New-LinkCheckedLines, New-LinkNotesLines, Compare-LinkSummary, Add-SummaryHistory, ConvertFrom-LkJson, ConvertTo-LkJson, ConvertTo-SummaryRecord

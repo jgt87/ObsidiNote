@@ -173,9 +173,27 @@ function Get-MeetingDayValue($Body) {
 
 function Send-MeetingQuestion($State, [string]$Prompt) {
     <# One meetings question to Copilot (Ask's adapter: a slow answer is waited for, then stopped;
-       nothing waits in the Intake, as nothing is written). @{ ok; text; error }. #>
-    try { $c = Get-AskCopilotAdapter $State; return @{ ok = $true; text = [string](& $c.Send $Prompt); error = '' } }
-    catch { return @{ ok = $false; text = ''; error = "Copilot did not answer: $($_.Exception.Message)" } }
+       nothing waits in the Intake, as nothing is written). @{ ok; text; error }. Each question gets a
+       new chat with Work IQ switched on, as kit probe P10 does (Send-KitPrompt): asked in the chat
+       that was open and without Work IQ, Copilot answered "no meetings" for a day the probe listed 8
+       (target machine, 2026-11-17, v0.12.8). #>
+    try {
+        $c = Get-AskCopilotAdapter $State
+        try { $null = & $c.NewChat } catch { }
+        $wiq = Set-MeetingWorkIq $State
+        $text = [string](& $c.Send $Prompt)
+        Write-AppLog info server 'Meetings question' @{ workIq = $wiq }
+        return @{ ok = $true; text = $text; error = '' }
+    } catch { return @{ ok = $false; text = ''; error = "Copilot did not answer: $($_.Exception.Message)" } }
+}
+
+function Set-MeetingWorkIq($State) {
+    <# Work IQ on (Microsoft 365 data: the calendar and the meetings): 'on' | 'off' | 'unavailable' |
+       'error' | 'test'. A test stand-in has its own WorkIq when it wants to see the call. #>
+    $tc = $State.TestCopilot
+    if ($tc) { if ($tc -is [hashtable] -and $tc.ContainsKey('WorkIq')) { return [string](& $tc['WorkIq']) }; return 'test' }
+    try { Import-Module (Join-Path $script:Here 'CopilotBridge.psm1') -Global; $cmd = Get-Command Set-CopilotWorkIq; return [string](& $cmd -Bridge $State.Copilot -On $true) }
+    catch { return 'error' }
 }
 
 function Invoke-MeetingsDayRoute($State, [string]$Body) {
