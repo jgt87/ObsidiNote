@@ -21,18 +21,18 @@ const meeting = (over: Partial<Meeting> = {}): Meeting => ({
 describe('meetings model', () => {
   it('says what Copilot can read of a meeting', () => {
     expect(readableLabel(meeting({ hasTranscript: true, hasNotes: true, readable: true }))).toBe('Transcript, notes')
-    expect(readableLabel(meeting())).toBe('Nothing Copilot can read')
+    expect(readableLabel(meeting())).toBe('Copilot listed no transcript, recap or notes')
   })
 
   it('writes the line under a meeting, one person or several', () => {
-    expect(meetingSubline(meeting({ attendees: 1 }))).toBe('10:00 · Nothing Copilot can read · 1 person')
+    expect(meetingSubline(meeting({ attendees: 1 }))).toBe('10:00 · Copilot listed no transcript, recap or notes · 1 person')
     expect(meetingSubline(meeting({ attendees: 5, hasTranscript: true, readable: true }))).toBe('10:00 · Transcript · 5 people')
-    expect(meetingSubline(meeting({ attendees: 0, time: '' }))).toBe('Nothing Copilot can read')
+    expect(meetingSubline(meeting({ attendees: 0, time: '' }))).toBe('Copilot listed no transcript, recap or notes')
   })
 
   it('says when a meeting is part of a series already in the wiki (2026-11-18)', () => {
-    expect(meetingSubline(meeting({ attendees: 0, earlier: 1 }))).toBe('10:00 · Nothing Copilot can read · series, 1 earlier in your wiki')
-    expect(meetingSubline(meeting({ attendees: 0, earlier: 14 }))).toBe('10:00 · Nothing Copilot can read · series, 14 earlier in your wiki')
+    expect(meetingSubline(meeting({ attendees: 0, earlier: 1 }))).toBe('10:00 · Copilot listed no transcript, recap or notes · series, 1 earlier in your wiki')
+    expect(meetingSubline(meeting({ attendees: 0, earlier: 14 }))).toBe('10:00 · Copilot listed no transcript, recap or notes · series, 14 earlier in your wiki')
   })
 
   it('reads a re-imported day as updated, and counts it with the added ones', () => {

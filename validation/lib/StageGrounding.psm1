@@ -203,7 +203,8 @@ function Test-MeetingListReply {
     $j = Get-JsonFromReply $Text
     $valid = Test-JsonShape $j $script:MeetingListKeys
     $list = @(if ($valid) { @($j.meetings) | Where-Object { $_ -is [pscustomobject] } })
-    $has = { param($m, $k) $m.PSObject.Properties[$k] -and "$($m.$k)" -eq 'True' }
+    # "yes", "true", 1 count as yes too, as in the app (lib/Meetings.psm1 Get-MeetingFlag, 2026-11-18).
+    $has = { param($m, $k) $m.PSObject.Properties[$k] -and ("$($m.$k)".Trim().ToLowerInvariant() -in 'true', 'yes', 'y', '1', 'available', 'ja', 'present') }
     $dayOf = { param($m) if ($m.PSObject.Properties['start'] -and "$($m.start)" -match '^(\d{4}-\d{2}-\d{2})') { $Matches[1] } else { '' } }
     $rich = @($list | Where-Object { (& $has $_ 'hasTranscript') -or (& $has $_ 'hasRecap') -or (& $has $_ 'hasNotes') })
     # The notes question names the meeting by its title: only a meeting that came back with one can

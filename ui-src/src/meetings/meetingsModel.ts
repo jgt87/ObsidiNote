@@ -50,7 +50,8 @@ export type RowState =
 /** What Copilot can read of a meeting, in a few words. */
 export function readableLabel(m: Meeting): string {
   const parts = [m.hasTranscript && 'transcript', m.hasRecap && 'recap', m.hasNotes && 'notes'].filter(Boolean) as string[]
-  if (!parts.length) return 'Nothing Copilot can read'
+  // Copilot's list answer, not a fact: tick it to have Copilot try the meeting itself (2026-11-18).
+  if (!parts.length) return 'Copilot listed no transcript, recap or notes'
   const s = parts.join(', ')
   return s.charAt(0).toUpperCase() + s.slice(1)
 }

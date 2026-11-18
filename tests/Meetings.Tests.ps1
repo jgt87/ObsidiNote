@@ -53,6 +53,13 @@ Describe 'A day''s meetings (pure)' {
         $n.error | Should Match 'no list of meetings'
         (ConvertFrom-MeetingDayReply -Reply 'Sorry, I cannot help.' -Day $script:Day -Ref 'r1').ok | Should Be $false
     }
+    It 'reads "yes", "true" and 1 as yes, not only a JSON true (target machine, 2026-11-18)' {
+        $x = ConvertFrom-MeetingDayReply -Reply '{"ref":"r1","meetings":[{"title":"A","start":"2031-04-09 10:00","hasTranscript":"yes"},{"title":"B","start":"2031-04-09 11:00","hasRecap":"true"},{"title":"C","start":"2031-04-09 12:00","hasNotes":1},{"title":"D","start":"2031-04-09 13:00","hasTranscript":"no","hasRecap":false}]}' -Day $script:Day -Ref 'r1'
+        (@($x.meetings | ForEach-Object { "$($_.title):$($_.readable)" }) -join ',') | Should Be 'A:True,B:True,C:True,D:False'
+        # How the flags were written, counted for the log: 2 as text yes, 1 as a number 1 (text yes too),
+        # 2 no (one text "no", one JSON false), the rest missing.
+        "$($x.flagForms.jsonTrue)|$($x.flagForms.textYes)|$($x.flagForms.no)|$($x.flagForms.missing)" | Should Be '0|3|2|7'
+    }
     It 'takes an empty day as an empty list' {
         $e = ConvertFrom-MeetingDayReply -Reply '{"ref":"r1","meetings":[]}' -Day $script:Day -Ref 'r1'
         $e.ok | Should Be $true

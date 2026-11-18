@@ -100,7 +100,9 @@ took. The same holds for the markers, the prompts and Copilot's answers.
    meetings that had transcription, a recap or notes). On the home page, under the box, press
    **Fetch today's meetings**.
    - What you should see: within about a minute, today's meetings with their time and what Copilot
-     can read ("Transcript", "Recap", "Notes" or "Nothing Copilot can read"); the ones it can read
+     can read ("Transcript", "Recap", "Notes" or "Copilot listed no transcript, recap or notes": a
+     meeting you know was transcribed can still be ticked, Add then asks Copilot about that meeting
+     itself); the ones it can read
      are ticked. Untick all but one, press **Add 1 meeting**: the row says "Copilot is reading the
      meeting...", then "Adding to your wiki...", then "Added as ..." (or "Waiting for Copilot").
      The page is under **Meetings** in OneNote with attendees ("Name (address)" when Copilot gave

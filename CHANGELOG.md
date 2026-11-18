@@ -5,6 +5,11 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.14] - 2026-11-18
+
+### Fixed
+- Today's meetings listed a transcribed meeting as having nothing to read when Copilot wrote "yes" instead of a plain true; such answers now count. The label now says what Copilot answered ("Copilot listed no transcript, recap or notes"), and such a meeting can still be ticked: Add then asks Copilot about that meeting itself. The log counts how Copilot wrote these answers (no titles), to tell the two causes apart.
+
 ## [v0.12.13] - 2026-11-18
 
 ### Changed

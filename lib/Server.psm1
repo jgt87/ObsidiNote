@@ -235,7 +235,10 @@ function Invoke-MeetingsDayRoute($State, [string]$Body) {
     if (-not $a.ok) { return @{ status = 502; body = @{ error = $a.error } } }
     $x = ConvertFrom-MeetingDayReply -Reply $a.text -Day $day -Ref $ref
     if (-not $x.ok) { return @{ status = 502; body = @{ error = "Copilot's list of meetings could not be read: $($x.error) Try again." } } }
-    Write-AppLog info server 'Meetings of a day listed' @{ meetings = @($x.meetings).Count; readable = @($x.meetings | Where-Object { $_.readable }).Count }
+    # How Copilot wrote the transcript/recap/notes yes-no fields, as counts (2026-11-18): tells a list
+    # that said no from one that said yes as text. Never a title.
+    $ff = $x.flagForms
+    Write-AppLog info server 'Meetings of a day listed' @{ meetings = @($x.meetings).Count; readable = @($x.meetings | Where-Object { $_.readable }).Count; flagsJsonTrue = $ff.jsonTrue; flagsTextYes = $ff.textYes; flagsNo = $ff.no; flagsMissing = $ff.missing }
     # Each meeting's series and how many of its meetings are in the wiki already (another day), so the
     # window can say "part of a series" (operator, 2026-11-18). 0 when no vault is open.
     # inWiki / waiting (2026-11-18: fetched several times a day): this meeting has its page already, or

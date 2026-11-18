@@ -30,8 +30,29 @@ function Get-MeetingText([AllowNull()]$Value, [int]$Max) {
     $t
 }
 
+function Get-MeetingFlagForms($Meetings) {
+    <# How Copilot wrote the yes/no fields of a list (counts only, for the log): @{ jsonTrue; textYes;
+       no; missing }. Tells "the list said no" from "the list said yes as text" (2026-11-18). Pure. #>
+    $f = [ordered]@{ jsonTrue = 0; textYes = 0; no = 0; missing = 0 }
+    foreach ($m in @($Meetings)) {
+        if (-not ($m -is [pscustomobject])) { continue }
+        foreach ($k in 'hasTranscript', 'hasRecap', 'hasNotes') {
+            if (-not $m.PSObject.Properties[$k]) { $f.missing++; continue }
+            $v = $m.$k
+            if ($v -is [bool]) { if ($v) { $f.jsonTrue++ } else { $f.no++ } }
+            elseif (Get-MeetingFlag $m $k) { $f.textYes++ } else { $f.no++ }
+        }
+    }
+    $f
+}
+
 function Get-MeetingFlag($Object, [string]$Name) {
-    [bool]($Object.PSObject.Properties[$Name] -and "$($Object.$Name)" -eq 'True')
+    <# A yes/no of Copilot's meeting list. Copilot does not always write a JSON true: "yes", "true",
+       "available", 1 also mean yes (operator, 2026-11-18: a transcribed meeting was listed as having
+       nothing to read; only a literal true counted). #>
+    if (-not $Object.PSObject.Properties[$Name]) { return $false }
+    $v = "$($Object.$Name)".Trim().ToLowerInvariant()
+    $v -in 'true', 'yes', 'y', '1', 'available', 'ja', 'present'
 }
 
 function Format-PromptTitle([string]$Title) {
@@ -70,7 +91,7 @@ function ConvertFrom-MeetingDayReply {
         $t = Get-MeetingFlag $m 'hasTranscript'; $r = Get-MeetingFlag $m 'hasRecap'; $o = Get-MeetingFlag $m 'hasNotes'
         $out.Add([ordered]@{ title = $title; start = $start; time = $time; attendees = [Math]::Max(0, $n); hasTranscript = $t; hasRecap = $r; hasNotes = $o; readable = ($t -or $r -or $o) })
     }
-    @{ ok = $true; error = ''; meetings = @($out.ToArray()) }
+    @{ ok = $true; error = ''; meetings = @($out.ToArray()); flagForms = (Get-MeetingFlagForms @($j.value.meetings)) }
 }
 
 function New-MeetingNotesPrompt {
