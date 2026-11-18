@@ -358,7 +358,15 @@ function Invoke-DevAnswerCheck($Ctx, $Adapter, $Dev, $Bridge) {
     # A 1-second wait forces the Pending path; the later steps (the check, linking) wait normally.
     $askShort = { param($Prompt) & $send -Bridge $b -Text $Prompt -TimeoutSec 1 -MaxTimeoutSec 1 -StallSec 0 -LeaveRunning -BusyWaitSec 120 }.GetNewClosure()
     $askNormal = { param($Prompt) & $send -Bridge $b -Text $Prompt -TimeoutSec 240 -StallSec 120 -LeaveRunning -BusyWaitSec 120 }.GetNewClosure()
-    $readChat = { param($ChatUrl) & $read -Bridge $b -ChatUrl $ChatUrl }.GetNewClosure()
+    # What each read of the chat saw (state, length, busy), for the check lines: on the target machine
+    # (2026-11-18) every check said still-waiting for 3 minutes with no clue why. Counts only.
+    $seen = @{ state = ''; chars = 0; busy = $false; conversation = $false }
+    $readChat = { param($ChatUrl)
+        $seen.conversation = [bool]("$ChatUrl" -match '/conversation/')
+        $x = & $read -Bridge $b -ChatUrl $ChatUrl
+        $seen.state = "$($x.state)"; $seen.chars = "$($x.text)".Length; $seen.busy = [bool]$x.busy
+        $x
+    }.GetNewClosure()
     $getLease = Get-DevGetLease $Dev   # renewed while the steps run (New-DevLeaseGetter)
     $lease = & $getLease
     $s = Measure-KitStep { Invoke-WithKnownParams $builder @{ Adapter = $Adapter; Vault = $Dev.vault; Model = $Dev.model; Lease = $lease; GetLease = $getLease; AppRoot = $Ctx.AppRoot } }
@@ -382,7 +390,7 @@ function Invoke-DevAnswerCheck($Ctx, $Adapter, $Dev, $Bridge) {
         $c = Measure-KitStep { Receive-AddAnswer -Store $store -Ask $askNormal -ReadChat $readChat -InboxId $inboxId }
         $r = $c.value
         $last = if ($c.ok) { "$(Get-KitProp $r 'status' 'error')" } else { 'error' }
-        Add-ValidationResult $Ctx 'V6' 'INFO' "$name (check $tries)" "status $last; $($c.ms) ms"
+        Add-ValidationResult $Ctx 'V6' 'INFO' "$name (check $tries)" "status $last; chat address names a conversation: $(Format-YesNo $seen.conversation); chat read: $(if ($seen.state) { $seen.state } else { 'not read' }), $($seen.chars) chars, Copilot busy: $(Format-YesNo $seen.busy); $($c.ms) ms"
         if ($last -notin 'still-waiting') { break }
         $until = (Get-Date).AddSeconds(10); while ((Get-Date) -lt $until) { Start-Sleep -Milliseconds 250 }
     }
@@ -393,10 +401,10 @@ function Invoke-DevAnswerCheck($Ctx, $Adapter, $Dev, $Bridge) {
         $u = Measure-KitStep { Undo-AddRequest -Store $store -Undo $undo }
         Add-ValidationResult $Ctx 'V6' $(if ($u.ok -and "$(Get-KitProp $u.value 'status' '')" -eq 'undone') { 'OK' } else { 'WARN' }) "$name (undo)" "status $(Get-KitProp $u.value 'status' 'error'); $($u.ms) ms"
     }
-    Invoke-DevUpdateCheck $Ctx $store $askShort $askNormal $readChat
+    Invoke-DevUpdateCheck $Ctx $store $askShort $askNormal $readChat $seen
 }
 
-function Invoke-DevUpdateCheck($Ctx, $Store, $AskShort, $AskNormal, $ReadChat) {
+function Invoke-DevUpdateCheck($Ctx, $Store, $AskShort, $AskNormal, $ReadChat, $Seen = @{ state = ''; chars = 0; busy = $false; conversation = $false }) {
     <# A slow link update waits too (user, 2026-11-13): the synthetic public link is added, its Update
        is sent with the 1-second wait (Pending: an Intake item "Update: ..." waits), then "Check for
        the answer" finishes it (Copilot must repeat the reference AND the link as "source"); then
@@ -420,7 +428,7 @@ function Invoke-DevUpdateCheck($Ctx, $Store, $AskShort, $AskNormal, $ReadChat) {
             $tries++
             $c = Measure-KitStep { Receive-AddAnswer -Store $Store -Ask $AskNormal -ReadChat $ReadChat -InboxId $inboxId }
             $last = if ($c.ok) { "$(Get-KitProp $c.value 'status' 'error')" } else { 'error' }
-            Add-ValidationResult $Ctx 'V6' 'INFO' "$name (check $tries)" "status $last; $($c.ms) ms"
+            Add-ValidationResult $Ctx 'V6' 'INFO' "$name (check $tries)" "status $last; chat address names a conversation: $(Format-YesNo $Seen.conversation); chat read: $(if ($Seen.state) { $Seen.state } else { 'not read' }), $($Seen.chars) chars, Copilot busy: $(Format-YesNo $Seen.busy); $($c.ms) ms"
             if ($last -ne 'still-waiting') { break }
             $until = (Get-Date).AddSeconds(10); while ((Get-Date) -lt $until) { Start-Sleep -Milliseconds 250 }
         }
@@ -545,6 +553,29 @@ function Get-KitBodyLink($Adapter, [string]$PageId) {
     ''
 }
 
+function Get-KitLinkParts([string]$Url) {
+    <# The parts of a onenote: link the kit compares, without logging any of them: the address before
+       '#' (notebook and section file), the section-id and page-id GUIDs, and whether it is the short
+       form OneNote may use inside one notebook ("onenote:#..." with or without base-path). Pure. #>
+    $u = [System.Net.WebUtility]::UrlDecode("$Url")
+    @{
+        path = $(if ($u -match '^onenote:([^#]*)#') { $Matches[1].ToLowerInvariant() } else { '' })
+        section = $(if ($u -match '(?i)section-id=\{?([0-9a-f-]{36})') { $Matches[1].ToLowerInvariant() } else { '' })
+        page = $(if ($u -match '(?i)page-id=\{?([0-9a-f-]{36})') { $Matches[1].ToLowerInvariant() } else { '' })
+        short = [bool]($u -match '^(?i)onenote:#')
+        basePath = [bool]($u -match '(?i)[&?]base-path=')
+    }
+}
+
+function Format-KitLinkCompare([string]$Text, [string]$OneNote) {
+    <# "same page-id yes; same section-id yes; same address yes; short form no; base-path no": the text's
+       link against OneNote's link of the page, yes/no only (target machine, 2026-11-18: the text held
+       neither the old nor the new link after a re-point, so OneNote changes a link when it saves it). #>
+    if (-not $Text) { return 'no link in the text' }
+    $a = Get-KitLinkParts $Text; $b = Get-KitLinkParts $OneNote
+    "same page-id $(Format-YesNo ($a.page -and $a.page -eq $b.page)); same section-id $(Format-YesNo ($a.section -and $a.section -eq $b.section)); same address $(Format-YesNo ($a.path -and $a.path -eq $b.path)); short form $(Format-YesNo $a.short); base-path $(Format-YesNo $a.basePath)"
+}
+
 function Invoke-DevRetire($Ctx, $Adapter, $Dev) {
     <# Archive, Restore and Delete (lib/Ingest.psm1 Get-RetirePlan, Invoke-PageRetire; operator
        2026-11-15): a synthetic target page and a page that links to it (Meta and its own text). The
@@ -589,7 +620,7 @@ function Invoke-DevRetire($Ctx, $Adapter, $Dev) {
             # The link OneNote gives the page now, read again (2026-11-17: the text pointed at another
             # link than the index's, which did not open the page): yes/no only, the log holds no links.
             $fresh = try { [string]$Adapter.GetHyperlinkToObject([string]$rec.oneNoteId) } catch { '' }
-            $detail = "the link in the linking page's text opens the archived page: $opens; its OneNote link changed: $(Format-YesNo ($rec.link -ne $mk.value.link)); the text points at the new link: $(Format-YesNo ($now -and $now -eq $rec.link)); the text still has the old link: $(Format-YesNo ($now -and $now -eq $mk.value.link)); OneNote's link now is the index's: $(Format-YesNo ($fresh -and $fresh -eq $rec.link)); the text points at OneNote's link now: $(Format-YesNo ($fresh -and $now -eq $fresh)); pages re-pointed: $(Get-KitProp $ar.value 'relinked' 0)"
+            $detail = "the link in the linking page's text opens the archived page: $opens; its OneNote link changed: $(Format-YesNo ($rec.link -ne $mk.value.link)); the text points at the new link: $(Format-YesNo ($now -and $now -eq $rec.link)); the text still has the old link: $(Format-YesNo ($now -and $now -eq $mk.value.link)); OneNote's link now is the index's: $(Format-YesNo ($fresh -and $fresh -eq $rec.link)); the text points at OneNote's link now: $(Format-YesNo ($fresh -and $now -eq $fresh)); the text's link against OneNote's: $(Format-KitLinkCompare $now $fresh); pages re-pointed: $(Get-KitProp $ar.value 'relinked' 0)"
             Add-ValidationResult $Ctx 'V6' $st 'Archive (link in another page)' $detail $(if ($opens -eq 'no') { 'Send this log back: Archive should point links in other pages at the moved page.' } else { '' })
         }
 

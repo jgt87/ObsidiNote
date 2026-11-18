@@ -93,6 +93,10 @@ export interface GraphPage {
   created?: string
   /** A journal day page's entries, oldest first (one page per day, 2026-11-17); [] for other pages. */
   entries?: JournalEntry[]
+  /** A meeting page's series (its Teams title) and start ("yyyy-mm-ddTHH:mm" or a day), '' otherwise
+   *  (2026-11-18; tests/fixtures/graph-pages.json). */
+  series?: string
+  meetingAt?: string
 }
 
 /** One entry of a journal day page (lib/GraphModel.psm1 ConvertTo-GraphEntries). */
@@ -270,6 +274,8 @@ function normalizePage(p: Record<string, unknown>, id: string, topicIds: Set<str
     origin: validOrigin(p.origin),
     created: str(p.created),
     entries: normalizeEntries(p.entries),
+    series: str(p.series),
+    meetingAt: str(p.meetingAt),
   }
 }
 

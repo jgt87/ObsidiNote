@@ -5,6 +5,20 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.11] - 2026-11-18
+
+### Added
+- **Meeting series**: a meeting that recurs (a daily stand-up, a weekly sync) is one series of pages. Each meeting from Today's meetings gets its own page named "‹meeting› · ‹date›", linked to the series' previous meeting, with the meeting's own start time. Importing the same day again updates that day's page instead of adding a second one (its topics, links and your notes stay). Today's meetings says when a meeting is part of a series already in your wiki.
+- **Ask within a series**: ask a question about one meeting series only. Choose the series in the Journal ("Meetings: ‹name›", then **Ask about these meetings**) or in a meeting's page window (**Ask about this series**). The box then shows "Asking within the meetings of ‹name›" with **Remove**; ObsidiNote itself picks those meeting pages (up to 50, newest first) and Copilot answers from them only.
+- The Journal lists meetings with their own start time, a meeting icon and the word "Meeting", and its search suggests meeting series.
+
+### Changed
+- Ask now switches Copilot's Work IQ (your mail, chats and files) off, so an answer comes from your wiki's pages only. Today's meetings had switched it on and left it on.
+- Upgrade at the next start: meeting pages added with Today's meetings before this version get their series and date (from the date in their title), so they join their series. Their titles stay as they are.
+
+### Fixed
+- Validation kit: "Check for the answer" lines say whether the chat address names a conversation and what was read, and the Archive link line says which parts of the link in the text match OneNote's link (no addresses in the log).
+
 ## [v0.12.10] - 2026-11-17
 
 ### Changed

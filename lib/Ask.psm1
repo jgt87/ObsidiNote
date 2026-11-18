@@ -424,6 +424,7 @@ function New-AskCopilot {
     Import-Module (Join-Path $PSScriptRoot 'CopilotBridge.psm1') -Global
     $send = Get-Command Send-CopilotPrompt -ErrorAction Stop
     $new = Get-Command New-CopilotChat -ErrorAction Stop
+    $wiq = Get-Command Set-CopilotWorkIq -ErrorAction Stop
     $b = $Bridge; $t = $TimeoutSec; $st = $StallSec; $mx = $MaxTimeoutSec
     @{
         Send    = {
@@ -434,6 +435,8 @@ function New-AskCopilot {
             [string]$r.Text
         }.GetNewClosure()
         NewChat = { & $new -Bridge $b }.GetNewClosure()
+        # Work IQ (Microsoft 365 data) on or off: 'on' | 'off' | 'unavailable'.
+        WorkIq  = { param([bool]$On) [string](& $wiq -Bridge $b -On $On) }.GetNewClosure()
     }
 }
 
@@ -457,9 +460,15 @@ function Invoke-AskCopilot {
 }
 
 function Start-AskChat {
+    <# A new chat for a question (or a follow-up that needs one), with Work IQ switched OFF: Ask answers
+       only from the pages it sends, and with Work IQ on Copilot could also draw on mail, chats and
+       files. Today's meetings switches it on for its own questions and left it on (operator,
+       2026-11-17: "it only fetches information from those daily meetings, and not other sources"). #>
     param($Copilot, [hashtable]$Conv)
     $new = Get-AskProp $Copilot 'NewChat'
     if ($new) { & $new }
+    $wiq = Get-AskProp $Copilot 'WorkIq'
+    if ($wiq) { try { $Conv.workIq = [string](& $wiq $false) } catch { $Conv.workIq = 'error' } }
     $Conv.chatMessages = 0
     $script:CurrentChat = $Conv.id
 }
@@ -678,9 +687,61 @@ function Invoke-AskProgress {
     if ($cb) { try { & $cb $Step $Label } catch { } }
 }
 
+function Invoke-AskSeriesQuestion {
+    <# Ask within one meeting series (operator, 2026-11-18: "it only fetches information from those
+       daily meetings, and not other sources"): ObsidiNote itself picks the pages, the series' meeting
+       pages of the active vault, newest first; no topic step, no other vault or notebook. At most
+       askMaxPages (at least 30, at most 50); older meetings are left out and the summary says so.
+       Copilot answers in a new chat with Work IQ off (Start-AskChat) from these pages only, and a
+       citation of anything else is dropped (Read-AskAnswer). #>
+    param([string]$Question, [string]$Key, $Request, $Context)
+    $now = Get-AskProp $Context 'Now' $null
+    if ($null -eq $now) { $now = Get-Date }
+    $copilot = Get-AskProp $Context 'Copilot'
+    $includeArchived = [bool](Get-AskProp $Request 'includeArchived' $false)
+    # Assigned as is: Get-AskSources returns its list with ',' and @() around the call would nest it.
+    $sources = Get-AskSources -All @(Get-AskList (Get-AskProp $Context 'Sources' $null)) -Wanted @()
+    $src = $sources[0]
+    $conv = @{ id = ([guid]::NewGuid().ToString('N').Substring(0, 12)); chatMessages = 0; turns = (New-Object System.Collections.Generic.List[object])
+        branches = @(); records = @(); sourceIds = @($src.id); includeArchived = $includeArchived; series = $Key }
+    $result = New-AskResult $conv $Question 'answered'
+    $get = Get-AskProp $src.adapter 'GetSeries'
+    # Assigned first, then wrapped: GetSeries returns its list with ',' (one object), so @(& $get) nests it.
+    $all = $null
+    if ($get) { $all = & $get $Key $includeArchived }
+    $all = @($all | Where-Object { $null -ne $_ })
+    $name = if ($all.Count) { [string](Get-AskProp $all[0] 'series' $Key) } else { $Key }
+    $max = [Math]::Min(50, [Math]::Max(30, $script:MaxPages))
+    $picked = @($all | Select-Object -First $max)
+    $result.series = @{ name = $name; pages = $all.Count; read = $picked.Count }
+    $result.path = @{ branchesTotal = 0; branchesListed = 0; branchesPicked = 0; invalidBranches = 0; pagesTotal = $all.Count; pagesListed = $all.Count; pagesPicked = $picked.Count; invalidPages = 0; pagesRead = 0
+        steps = @(@{ n = 1; kind = 'series'; label = "Meetings of $name" }); summary = '' }
+    if (-not $picked.Count) {
+        $result.path.summary = "No meeting page of the series ""$name"" is in this vault."
+        Set-AskNotFound $result 'no-page' $Question @()
+        $conv.turns.Add(@{ question = $Question; result = $result; cited = @() }); Add-AskConversation $conv
+        return $result
+    }
+    Start-AskChat $copilot $conv
+    Invoke-AskProgress $Context 3 'Writing the answer...'
+    $records = @(foreach ($p in $picked) { New-AskPageRecord $p $src '' })
+    $sent = @(Read-AskPageTexts -Records $records -Sources $sources)
+    $result.path.pagesRead = $sent.Count
+    $days = @($picked | ForEach-Object { ([string](Get-AskProp $_ 'meetingAt' '')) -replace 'T.*$', '' } | Where-Object { $_ } | Sort-Object)
+    $span = if ($days.Count) { " ($($days[0]) to $($days[$days.Count - 1]))" } else { '' }
+    $older = $all.Count - $picked.Count
+    $result.path.steps += @{ n = 2; kind = 'pages'; label = "$($sent.Count) $(if ($sent.Count -eq 1) { 'meeting' } else { 'meetings' }) read"; count = $sent.Count }
+    $result.path.summary = "Only the meetings of ""$name"" were read: $($sent.Count) of $($all.Count)$span. Nothing else was used.$(if ($older -gt 0) { " The $older older ones were not read." } else { '' })"
+    Write-AskLog 'Series' @{ pages = $all.Count; read = $sent.Count }
+    $conv.records = @($sent | ForEach-Object { Copy-AskRecord $_ })
+    Complete-AskAnswer -Result $result -Conv $conv -Question $Question -Sent $sent -Copilot $copilot -Now $now -Lead '' -FollowUp $false
+}
+
 function Invoke-AskQuestion {
     param([string]$Question, $Request, $Context)
     if (-not $Question) { return @{ ok = $false; intent = 'ask'; status = 'error'; error = 'Type a question first.'; writes = 0 } }
+    $series = ([string](Get-AskProp $Request 'series' '')).Trim()
+    if ($series) { return (Invoke-AskSeriesQuestion -Question $Question -Key $series -Request $Request -Context $Context) }
     $now = Get-AskProp $Context 'Now' $null
     if ($null -eq $now) { $now = Get-Date }
     $copilot = Get-AskProp $Context 'Copilot'

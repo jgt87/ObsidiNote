@@ -14,6 +14,10 @@ export interface Meeting {
   hasNotes: boolean
   /** Copilot can read a transcript, recap or notes of it. */
   readable: boolean
+  /** The series it belongs to (its Teams title without a date), and how many of the series'
+   *  meetings of other days are in the wiki already (2026-11-18). */
+  series: string
+  earlier: number
 }
 
 export type MeetingNotes = { found: true; text: string } | { found: false; message: string }
@@ -24,6 +28,8 @@ export type RowState =
   | { step: 'reading' }
   | { step: 'adding' }
   | { step: 'added'; pageTitle: string }
+  /** The same day of the series was in the wiki: its page's text was read again. */
+  | { step: 'updated'; pageTitle: string }
   | { step: 'waiting' }
   | { step: 'skipped'; message: string }
   | { step: 'failed'; message: string }
@@ -39,7 +45,8 @@ export function readableLabel(m: Meeting): string {
 /** The line under a meeting's title: time, what Copilot can read, how many people. */
 export function meetingSubline(m: Meeting): string {
   const people = m.attendees === 1 ? '1 person' : m.attendees > 1 ? `${m.attendees} people` : ''
-  return [m.time, readableLabel(m), people].filter(Boolean).join(' · ')
+  const series = m.earlier === 1 ? 'series, 1 earlier in your wiki' : m.earlier > 1 ? `series, ${m.earlier} earlier in your wiki` : ''
+  return [m.time, readableLabel(m), people, series].filter(Boolean).join(' · ')
 }
 
 /** The meetings ticked when the list comes: every one Copilot can read something of. */
@@ -63,6 +70,8 @@ export function rowStateText(s: RowState): string {
       return 'Adding to your wiki…'
     case 'added':
       return s.pageTitle ? `Added as "${s.pageTitle}"` : 'Added'
+    case 'updated':
+      return s.pageTitle ? `Updated "${s.pageTitle}": already in your wiki, its text read again` : 'Updated: already in your wiki'
     case 'waiting':
       return 'Waiting for Copilot: see "Waiting for Copilot" or History'
     case 'skipped':
@@ -76,6 +85,7 @@ export function rowStateText(s: RowState): string {
 export function rowStateFromAdd(r: SubmitResult): RowState {
   if (r.intent !== 'add') return { step: 'failed', message: 'it was taken as a question.' }
   if (r.status === 'added') return { step: 'added', pageTitle: r.page?.title ?? '' }
+  if (r.status === 'updated') return { step: 'updated', pageTitle: r.page?.title ?? '' }
   if (r.status === 'waiting') return { step: 'waiting' }
   if (r.duplicateOf) return { step: 'skipped', message: 'a page with this title is already in your wiki.' }
   return { step: 'failed', message: r.message || 'Add did not work.' }
@@ -84,7 +94,7 @@ export function rowStateFromAdd(r: SubmitResult): RowState {
 /** The line under the list once a run ended. */
 export function runSummary(states: RowState[]): string {
   const n = (step: RowState['step']) => states.filter((s) => s.step === step).length
-  const added = n('added')
+  const added = n('added') + n('updated')
   const waiting = n('waiting')
   const not = n('failed') + n('skipped')
   const parts = [added && `${added} added`, waiting && `${waiting} waiting for Copilot`, not && `${not} not added`].filter(Boolean)

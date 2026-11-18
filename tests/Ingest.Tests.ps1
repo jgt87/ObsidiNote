@@ -321,6 +321,45 @@ Describe 'A SharePoint link with your own words becomes its link page, the words
     }
 }
 
+Describe 'A daily meeting is one series of pages (operator, 2026-11-18)' {
+    Import-Module (Join-Path $root 'lib\Meetings.psm1') -Global
+    $notes = @{ found = $true; date = ''; attendees = @('Ada Example'); summary = 'The beds move north.'; decisions = @('Move them.'); actions = @(); basedOn = 'transcript' }
+    $day = { param($d, $t) ConvertTo-MeetingNoteText -Title 'Garden sync | Tidal beds' -Day $d -Time $t -Notes $notes }
+    $v = New-FakeVault
+    $c = New-FakeCopilot @((Get-GoodReply), (Get-GoodReply))
+    $r1 = Invoke-AddRequest -Request @{ text = (& $day '2031-04-08' '10:00'); mode = 'add'; origin = 'meeting' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+    $r2 = Invoke-AddRequest -Request @{ text = (& $day '2031-04-09' '10:00'); mode = 'add'; origin = 'meeting' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+    $pages = @($v.st.created.Values)
+    It 'names each page "<series> . <day>" and keeps the series and start on it' {
+        $r1.status | Should Be 'added'
+        $r2.status | Should Be 'added'
+        $dot = [string][char]0x00B7
+        @($pages | ForEach-Object { $_['title'] } | Sort-Object) -join '|' | Should Be "Garden sync | Tidal beds $dot 2031-04-08|Garden sync | Tidal beds $dot 2031-04-09"
+        @($pages | ForEach-Object { $_['series'] } | Select-Object -Unique) | Should Be 'Garden sync | Tidal beds'
+        @($pages | Where-Object { $_['title'] -like '*04-09' })[0]['meetingAt'] | Should Be '2031-04-09T10:00'
+    }
+    It 'links a meeting to the previous one of its series' {
+        $first = @($pages | Where-Object { $_['title'] -like '*04-08' })[0]
+        $second = @($pages | Where-Object { $_['title'] -like '*04-09' })[0]
+        @($second['links'] | Where-Object { $_['target'] -eq $first['id'] }).Count | Should Be 1
+        @($first['links'] | Where-Object { $_['why'] -like '*previous meeting*' }).Count | Should Be 0
+    }
+    It 'updates the page of the same day instead of adding it again, without asking Copilot' {
+        $asked = $c.q.prompts.Count
+        $r3 = Invoke-AddRequest -Request @{ text = (& $day '2031-04-09' '10:00'); mode = 'add'; origin = 'meeting' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+        $r3.status | Should Be 'updated'
+        $c.q.prompts.Count | Should Be $asked
+        @($v.st.created.Values).Count | Should Be 2
+    }
+    It 'reads the series and start from the text, and nothing from other text' {
+        $mi = Get-MeetingInfoFromText (& $day '2031-04-09' '9:05')
+        "$($mi.series)|$($mi.key)|$($mi.at)" | Should Be 'Garden sync | Tidal beds|garden sync tidal beds|2031-04-09T09:05'
+        Get-MeetingSeriesKey 'Daily Sync Tidal & Fern' | Should Be (Get-MeetingSeriesKey 'Daily Sync | Tidal & Fern')
+        Get-MeetingInfoFromText 'Notes about a garden.' | Should Be $null
+        Get-MeetingSeriesName 'Daily Sync 2031-04-09 | Team' | Should Be 'Daily Sync | Team'
+    }
+}
+
 Describe 'Get-LinkWithNotes (pure)' {
     Import-Module (Join-Path $root 'lib\LinkCapture.psm1') -Global
     It 'takes one address and the words around it' {

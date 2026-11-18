@@ -85,12 +85,20 @@ One box does both. In **Auto** it says before you send whether it will add or as
 
 Under the box, **Fetch today's meetings** has Copilot list your Teams meetings of today (with Work IQ, so it sees your own calendar) and say which ones it can read: a transcript, a Copilot recap or meeting notes. Those are ticked for you. Press **Add**: each ticked meeting becomes a page under **Meetings** with its attendees, summary, decisions and actions. Each one is added like any other Add, so it is linked to your other pages, listed in **History** and can be undone. Each row says where it is ("reading", "adding", "Added as ...", or why it was not added). Nothing is written before you press **Add**.
 
+**Meeting series.** A meeting that recurs (a daily stand-up) is one series: each day gets its own page, "‹meeting› · ‹date›", linked to the day before, with the meeting's own start time. Importing the same day again updates that day's page. In the **Journal**, search for the meeting and pick "Meetings: ‹name›" to see the series day by day.
+
+![A meeting series in the Journal: each day's meeting with its time, and Ask about these meetings](docs/screenshots/series.png)
+
+**Ask within a series.** **Ask about these meetings** (Journal) or **Ask about this series** (a meeting's page window) limits the next questions to that series. The box shows it, with **Remove**. ObsidiNote picks those meeting pages itself, up to 50, newest first, and Copilot answers from them only, citing them.
+
+![Asking within a meeting series: the line above the box says only these meetings are read](docs/screenshots/ask-series.png)
+
 ### Ask
 ![Ask: the answer with numbered citations, its actions, and the pages it came from with their share of the answer](docs/screenshots/ask.png)
 
 - The question walks your index (topics, then pages, then their text) and every sentence of the answer cites your own pages. A citation number opens that page's window (a link page opens its own address); each source also opens in OneNote.
 - **Ask a follow-up**, **Save answer as a page**, or **Show on map** to see the sources in the graph.
-- Ask can also read other vaults and notebooks you have open, read only. Asking never changes your notebook.
+- Ask can also read other vaults and notebooks you have open, read only. Asking never changes your notebook. Ask switches Copilot's Work IQ off, so it does not draw on your mail, chats or files.
 
 ### Knowledge graph
 The map above shows every page as a dot in its topic's area. Bigger dots have more pages linking to them; lines are links, thicker for stronger ones.
@@ -119,7 +127,7 @@ Your own labels, to relate pages that nothing else relates. Add them in the page
 ### Journal
 ![Journal searched on a topic: the day's journal entries and every other page about the topic, by day](docs/screenshots/journal.png)
 
-Your journal, one page per day: everything Copilot files as a journal entry (what happened, what you did or decided) goes into that day's page, with its time. Your meeting pages are listed too, on the day they were added. Search it by topic or words to see everything about that topic from all your sources and all days, not only journal entries. With a topic chosen, **Decisions** lists the topic's decision pages with the pages each came from, and **Find decisions with Copilot** asks Copilot to find decisions written inside other pages (read only, citing them).
+Your journal, one page per day: everything Copilot files as a journal entry (what happened, what you did or decided) goes into that day's page, with its time. Your meeting pages are listed too, with their start time and a meeting icon. Search it by topic or words to see everything about that topic from all your sources and all days, not only journal entries. With a topic chosen, **Decisions** lists the topic's decision pages with the pages each came from, and **Find decisions with Copilot** asks Copilot to find decisions written inside other pages (read only, citing them).
 
 ### More
 - **Find** (`Ctrl+K`): jump to any page or topic.

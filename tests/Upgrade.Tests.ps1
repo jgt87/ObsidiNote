@@ -106,6 +106,30 @@ Describe 'Upgrade: "Link it" links written as loose (1) before 2026-11-14 become
     }
 }
 
+Describe 'Upgrade: meeting pages from before series get their series (operator, 2026-11-18)' {
+    $w = New-SyntheticVault
+    # Old shape: a page Today's meetings made on 17 Nov (v0.12.8-v0.12.10), Copilot's title with the date.
+    $pg = Find-FakePage $w.f 'Partner portal: access review notes'
+    $pg.meta['obsn.type'] = 'meeting'; $pg.meta['obsn.origin'] = 'meeting'
+    $rec = $w.open.model.pages['p2']
+    $rec.type = 'meeting'; $rec.origin = 'meeting'; $rec.title = '2026-11-17 Garden sync Tidal beds'
+    It 'plans the meeting page' {
+        (@(Get-UpgradePlan -Model $w.open.model) | Where-Object { $_.step -eq 'meeting-series' } | ForEach-Object { "$($_.id):$($_.to):$($_.type)" }) -join ',' | Should Be 'p2:Garden sync Tidal beds:2026-11-17'
+    }
+    $r = Invoke-VaultUpgrade -Store $w.store
+    It 'writes the series and the day on the page and its index record, and says so' {
+        $r.status | Should Be 'done'
+        $r.series | Should Be 1
+        (Format-UpgradeStatus $r).detail | Should Match '1 meeting page\(s\) given their series'
+        $pg.meta['obsn.series'] | Should Be 'Garden sync Tidal beds'
+        $pg.meta['obsn.meetingAt'] | Should Be '2026-11-17'
+        $w.open.model.pages['p2'].series | Should Be 'Garden sync Tidal beds'
+    }
+    It 'finds nothing to do at the next start (idempotent)' {
+        (@(Get-UpgradePlan -Model $w.open.model) | Where-Object { $_.step -eq 'meeting-series' }).Count | Should Be 0
+    }
+}
+
 Describe 'Upgrade: the page is already right, its index record is not (code review 2026-11-14)' {
     $w = New-SyntheticVault
     # An earlier run raised the page's Meta, then its index write failed: Meta s=2, index s=1.

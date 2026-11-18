@@ -66,6 +66,8 @@ function ConvertTo-IngestPage {
         tags = @(if ($Page.ContainsKey('tags')) { @($Page.tags) | Where-Object { $_ } | ForEach-Object { [string]$_ } })
         entries = @(if ($Page.ContainsKey('entries')) { @($Page.entries) | Where-Object { $_ } })
         created = $(if ($Page.ContainsKey('created')) { [string]$Page.created } else { '' })
+        series = $(if ($Page.ContainsKey('series')) { [string]$Page.series } else { '' })
+        meetingAt = $(if ($Page.ContainsKey('meetingAt')) { [string]$Page.meetingAt } else { '' })
     }
 }
 
@@ -346,7 +348,7 @@ function Invoke-VsIndexAddPage {
     $old = if ($Ctx.Model.pages.Contains($id)) { $Ctx.Model.pages[$id] } else { $null }
     $rec = @{}
     if ($old) { foreach ($k in @($old.Keys)) { $rec[$k] = $old[$k] } }
-    foreach ($k in 'id', 'title', 'type', 'summary', 'topics', 'aliases', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'link', 'section', 'origin', 'tags', 'entries') { if ($Page.ContainsKey($k)) { $rec[$k] = $Page[$k] } }
+    foreach ($k in 'id', 'title', 'type', 'summary', 'topics', 'aliases', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'link', 'section', 'origin', 'tags', 'entries', 'series', 'meetingAt') { if ($Page.ContainsKey($k)) { $rec[$k] = $Page[$k] } }
     # A page made in this session has no OneNote date in the model until the next scan: now.
     if (-not $rec['created']) { $rec.created = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z') }
     if ($Page.ContainsKey('pageId') -and $Page['pageId']) { $rec.oneNoteId = [string]$Page['pageId'] }

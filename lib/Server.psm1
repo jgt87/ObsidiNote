@@ -196,6 +196,26 @@ function Set-MeetingWorkIq($State) {
     catch { return 'error' }
 }
 
+function Get-MeetingSeriesCounts($State) {
+    <# series key -> the days of its meeting pages in the active vault's index (archived left out).
+       Empty when no vault is open or the index cannot be read. #>
+    $out = @{}
+    try {
+        if (-not $State.Vault) { return $out }   # never opens a vault for a list (Use-ActiveVault may)
+        $u = Use-ActiveVault $State
+        if (-not $u.ok) { return $out }
+        $model = $u.model
+        if (-not $model) { return $out }
+        foreach ($p in $model.pages.Values) {
+            if ($p.type -ne 'meeting' -or $p.status -eq 'archived' -or -not $p['series']) { continue }
+            $k = Get-MeetingSeriesKey ([string]$p['series'])
+            if (-not $out.ContainsKey($k)) { $out[$k] = New-Object System.Collections.Generic.List[string] }
+            $out[$k].Add((Get-MeetingDayOf ([string]$p['meetingAt'])))
+        }
+    } catch { }
+    $out
+}
+
 function Invoke-MeetingsDayRoute($State, [string]$Body) {
     <# POST /api/meetings/day {day?}: the Teams meetings of one day (today when no day is sent), as
        Copilot lists them with the person's own access (lib/Meetings.psm1). Read only: nothing is
@@ -212,6 +232,14 @@ function Invoke-MeetingsDayRoute($State, [string]$Body) {
     $x = ConvertFrom-MeetingDayReply -Reply $a.text -Day $day -Ref $ref
     if (-not $x.ok) { return @{ status = 502; body = @{ error = "Copilot's list of meetings could not be read: $($x.error) Try again." } } }
     Write-AppLog info server 'Meetings of a day listed' @{ meetings = @($x.meetings).Count; readable = @($x.meetings | Where-Object { $_.readable }).Count }
+    # Each meeting's series and how many of its meetings are in the wiki already (another day), so the
+    # window can say "part of a series" (operator, 2026-11-18). 0 when no vault is open.
+    $counts = Get-MeetingSeriesCounts $State
+    foreach ($m in @($x.meetings)) {
+        $m.series = Get-MeetingSeriesName $m.title
+        $k = Get-MeetingSeriesKey $m.series
+        $m.earlier = $(if ($counts.ContainsKey($k)) { @($counts[$k] | Where-Object { $_ -ne $day }).Count } else { 0 })
+    }
     @{ status = 200; body = @{ day = $day; meetings = @($x.meetings) } }
 }
 
@@ -1055,6 +1083,11 @@ function Invoke-SubmitRoute($State, [string]$Body) {
     $req = @{ action = $(if ($action) { $action } else { 'ask' }); question = $text; includeArchived = [bool](Get-BodyValue $b 'includeArchived' $false)
         conversationId = "$(Get-BodyValue $b 'conversationId' '')"; turn = [int](Get-BodyValue $b 'turn' 0) }
     $wanted = @(@(Get-BodyValue $b 'sources' @()) | ForEach-Object { "$_" } | Where-Object { (Test-NotebookId $_) -or (Test-VaultIdText $_) })
+    # series: Ask within one meeting series of the active vault, nothing else (2026-11-18). The series
+    # key the window got from the map (lib/Meetings.psm1 Get-MeetingSeriesKey); other sources are dropped.
+    $series = "$(Get-BodyValue $b 'series' '')".Trim()
+    if ($series.Length -gt 200) { return @{ status = 400; body = @{ intent = 'ask'; error = 'series must be a meeting series of at most 200 characters.' } } }
+    if ($series) { $req.series = Get-MeetingSeriesKey $series; $wanted = @() }
     if (-not $script:AskConversations) { $script:AskConversations = @{} }
     if ($req.action -eq 'follow-up' -and $script:AskConversations.ContainsKey($req.conversationId)) { $wanted = @($script:AskConversations[$req.conversationId]) }
     $req.sources = $wanted

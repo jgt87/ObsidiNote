@@ -31,6 +31,8 @@ export async function getMeetingsOfDay(day: string, signal?: AbortSignal): Promi
     hasRecap: m.hasRecap === true,
     hasNotes: m.hasNotes === true,
     readable: m.readable === true,
+    series: text(m.series),
+    earlier: typeof m.earlier === 'number' ? m.earlier : 0,
   }))
   return { day: text(r.day) || day, meetings }
 }

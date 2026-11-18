@@ -145,6 +145,10 @@ function ConvertTo-GraphModel {
             # both; entry links are page keys like the page's own links.
             created = $(if ($p.ContainsKey('created')) { [string]$p['created'] } else { '' })
             entries = @(ConvertTo-GraphEntries $p)
+            # series / meetingAt: a meeting page's series and start (yyyy-MM-ddTHH:mm), '' otherwise
+            # (operator, 2026-11-18; pinned by tests/fixtures/graph-pages.json).
+            series = $(if ($p.ContainsKey('series')) { [string]$p['series'] } else { '' })
+            meetingAt = $(if ($p.ContainsKey('meetingAt')) { [string]$p['meetingAt'] } else { '' })
         }
     })
     # The tags of the shown source with their page counts, sorted by name (ordinal).

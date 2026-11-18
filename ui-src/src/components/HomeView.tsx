@@ -43,14 +43,22 @@ export function HomeView({ home, addTarget, notebook, choices, onChoices, source
         Ask a new question instead
       </button>
     </p>
+  ) : home.scope ? (
+    <p className="home-note" role="status">
+      Asking within the meetings of <b>{home.scope.series}</b> ({seriesCount(home.scope.count)}): only these are read, nothing else.{' '}
+      <button type="button" className="link-btn" onClick={home.clearScope}>
+        Remove
+      </button>
+    </p>
   ) : null
-  const connect = onRetryCopilot ? <ConnectCopilot onRetry={onRetryCopilot} /> : null
+  const connect =onRetryCopilot ? <ConnectCopilot onRetry={onRetryCopilot} /> : null
   return (
     <div className="page">
       <h1 className="page__title">Add something, or ask your wiki</h1>
       <WhatsNew />
       <Composer addTarget={addTarget} onSend={home.send} busy={home.busy} prefill={home.prefill} note={note} clearKey={home.clearKey} block={block} connect={block?.retry ? connect : null}>
-        <AskOptions choices={choices} options={sourceOptions} onChange={onChoices} />
+        {/* Within a meeting series Ask reads that series only: the source choice would do nothing. */}
+        {!home.scope && <AskOptions choices={choices} options={sourceOptions} onChange={onChoices} />}
       </Composer>
       <FlowArea home={home} connect={connect} onOpenPage={onOpenActive} />
       {/* design (round 2, 2026-11-15): after a send the result stands alone; what still waits for
@@ -62,6 +70,8 @@ export function HomeView({ home, addTarget, notebook, choices, onChoices, source
     </div>
   )
 }
+
+const seriesCount = (n: number) => (n === 1 ? '1 meeting' : `${n} meetings`)
 
 /** "Connect Copilot again": one try (POST /api/copilot/reconnect), then what came of it. */
 function ConnectCopilot({ onRetry }: { onRetry: () => Promise<string> }) {

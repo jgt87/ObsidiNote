@@ -10,6 +10,7 @@
 Set-StrictMode -Version 2.0
 Import-Module (Join-Path $PSScriptRoot 'PageMeta.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
+Import-Module (Join-Path $PSScriptRoot 'Meetings.psm1')   # Get-MeetingSeriesKey: Ask within one series
 
 $script:LinkFetchMax = 200   # onenote: links fetched per branch for pages that have none yet
 
@@ -53,6 +54,22 @@ function Get-AskBranchData {
     @{ subtopics = $subs; pages = $pages }
 }
 
+function Get-AskSeriesData {
+    <# The meeting pages of series $Key (lib/Meetings.psm1 Get-MeetingSeriesKey), newest first, in
+       the shape of a branch's pages plus meetingAt: Ask within one series reads these and nothing
+       else (operator, 2026-11-18). Archived pages only with $IncludeArchived. Pure. #>
+    param([Parameter(Mandatory)][hashtable]$Model, [Parameter(Mandatory)][hashtable]$Ids, [Parameter(Mandatory)][string]$Key, [bool]$IncludeArchived = $false)
+    $list = @(foreach ($k in @($Model.pages.Keys)) {
+            $p = $Model.pages[$k]
+            if ($p.type -ne 'meeting' -or -not $p['series'] -or (Get-MeetingSeriesKey ([string]$p['series'])) -ne $Key) { continue }
+            if (-not $IncludeArchived -and $p.status -eq 'archived') { continue }
+            @{ id = $Ids.toAsk[$k]; title = $p.title; summary = $p.summary; type = $p.type; topics = @($p.topics)
+                link = $p.link; updated = $p.updated; summarizedAt = $p.summarizedAt; url = $p.url; status = $p.status
+                meetingAt = [string]$p['meetingAt']; series = [string]$p['series'] }
+        })
+    , @($list | Sort-Object { $_.meetingAt } -Descending)
+}
+
 function Read-AskPageText {
     <# The text of one page (title + every outline), read through the adapter. In memory only. #>
     param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)][string]$PageId)
@@ -77,6 +94,7 @@ function Invoke-AskSourceCall {
             }
             return $d
         }
+        'GetSeries' { return (Get-AskSeriesData -Model $Ctx.Model -Ids $Ctx.Ids -Key ([string]$Arguments.Key) -IncludeArchived ([bool]$Arguments.IncludeArchived)) }
         'ReadPageText' {
             $k = $Ctx.Ids.toKey[[string]$Arguments.PageId]
             if (-not $k -or -not $Ctx.Model.pages.Contains($k)) { return $null }
@@ -100,7 +118,9 @@ function New-AskSource {
         GetTopTopics = { & $call $ctx 'GetTopTopics' }.GetNewClosure()
         GetBranch = { param([string]$Path, [bool]$IncludeArchived) & $call $ctx 'GetBranch' @{ Path = $Path; IncludeArchived = $IncludeArchived } }.GetNewClosure()
         ReadPageText = { param([string]$PageId) & $call $ctx 'ReadPageText' @{ PageId = $PageId } }.GetNewClosure()
+        # A meeting series' pages, newest first (Ask within one series, 2026-11-18).
+        GetSeries = { param([string]$Key, [bool]$IncludeArchived) & $call $ctx 'GetSeries' @{ Key = $Key; IncludeArchived = $IncludeArchived } }.GetNewClosure()
     }
 }
 
-Export-ModuleMember -Function New-AskSource, Get-AskIdMap, Get-AskTopTopics, Get-AskBranchData, Read-AskPageText
+Export-ModuleMember -Function New-AskSource, Get-AskIdMap, Get-AskTopTopics, Get-AskBranchData, Get-AskSeriesData, Read-AskPageText

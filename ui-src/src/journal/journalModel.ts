@@ -12,12 +12,46 @@
 // Built from the knowledge graph's model (GET /api/graph of the active vault): no request of its own.
 // Pure (tests: journalModel.test.ts, on tests/fixtures/journal-pages.json).
 import type { GraphModel, GraphPage, GraphTopic } from '../graph/model'
+import { seriesKey } from '../model/series'
 
 export interface JournalFilter {
   /** A topic id (path); its subtopics are included. '' = none. */
   topicId: string
   /** Words to find in titles, summaries and entries. '' = none. */
   text: string
+  /** A meeting series (seriesKey): only its meeting pages are listed (2026-11-18). '' or absent = none. */
+  series?: string
+}
+
+/** A meeting series of the vault: its key, its name as the latest page has it, and its pages. */
+export interface MeetingSeries {
+  key: string
+  name: string
+  count: number
+}
+
+/** Every meeting series with at least one page (archived pages left out), by name. */
+export function meetingSeries(model: GraphModel): MeetingSeries[] {
+  const by = new Map<string, MeetingSeries & { at: string }>()
+  for (const p of model.pages) {
+    if (p.archived || p.kind !== 'meeting' || !p.series) continue
+    const key = seriesKey(p.series)
+    const at = p.meetingAt || p.created || ''
+    const s = by.get(key)
+    if (!s) by.set(key, { key, name: p.series, count: 1, at })
+    else {
+      s.count++
+      if (at > s.at) Object.assign(s, { name: p.series, at })
+    }
+  }
+  return [...by.values()].map(({ key, name, count }) => ({ key, name, count })).sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** Series whose name holds every word typed, at most $max. */
+export function matchingSeries(series: MeetingSeries[], text: string, max = 5): MeetingSeries[] {
+  const words = wordsOf(text)
+  if (!words.length) return []
+  return series.filter((s) => hasWords(s.name, words)).slice(0, max)
 }
 
 export interface JournalItem {
@@ -34,6 +68,8 @@ export interface JournalItem {
   /** The page's type ("concept", "decision", ...) for an item that is a page. */
   type: string
   topicIds: string[]
+  /** A meeting page's series, '' otherwise. */
+  series: string
 }
 
 export interface JournalDay {
@@ -82,9 +118,12 @@ function hasWords(text: string, words: string[]): boolean {
 
 const wordsOf = (text: string) => text.toLowerCase().split(/\s+/).filter(Boolean)
 
-/** The day a page belongs to: a day page's own date title, else the date it was made (or changed). */
+/** The day a page belongs to: a day page's own date title, a meeting's own start (meetingAt, local
+ *  already), else the date it was made (or changed). */
 function pageDay(p: GraphPage): { date: string; time: string } {
   if (isJournal(p) && p.entries?.length && DATE_TITLE.test(p.title)) return { date: p.title, time: '' }
+  const at = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}))?/.exec(p.meetingAt ?? '')
+  if (isMeeting(p) && at) return { date: at[1], time: at[2] ?? '' }
   return localParts(p.created || p.modified)
 }
 
@@ -96,11 +135,18 @@ export function buildJournal(model: GraphModel, filter: JournalFilter): JournalD
   const items: (JournalItem & { date: string })[] = []
   for (const p of model.pages) {
     if (p.archived) continue
+    // A series chosen: its meeting pages only (2026-11-18).
+    if (filter.series) {
+      if (!isMeeting(p) || seriesKey(p.series ?? '') !== filter.series) continue
+      const day = pageDay(p)
+      if (day.date) items.push({ key: p.id, pageId: p.id, date: day.date, time: day.time, title: p.title, summary: p.summary, kind: 'page', type: p.kind, topicIds: p.topicIds, series: p.series ?? '' })
+      continue
+    }
     if (isJournal(p) && p.entries?.length) {
       for (const e of p.entries) {
         if (!inTopic(e.topicIds, filter.topicId) || !hasWords(`${e.title} ${e.summary}`, words)) continue
         const at = localParts(e.at)
-        items.push({ key: `${p.id}#${e.ref}`, pageId: p.id, date: at.date, time: at.time, title: e.title, summary: e.summary, kind: 'entry', type: p.kind, topicIds: e.topicIds })
+        items.push({ key: `${p.id}#${e.ref}`, pageId: p.id, date: at.date, time: at.time, title: e.title, summary: e.summary, kind: 'entry', type: p.kind, topicIds: e.topicIds, series: '' })
       }
       continue
     }
@@ -108,7 +154,10 @@ export function buildJournal(model: GraphModel, filter: JournalFilter): JournalD
     if (!inTopic(p.topicIds, filter.topicId) || !hasWords(`${p.title} ${p.summary} ${p.aliases.join(' ')}`, words)) continue
     const day = pageDay(p)
     if (!day.date) continue
-    items.push({ key: p.id, pageId: p.id, date: day.date, time: isMeeting(p) ? '' : day.time, title: p.title, summary: p.summary, kind: isJournal(p) ? 'journal' : 'page', type: p.kind, topicIds: p.topicIds })
+    // A meeting shows its own start time; one without it (added before series) shows none, as the page
+    // only knows when it was added.
+    const time = isMeeting(p) && !(p.meetingAt ?? '').includes('T') ? '' : day.time
+    items.push({ key: p.id, pageId: p.id, date: day.date, time, title: p.title, summary: p.summary, kind: isJournal(p) ? 'journal' : 'page', type: p.kind, topicIds: p.topicIds, series: p.series ?? '' })
   }
   const byDay = new Map<string, JournalItem[]>()
   for (const { date, ...item } of items) {
@@ -173,9 +222,10 @@ export function shortDate(date: string): string {
 }
 
 /** The line under the search: what the list shows. */
-export function journalCaption(filter: JournalFilter, topic: GraphTopic | undefined, days: JournalDay[]): string {
+export function journalCaption(filter: JournalFilter, topic: GraphTopic | undefined, days: JournalDay[], seriesName = ''): string {
   const n = days.reduce((s, d) => s + d.items.length, 0)
   const what = n === 1 ? '1 item' : `${n} items`
+  if (filter.series) return `The meetings of "${seriesName || filter.series}": ${n === 1 ? '1 meeting' : `${n} meetings`}, newest day first.`
   if (!filter.topicId && !filter.text.trim()) return `Your journal and meetings: ${what}, newest day first.`
   const about = [topic ? `topic "${topic.path}"` : '', filter.text.trim() ? `"${filter.text.trim()}"` : ''].filter(Boolean).join(' and ')
   return `Everything about ${about}, from all sources and all days: ${what}.`

@@ -19,12 +19,16 @@
 #     checked (store RepairBodyLinks): in its own body outline only, a link that points at no page of
 #     the vault any more and whose text is the archived page's title or alias points at it again.
 #     Pages archived and restored before stay as they are (no mark says they moved).
+#   meeting-series (2026-11-18): a meeting page from Today's meetings (origin meeting) made before
+#     series existed gets obsn.series (its title without the date Copilot put in it) and obsn.meetingAt
+#     (that date, else the day it was made; no time is known). Meta and index record only; the title stays.
 # Done once: Intake requests leave the index by the scan rule itself (lib/Index.psm1); nothing to move.
 # The log holds counts and ids only. PS 5.1, ASCII only.
 Set-StrictMode -Version 2.0
 Import-Module (Join-Path $PSScriptRoot 'NotebookStructure.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Ingest.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Log.psm1')
+Import-Module (Join-Path $PSScriptRoot 'Meetings.psm1')   # meeting-series: the series name of a title
 
 $script:LinkBuckets = @('Internal links', 'Web links')
 
@@ -46,6 +50,13 @@ function Get-UpgradePlan {
     foreach ($p in @($Model.pages.Values)) {
         if ($p.owner -ne 'obsn' -or $p.status -eq 'archived') { continue }
         if (Test-WeakLinkIt -Links @($p.links)) { @{ step = 'link-strength'; id = [string]$p.id; from = ''; to = ''; type = '' } }
+        if ($p.type -eq 'meeting' -and [string]$p['origin'] -eq 'meeting' -and -not [string]$p['series']) {
+            $s = Get-MeetingSeriesName ([string]$p.title)
+            if ($s) {
+                $day = if ([string]$p.title -match '\b(\d{4}-\d{2}-\d{2})\b') { $Matches[1] } elseif ([string]$p['created'] -match '^(\d{4}-\d{2}-\d{2})') { $Matches[1] } else { '' }
+                @{ step = 'meeting-series'; id = [string]$p.id; from = ''; to = $s; type = $day }
+            }
+        }
         $u = [string]$p.url
         if ($u -notmatch '^(?i)https?://') { continue }
         $have = Get-BucketOfSection ([string]$p.section)
@@ -64,7 +75,7 @@ function Invoke-VaultUpgrade {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Store)
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    $r = [ordered]@{ status = 'none'; planned = 0; changed = 0; moved = 0; raised = 0; relinked = 0; failed = 0; reason = '' }
+    $r = [ordered]@{ status = 'none'; planned = 0; changed = 0; moved = 0; raised = 0; relinked = 0; series = 0; failed = 0; reason = '' }
     # Made before the try: when a later step stops the upgrade, the pages already changed and the
     # failures already collected are still reported (code review 2026-11-15).
     $failedIds = @{}; $changedIds = @{}
@@ -82,6 +93,15 @@ function Invoke-VaultUpgrade {
             if ($s.step -eq 'body-links') {
                 try { if ((& $Store.RepairBodyLinks $s.id).count) { $r.relinked++; $changedIds[$s.id] = $true; $r.planned++ } }
                 catch { $failedIds[$s.id] = $true; $r.planned++; Write-AppLog info upgrade 'Body links failed' @{ step = $s.step; id = $s.id; error = $_.Exception.GetType().Name } }
+                continue
+            }
+            if ($s.step -eq 'meeting-series') {
+                try {
+                    $p = $model.pages[$s.id]
+                    & $Store.UpdatePage ([string]$p.oneNoteId) @{ series = $s.to; meetingAt = $s.type } @() $null | Out-Null
+                    & $Store.IndexUpdatePage @{ id = $s.id; series = $s.to; meetingAt = $s.type } | Out-Null
+                    $r.series++; $changedIds[$s.id] = $true
+                } catch { $failedIds[$s.id] = $true; Write-AppLog info upgrade 'Meeting series failed' @{ step = $s.step; id = $s.id; error = $_.Exception.GetType().Name } }
                 continue
             }
             if ($s.step -eq 'link-strength') {
@@ -127,6 +147,7 @@ function Format-UpgradeStatus {
     if ($Result.moved) { $done += "$($Result.moved) link page(s) moved to the section the current link rule asks for" }
     if ($Result.raised) { $done += "your own links on $($Result.raised) page(s) set to related" }
     if ($Result -is [Collections.IDictionary] -and $Result['relinked']) { $done += "links in the text of $($Result.relinked) page(s) point at the archived pages again" }
+    if ($Result -is [Collections.IDictionary] -and $Result['series']) { $done += "$($Result.series) meeting page(s) given their series" }
     if ($Result.status -eq 'done' -and -not $done.Count) { return $null }
     switch ($Result.status) {
         'done' { @{ status = 'OK'; detail = ($done -join '; '); hint = '' } }

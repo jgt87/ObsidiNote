@@ -25,6 +25,7 @@ Import-Module (Join-Path $PSScriptRoot 'NotebookStructure.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Log.psm1')
 Import-Module (Join-Path $PSScriptRoot 'PageMeta.psm1')   # ConvertTo-TagList: the one tag normal form
 Import-Module (Join-Path $PSScriptRoot 'Journal.psm1')    # one journal page per day (2026-11-17)
+Import-Module (Join-Path $PSScriptRoot 'Meetings.psm1')   # a meeting's series and page title (2026-11-18)
 
 $script:StoreContract = @(
     'AssertWritable', 'VaultName', 'GetIndex', 'TypeList', 'BucketForType', 'LinkBucket', 'NormalizeUrl',
@@ -401,13 +402,60 @@ function Invoke-AddRequest {
             $oc = Resolve-OriginId (Get-LkProp $Request 'origin' $null)
             if (-not $oc.ok -and -not $Resume) { $r.message = "Nothing was added: $($oc.error)"; return (Complete-AddResult $r $sw) }
             $origin = $oc.origin
-            $r = Invoke-TextAdd -Text $text -Mode $mode -Store $Store -Ask $Ask -Options $Options -Result $r -Resume $Resume -Origin $origin -AllowDuplicate:((Get-LkProp $Request 'allowDuplicate' $false) -eq $true)
+            # A Teams meeting (operator, 2026-11-18: a daily meeting is one series): its series and
+            # start come from the text, the same day of the same series updates its page.
+            $mi = if ($origin -eq 'meeting') { Get-MeetingInfoFromText $text } else { $null }
+            if ($mi -and $mi.day -and -not $Resume) {
+                $same = Find-MeetingOccurrence -Index (Invoke-Store $Store 'GetIndex') -Key $mi.key -Day $mi.day
+                if ($same) { return (Complete-AddResult (Update-MeetingOccurrence -Store $Store -Page $same -Text $text -Info $mi -Result $r) $sw) }
+            }
+            if ($mi) { $Options = @{} + $Options; $Options['Meeting'] = $mi }
+            $r = Invoke-TextAdd -Text $text -Mode $mode -Store $Store -Ask $Ask -Options $Options -Result $r -Resume $Resume -Origin $origin -AllowDuplicate:(((Get-LkProp $Request 'allowDuplicate' $false) -eq $true) -or [bool]$mi)
         }
     } catch {
         $r.status = 'failed'
         $r.message = "Adding stopped: $($_.Exception.Message)"
     }
     Complete-AddResult $r $sw
+}
+
+function Get-MeetingPagesOf {
+    <# The meeting pages of series $Key in the index (archived ones left out). #>
+    param($Index, [string]$Key)
+    @(@(Get-LkProp $Index 'pages' @()) | Where-Object {
+            (Get-LkString $_ 'type') -eq 'meeting' -and (Get-LkString $_ 'status') -ne 'archived' -and (Get-LkString $_ 'series') -and (Get-MeetingSeriesKey (Get-LkString $_ 'series')) -eq $Key
+        })
+}
+
+function Find-MeetingOccurrence {
+    <# The page of series $Key on $Day, or $null. #>
+    param($Index, [string]$Key, [string]$Day)
+    @(Get-MeetingPagesOf $Index $Key | Where-Object { (Get-MeetingDayOf (Get-LkString $_ 'meetingAt')) -eq $Day }) | Select-Object -First 1
+}
+
+function Find-MeetingPrevious {
+    <# The latest page of series $Key that started before $At ("yyyy-MM-ddTHH:mm" or a day), or $null. #>
+    param($Index, [string]$Key, [string]$At)
+    @(Get-MeetingPagesOf $Index $Key | Where-Object { $a = Get-LkString $_ 'meetingAt'; $a -and (-not $At -or [string]::CompareOrdinal($a, $At) -lt 0) } |
+            Sort-Object { Get-LkString $_ 'meetingAt' } -Descending) | Select-Object -First 1
+}
+
+function Update-MeetingOccurrence {
+    <# The same meeting imported again (a later transcript): its page's text (ObsidiNote's own body
+       outline) and start are replaced. Copilot is not asked again; the summary, topics, links, tags
+       and "Your notes" stay. Returns the Add result with status updated (no undo: the page stays). #>
+    param($Store, $Page, [string]$Text, [hashtable]$Info, $Result)
+    $r = $Result
+    $id = Get-LkString $Page 'id'
+    try {
+        Invoke-Store $Store 'UpdatePage' @{ PageId = (Get-LkString $Page 'pageId'); Meta = @{ meetingAt = $Info.at; series = $Info.series }; Outlines = @(@{ role = 'body'; lines = (ConvertTo-BodyLines $Text) }); Title = $null } | Out-Null
+        Invoke-Store $Store 'IndexUpdatePage' @{ Page = @{ id = $id; meetingAt = $Info.at; series = $Info.series } } | Out-Null
+    } catch { $r.message = "This meeting is in your wiki already, and its page could not be updated: $($_.Exception.Message)"; return $r }
+    $rec = (Get-IndexPageMap (Invoke-Store $Store 'GetIndex'))[$id]
+    $r.status = 'updated'
+    $r.message = "Updated: $(Get-LkString $Page 'title'). Its text was read again; its topics, links and your notes stay."
+    $r.page = Get-PageView -Page (@{} + $(if ($rec) { $rec } else { $Page })) -Vault ([string](Invoke-Store $Store 'VaultName'))
+    $r
 }
 
 function Invoke-TextAdd {
@@ -448,6 +496,16 @@ function Invoke-TextAdd {
     # A Teams meeting's notes (origin "meeting", the window's Meetings, 2026-11-17) are a meeting page,
     # whatever type Copilot proposed: the person picked a meeting, and Meetings is where it belongs.
     if ($Origin -eq 'meeting' -and $types -contains 'meeting') { $val.type = 'meeting'; $val.intent = 'add' }
+    # A meeting of a series: ObsidiNote names the page "<series> . <day>" and links it to the series'
+    # previous meeting, so the occurrences form a chain (operator, 2026-11-18).
+    $mi = Get-IngestOption $Options 'Meeting' $null
+    if ($mi -and $val.type -eq 'meeting') {
+        if ($mi.day) { $val.title = Format-MeetingPageTitle -Series $mi.series -Day $mi.day }
+        $prev = Find-MeetingPrevious -Index $idx -Key $mi.key -At $mi.at
+        if ($prev -and -not @($val.links | Where-Object { $_['target'] -eq $prev.id }).Count) {
+            $val.links = @($val.links) + @(@{ target = [string]$prev.id; title = [string]$prev.title; link = [string](Get-LkProp $prev 'link' ''); anchor = ''; strength = 1; why = 'The previous meeting of this series.' })
+        }
+    }
     if ($val.intent -eq 'ask' -and $Mode -eq 'auto') {
         try { Invoke-Store $Store 'DeletePage' @{ PageId = $inbox['pageId'] } | Out-Null; $r.inbox = @{ pageId = $inbox['pageId']; status = 'removed' } } catch { Set-InboxFailed $Store $inbox 'Looks like a question' $r }
         $r.status = 'ask-instead'
@@ -471,6 +529,7 @@ function Invoke-TextAdd {
         status = ''; origin = $Origin
         outlines = @(@{ role = 'body'; lines = $body })
     }
+    if ($mi -and $val.type -eq 'meeting') { $page.series = [string]$mi.series; $page.meetingAt = [string]$mi.at }
     try { $cp = Invoke-Store $Store 'CreatePage' @{ Page = $page } }
     catch { $r.message = "Could not write the page: $($_.Exception.Message)"; Set-InboxFailed $Store $inbox $r.message $r; return $r }
     $page.pageId = [string]$cp['pageId']; $page.link = [string]$cp['link']; $page.section = [string]$cp['section']

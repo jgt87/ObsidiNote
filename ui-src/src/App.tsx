@@ -67,8 +67,9 @@ export function App() {
             checkResult={checkResult}
             onCheckAgain={checkAgain}
             onAdd={() => goto('home')}
-            onAsk={(page) => {
-              home.askAbout(askAboutText(page.title))
+            onAsk={(page, within) => {
+              if (within) home.askWithin(within)
+              else home.askAbout(askAboutText(page.title))
               goto('home')
             }}
           />
@@ -80,6 +81,10 @@ export function App() {
             onOpen={(id) => nav.openPage(nav.activeEntry, id)}
             onAsk={(question) => {
               home.askAbout(question)
+              goto('home')
+            }}
+            onAskSeries={(s) => {
+              home.askWithin({ series: s.name, count: s.count })
               goto('home')
             }}
           />

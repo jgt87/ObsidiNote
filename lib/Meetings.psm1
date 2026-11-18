@@ -154,4 +154,60 @@ function ConvertTo-MeetingNoteText {
     $l.ToArray() -join "`n"
 }
 
-Export-ModuleMember -Function Test-MeetingDay, New-MeetingDayPrompt, ConvertFrom-MeetingDayReply, New-MeetingNotesPrompt, ConvertFrom-MeetingNotesReply, ConvertTo-MeetingNoteText
+# ---------------------------------------------------------------- series (operator, 2026-11-18)
+# A daily meeting is one series: the same Teams title every day, other attendees, date and content.
+# ObsidiNote, not Copilot, names the series and the page, so every occurrence gets the same series
+# and a title that never collides: "<series> . <yyyy-mm-dd>".
+
+$script:Dot = [string][char]0x00B7
+
+function Get-MeetingSeriesName {
+    <# The series of a meeting: its Teams title without a date in it (some titles carry one),
+       separators left at the ends trimmed. '' for an empty title. Pure. #>
+    param([AllowEmptyString()][string]$Title)
+    $t = Get-MeetingText $Title $script:MaxTitle
+    $t = [regex]::Replace($t, '\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\b', ' ')
+    $t = [regex]::Replace($t, '\s+', ' ').Trim().Trim('-', '|', ':', ',', $script:Dot[0]).Trim()
+    $t
+}
+
+function Get-MeetingSeriesKey {
+    <# The comparable form of a series name: its letters and digits in lower case, one space between
+       words; punctuation ("|", "&", "-") does not count, so "Daily Sync | Team" from Teams and
+       "Daily Sync Team" in a title Copilot wrote are one series. Pure. #>
+    param([AllowEmptyString()][string]$Series)
+    ([regex]::Replace((Get-MeetingSeriesName $Series), '[^\p{L}\p{Nd}]+', ' ')).Trim().ToLowerInvariant()
+}
+
+function Format-MeetingPageTitle {
+    <# "<series> . <day>": the title of one occurrence's page. #>
+    param([Parameter(Mandatory)][string]$Series, [Parameter(Mandatory)][string]$Day)
+    "$Series $($script:Dot) $Day"
+}
+
+function Format-MeetingAt {
+    <# "yyyy-MM-ddTHH:mm" from a day and an "H:mm" time, or the day alone when there is no time. #>
+    param([Parameter(Mandatory)][string]$Day, [string]$Time = '')
+    if ($Time -match '^(\d{1,2}):(\d{2})$') { return ('{0}T{1:00}:{2}' -f $Day, [int]$Matches[1], $Matches[2]) }
+    $Day
+}
+
+function Get-MeetingInfoFromText {
+    <# The series and start of a meeting's text as ConvertTo-MeetingNoteText wrote it ("# Meeting:
+       <title>" and "Teams meeting on <day> at <time>."): @{ series; key; at; day }, or $null when the
+       text is not one. Read from the text, so an Add that waited for Copilot (its Intake item keeps
+       the text) files the same series. Pure. #>
+    param([AllowEmptyString()][AllowNull()][string]$Text)
+    if (-not $Text) { return $null }
+    $m = [regex]::Match($Text, '(?m)^#\s*Meeting:\s*(.+?)\s*$')
+    if (-not $m.Success) { return $null }
+    $series = Get-MeetingSeriesName $m.Groups[1].Value
+    if (-not $series) { return $null }
+    $w = [regex]::Match($Text, 'Teams meeting on (\d{4}-\d{2}-\d{2})(?: at (\d{1,2}:\d{2}))?')
+    $day = if ($w.Success) { $w.Groups[1].Value } else { '' }
+    @{ series = $series; key = (Get-MeetingSeriesKey $series); day = $day; at = $(if ($day) { Format-MeetingAt -Day $day -Time $w.Groups[2].Value } else { '' }) }
+}
+
+function Get-MeetingDayOf([AllowEmptyString()][string]$MeetingAt) { if ($MeetingAt -match '^(\d{4}-\d{2}-\d{2})') { $Matches[1] } else { '' } }
+
+Export-ModuleMember -Function Get-MeetingSeriesName, Get-MeetingSeriesKey, Format-MeetingPageTitle, Format-MeetingAt, Get-MeetingDayOf, Get-MeetingInfoFromText, Test-MeetingDay, New-MeetingDayPrompt, ConvertFrom-MeetingDayReply, New-MeetingNotesPrompt, ConvertFrom-MeetingNotesReply, ConvertTo-MeetingNoteText

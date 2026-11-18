@@ -24,7 +24,10 @@ Import-Module (Join-Path $PSScriptRoot 'OneNote.psm1')
 # entries: a journal day page's entries (operator, 2026-11-17: one page per day), a JSON array of
 # { r: request ref, at: yyyy-MM-ddTHH:mm, t: title, s: summary, p: topic paths, l: links } in the order of
 # the body outline's top-level lines (Add-ObsnBodyEntry). Only on day pages; '' or absent elsewhere.
-$script:MetaKeys = @('id', 'type', 'topics', 'aliases', 'summary', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'linkSummary', 'summaryHash', 'history', 'seenAt', 'checkStatus', 'origin', 'tags', 'entries')
+# series / meetingAt: a meeting page's series (the Teams title as the meeting list gave it) and when
+# the meeting started (yyyy-MM-ddTHH:mm, local), written by ObsidiNote at import, never by Copilot
+# (operator, 2026-11-18: a daily meeting is one series of pages). '' or absent on other pages.
+$script:MetaKeys = @('id', 'type', 'topics', 'aliases', 'summary', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'linkSummary', 'summaryHash', 'history', 'seenAt', 'checkStatus', 'origin', 'tags', 'entries', 'series', 'meetingAt')
 $script:ListKeys = @('topics', 'aliases', 'tags')
 $script:MaxTagLength = 40
 $script:MaxTagsPerPage = 12

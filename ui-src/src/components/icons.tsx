@@ -40,6 +40,16 @@ export const JournalIcon = () => (
   </Icon>
 )
 
+/** A meeting page: two people (operator, 2026-11-18). Not a calendar, so it is not read as the Journal. */
+export const MeetingIcon = () => (
+  <Icon>
+    <circle cx="6" cy="5.5" r="2" />
+    <path d="M2.5 13.5c0-2.2 1.6-3.5 3.5-3.5s3.5 1.3 3.5 3.5" />
+    <circle cx="11.5" cy="6" r="1.5" />
+    <path d="M11.5 10c1.3 0 2.5.9 2.5 2.8" />
+  </Icon>
+)
+
 export const AskIcon = () => (
   <Icon>
     <circle cx="7" cy="7" r="4.5" />

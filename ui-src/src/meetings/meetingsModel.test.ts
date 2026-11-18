@@ -11,6 +11,8 @@ const meeting = (over: Partial<Meeting> = {}): Meeting => ({
   hasRecap: false,
   hasNotes: false,
   readable: false,
+  series: 'Garden sync',
+  earlier: 0,
   ...over,
 })
 
@@ -24,6 +26,18 @@ describe('meetings model', () => {
     expect(meetingSubline(meeting({ attendees: 1 }))).toBe('10:00 · Nothing Copilot can read · 1 person')
     expect(meetingSubline(meeting({ attendees: 5, hasTranscript: true, readable: true }))).toBe('10:00 · Transcript · 5 people')
     expect(meetingSubline(meeting({ attendees: 0, time: '' }))).toBe('Nothing Copilot can read')
+  })
+
+  it('says when a meeting is part of a series already in the wiki (2026-11-18)', () => {
+    expect(meetingSubline(meeting({ attendees: 0, earlier: 1 }))).toBe('10:00 · Nothing Copilot can read · series, 1 earlier in your wiki')
+    expect(meetingSubline(meeting({ attendees: 0, earlier: 14 }))).toBe('10:00 · Nothing Copilot can read · series, 14 earlier in your wiki')
+  })
+
+  it('reads a re-imported day as updated, and counts it with the added ones', () => {
+    const s = rowStateFromAdd(normalizeSubmitResult({ intent: 'add', status: 'updated', page: { title: 'Garden sync · 2031-04-09' } }))
+    expect(s).toEqual({ step: 'updated', pageTitle: 'Garden sync · 2031-04-09' })
+    expect(rowStateText(s)).toBe('Updated "Garden sync · 2031-04-09": already in your wiki, its text read again')
+    expect(runSummary([s, { step: 'added', pageTitle: '' }])).toBe('2 added.')
   })
 
   it('ticks the meetings Copilot can read something of', () => {

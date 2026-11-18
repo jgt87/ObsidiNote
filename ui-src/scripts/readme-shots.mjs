@@ -286,6 +286,20 @@ async function main() {
   await js(`window.scrollTo(0, 0)`)
   await wait(400)
   await shot('meetings')
+
+  // 10 a meeting series in the Journal: its meetings only, and "Ask about these meetings"
+  await go('/#/journal', '.jr__row')
+  await js(`(() => { const i = document.querySelector('.jr__field'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(i, 'stand-up'); i.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  await wait(300)
+  await js(`[...document.querySelectorAll('.jr__suggest button')].find((b) => b.textContent.startsWith('Meetings:'))?.click()`)
+  await wait(500)
+  await shot('series')
+
+  // 11 asking within that series: the home page with the limit above the box
+  await js(`[...document.querySelectorAll('.jr__series button')].find((b) => b.textContent.startsWith('Ask about'))?.click()`)
+  for (let k = 0; k < 50 && !(await js(`!!document.querySelector('#composer-text')`)); k++) await wait(100)
+  await type('What did the stand-ups say about laptops?')
+  await shot('ask-series')
 }
 
 // Journal day pages of the last days and a decision page with the pages it came from (invented).
@@ -306,6 +320,14 @@ function addJournal(g) {
       summary: `${entries.length} entries`, created: `${date}T07:00:00.000Z`,
       entries: entries.map(([hm, title, summary, t], i) => ({ ref: `r${back}${i}`, at: `${date}T${hm}`, title, summary, topicIds: [t.id], links: [] })),
     })
+  }
+  // A daily stand-up as a meeting series: one page per day, each linked to the day before (2026-11-18).
+  const series = 'Stand-up: migration wave 2'
+  const standups = [[0, '08:40', 'Two teams still need laptops; wave 2 starts Monday.'], [1, '08:45', 'Pilot group moved without problems.'], [2, '08:40', 'Laptop order confirmed for both teams.'], [3, '08:50', 'Wave 2 plan agreed; pilot group picked.']]
+  for (const [back, hm, summary] of standups) {
+    const date = dayOf(back)
+    g.pages.push({ id: `pm${back}`, title: `${series} · ${date}`, kind: 'meeting', bucket: 'Meetings', section: 'Meetings', topicIds: [proj.id], tags: [], aliases: [], summary, created: `${date}T20:00:00.000Z`, series, meetingAt: `${date}T${hm}` })
+    if (back < 3) g.edges.push({ from: `pm${back}`, to: `pm${back + 1}`, strength: 1 })
   }
   const pick = (title) => g.pages.find((p) => p.title === title)?.id
   g.pages.push({ id: 'pjd', title: 'Decision: partners leave the VPN first', kind: 'decision', bucket: 'Decisions', section: 'Decisions', topicIds: [proj.id], tags: [], aliases: [], summary: 'The partner portal moves to the identity-aware proxy before staff do.', created: new Date(Date.now() - 86400000).toISOString() })

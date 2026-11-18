@@ -606,6 +606,20 @@ Describe 'V6 Add lines say why an Add did not go as expected (target machine, 20
     }
 }
 
+Describe 'V6 compares link parts without logging them (target machine, 2026-11-18)' {
+    $cmp = { param($a, $b) & (Get-Module StageVault) { param($x, $y) Format-KitLinkCompare $x $y } $a $b }
+    $full = 'onenote:https://example.invalid/docs/Archive/Notes.one#Target&section-id={22222222-2222-2222-2222-222222222222}&page-id={CCCCCCCC-0000-4000-8000-00000000000C}&end'
+    It 'tells a short in-notebook form with the same ids from another page' {
+        $short = 'onenote:#Target&section-id={22222222-2222-2222-2222-222222222222}&page-id={CCCCCCCC-0000-4000-8000-00000000000C}&end&base-path=https://example.invalid/docs/Archive/Notes.one'
+        & $cmp $short $full | Should Be 'same page-id yes; same section-id yes; same address no; short form yes; base-path yes'
+        & $cmp ($full -replace 'CCCCCCCC', 'DDDDDDDD') $full | Should Be 'same page-id no; same section-id yes; same address yes; short form no; base-path no'
+        & $cmp '' $full | Should Be 'no link in the text'
+    }
+    It 'never puts an address, an id or a title in the line' {
+        (& $cmp $full $full) | Should Not Match 'example|2222|cccc|Target'
+    }
+}
+
 Describe 'V6 closures are made outside Measure-KitStep blocks (target machine, 2026-11-17)' {
     # A closure made inside a block that Measure-KitStep (another module) runs does not see the
     # function's variables: GetLease returned nothing and Add reported "Read only" on the target
@@ -756,7 +770,7 @@ Describe 'V6 "Archive, restore and delete" in the dev vault (in-memory OneNote, 
     It 'follows the link as it stands in the linking page''s text, once: Archive pointed it at the moved page' {
         $global:ObsnNav.Count | Should Be 1
         $global:ObsnNav[0] | Should Match '^onenote:'
-        $c.Results[2].detail | Should Match 'opens the archived page: yes; its OneNote link changed: yes; the text points at the new link: yes; the text still has the old link: no; OneNote''s link now is the index''s: yes; the text points at OneNote''s link now: yes; pages re-pointed: 1'
+        $c.Results[2].detail | Should Match 'opens the archived page: yes; its OneNote link changed: yes; the text points at the new link: yes; the text still has the old link: no; OneNote''s link now is the index''s: yes; the text points at OneNote''s link now: yes; the text''s link against OneNote''s: same page-id yes; same section-id yes; same address yes; short form no; base-path no; pages re-pointed: 1'
     }
     It 'logs statuses, counts and yes/no only: no page title, id or link' {
         $all = @(foreach ($x in $c.Results) { "$($x.name) $($x.detail)" }) -join ' '

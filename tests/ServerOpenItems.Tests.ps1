@@ -121,7 +121,9 @@ Describe 'GET /api/graph: source.readOnlyReason and tags' {
         $j | Should Match '"tags":\[\],"edgesComplete"'
         $j | Should Match '"origin":"[^"]*","tags":\[\],"own":true,'
         # The Journal's fields (2026-11-17): entries is a list on every page, [] when not a day page.
-        $j | Should Match '"entries":\[\]\}'
+        $j | Should Match '"entries":\[\],'
+        # A meeting's series and start (2026-11-18): '' on every other page.
+        $j | Should Match '"series":"","meetingAt":""\}'
     }
     It 'is notebook for a connected notebook' {
         # The read-only hierarchy fixture: its ids have OneNote's shape, which the route checks.

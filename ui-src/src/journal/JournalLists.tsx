@@ -1,10 +1,22 @@
+import { MeetingIcon } from '../components/icons'
 import { decisionsAskText } from '../model/handoff'
 import { shortDate, type DecisionItem, type JournalDay, type JournalItem } from './journalModel'
 
 const KIND_LABEL: Record<JournalItem['kind'], string> = { entry: 'Journal', journal: 'Journal', page: '' }
 
-/** The type column: only while searching, where journal entries and other pages are mixed. */
-const typeLabel = (i: JournalItem, searching: boolean) => (searching ? KIND_LABEL[i.kind] || i.type : '')
+/** The type column: a meeting always says so, with its icon (journal entries and meetings are mixed
+ *  without a search too, 2026-11-18); other types only while searching. */
+function TypeCell({ item, searching }: { item: JournalItem; searching: boolean }) {
+  if (item.type === 'meeting') {
+    return (
+      <span className="jr__type jr__type--meeting">
+        <MeetingIcon />
+        Meeting
+      </span>
+    )
+  }
+  return <span className="jr__type">{searching ? KIND_LABEL[item.kind] || item.type : ''}</span>
+}
 
 /** The days, newest first; each item is one button that opens its page (an entry opens its day). */
 export function JournalDays({ days, searching, dayLabel, onOpen }: { days: JournalDay[]; searching: boolean; dayLabel: (d: string) => string; onOpen: (pageId: string) => void }) {
@@ -31,7 +43,7 @@ export function JournalDays({ days, searching, dayLabel, onOpen }: { days: Journ
                     <span className="act__title">{i.title}</span>
                     {i.summary && <span className="act__sub">{i.summary}</span>}
                   </span>
-                  <span className="jr__type">{typeLabel(i, searching)}</span>
+                  <TypeCell item={i} searching={searching} />
                 </button>
               </li>
             ))}

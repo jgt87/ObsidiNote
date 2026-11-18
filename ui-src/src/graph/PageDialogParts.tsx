@@ -329,7 +329,9 @@ export interface DialogFooterProps {
   readOnly: boolean
   why: string
   src: ExportSource
-  onAsk?: (page: GraphPage) => void
+  onAsk?: (page: GraphPage, within?: { series: string; count: number }) => void
+  /** How many meetings the page's series has (0: not a meeting of a series). */
+  seriesCount?: number
   /** Edit is offered (the active vault's page with an edit action). */
   canEdit: boolean
   onToggleEdit: () => void
@@ -339,7 +341,7 @@ export interface DialogFooterProps {
   keys: ReactNode
 }
 
-export function DialogFooter({ page, editing, readOnly, why, src, onAsk, canEdit, onToggleEdit, onRetirePages, onFocusPage, keys }: DialogFooterProps) {
+export function DialogFooter({ page, editing, readOnly, why, src, onAsk, seriesCount = 0, canEdit, onToggleEdit, onRetirePages, onFocusPage, keys }: DialogFooterProps) {
   const open = openButtons(page, editing)
   return (
     <footer className="kg-dlg__foot">
@@ -365,6 +367,11 @@ export function DialogFooter({ page, editing, readOnly, why, src, onAsk, canEdit
       <button type="button" className="btn" onClick={() => onAsk?.(page)} disabled={!onAsk}>
         Ask about this
       </button>
+      {onAsk && page.series && seriesCount > 1 && (
+        <button type="button" className="btn" onClick={() => onAsk(page, { series: page.series ?? '', count: seriesCount })}>
+          Ask about this series
+        </button>
+      )}
       {readOnly && (
         // Shown, not hidden: a missing button gave no hint that pages can be edited at all, or why
         // not here. Focusable, so the reason is reachable by keyboard; it does nothing.

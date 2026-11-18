@@ -99,6 +99,9 @@ export interface SubmitRequest {
   origin?: string
   /** A dropped file's OneDrive/SharePoint address (locateFile): the Add makes that file's link page. */
   fileUrl?: string
+  /** Ask within one meeting series: the server reads that series' meeting pages and nothing else
+   *  (2026-11-18). Left out = a normal question. */
+  series?: string
 }
 
 const HEADERS: Record<string, string> = { 'X-ObsidiNote': '1' }
@@ -271,6 +274,7 @@ export async function submit(req: SubmitRequest, signal?: AbortSignal): Promise<
     includeArchived: Boolean(req.includeArchived),
     ...(req.origin ? { origin: req.origin } : {}),
     ...(req.fileUrl ? { fileUrl: req.fileUrl } : {}),
+    ...(req.series ? { series: req.series } : {}),
   }
   const raw = await call<Record<string, unknown>>('/api/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal })
   return normalizeSubmitResult(raw)

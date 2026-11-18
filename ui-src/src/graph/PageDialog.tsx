@@ -20,11 +20,14 @@ import { dialogKeysHint, pageLinks, type DialogTab } from './pageDialogModel'
 import { DialogFooter, DialogHeader, DialogTabs, NeighbourhoodTab, PageTab, rowNav, TopicTab, type Linking } from './PageDialogParts'
 import { PageEditForm } from './PageEditForm'
 import { pageReadOnlyWhy } from './readOnly'
+import { seriesCount } from '../model/series'
 import { useDialogKeys, useModalDialog } from './usePageDialogKeys'
 import { usePageHistory } from './usePageHistory'
 
 export interface PageActions {
-  onAsk?: (page: GraphPage) => void
+  /** "Ask about this"; with $within, "Ask about this series": a question limited to the meetings of
+   *  the page's series (2026-11-18). */
+  onAsk?: (page: GraphPage, within?: { series: string; count: number }) => void
   /** Saves an edit of a page of the active vault; resolves once the map shows it. Read-only sources
    *  get no Edit button. */
   onEditPage?: (req: PageEditRequest) => Promise<unknown>
@@ -160,6 +163,7 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
         why={why}
         src={src}
         onAsk={onAsk}
+        seriesCount={page.series ? seriesCount(index.model.pages, page.series) : 0}
         canEdit={canEdit}
         onToggleEdit={() => {
           setTab('page')

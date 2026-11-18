@@ -164,6 +164,7 @@ Describe 'ConvertTo-GraphModel: section, bucket and kind per page (tests/fixture
         $meta = @{ 'obsn.id' = $p.id; 'obsn.type' = $p.kind }
         if (@($p.tags).Count) { $meta['obsn.tags'] = (ConvertTo-Json -InputObject @($p.tags) -Compress) }
         if ($p.PSObject.Properties['summarizedAt']) { $meta['obsn.summarizedAt'] = $p.summarizedAt }
+        foreach ($k in 'series', 'meetingAt') { if ($p.PSObject.Properties[$k]) { $meta["obsn.$k"] = $p.$k } }
         $null = $f.AddPage((Add-FixtureSection $f $vault $p.section), "Page $($p.id)", $meta, 1, '')
     }
     # A page the person made in the vault: no obsn Meta (it is listed, never changed).
@@ -192,6 +193,7 @@ Describe 'ConvertTo-GraphModel: section, bucket and kind per page (tests/fixture
             $sa = if ($p.PSObject.Properties['summarizedAt']) { $p.summarizedAt } else { '' }
             $got.summarizedAt | Should Be $sa
             $got.own | Should Be ([bool]$p.own)
+            foreach ($k in 'series', 'meetingAt') { $got.$k | Should Be $(if ($p.PSObject.Properties[$k]) { $p.$k } else { '' }) }
         }
     }
     It 'sends the tags of the shown source with their page counts, sorted by name, as a list' {

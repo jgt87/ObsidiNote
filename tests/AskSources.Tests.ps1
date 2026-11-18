@@ -9,6 +9,24 @@ foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease
 . (Join-Path $here 'FakeOneNote.ps1')
 . (Join-Path $here 'SyntheticVault.ps1')
 
+Describe 'A meeting series as an Ask source (operator, 2026-11-18)' {
+    $w = New-SyntheticVault
+    $m = $w.open.model
+    foreach ($k in 'p1', 'p2', 'p3') { $m.pages[$k].type = 'meeting' }
+    $m.pages['p1'].series = 'Garden sync | Beds'; $m.pages['p1'].meetingAt = '2026-11-10T10:00'
+    $m.pages['p2'].series = 'Garden sync Beds'; $m.pages['p2'].meetingAt = '2026-11-12T10:00'
+    $m.pages['p3'].series = 'Other meeting'; $m.pages['p3'].meetingAt = '2026-11-11T10:00'
+    $src = New-AskSource -Adapter $w.a -Model $m -Id $w.open.vault.vaultId -Name 'Synthetic Vault'
+    It 'gives only the series'' meeting pages, newest first, punctuation ignored' {
+        $list = & $src.GetSeries 'garden sync beds' $false
+        (@($list | ForEach-Object { $_.id }) -join ',') | Should Be 'p2,p1'
+        @($list)[0].meetingAt | Should Be '2026-11-12T10:00'
+    }
+    It 'gives nothing for another series' {
+        @(& $src.GetSeries 'no such meeting' $false).Count | Should Be 0
+    }
+}
+
 Describe 'The active vault as an Ask source' {
     $w = New-SyntheticVault
     $src = New-AskSource -Adapter $w.a -Model $w.open.model -Id $w.open.vault.vaultId -Name 'Synthetic Vault'

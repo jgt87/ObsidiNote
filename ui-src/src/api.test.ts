@@ -52,5 +52,10 @@ describe('submit: what is sent to the server', () => {
     const b = await sentBody({ text: 'x', mode: 'add' })
     expect('origin' in b).toBe(false)
     expect('fileUrl' in b).toBe(false)
+    expect('series' in b).toBe(false)
+  })
+  it('sends the meeting series of an Ask within one series (2026-11-18)', async () => {
+    const b = await sentBody({ text: 'What did we decide?', mode: 'ask', series: 'Garden sync' })
+    expect(b.series).toBe('Garden sync')
   })
 })

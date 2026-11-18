@@ -7,6 +7,7 @@
     { "id": "p104", "source": "vault", "own": true, "section": "Journal/2025", "bucket": "Journal", "kind": "log", "tags": [] },
     { "id": "p105", "source": "vault", "own": true, "section": "Web links", "bucket": "Web links", "kind": "link-web", "tags": [], "summarizedAt": "2026-07-01T09:00:00.000Z" },
     { "id": "p106", "source": "vault", "own": true, "section": "Archive/Notes", "bucket": "Archive", "kind": "note", "tags": ["key ref"] },
+    { "id": "p107", "source": "vault", "own": true, "section": "Meetings", "bucket": "Meetings", "kind": "meeting", "tags": [], "series": "Garden sync | Tidal beds", "meetingAt": "2031-04-09T10:00" },
     { "id": "n:my-notes", "source": "vault-user", "own": false, "section": "My notes", "bucket": "My notes", "kind": "", "tags": [] },
     { "id": "n:group-section", "source": "notebook", "own": false, "section": "Group/Section", "bucket": "Group/Section", "kind": "", "tags": [] },
     { "id": "n:00-admin", "source": "notebook", "own": false, "section": "00 Admin", "bucket": "00 Admin", "kind": "", "tags": [] }

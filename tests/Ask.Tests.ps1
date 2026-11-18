@@ -69,6 +69,62 @@ function Invoke-Ask {
     Invoke-AskRequest -Request $Request -Context @{ Sources = @($Sources); Copilot = $Copilot; Now = $script:Now }
 }
 
+Describe 'Ask within one meeting series: those meetings and nothing else (operator, 2026-11-18)' {
+    BeforeEach { Reset-AskState }
+    function New-SeriesVault {
+        $v = New-Vault
+        $v.seriesCalls = New-Object System.Collections.Generic.List[string]
+        $v.GetSeries = { param([string]$Key, [bool]$IncludeArchived)
+            $v.seriesCalls.Add($Key)
+            if ($Key -ne 'garden sync') { return , @() }
+            , @(@{ id = 'm2'; title = 'Garden sync . 2026-11-12'; summary = 'Pumps ordered.'; type = 'meeting'; meetingAt = '2026-11-12T10:00'; series = 'Garden sync'; link = 'onenote:#m2' },
+                @{ id = 'm1'; title = 'Garden sync . 2026-11-11'; summary = 'Beds move north.'; type = 'meeting'; meetingAt = '2026-11-11T10:00'; series = 'Garden sync'; link = 'onenote:#m1' })
+        }.GetNewClosure()
+        $v.ReadPageText = { param([string]$PageId) $v.reads.Add($PageId); "TEXT-$PageId" }.GetNewClosure()
+        $v
+    }
+    It 'reads only the series'' pages, asks once, in a new chat with Work IQ off, and says so' {
+        $v = New-SeriesVault
+        $nb = New-Notebook
+        $cp = New-FakeCopilot @((New-Answer @(@{ text = 'The pumps were ordered.'; cites = @('m2') })))
+        $wiq = New-Object System.Collections.Generic.List[string]
+        $cp.WorkIq = { param([bool]$On) $wiq.Add("$On"); 'off' }.GetNewClosure()
+        $r = Invoke-Ask @($v, $nb) $cp @{ question = 'When were the pumps ordered?'; series = 'garden sync'; sources = @('nb2') }
+        $r.status | Should Be 'answered'
+        $cp.prompts.Count | Should Be 1
+        $cp.prompts[0] | Should Match 'TEXT-m2'
+        $cp.prompts[0] | Should Match 'TEXT-m1'
+        $cp.prompts[0] | Should Not Match 'TEXT-p1|TEXT-R1'
+        $v.branchCalls.Count | Should Be 0
+        $nb.reads.Count | Should Be 0
+        ($wiq -join ',') | Should Be 'False'
+        $r.series.read | Should Be 2
+        $r.path.summary | Should Match 'Only the meetings of "Garden sync" were read: 2 of 2 \(2026-11-11 to 2026-11-12\)\. Nothing else was used\.'
+    }
+    It 'drops a citation of a page outside the series' {
+        $v = New-SeriesVault
+        $cp = New-FakeCopilot @((New-Answer @(@{ text = 'From elsewhere.'; cites = @('p1') })))
+        $r = Invoke-Ask @($v) $cp @{ question = 'Anything?'; series = 'garden sync' }
+        $r.status | Should Be 'not-found'
+        @($r.invalidCitations).Count | Should Be 1
+    }
+    It 'says not found, without asking Copilot, for a series with no pages' {
+        $v = New-SeriesVault
+        $cp = New-FakeCopilot @()
+        $r = Invoke-Ask @($v) $cp @{ question = 'Anything?'; series = 'other meeting' }
+        $r.status | Should Be 'not-found'
+        $cp.prompts.Count | Should Be 0
+    }
+    It 'switches Work IQ off for a normal question too' {
+        $v = New-Vault
+        $cp = New-FakeCopilot @(@{ branches = @() })
+        $wiq = New-Object System.Collections.Generic.List[string]
+        $cp.WorkIq = { param([bool]$On) $wiq.Add("$On"); 'off' }.GetNewClosure()
+        $null = Invoke-Ask @($v) $cp @{ question = 'Anything about proxies?' }
+        ($wiq -join ',') | Should Be 'False'
+    }
+}
+
 Describe 'Ask: path through the central index' {
     BeforeEach { Reset-AskState }
 
