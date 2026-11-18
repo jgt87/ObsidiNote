@@ -5,6 +5,19 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.12] - 2026-11-18
+
+### Added
+- **Meeting attendees with their e-mail address**: a meeting page lists each attendee as "Name (address)", the address a mail link. Copilot is asked for the address as it is in the meeting invitation and never to guess one; an attendee without an address keeps just the name. Meetings imported before keep their list of names until the day is imported again. The validation kit's meeting probe says how many attendees came with an address.
+
+### Changed
+- **Add or ask** in Auto recognizes much more. Questions: ones that start with "Can", "Is", "Do", "Should", "Kan", "Heeft" and more, requests such as "Summarize ...", "Tell me ...", "Compare ...", "Vat ... samen", "Geef me ...", a question mark in the last sentence ("Who owns it? thanks"), and a question after pasted text. Notes: reports such as "Met Ada today" or "Gebeld met ...", "Action items" and "Notulen", lists, headings, a date or time at the start, several sentences. Each signal counts, and the box names the strongest ones as its reason.
+- When it cannot tell (a few words such as "partner portal decisions"), the box says so and offers **Search your wiki** or **Add as a note**, instead of adding it.
+- A SharePoint, OneDrive or Teams link with your own words is shown as what it will be: the page summarized, your words as your notes.
+
+### Fixed
+- Archive and Delete said one page links to the page whatever the real number; they now count every page that links to it.
+
 ## [v0.12.11] - 2026-11-18
 
 ### Added

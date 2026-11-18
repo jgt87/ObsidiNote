@@ -29,6 +29,20 @@ Describe 'Get-RetirePlan: what would happen, nothing written' {
         "$($p1.section)>$($p1.to)|$($p1.inbound)" | Should Be 'Notes>Archive/Notes|1'
         $w.f.Writes.Count | Should Be $before
     }
+    It 'counts every page that links to it, also none and two (it said 1 always until 2026-11-18)' {
+        $counts = @{}
+        foreach ($id in @($w.open.model.pages.Keys)) {
+            $n = @($w.open.model.pages.Values | Where-Object { $_.id -ne $id -and @($_.links | Where-Object { $_ -and $_.target -eq $id }).Count }).Count
+            $counts[$id] = $n
+        }
+        $none = @($counts.Keys | Where-Object { $counts[$_] -eq 0 -and $w.open.model.pages[$_].owner -eq 'obsn' })[0]
+        (@((Get-RetirePlan -Store $w.store -Action archive -Ids @($none)).pages)[0].inbound) | Should Be 0
+        $other = @($w.open.model.pages.Values | Where-Object { $_.owner -eq 'obsn' -and $_.id -ne 'p1' -and -not @($_.links | Where-Object { $_ -and $_.target -eq 'p1' }).Count })[0]
+        & $w.store.IndexUpdatePage @{ id = $other.id; links = @(@($other.links) + @{ target = 'p1'; strength = 2; why = 'test' }) } | Out-Null
+        $two = $counts['p1'] + 1
+        $two | Should BeGreaterThan 1
+        (@((Get-RetirePlan -Store $w.store -Action archive -Ids @('p1')).pages)[0].inbound) | Should Be $two
+    }
     It 'refuses a page that is not ObsidiNote''s, and restore of a page that is not archived' {
         $p = Get-RetirePlan -Store $w.store -Action archive -Ids @('p99')
         @($p.refused)[0].reason | Should Match 'not one of ObsidiNote'

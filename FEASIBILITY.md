@@ -585,17 +585,23 @@ serving a prebuilt React UI, so nothing is installed at runtime. Three views:
 
 **Add or Ask from one input.** One box with a mode switch: Auto (the default), Add, Ask.
 (See the interface mock-up; its link is kept outside the repo.) Auto decides in fixed, tested rules
-(no model), in order:
+(no model). Since 2026-11-18 (operator: "expand the detection") the rules score the text instead of
+taking the first that matches (`lib/Intent.psm1`):
 1. Explicit choice wins: the button, `Ctrl+1` / `Ctrl+2`, a `+` or `?` prefix, or a dropped file
-   (which means Add).
-2. Ask when the input ends with `?` or starts with a question word (EN + NL list), and is short:
-   one paragraph, under 300 characters, no link.
-3. Add when the input is a link on its own, a file or image, longer text (over 300 characters
-   or several paragraphs), pasted mail or meeting headers, or a statement prefix ("We
-   decided", "Note:", "TODO").
-4. Otherwise it is unclear. Copilot's reply starts with `intent: add|ask|both` inside the same
-   call, so there is no extra round trip. The app shows its pick and the reason, and waits for
-   Enter. The user's correction is kept as an example.
+   (which means Add). So do a link on its own and a company (SharePoint, OneDrive, Teams) link with
+   the person's own words (Add: the link's page, the words in "Your notes").
+2. Every other signal adds points. Ask: a question word or a helper verb at the start ("Can",
+   "Is", "Kan", "Heeft"), a request to the wiki ("Summarize", "Tell me", "Vat ... samen"), a "?"
+   at the end or in the last sentence, a question after longer text. Add: a statement opening,
+   mail or meeting headers, a note heading ("Action items", "Notulen"), a list, a Markdown
+   heading, a report of what happened ("Met Ada today", "Gebeld met"), a date or time at the
+   start, longer text, several paragraphs, several sentences without a question, a link.
+3. A lead of 2 points or more decides; a smaller lead, or no signal at all, is unclear and the box
+   offers both ("Search your wiki" or "Add as a note"). A question about a web address is never
+   asked by itself (Ask reads the wiki only). Sent as it is, an unclear text is added and Copilot's
+   filing may still say it is a question ("Ask it instead?").
+4. The examples the rules must get right, English and Dutch, are `tests/fixtures/intent-samples.json`;
+   a wrong call the person reports becomes a new example there.
 
 The chosen mode is always shown before sending ("Will ask your wiki: reads as a question"),
 with a one-key flip. A wrong guess costs little:

@@ -53,8 +53,9 @@ took. The same holds for the markers, the prompts and Copilot's answers.
      - `P10 meetings list  N meetings in the last 7 days; with a transcript ..., a recap ..., notes
        ..., a link ...`, then `P10 day's meetings  N meetings on the busiest day of the last 7 days
        (0 of another day); ...`, then `P10 meeting notes 1` and `P10 meeting notes 2  read yes
-       (based on transcript|recap|notes); date matches the day yes; N attendees, N decisions, N
-       actions (...)`. Best right after a week with a few Teams meetings that had transcription, a
+       (based on transcript|recap|notes); date matches the day yes; N attendees (N with an address),
+       N decisions, N actions (...)`. "with an address" says how many attendees Copilot gave with
+       their e-mail address (from v0.12.12): 0 means it does not see them on this tenant. Best right after a week with a few Teams meetings that had transcription, a
        Copilot recap or Facilitator notes. The log has counts only: no meeting titles, names, dates
        or text.
    - If not, send this: the two newest Desktop files. A `[WARN]` with "access no-access" means
@@ -102,7 +103,8 @@ took. The same holds for the markers, the prompts and Copilot's answers.
      can read ("Transcript", "Recap", "Notes" or "Nothing Copilot can read"); the ones it can read
      are ticked. Untick all but one, press **Add 1 meeting**: the row says "Copilot is reading the
      meeting...", then "Adding to your wiki...", then "Added as ..." (or "Waiting for Copilot").
-     The page is under **Meetings** in OneNote with attendees, summary, decisions and actions, and
+     The page is under **Meetings** in OneNote with attendees ("Name (address)" when Copilot gave
+     the address), summary, decisions and actions, and
      **History** lists it with **Undo**. Undo it if it was only a test.
    - If not, send this: the row's message word for word (it holds no meeting text), and the newest
      `obsidinote.log` (counts only).

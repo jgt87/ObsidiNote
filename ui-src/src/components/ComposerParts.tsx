@@ -58,14 +58,15 @@ export function IntentLine({ intent, line, error, onFlip }: { intent: string | u
             {line.text}
           </>
         )}
-        {line.flip && !error && (
-          <>
-            {' '}
-            <button type="button" className="link-btn" onClick={() => onFlip(line.flip!.mode)}>
-              {line.flip.label}
-            </button>
-          </>
-        )}
+        {!error &&
+          line.choices.map((c, i) => (
+            <span key={c.mode}>
+              {i > 0 ? ' or ' : ' '}
+              <button type="button" className="link-btn" onClick={() => onFlip(c.mode)}>
+                {c.label}
+              </button>
+            </span>
+          ))}
       </span>
     </p>
   )

@@ -67,7 +67,7 @@ Next starts continue in that vault. To use a vault made on another PC, open its 
 ### Add something, or ask
 ![Home: one box with Auto, Add and Ask; the box says it will ask, and why; under it Today's meetings and the recently changed pages](docs/screenshots/home.png)
 
-One box does both. In **Auto** it says before you send whether it will add or ask, and why; switch to **Add** or **Ask** yourself any time (`Ctrl+1`, `Ctrl+2`). `Enter` sends, `Shift+Enter` adds a line. The paperclip next to the mode switch adds a file.
+One box does both. In **Auto** it says before you send whether it will add or ask, and why: questions ("Can we…", "Summarize…", "Kan ik…", a question after pasted text) are asked, notes, mails, lists and longer text are added. When it cannot tell, it offers **Search your wiki** or **Add as a note**. Switch to **Add** or **Ask** yourself any time (`Ctrl+1`, `Ctrl+2`). `Enter` sends, `Shift+Enter` adds a line. The paperclip next to the mode switch adds a file.
 
 ### Add
 ![Add result: where the page was filed, its type and topics, and the links to related pages with their strength and reason](docs/screenshots/add.png)
@@ -83,7 +83,7 @@ One box does both. In **Auto** it says before you send whether it will add or as
 ### Today's meetings
 ![Today's meetings: the day's Teams meetings with what Copilot can read of each; one added, one waiting for Copilot](docs/screenshots/meetings.png)
 
-Under the box, **Fetch today's meetings** has Copilot list your Teams meetings of today (with Work IQ, so it sees your own calendar) and say which ones it can read: a transcript, a Copilot recap or meeting notes. Those are ticked for you. Press **Add**: each ticked meeting becomes a page under **Meetings** with its attendees, summary, decisions and actions. Each one is added like any other Add, so it is linked to your other pages, listed in **History** and can be undone. Each row says where it is ("reading", "adding", "Added as ...", or why it was not added). Nothing is written before you press **Add**.
+Under the box, **Fetch today's meetings** has Copilot list your Teams meetings of today (with Work IQ, so it sees your own calendar) and say which ones it can read: a transcript, a Copilot recap or meeting notes. Those are ticked for you. Press **Add**: each ticked meeting becomes a page under **Meetings** with its attendees (name and e-mail address), summary, decisions and actions. Each one is added like any other Add, so it is linked to your other pages, listed in **History** and can be undone. Each row says where it is ("reading", "adding", "Added as ...", or why it was not added). Nothing is written before you press **Add**.
 
 **Meeting series.** A meeting that recurs (a daily stand-up) is one series: each day gets its own page, "‹meeting› · ‹date›", linked to the day before, with the meeting's own start time. Importing the same day again updates that day's page. In the **Journal**, search for the meeting and pick "Meetings: ‹name›" to see the series day by day.
 

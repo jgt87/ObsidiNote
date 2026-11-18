@@ -264,9 +264,11 @@ function Invoke-MeetingsNotesRoute($State, [string]$Body) {
     if (-not $a.ok) { return @{ status = 502; body = @{ error = $a.error } } }
     $n = ConvertFrom-MeetingNotesReply -Reply $a.text -Day $day -Ref $ref
     if (-not $n.ok) { return @{ status = 502; body = @{ error = $(if ($n.error -match 'Copilot answered with') { $n.error } else { "Copilot's notes could not be read: $($n.error) Try again." }) } } }
-    Write-AppLog info server 'Meeting notes read' @{ found = $n.found; decisions = @($n.decisions).Count; actions = @($n.actions).Count }
+    # Counts only: never a name or an address in the log.
+    $withMail = @(@($n.attendees) | Where-Object { $_ -is [Collections.IDictionary] -and $_['email'] }).Count
+    Write-AppLog info server 'Meeting notes read' @{ found = $n.found; attendees = @($n.attendees).Count; withAddress = $withMail; decisions = @($n.decisions).Count; actions = @($n.actions).Count }
     if (-not $n.found) { return @{ status = 200; body = @{ found = $false; message = 'Copilot could not read a transcript, recap or notes of this meeting.' } } }
-    @{ status = 200; body = @{ found = $true; text = (ConvertTo-MeetingNoteText -Title $title -Day $day -Time $time -Notes $n); attendees = @($n.attendees).Count; decisions = @($n.decisions).Count; actions = @($n.actions).Count; basedOn = $n.basedOn } }
+    @{ status = 200; body = @{ found = $true; text = (ConvertTo-MeetingNoteText -Title $title -Day $day -Time $time -Notes $n); attendees = @($n.attendees).Count; withAddress = $withMail; decisions = @($n.decisions).Count; actions = @($n.actions).Count; basedOn = $n.basedOn } }
 }
 
 function Get-AppVersionText([string]$AppRoot) {
@@ -1415,7 +1417,9 @@ function Invoke-ApiRoute {
         'POST /api/vault/setup' { return (Set-UpVaultRoute $State $Body) }
         'POST /api/intent' {
             try { $r = Read-IntentRequest $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
-            return @{ status = 200; body = (Get-Intent -Text $r.text -Mode $r.mode) }
+            # The vault's link rules, so "a company link with your words" is named as the Add it will be.
+            $lr = try { Get-ServerLinkRules $State } catch { @{ InternalHosts = @(); CompanyNames = @() } }
+            return @{ status = 200; body = (Get-Intent -Text $r.text -Mode $r.mode -InternalHosts @($lr.InternalHosts) -CompanyNames @($lr.CompanyNames)) }
         }
         'POST /api/submit' { return (Invoke-SubmitRoute $State $Body) }
         'POST /api/add/undo' { return (Invoke-UndoRoute $State $Body) }

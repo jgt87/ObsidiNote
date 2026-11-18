@@ -43,17 +43,19 @@ Describe 'Get-Intent: rule 2, ask' {
     It 'does not take a word that only begins like a question word' {
         (Get-Intent -Text 'Whatever happened to the old plan').intent | Should Be 'unclear'
     }
-    It 'does not ask when the question has a link in it' {
-        (Get-Intent -Text 'What is on https://example.com/a?').intent | Should Not Be 'ask'
+    It 'does not ask when the question has a link in it: Ask reads the wiki only' {
+        $r = Get-Intent -Text 'What is on https://example.com/a?'
+        $r.intent | Should Be 'unclear'
+        $r.reason | Should Match 'asks about a link'
     }
-    It 'does not ask when the question is long' {
+    It 'asks a long question of one sentence (scored since 2026-11-18; it was added before)' {
         $long = 'Why ' + ('word ' * 70) + '?'
         $r = Get-Intent -Text $long
-        $r.intent | Should Be 'add'
-        $r.reason | Should Match 'over 300 characters'
+        $r.intent | Should Be 'ask'
+        $r.addScore | Should BeGreaterThan 0
     }
-    It 'does not ask a question over several paragraphs' {
-        (Get-Intent -Text "How do we roll this out?`n`nNotes from the call follow.").intent | Should Be 'add'
+    It 'leaves a question followed by notes unclear' {
+        (Get-Intent -Text "How do we roll this out?`n`nNotes from the call follow.").intent | Should Be 'unclear'
     }
 }
 
@@ -83,7 +85,7 @@ Describe 'Get-Intent: rule 3, add' {
     }
     It 'adds longer text and several paragraphs' {
         (Get-Intent -Text ('word ' * 70)).intent | Should Be 'add'
-        (Get-Intent -Text "First part.`r`n`r`nSecond part.").reason | Should Be 'it has several paragraphs'
+        (Get-Intent -Text "First part.`r`n`r`nSecond part.").reason | Should Match 'has several paragraphs'
     }
 }
 
@@ -94,7 +96,36 @@ Describe 'Get-Intent: rule 4, unclear' {
         $r.rule | Should Be 4
     }
     It 'leaves a link with other words unclear' {
-        (Get-Intent -Text 'portal https://example.com/a').reason | Should Be 'it has a link and other text'
+        $r = Get-Intent -Text 'portal https://example.com/a'
+        $r.intent | Should Be 'unclear'
+        $r.reason | Should Match 'has a link'
+    }
+}
+
+Describe 'Get-Intent: every example of tests/fixtures/intent-samples.json (2026-11-18)' {
+    $fx = Get-Content -Raw -Encoding UTF8 (Join-Path $here 'fixtures\intent-samples.json') | ConvertFrom-Json
+    It 'has examples of all three outcomes, in English and Dutch' {
+        foreach ($w in 'ask', 'add', 'unclear') { @($fx.samples | Where-Object { $_.want -eq $w }).Count | Should BeGreaterThan 5 }
+        @($fx.samples).Count | Should BeGreaterThan 90
+    }
+    It 'gets every example right' {
+        $wrong = @(foreach ($s in $fx.samples) {
+                $r = Get-Intent -Text $s.text
+                if ($r.intent -ne $s.want) { "[$($s.want) but $($r.intent) ($($r.askScore)/$($r.addScore))] $($s.text -replace '\s+', ' ')" }
+            })
+        ($wrong -join "`n") | Should Be ''
+    }
+    It 'says why, naming the strongest signals' {
+        foreach ($s in $fx.samples) { (Get-Intent -Text $s.text).reason | Should Not BeNullOrEmpty }
+    }
+}
+
+Describe 'Get-Intent: a company link with your own words (2026-11-18)' {
+    It 'names the Add it will be: the link''s page with the words as notes' {
+        $r = Get-Intent -Text 'Plan for the beds https://contoso.sharepoint.com/sites/garden/Beds.aspx'
+        $r.intent | Should Be 'add'
+        $r.reason | Should Match 'company link with your words'
+        (Get-Intent -Text 'Plan for the beds https://example.org/beds').intent | Should Not Be 'add'
     }
 }
 

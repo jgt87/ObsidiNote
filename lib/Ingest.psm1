@@ -1032,7 +1032,9 @@ function Get-RetirePlan {
         $title = Get-LkString $rec 'title'
         $e = Get-RetirePlanEntry -Store $Store -Action $Action -Rec $rec
         if ($e.reason) { $no.Add([ordered]@{ id = $id; title = $title; reason = $e.reason }); continue }
-        $in = @(Get-IncomingSources -Index $idx -TargetId $id -ExcludeId $id).Count
+        # Assigned as is: Get-IncomingSources returns its list with ',' and @() made this always 1
+        # (found by tests/CommaReturn.Tests.ps1, 2026-11-18).
+        $in = (Get-IncomingSources -Index $idx -TargetId $id -ExcludeId $id).Count
         $ok.Add([ordered]@{ id = $id; title = $title; section = (Get-LkString $rec 'section'); to = $e.to; inbound = $in })
     }
     @{ pages = @($ok.ToArray()); refused = @($no.ToArray()) }

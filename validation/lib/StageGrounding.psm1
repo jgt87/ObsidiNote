@@ -228,13 +228,15 @@ function Test-MeetingListReply {
 
 function New-MeetingNotesPrompt([string]$Title, [string]$Start) {
     'From the transcript, the Copilot recap or the meeting notes of my Teams meeting "' + $Title + '"' + $(if ($Start) { ' (started ' + $Start + ')' } else { '' }) + ', write structured meeting notes for my personal wiki. ' +
-    'Answer only with one JSON object and no other text: {"found": true or false, "date": "yyyy-mm-dd", "attendees": ["names"], "summary": "3 to 5 sentences", "decisions": ["each decision in one sentence"], ' +
+    # The app's own question asks the same attendee shape (lib/Meetings.psm1, 2026-11-18).
+    'For each attendee give the display name and the e-mail address exactly as in the meeting invitation; leave the address empty when you do not see it, never guess one. ' +
+    'Answer only with one JSON object and no other text: {"found": true or false, "date": "yyyy-mm-dd", "attendees": [{"name": "display name", "email": "address or empty"}], "summary": "3 to 5 sentences", "decisions": ["each decision in one sentence"], ' +
     '"actions": [{"text": "the action", "owner": "a name or empty", "due": "yyyy-mm-dd or empty"}], "basedOn": "transcript, recap, notes or empty", "source": "the address of the recap or notes, or empty"}. ' +
     'A summary only: never copy the transcript. If you cannot read it, answer {"found": false, "attendees": [], "decisions": [], "actions": []}.'
 }
 
 function Test-MeetingNotesReply {
-    <# @{ valid; found; attendees; decisions; actions; owners; dues; basedOn; source; dateMatch }
+    <# @{ valid; found; attendees; addresses; decisions; actions; owners; dues; basedOn; source; dateMatch }
        (counts and yes/no) from a reply to New-MeetingNotesPrompt. dateMatch: the notes' "date" is
        -Day (a sign Copilot read the meeting of that day, not another one with the same title). Pure. #>
     param([AllowEmptyString()][string]$Text, [string]$Day = '')
@@ -245,6 +247,8 @@ function Test-MeetingNotesReply {
         valid = $valid; found = $valid -and "$($j.found)" -eq 'True'
         dateMatch = [bool]($valid -and $Day -and $j.PSObject.Properties['date'] -and "$($j.date)" -eq $Day)
         attendees = $(if ($valid) { @(@($j.attendees) | Where-Object { $_ }).Count } else { 0 })
+        # How many came with an address (2026-11-18): counted only, never logged.
+        addresses = $(if ($valid) { @(@($j.attendees) | Where-Object { ($_ -is [pscustomobject] -and $_.PSObject.Properties['email'] -and "$($_.email)" -match '^[^@\s]+@[^@\s]+\.[^@\s]+$') -or "$_" -match '<[^@\s<>]+@[^@\s<>]+>' }).Count } else { 0 })
         decisions = $(if ($valid) { @(@($j.decisions) | Where-Object { $_ }).Count } else { 0 })
         actions = $acts.Count
         owners = @($acts | Where-Object { $_.PSObject.Properties['owner'] -and "$($_.owner)".Trim() }).Count
@@ -298,7 +302,7 @@ function Invoke-P10Day {
         $c = Test-MeetingNotesReply $n.text -Day $day
         $ok = $c.found -and ($c.decisions -or $c.actions)
         $hint2 = if (-not $c.valid) { 'The reply was not in the fixed JSON shape.' } elseif (-not $c.found) { 'Copilot listed the meeting but could not read its transcript, recap or notes.' } else { '' }
-        Add-ValidationResult $Ctx 'V5' $(if ($ok) { 'OK' } else { 'WARN' }) $name "read $(Format-YesNo $c.found) (based on $(if ($c.basedOn) { $c.basedOn } else { '?' })); date matches the day $(Format-YesNo $c.dateMatch); $($c.attendees) attendees, $($c.decisions) decisions, $($c.actions) actions ($($c.owners) with an owner, $($c.dues) with a due date); source link $(Format-YesNo $c.source); JSON valid $(Format-YesNo $c.valid); reply $($n.text.Length) chars; $($n.ms) ms" $hint2
+        Add-ValidationResult $Ctx 'V5' $(if ($ok) { 'OK' } else { 'WARN' }) $name "read $(Format-YesNo $c.found) (based on $(if ($c.basedOn) { $c.basedOn } else { '?' })); date matches the day $(Format-YesNo $c.dateMatch); $($c.attendees) attendees ($($c.addresses) with an address), $($c.decisions) decisions, $($c.actions) actions ($($c.owners) with an owner, $($c.dues) with a due date); source link $(Format-YesNo $c.source); JSON valid $(Format-YesNo $c.valid); reply $($n.text.Length) chars; $($n.ms) ms" $hint2
     }
 }
 

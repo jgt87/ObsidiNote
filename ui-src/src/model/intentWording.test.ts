@@ -6,10 +6,10 @@ describe('intentLine', () => {
     const line = intentLine({ intent: 'ask', reason: 'it reads as a question (ends with "?")', rule: 2 })
     expect(line.lead).toBe('Will ask your wiki')
     expect(line.text).toBe('it reads as a question (ends with "?").')
-    expect(line.flip).toEqual({ label: 'Add it instead', mode: 'add' })
+    expect(line.choices).toEqual([{ label: 'Add it instead', mode: 'add' }])
   })
   it('says it will add, with a flip to Ask', () => {
-    expect(intentLine({ intent: 'add', reason: 'it is a link on its own', rule: 3 }).flip?.mode).toBe('ask')
+    expect(intentLine({ intent: 'add', reason: 'it is a link on its own', rule: 3 }).choices.map((c) => c.mode)).toEqual(['ask'])
   })
   it('says an Add goes to the active vault while a read-only notebook is shown', () => {
     const line = intentLine({ intent: 'add', reason: 'it is a link on its own', rule: 3 }, { vaultName: 'ObsidiNote', shownName: 'Reading notes' })
@@ -17,10 +17,14 @@ describe('intentLine', () => {
     expect(intentLine({ intent: 'add', reason: 'x', rule: 3 }, { vaultName: null, shownName: 'Reading notes' }).text).toMatch('No ObsidiNote vault is open')
     expect(intentLine({ intent: 'ask', reason: 'x', rule: 2 }, { vaultName: 'ObsidiNote', shownName: 'Reading notes' }).text).toBe('x.')
   })
-  it('explains an unclear input without a flip', () => {
-    const line = intentLine({ intent: 'unclear', reason: 'it is short', rule: 4 })
+  it('offers both ways for an unclear input (2026-11-18)', () => {
+    const line = intentLine({ intent: 'unclear', reason: 'a few words, neither a question nor a note yet', rule: 4 })
     expect(line.lead).toBe('Not sure yet')
-    expect(line.flip).toBeNull()
+    expect(line.text).toBe('a few words, neither a question nor a note yet.')
+    expect(line.choices).toEqual([
+      { label: 'Search your wiki', mode: 'ask' },
+      { label: 'Add as a note', mode: 'add' },
+    ])
   })
   it('shows the hint when there is nothing yet', () => {
     expect(intentLine(null).text).toBe(EMPTY_HINT)

@@ -6,8 +6,8 @@ export interface IntentLine {
   /** Bold lead, e.g. "Will ask your wiki"; '' for a plain hint. */
   lead: string
   text: string
-  /** One-click flip to the other mode, when there is a clear pick. */
-  flip: { label: string; mode: Mode } | null
+  /** One-click choices: the other mode after a clear pick, both when it is unclear (2026-11-18). */
+  choices: { label: string; mode: Mode }[]
 }
 
 export const EMPTY_HINT = 'Paste a link or longer text to add it. Short questions are asked.'
@@ -20,14 +20,22 @@ export function addTargetNote(target: AddTarget | null): string {
 }
 
 export function intentLine(result: IntentResult | null, target: AddTarget | null = null): IntentLine {
-  if (!result || result.intent === 'empty') return { lead: '', text: EMPTY_HINT, flip: null }
+  if (!result || result.intent === 'empty') return { lead: '', text: EMPTY_HINT, choices: [] }
   switch (result.intent) {
     case 'ask':
-      return { lead: 'Will ask your wiki', text: `${result.reason}.`, flip: { label: 'Add it instead', mode: 'add' } }
+      return { lead: 'Will ask your wiki', text: `${result.reason}.`, choices: [{ label: 'Add it instead', mode: 'add' }] }
     case 'add':
-      return { lead: 'Will add to your wiki', text: `${result.reason}.${addTargetNote(target)}`, flip: { label: 'Ask instead', mode: 'ask' } }
+      return { lead: 'Will add to your wiki', text: `${result.reason}.${addTargetNote(target)}`, choices: [{ label: 'Ask instead', mode: 'ask' }] }
     case 'unclear':
-      return { lead: 'Not sure yet', text: `${result.reason}. Copilot will decide when you send it, or choose Add or Ask.`, flip: null }
+      // Both ways side by side: sent as it is, it is added and Copilot may still say it is a question.
+      return {
+        lead: 'Not sure yet',
+        text: `${result.reason}.`,
+        choices: [
+          { label: 'Search your wiki', mode: 'ask' },
+          { label: 'Add as a note', mode: 'add' },
+        ],
+      }
   }
 }
 

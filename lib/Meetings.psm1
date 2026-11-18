@@ -78,9 +78,41 @@ function New-MeetingNotesPrompt {
     param([Parameter(Mandatory)][string]$Title, [string]$Start = '', [Parameter(Mandatory)][string]$Ref)
     $s = Get-MeetingText $Start 40
     'From the transcript, the Copilot recap or the meeting notes of my Teams meeting "' + (Format-PromptTitle $Title) + '"' + $(if ($s) { ' (started ' + $s + ')' } else { '' }) + ', write structured meeting notes for my personal wiki. ' +
-    'Answer only with one JSON object and no other text: {"ref": "' + $Ref + '", "found": true or false, "date": "yyyy-mm-dd", "attendees": ["names"], "summary": "3 to 5 sentences", "decisions": ["each decision in one sentence"], ' +
+    'For each attendee give the display name and the e-mail address exactly as in the meeting invitation; leave the address empty when you do not see it, never guess one. ' +
+    'Answer only with one JSON object and no other text: {"ref": "' + $Ref + '", "found": true or false, "date": "yyyy-mm-dd", "attendees": [{"name": "display name", "email": "address or empty"}], "summary": "3 to 5 sentences", "decisions": ["each decision in one sentence"], ' +
     '"actions": [{"text": "the action", "owner": "a name or empty", "due": "yyyy-mm-dd or empty"}], "basedOn": "transcript, recap, notes or empty"}. ' +
     'A summary only: never copy the transcript. If you cannot read it, answer {"ref": "' + $Ref + '", "found": false, "attendees": [], "decisions": [], "actions": []}.'
+}
+
+$script:MailPattern = '^[^@\s<>()",;]+@[^@\s<>()",;]+\.[^@\s<>()",;]+$'
+
+function Get-MeetingAttendees($Object) {
+    <# The attendees of a notes reply: @(@{ name; email }). Takes the asked shape ({name, email}) and
+       the old one (plain names, also "Name <address>"); an address is kept only when it looks like
+       one, a person with the same address once; a name alone stays a name (operator, 2026-11-18:
+       "store the display name as well as the e-mail address"). Pure. #>
+    if (-not $Object.PSObject.Properties['attendees']) { return , @() }
+    $out = New-Object System.Collections.Generic.List[object]
+    $seen = @{}
+    foreach ($a in @($Object.attendees)) {
+        if ($out.Count -ge $script:MaxItems) { break }
+        $name = ''; $email = ''
+        if ($a -is [pscustomobject]) {
+            if ($a.PSObject.Properties['name']) { $name = Get-MeetingText $a.name 120 }
+            if ($a.PSObject.Properties['email']) { $email = Get-MeetingText $a.email 254 }
+        } else {
+            $s = Get-MeetingText $a 300
+            $m = [regex]::Match($s, '^(.*?)\s*[<(]\s*([^<>()\s]+@[^<>()\s]+)\s*[>)]\s*$')
+            if ($m.Success) { $name = $m.Groups[1].Value.Trim(); $email = $m.Groups[2].Value }
+            elseif ($s -match $script:MailPattern) { $email = $s } else { $name = $s }
+        }
+        $email = $email.Trim().TrimStart('<').TrimEnd('>').ToLowerInvariant()
+        if ($email -and $email -notmatch $script:MailPattern) { $email = '' }
+        if (-not $name -and -not $email) { continue }
+        if ($email) { if ($seen.ContainsKey($email)) { continue }; $seen[$email] = $true }
+        $out.Add([ordered]@{ name = $(if ($name) { $name } else { $email }); email = $email })
+    }
+    , $out.ToArray()
 }
 
 function Get-MeetingList($Object, [string]$Name) {
@@ -102,7 +134,7 @@ function ConvertFrom-MeetingNotesReply {
     $v = $j.value
     $r = @{ ok = $true; error = ''; found = (Get-MeetingFlag $v 'found') }
     $r.date = if ($v.PSObject.Properties['date'] -and "$($v.date)" -match '^\d{4}-\d{2}-\d{2}$') { "$($v.date)" } else { '' }
-    $r.attendees = Get-MeetingList $v 'attendees'
+    $r.attendees = Get-MeetingAttendees $v
     $r.summary = if ($v.PSObject.Properties['summary']) { Get-MeetingText $v.summary $script:MaxSummary } else { '' }
     $r.decisions = Get-MeetingList $v 'decisions'
     $acts = New-Object System.Collections.Generic.List[object]
@@ -141,7 +173,17 @@ function ConvertTo-MeetingNoteText {
     $l.Add("# Meeting: $(Get-MeetingText $Title $script:MaxTitle)")
     $l.Add('')
     $l.Add("Teams meeting$(if ($when) { ' on ' + ($when -join ' at ') }). Notes written by Copilot from $from.")
-    if (@($Notes.attendees).Count) { $l.Add(''); $l.Add('## Attendees'); foreach ($a in @($Notes.attendees)) { $l.Add("- $a") } }
+    if (@($Notes.attendees).Count) {
+        $l.Add(''); $l.Add('## Attendees')
+        # "Name (address)", the address a mail link; a name alone, or an address alone, as it came.
+        foreach ($a in @($Notes.attendees)) {
+            $n = if ($a -is [Collections.IDictionary]) { [string]$a['name'] } else { [string]$a }
+            $e = if ($a -is [Collections.IDictionary]) { [string]$a['email'] } else { '' }
+            if ($e -and $n -and $n -ne $e) { $l.Add("- $n ([$e](mailto:$e))") }
+            elseif ($e) { $l.Add("- [$e](mailto:$e)") }
+            else { $l.Add("- $n") }
+        }
+    }
     if ($Notes.summary) { $l.Add(''); $l.Add('## Summary'); $l.Add($Notes.summary) }
     if (@($Notes.decisions).Count) { $l.Add(''); $l.Add('## Decisions'); foreach ($d in @($Notes.decisions)) { $l.Add("- $d") } }
     if (@($Notes.actions).Count) {

@@ -385,7 +385,7 @@ Describe 'V5 Grounding probes' {
 
 Describe 'V5 P10 meetings (operator, 2026-11-14)' {
     $list = '{"meetings":[{"title":"Fabrikam merger steering","start":"2026-11-13 10:00","attendees":6,"hasTranscript":true,"hasRecap":true,"hasNotes":false,"link":"https://contoso.sharepoint.com/recap/1"},{"title":"Coffee with Ada","start":"2026-11-12 09:00","attendees":2,"hasTranscript":false,"hasRecap":false,"hasNotes":false,"link":""}],"searched":["Teams"]}'
-    $notes = '{"found":true,"date":"2026-11-13","attendees":["Ada Lovelace","Grace Hopper"],"summary":"Secret merger talk.","decisions":["Buy Fabrikam for 12M"],"actions":[{"text":"Draft term sheet","owner":"Ada Lovelace","due":"2026-11-20"},{"text":"Call the bank","owner":"","due":""}],"basedOn":"transcript","source":"https://contoso.sharepoint.com/recap/1"}'
+    $notes = '{"found":true,"date":"2026-11-13","attendees":[{"name":"Ada Lovelace","email":"ada@contoso.example"},{"name":"Grace Hopper","email":""}],"summary":"Secret merger talk.","decisions":["Buy Fabrikam for 12M"],"actions":[{"text":"Draft term sheet","owner":"Ada Lovelace","due":"2026-11-20"},{"text":"Call the bank","owner":"","due":""}],"basedOn":"transcript","source":"https://contoso.sharepoint.com/recap/1"}'
     It 'counts meetings and what Copilot can read of them; picks the newest one that has something' {
         $l = Test-MeetingListReply $list
         "$($l.valid)|$($l.count)|$($l.transcript)|$($l.recap)|$($l.notes)|$($l.links)" | Should Be 'True|2|1|1|0|1'
@@ -395,7 +395,9 @@ Describe 'V5 P10 meetings (operator, 2026-11-14)' {
     }
     It 'counts the parts of the structured notes' {
         $n = Test-MeetingNotesReply $notes
-        "$($n.found)|$($n.attendees)|$($n.decisions)|$($n.actions)|$($n.owners)|$($n.dues)|$($n.basedOn)|$($n.source)" | Should Be 'True|2|1|2|1|1|transcript|True'
+        "$($n.found)|$($n.attendees)|$($n.addresses)|$($n.decisions)|$($n.actions)|$($n.owners)|$($n.dues)|$($n.basedOn)|$($n.source)" | Should Be 'True|2|1|1|2|1|1|transcript|True'
+        # The old shape (plain names, also "Name <address>") still counts.
+        (Test-MeetingNotesReply '{"found":true,"attendees":["Ada <ada@contoso.example>","Grace"],"decisions":[],"actions":[]}').addresses | Should Be 1
         (Test-MeetingNotesReply '{"found":false,"attendees":[],"decisions":[],"actions":[]}').found | Should Be $false
     }
     # The full day (operator, 2026-11-15): every meeting of 2026-11-13, two of them with something to read.
@@ -426,7 +428,8 @@ Describe 'V5 P10 meetings (operator, 2026-11-14)' {
         (@($c.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'P10 meetings list=OK,P10 day''s meetings=OK,P10 meeting notes 1=OK,P10 meeting notes 2=OK'
         $text | Should Match '2 meetings in the last 7 days; with a transcript 1, a recap 1, notes 0, a link 1'
         $text | Should Match '3 meetings on the busiest day of the last 7 days \(0 of another day\); with a transcript 1, a recap 2, notes 1; the week''s list had 1 of that day'
-        $text | Should Match 'date matches the day yes; 2 attendees, 1 decisions, 2 actions \(1 with an owner, 1 with a due date\); source link yes'
+        $text | Should Match 'date matches the day yes; 2 attendees \(1 with an address\), 1 decisions, 2 actions \(1 with an owner, 1 with a due date\); source link yes'
+        $text | Should Not Match 'contoso\.example|@'
         Remove-Item $d -Recurse -Force
         Clear-P10Replies
     }
