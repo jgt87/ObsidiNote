@@ -168,6 +168,23 @@ Describe 'POST /api/meetings/day and /notes (stand-in Copilot; nothing is writte
         $r.status | Should Be 200
         ($calls -join ',') | Should Be 'new,workiq,send'
     }
+    It 'marks a meeting that has its page already, and counts the series'' other days (2026-11-18)' {
+        foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'Linker', 'LinkCapture', 'Ingest') { Import-Module (Join-Path $root "lib\$m.psm1") -Global }
+        . (Join-Path $here 'FakeOneNote.ps1')
+        . (Join-Path $here 'SyntheticVault.ps1')
+        $w = New-SyntheticVault -SessionId 'start'
+        $rec = $w.open.model.pages['p2']
+        $rec.type = 'meeting'; $rec.series = 'Garden sync | Tidal beds'; $rec.meetingAt = '2031-04-09T10:00'
+        $rec3 = $w.open.model.pages['p3']
+        $rec3.type = 'meeting'; $rec3.series = 'Garden sync Tidal beds'; $rec3.meetingAt = '2031-04-08T10:00'
+        $s = New-ServerState -AppRoot $app -Port 8767 -TestAdapter $w.a -SessionId 'server' -Vault $w.open.vault -Lease $w.open.lease -Model $w.open.model -TestCopilot @{ Send = $send; NewChat = { } }
+        $r = Invoke-ApiRoute -Method 'POST' -Path '/api/meetings/day' -Body '{"day":"2031-04-09"}' -State $s
+        $r.status | Should Be 200
+        $garden = @($r.body.meetings | Where-Object { $_.title -like 'Garden sync*' })[0]
+        "$($garden.inWiki)|$($garden.waiting)|$($garden.earlier)" | Should Be 'True|False|1'
+        $lunch = @($r.body.meetings | Where-Object { $_.title -eq 'Lunch talk' })[0]
+        "$($lunch.inWiki)|$($lunch.earlier)" | Should Be 'False|0'
+    }
     It 'answers 503 without Copilot' {
         $none = New-ServerState -AppRoot $app -Port 8767 -SessionId 'server'
         $none.CopilotSkipped = $true

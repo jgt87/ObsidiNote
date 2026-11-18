@@ -197,9 +197,10 @@ function Set-MeetingWorkIq($State) {
 }
 
 function Get-MeetingSeriesCounts($State) {
-    <# series key -> the days of its meeting pages in the active vault's index (archived left out).
-       Empty when no vault is open or the index cannot be read. #>
-    $out = @{}
+    <# @{ pages = series key -> the starts (meetingAt) of its meeting pages in the active vault's index
+       (archived left out); waiting = @(@{ key; at }) of the meetings whose Add still waits for
+       Copilot in the Intake }. Empty when no vault is open or it cannot be read. #>
+    $out = @{ pages = @{}; waiting = @() }
     try {
         if (-not $State.Vault) { return $out }   # never opens a vault for a list (Use-ActiveVault may)
         $u = Use-ActiveVault $State
@@ -209,9 +210,12 @@ function Get-MeetingSeriesCounts($State) {
         foreach ($p in $model.pages.Values) {
             if ($p.type -ne 'meeting' -or $p.status -eq 'archived' -or -not $p['series']) { continue }
             $k = Get-MeetingSeriesKey ([string]$p['series'])
-            if (-not $out.ContainsKey($k)) { $out[$k] = New-Object System.Collections.Generic.List[string] }
-            $out[$k].Add((Get-MeetingDayOf ([string]$p['meetingAt'])))
+            if (-not $out.pages.ContainsKey($k)) { $out.pages[$k] = New-Object System.Collections.Generic.List[string] }
+            $out.pages[$k].Add([string]$p['meetingAt'])
         }
+        $store = New-ServerStore $State $u
+        $ws = & $store.WaitingTexts   # returned with ',': assigned first
+        $out.waiting = @(foreach ($w in @($ws | Where-Object { $_ })) { $i = Get-MeetingInfoFromText ([string]$w['text']); if ($i) { @{ key = $i.key; at = $i.at } } })
     } catch { }
     $out
 }
@@ -234,11 +238,17 @@ function Invoke-MeetingsDayRoute($State, [string]$Body) {
     Write-AppLog info server 'Meetings of a day listed' @{ meetings = @($x.meetings).Count; readable = @($x.meetings | Where-Object { $_.readable }).Count }
     # Each meeting's series and how many of its meetings are in the wiki already (another day), so the
     # window can say "part of a series" (operator, 2026-11-18). 0 when no vault is open.
+    # inWiki / waiting (2026-11-18: fetched several times a day): this meeting has its page already, or
+    # its Add still waits for Copilot; the window does not tick it and says so.
     $counts = Get-MeetingSeriesCounts $State
     foreach ($m in @($x.meetings)) {
         $m.series = Get-MeetingSeriesName $m.title
         $k = Get-MeetingSeriesKey $m.series
-        $m.earlier = $(if ($counts.ContainsKey($k)) { @($counts[$k] | Where-Object { $_ -ne $day }).Count } else { 0 })
+        $at = Format-MeetingAt -Day $day -Time $m.time
+        $starts = @(if ($counts.pages.ContainsKey($k)) { $counts.pages[$k] })
+        $m.earlier = @($starts | Where-Object { (Get-MeetingDayOf $_) -ne $day }).Count
+        $m.inWiki = [bool]@($starts | Where-Object { Test-MeetingSameOccurrence $_ $at }).Count
+        $m.waiting = [bool]@($counts.waiting | Where-Object { $_.key -eq $k -and (Test-MeetingSameOccurrence $_.at $at) }).Count
     }
     @{ status = 200; body = @{ day = $day; meetings = @($x.meetings) } }
 }

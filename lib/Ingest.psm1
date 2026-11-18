@@ -405,9 +405,26 @@ function Invoke-AddRequest {
             # A Teams meeting (operator, 2026-11-18: a daily meeting is one series): its series and
             # start come from the text, the same day of the same series updates its page.
             $mi = if ($origin -eq 'meeting') { Get-MeetingInfoFromText $text } else { $null }
-            if ($mi -and $mi.day -and -not $Resume) {
-                $same = Find-MeetingOccurrence -Index (Invoke-Store $Store 'GetIndex') -Key $mi.key -Day $mi.day
-                if ($same) { return (Complete-AddResult (Update-MeetingOccurrence -Store $Store -Page $same -Text $text -Info $mi -Result $r) $sw) }
+            if ($mi -and $mi.day) {
+                $same = Find-MeetingOccurrence -Index (Invoke-Store $Store 'GetIndex') -Key $mi.key -At $mi.at
+                if ($same) {
+                    $u = Update-MeetingOccurrence -Store $Store -Page $same -Text $text -Info $mi -Result $r
+                    # An answer fetched later for a meeting that got its page meanwhile (2026-11-18): the
+                    # page is updated and the waiting item filed with it, never a second page.
+                    if ($Resume -and $u.status -in 'updated', 'unchanged') {
+                        try { Invoke-Store $Store 'SetInboxStatus' @{ PageId = [string]$Resume['inboxPageId']; Status = 'linked'; Reason = ''; Id = (Get-LkString $same 'id') } | Out-Null } catch { }
+                        $u.inbox = @{ pageId = [string]$Resume['inboxPageId']; status = 'linked' }
+                    }
+                    return (Complete-AddResult $u $sw)
+                }
+                # The same meeting still waits for Copilot from an earlier Add: no second request.
+                $w = if ($Resume) { $null } else { Find-WaitingMeeting -Store $Store -Info $mi }
+                if ($w) {
+                    $r.status = 'waiting'
+                    $r.inboxId = Get-LkString $w 'pageId'
+                    $r.message = 'This meeting already waits for Copilot from an earlier Add: see "Waiting for Copilot". Nothing new was sent.'
+                    return (Complete-AddResult $r $sw)
+                }
             }
             if ($mi) { $Options = @{} + $Options; $Options['Meeting'] = $mi }
             $r = Invoke-TextAdd -Text $text -Mode $mode -Store $Store -Ask $Ask -Options $Options -Result $r -Resume $Resume -Origin $origin -AllowDuplicate:(((Get-LkProp $Request 'allowDuplicate' $false) -eq $true) -or [bool]$mi)
@@ -428,9 +445,28 @@ function Get-MeetingPagesOf {
 }
 
 function Find-MeetingOccurrence {
-    <# The page of series $Key on $Day, or $null. #>
-    param($Index, [string]$Key, [string]$Day)
-    @(Get-MeetingPagesOf $Index $Key | Where-Object { (Get-MeetingDayOf (Get-LkString $_ 'meetingAt')) -eq $Day }) | Select-Object -First 1
+    <# The page of series $Key for the meeting that starts at $At, or $null: the same day, and the same
+       time when both have one (operator, 2026-11-18: fetched several times a day, a meeting is merged,
+       never duplicated; two meetings of one series on one day stay two pages). A page with the exact
+       time wins over one without a time. #>
+    param($Index, [string]$Key, [string]$At)
+    $same = @(Get-MeetingPagesOf $Index $Key | Where-Object { Test-MeetingSameOccurrence (Get-LkString $_ 'meetingAt') $At })
+    $exact = @($same | Where-Object { (Get-LkString $_ 'meetingAt') -eq $At })
+    if ($exact.Count) { return $exact[0] }
+    $same | Select-Object -First 1
+}
+
+function Find-WaitingMeeting {
+    <# The Intake item of the same meeting that still waits for Copilot (@{ pageId; text }), or $null.
+       Uses the store's optional WaitingTexts; an older store has none and finds nothing. #>
+    param($Store, [hashtable]$Info)
+    if (-not ((Get-LkProp $Store 'WaitingTexts' $null) -is [scriptblock])) { return $null }
+    $ws = Invoke-Store $Store 'WaitingTexts'   # returned with ',': assigned first, @() of the call would nest it
+    foreach ($w in @($ws | Where-Object { $_ })) {
+        $o = Get-MeetingInfoFromText (Get-LkString $w 'text')
+        if ($o -and $o.key -eq $Info.key -and (Test-MeetingSameOccurrence $o.at $Info.at)) { return $w }
+    }
+    $null
 }
 
 function Find-MeetingPrevious {
@@ -447,9 +483,25 @@ function Update-MeetingOccurrence {
     param($Store, $Page, [string]$Text, [hashtable]$Info, $Result)
     $r = $Result
     $id = Get-LkString $Page 'id'
+    $pageId = Get-LkString $Page 'pageId'
+    $lines = ConvertTo-BodyLines $Text
+    $hash = Get-SummaryHash (Get-LinesPlainText $lines)
+    # The same notes again: nothing is written (2026-11-18). The hash is on the page (obsn.summaryHash)
+    # and in the index record of this session; a record loaded at start may lack it, so the page is read.
+    $had = Get-LkString $Page 'summaryHash'
+    if (-not $had) { try { $had = Get-LkString (Get-LkProp (Invoke-Store $Store 'ReadPage' @{ PageId = $pageId }) 'meta' $null) 'summaryHash' } catch { $had = '' } }
+    $atNow = Get-LkString $Page 'meetingAt'
+    if ($had -and $had -eq $hash -and ($atNow -eq $Info.at -or -not (Get-MeetingTimeOf $Info.at))) {
+        $r.status = 'unchanged'
+        $r.message = "Already up to date: $(Get-LkString $Page 'title'). Nothing was written."
+        $r.page = Get-PageView -Page (@{} + $Page) -Vault ([string](Invoke-Store $Store 'VaultName'))
+        return $r
+    }
+    # A start time is never lost: a page with a time keeps it when the new notes have none.
+    $at = if ((Get-MeetingTimeOf $Info.at) -or -not (Get-MeetingTimeOf $atNow)) { $Info.at } else { $atNow }
     try {
-        Invoke-Store $Store 'UpdatePage' @{ PageId = (Get-LkString $Page 'pageId'); Meta = @{ meetingAt = $Info.at; series = $Info.series }; Outlines = @(@{ role = 'body'; lines = (ConvertTo-BodyLines $Text) }); Title = $null } | Out-Null
-        Invoke-Store $Store 'IndexUpdatePage' @{ Page = @{ id = $id; meetingAt = $Info.at; series = $Info.series } } | Out-Null
+        Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = @{ meetingAt = $at; series = $Info.series; summaryHash = $hash }; Outlines = @(@{ role = 'body'; lines = $lines }); Title = $null } | Out-Null
+        Invoke-Store $Store 'IndexUpdatePage' @{ Page = @{ id = $id; meetingAt = $at; series = $Info.series; summaryHash = $hash } } | Out-Null
     } catch { $r.message = "This meeting is in your wiki already, and its page could not be updated: $($_.Exception.Message)"; return $r }
     $rec = (Get-IndexPageMap (Invoke-Store $Store 'GetIndex'))[$id]
     $r.status = 'updated'
@@ -500,7 +552,9 @@ function Invoke-TextAdd {
     # previous meeting, so the occurrences form a chain (operator, 2026-11-18).
     $mi = Get-IngestOption $Options 'Meeting' $null
     if ($mi -and $val.type -eq 'meeting') {
-        if ($mi.day) { $val.title = Format-MeetingPageTitle -Series $mi.series -Day $mi.day }
+        # A second meeting of the series on the same day (another time): its title carries the time.
+        $sameDay = @(Get-MeetingPagesOf $idx $mi.key | Where-Object { (Get-MeetingDayOf (Get-LkString $_ 'meetingAt')) -eq $mi.day })
+        if ($mi.day) { $val.title = Format-MeetingPageTitle -Series $mi.series -Day $mi.day -Time $(if ($sameDay.Count) { Get-MeetingTimeOf $mi.at } else { '' }) }
         $prev = Find-MeetingPrevious -Index $idx -Key $mi.key -At $mi.at
         if ($prev -and -not @($val.links | Where-Object { $_['target'] -eq $prev.id }).Count) {
             $val.links = @($val.links) + @(@{ target = [string]$prev.id; title = [string]$prev.title; link = [string](Get-LkProp $prev 'link' ''); anchor = ''; strength = 1; why = 'The previous meeting of this series.' })
@@ -529,7 +583,13 @@ function Invoke-TextAdd {
         status = ''; origin = $Origin
         outlines = @(@{ role = 'body'; lines = $body })
     }
-    if ($mi -and $val.type -eq 'meeting') { $page.series = [string]$mi.series; $page.meetingAt = [string]$mi.at }
+    if ($mi -and $val.type -eq 'meeting') {
+        $page.series = [string]$mi.series; $page.meetingAt = [string]$mi.at
+        # The notes' hash, so the same notes imported again write nothing (Update-MeetingOccurrence).
+        $page.summaryHash = Get-SummaryHash (Get-LinesPlainText (ConvertTo-BodyLines $Text))
+        # "Your notes", written once now and never by a later import (2026-11-18), as on a link page.
+        $page.outlines = @($page.outlines) + @(@{ role = 'notes'; lines = (New-LinkNotesLines) })
+    }
     try { $cp = Invoke-Store $Store 'CreatePage' @{ Page = $page } }
     catch { $r.message = "Could not write the page: $($_.Exception.Message)"; Set-InboxFailed $Store $inbox $r.message $r; return $r }
     $page.pageId = [string]$cp['pageId']; $page.link = [string]$cp['link']; $page.section = [string]$cp['section']

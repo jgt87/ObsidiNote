@@ -5,6 +5,12 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.13] - 2026-11-18
+
+### Changed
+- **Today's meetings, fetched more than once a day**: a meeting that is already in your wiki, or still waiting for Copilot from an earlier Add, is not ticked again and says so ("In your wiki: Add reads it again", "Waiting for Copilot from an earlier Add"). Added again, it updates its page, never a second one; the same notes again write nothing ("Already up to date"). Two meetings of one series on the same day (10:00 and 15:00) stay two pages, the second titled with its time. An answer that arrives later for a meeting that got its page meanwhile updates that page.
+- New meeting pages get a **Your notes** part, which a later import never changes. Meeting pages made before keep their text as it is.
+
 ## [v0.12.12] - 2026-11-18
 
 ### Added

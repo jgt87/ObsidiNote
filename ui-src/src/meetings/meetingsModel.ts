@@ -18,6 +18,17 @@ export interface Meeting {
    *  meetings of other days are in the wiki already (2026-11-18). */
   series: string
   earlier: number
+  /** This meeting has its page already (fetched again later that day): Add reads it again. */
+  inWiki: boolean
+  /** An earlier Add of this meeting still waits for Copilot. */
+  waiting: boolean
+}
+
+/** What the list says about a meeting before any Add of this run: '' for a new one. */
+export function meetingNote(m: Meeting): string {
+  if (m.waiting) return 'Waiting for Copilot from an earlier Add'
+  if (m.inWiki) return 'In your wiki: Add reads it again'
+  return ''
 }
 
 export type MeetingNotes = { found: true; text: string } | { found: false; message: string }
@@ -30,6 +41,8 @@ export type RowState =
   | { step: 'added'; pageTitle: string }
   /** The same day of the series was in the wiki: its page's text was read again. */
   | { step: 'updated'; pageTitle: string }
+  /** The same notes as on its page: nothing was written. */
+  | { step: 'unchanged'; pageTitle: string }
   | { step: 'waiting' }
   | { step: 'skipped'; message: string }
   | { step: 'failed'; message: string }
@@ -51,7 +64,9 @@ export function meetingSubline(m: Meeting): string {
 
 /** The meetings ticked when the list comes: every one Copilot can read something of. */
 export function defaultPicks(meetings: Meeting[]): Set<number> {
-  return new Set(meetings.flatMap((m, i) => (m.readable ? [i] : [])))
+  // Not a meeting already in the wiki or still waiting: fetched again later that day, the list does
+  // not offer them again by default (2026-11-18). Ticked by hand, they are read again, never doubled.
+  return new Set(meetings.flatMap((m, i) => (m.readable && !m.inWiki && !m.waiting ? [i] : [])))
 }
 
 export function addLabel(count: number): string {
@@ -72,6 +87,8 @@ export function rowStateText(s: RowState): string {
       return s.pageTitle ? `Added as "${s.pageTitle}"` : 'Added'
     case 'updated':
       return s.pageTitle ? `Updated "${s.pageTitle}": already in your wiki, its text read again` : 'Updated: already in your wiki'
+    case 'unchanged':
+      return 'Already up to date: nothing changed since the last time'
     case 'waiting':
       return 'Waiting for Copilot: see "Waiting for Copilot" or History'
     case 'skipped':
@@ -86,6 +103,7 @@ export function rowStateFromAdd(r: SubmitResult): RowState {
   if (r.intent !== 'add') return { step: 'failed', message: 'it was taken as a question.' }
   if (r.status === 'added') return { step: 'added', pageTitle: r.page?.title ?? '' }
   if (r.status === 'updated') return { step: 'updated', pageTitle: r.page?.title ?? '' }
+  if (r.status === 'unchanged') return { step: 'unchanged', pageTitle: r.page?.title ?? '' }
   if (r.status === 'waiting') return { step: 'waiting' }
   if (r.duplicateOf) return { step: 'skipped', message: 'a page with this title is already in your wiki.' }
   return { step: 'failed', message: r.message || 'Add did not work.' }
@@ -94,7 +112,7 @@ export function rowStateFromAdd(r: SubmitResult): RowState {
 /** The line under the list once a run ended. */
 export function runSummary(states: RowState[]): string {
   const n = (step: RowState['step']) => states.filter((s) => s.step === step).length
-  const added = n('added') + n('updated')
+  const added = n('added') + n('updated') + n('unchanged')
   const waiting = n('waiting')
   const not = n('failed') + n('skipped')
   const parts = [added && `${added} added`, waiting && `${waiting} waiting for Copilot`, not && `${not} not added`].filter(Boolean)

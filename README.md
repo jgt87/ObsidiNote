@@ -85,7 +85,9 @@ One box does both. In **Auto** it says before you send whether it will add or as
 
 Under the box, **Fetch today's meetings** has Copilot list your Teams meetings of today (with Work IQ, so it sees your own calendar) and say which ones it can read: a transcript, a Copilot recap or meeting notes. Those are ticked for you. Press **Add**: each ticked meeting becomes a page under **Meetings** with its attendees (name and e-mail address), summary, decisions and actions. Each one is added like any other Add, so it is linked to your other pages, listed in **History** and can be undone. Each row says where it is ("reading", "adding", "Added as ...", or why it was not added). Nothing is written before you press **Add**.
 
-**Meeting series.** A meeting that recurs (a daily stand-up) is one series: each day gets its own page, "‹meeting› · ‹date›", linked to the day before, with the meeting's own start time. Importing the same day again updates that day's page. In the **Journal**, search for the meeting and pick "Meetings: ‹name›" to see the series day by day.
+**Fetch as often as you like.** A meeting already in your wiki, or still waiting for Copilot, is not ticked again and says so. Added again, it updates its page (or writes nothing when the notes are the same), never a second page. Each meeting page has a **Your notes** part that imports never change.
+
+**Meeting series.** A meeting that recurs (a daily stand-up) is one series: each day gets its own page, "‹meeting› · ‹date›", linked to the day before, with the meeting's own start time. A second meeting of the series on the same day gets its own page, titled with its time. In the **Journal**, search for the meeting and pick "Meetings: ‹name›" to see the series day by day.
 
 ![A meeting series in the Journal: each day's meeting with its time, and Ask about these meetings](docs/screenshots/series.png)
 

@@ -33,6 +33,8 @@ export async function getMeetingsOfDay(day: string, signal?: AbortSignal): Promi
     readable: m.readable === true,
     series: text(m.series),
     earlier: typeof m.earlier === 'number' ? m.earlier : 0,
+    inWiki: m.inWiki === true,
+    waiting: m.waiting === true,
   }))
   return { day: text(r.day) || day, meetings }
 }

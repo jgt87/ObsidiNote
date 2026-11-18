@@ -74,6 +74,7 @@ function New-FakeVault {
             & $guard 'SetInboxWaiting'
             $i = $st.inbox[$PageId]; $i.status = 'waiting'; $i.ref = $Ref; $i.requestKind = $RequestKind; $i.chatUrl = $ChatUrl; $i.waitingSince = $Since; $i.origin = $Origin
         }.GetNewClosure()
+        WaitingTexts = { $st.calls.Add('WaitingTexts'); , @($st.inbox.Keys | Where-Object { $st.inbox[$_].status -eq 'waiting' } | ForEach-Object { @{ pageId = $_; text = $st.inbox[$_].text } }) }.GetNewClosure()
         ReadInboxItem = { param([string]$PageId)
             $st.calls.Add('ReadInboxItem')
             if (-not $st.inbox.ContainsKey($PageId)) { throw 'not an Intake item' }

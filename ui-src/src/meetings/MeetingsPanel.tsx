@@ -1,4 +1,4 @@
-import { addLabel, meetingSubline, rowStateText, runSummary, type Meeting, type RowState } from './meetingsModel'
+import { addLabel, meetingNote, meetingSubline, rowStateText, runSummary, type Meeting, type RowState } from './meetingsModel'
 import { useMeetings } from './useMeetings'
 import './meetings.css'
 
@@ -77,7 +77,7 @@ function MeetingList({ meetings, m }: { meetings: Meeting[]; m: ReturnType<typeo
 }
 
 function MeetingRow({ meeting, checked, disabled, state, onToggle }: { meeting: Meeting; checked: boolean; disabled: boolean; state?: RowState; onToggle: () => void }) {
-  const said = state ? rowStateText(state) : ''
+  const said = state ? rowStateText(state) : meetingNote(meeting)
   const sub = meetingSubline(meeting)
   return (
     <li className="mt__row">

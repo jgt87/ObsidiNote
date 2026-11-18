@@ -344,12 +344,56 @@ Describe 'A daily meeting is one series of pages (operator, 2026-11-18)' {
         @($second['links'] | Where-Object { $_['target'] -eq $first['id'] }).Count | Should Be 1
         @($first['links'] | Where-Object { $_['why'] -like '*previous meeting*' }).Count | Should Be 0
     }
-    It 'updates the page of the same day instead of adding it again, without asking Copilot' {
-        $asked = $c.q.prompts.Count
+    It 'writes nothing for the same notes of the same meeting again, without asking Copilot' {
+        $asked = $c.q.prompts.Count; $updates = $v.st.updates.Count
         $r3 = Invoke-AddRequest -Request @{ text = (& $day '2031-04-09' '10:00'); mode = 'add'; origin = 'meeting' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
-        $r3.status | Should Be 'updated'
+        $r3.status | Should Be 'unchanged'
+        $r3.message | Should Match 'Already up to date'
+        $c.q.prompts.Count | Should Be $asked
+        $v.st.updates.Count | Should Be $updates
+        @($v.st.created.Values).Count | Should Be 2
+    }
+    It 'updates the page with newer notes of the same meeting (fetched later that day), body only' {
+        $asked = $c.q.prompts.Count
+        $later = (& $day '2031-04-09' '10:00') + "`n`n## Decisions`n- Order a second pump."
+        $r4 = Invoke-AddRequest -Request @{ text = $later; mode = 'add'; origin = 'meeting' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+        $r4.status | Should Be 'updated'
         $c.q.prompts.Count | Should Be $asked
         @($v.st.created.Values).Count | Should Be 2
+        $u = $v.st.updates[$v.st.updates.Count - 1]
+        (@($u.outlines | ForEach-Object { $_['role'] }) -join ',') | Should Be 'body'
+        $u.meta['meetingAt'] | Should Be '2031-04-09T10:00'
+    }
+    It 'gives a new meeting page a "Your notes" part that later imports never write' {
+        $p = @($v.st.created.Values)[0]
+        (@($p['outlines'] | ForEach-Object { $_['role'] }) -join ',') | Should Be 'body,notes'
+        @($v.st.updates | Where-Object { @($_.outlines | Where-Object { $_['role'] -eq 'notes' }).Count }).Count | Should Be 0
+    }
+    It 'keeps a second meeting of the series on the same day as its own page, its title with the time' {
+        $r5 = Invoke-AddRequest -Request @{ text = (& $day '2031-04-09' '15:00'); mode = 'add'; origin = 'meeting' } -Store $v.store -Ask (New-FakeCopilot @((Get-GoodReply))).ask -Options @{ Now = $script:Now }
+        $r5.status | Should Be 'added'
+        $dot = [string][char]0x00B7
+        @($v.st.created.Values | Where-Object { $_['meetingAt'] -eq '2031-04-09T15:00' })[0]['title'] | Should Be "Garden sync | Tidal beds $dot 2031-04-09 15:00"
+        @($v.st.created.Values).Count | Should Be 3
+    }
+    It 'does not send a meeting again while its first Add waits for Copilot, and files a later answer on the page' {
+        $v2 = New-FakeVault
+        $w = Invoke-AddRequest -Request @{ text = (& $day '2031-04-10' '10:00'); mode = 'add'; origin = 'meeting' } -Store $v2.store -Ask (Get-PendingAsk) -Options @{ Now = $script:Now }
+        $w.status | Should Be 'waiting'
+        $c2 = New-FakeCopilot @()
+        $again = Invoke-AddRequest -Request @{ text = (& $day '2031-04-10' '10:00'); mode = 'add'; origin = 'meeting' } -Store $v2.store -Ask $c2.ask -Options @{ Now = $script:Now }
+        $again.status | Should Be 'waiting'
+        $again.inboxId | Should Be $w.inboxId
+        $again.message | Should Match 'already waits for Copilot'
+        $c2.q.prompts.Count | Should Be 0
+        $v2.st.inbox.Count | Should Be 1
+        # Meanwhile the meeting got its page (another way); the late answer updates it, no second page.
+        $v2.st.index.pages = @($v2.st.index.pages) + @{ id = 'p900'; title = 'Garden sync . 2031-04-10'; type = 'meeting'; status = ''; series = 'Garden sync | Tidal beds'; meetingAt = '2031-04-10T10:00'; pageId = '{P900}'; summaryHash = 'other' }
+        $x = Receive-AddAnswer -Store $v2.store -Ask (New-FakeCopilot @()).ask -ReadChat (New-ChatReader (Add-Ref (Get-GoodReply) $w.ref)).read -InboxId $w.inboxId -Options @{ Now = $script:Now }
+        $x.status | Should Be 'updated'
+        $v2.st.created.Count | Should Be 0
+        $v2.st.inbox[$w.inboxId].status | Should Be 'linked'
+        $v2.st.inbox[$w.inboxId].filedAs | Should Be 'p900'
     }
     It 'reads the series and start from the text, and nothing from other text' {
         $mi = Get-MeetingInfoFromText (& $day '2031-04-09' '9:05')

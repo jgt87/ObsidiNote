@@ -68,6 +68,7 @@ function ConvertTo-IngestPage {
         created = $(if ($Page.ContainsKey('created')) { [string]$Page.created } else { '' })
         series = $(if ($Page.ContainsKey('series')) { [string]$Page.series } else { '' })
         meetingAt = $(if ($Page.ContainsKey('meetingAt')) { [string]$Page.meetingAt } else { '' })
+        summaryHash = $(if ($Page.ContainsKey('summaryHash')) { [string]$Page.summaryHash } else { '' })
     }
 }
 
@@ -254,6 +255,22 @@ function Invoke-VsCreatePage {
     @{ pageId = $pageId; link = $Ctx.Adapter.GetHyperlinkToObject($pageId); section = $target.name }
 }
 
+function Get-VsWaitingTexts {
+    <# @(@{ pageId; text }) of the Intake items whose obsn.status is waiting: the Intake section only
+       (Read-ObsnIntakePages), then the text of each waiting item. Read only, in memory. #>
+    param([hashtable]$Ctx)
+    $out = New-Object System.Collections.Generic.List[object]
+    foreach ($p in @(Read-ObsnIntakePages -Adapter $Ctx.Adapter -RootId ([string]$Ctx.Vault.rootId))) {
+        if (-not $p -or [string]$p.meta['obsn.status'] -ne 'waiting') { continue }
+        try {
+            $t = ConvertFrom-ObsnPageText -Xml ($Ctx.Adapter.GetPageContent([string]$p.id))
+            $body = @($t.outlines | Where-Object { $_.role -eq 'body' }) | Select-Object -First 1
+            $out.Add(@{ pageId = [string]$p.id; text = $(if ($body) { [string]$body.text } else { '' }) })
+        } catch { }
+    }
+    , $out.ToArray()
+}
+
 function Invoke-VsReadPage {
     param([hashtable]$Ctx, [string]$PageId)
     $xml = $Ctx.Adapter.GetPageContent($PageId)
@@ -348,7 +365,7 @@ function Invoke-VsIndexAddPage {
     $old = if ($Ctx.Model.pages.Contains($id)) { $Ctx.Model.pages[$id] } else { $null }
     $rec = @{}
     if ($old) { foreach ($k in @($old.Keys)) { $rec[$k] = $old[$k] } }
-    foreach ($k in 'id', 'title', 'type', 'summary', 'topics', 'aliases', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'link', 'section', 'origin', 'tags', 'entries', 'series', 'meetingAt') { if ($Page.ContainsKey($k)) { $rec[$k] = $Page[$k] } }
+    foreach ($k in 'id', 'title', 'type', 'summary', 'topics', 'aliases', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'link', 'section', 'origin', 'tags', 'entries', 'series', 'meetingAt', 'summaryHash') { if ($Page.ContainsKey($k)) { $rec[$k] = $Page[$k] } }
     # A page made in this session has no OneNote date in the model until the next scan: now.
     if (-not $rec['created']) { $rec.created = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z') }
     if ($Page.ContainsKey('pageId') -and $Page['pageId']) { $rec.oneNoteId = [string]$Page['pageId'] }
@@ -503,6 +520,7 @@ function Invoke-VaultStoreCall {
         'ReadPage' { return (Invoke-VsReadPage -Ctx $Ctx @Arguments) }
         'UpdatePage' { return (Invoke-VsUpdatePage -Ctx $Ctx @Arguments) }
         'JournalEntry' { return (Invoke-VsJournalEntry -Ctx $Ctx @Arguments) }
+        'WaitingTexts' { return (Get-VsWaitingTexts -Ctx $Ctx) }
         'SetLinkedFrom' { return (Invoke-VsSetLinkedFrom -Ctx $Ctx @Arguments) }
         'DeletePage' { return (Invoke-VsDeletePage -Ctx $Ctx @Arguments) }
         'IndexAddPage' { return (Invoke-VsIndexAddPage -Ctx $Ctx @Arguments) }
@@ -554,6 +572,9 @@ function New-VaultStore {
         RepairBodyLinks = { param([string]$Id) & $call $ctx 'RepairBodyLinks' @{ Id = $Id } }.GetNewClosure()
         # Journal day pages (2026-11-17): append an entry (-Lines) or take one out (-Index/-Heading).
         JournalEntry    = { param([string]$PageId, [object[]]$Lines = @(), [int]$Index = -1, [string]$Heading = '', [hashtable]$Meta = @{}) & $call $ctx 'JournalEntry' @{ PageId = $PageId; Lines = $Lines; Index = $Index; Heading = $Heading; Meta = $Meta } }.GetNewClosure()
+        # Optional: the Intake items that still wait for Copilot, with their text (2026-11-18: a meeting
+        # added again while its first Add waits is not sent twice).
+        WaitingTexts    = { & $call $ctx 'WaitingTexts' }.GetNewClosure()
         # Optional (Ingest falls back to IndexUpdatePage per page): many records, one Index write.
         IndexUpdatePages = { param([object[]]$Pages) & $call $ctx 'IndexUpdatePages' @{ Pages = $Pages } }.GetNewClosure()
         # Upgrade steps (lib/Upgrade.psm1), not part of Ingest's contract.

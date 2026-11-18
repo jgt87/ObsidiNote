@@ -222,9 +222,22 @@ function Get-MeetingSeriesKey {
 }
 
 function Format-MeetingPageTitle {
-    <# "<series> . <day>": the title of one occurrence's page. #>
-    param([Parameter(Mandatory)][string]$Series, [Parameter(Mandatory)][string]$Day)
-    "$Series $($script:Dot) $Day"
+    <# "<series> . <day>": the title of one occurrence's page; "<series> . <day> <time>" for a second
+       meeting of the same series on the same day (2026-11-18). #>
+    param([Parameter(Mandatory)][string]$Series, [Parameter(Mandatory)][string]$Day, [string]$Time = '')
+    "$Series $($script:Dot) $Day$(if ($Time) { ' ' + $Time } else { '' })"
+}
+
+function Get-MeetingTimeOf([AllowEmptyString()][string]$MeetingAt) { if ($MeetingAt -match 'T(\d{2}:\d{2})') { $Matches[1] } else { '' } }
+
+function Test-MeetingSameOccurrence {
+    <# Whether two starts ("yyyy-MM-ddTHH:mm" or a day) are the same meeting of a series: the same
+       day, and the same time when both have one (a page from before times were kept has none). #>
+    param([AllowEmptyString()][string]$A, [AllowEmptyString()][string]$B)
+    $da = Get-MeetingDayOf $A; $db = Get-MeetingDayOf $B
+    if (-not $da -or $da -ne $db) { return $false }
+    $ta = Get-MeetingTimeOf $A; $tb = Get-MeetingTimeOf $B
+    (-not $ta) -or (-not $tb) -or ($ta -eq $tb)
 }
 
 function Format-MeetingAt {
@@ -252,4 +265,4 @@ function Get-MeetingInfoFromText {
 
 function Get-MeetingDayOf([AllowEmptyString()][string]$MeetingAt) { if ($MeetingAt -match '^(\d{4}-\d{2}-\d{2})') { $Matches[1] } else { '' } }
 
-Export-ModuleMember -Function Get-MeetingSeriesName, Get-MeetingSeriesKey, Format-MeetingPageTitle, Format-MeetingAt, Get-MeetingDayOf, Get-MeetingInfoFromText, Test-MeetingDay, New-MeetingDayPrompt, ConvertFrom-MeetingDayReply, New-MeetingNotesPrompt, ConvertFrom-MeetingNotesReply, ConvertTo-MeetingNoteText
+Export-ModuleMember -Function Get-MeetingSeriesName, Get-MeetingSeriesKey, Format-MeetingPageTitle, Format-MeetingAt, Get-MeetingDayOf, Get-MeetingTimeOf, Test-MeetingSameOccurrence, Get-MeetingInfoFromText, Test-MeetingDay, New-MeetingDayPrompt, ConvertFrom-MeetingDayReply, New-MeetingNotesPrompt, ConvertFrom-MeetingNotesReply, ConvertTo-MeetingNoteText

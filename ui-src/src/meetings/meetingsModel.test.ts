@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeSubmitResult } from '../api'
-import { addLabel, defaultPicks, meetingSubline, readableLabel, rowStateFromAdd, rowStateText, runSummary, todayIso, type Meeting } from './meetingsModel'
+import { addLabel, defaultPicks, meetingNote, meetingSubline, readableLabel, rowStateFromAdd, rowStateText, runSummary, todayIso, type Meeting } from './meetingsModel'
 
 const meeting = (over: Partial<Meeting> = {}): Meeting => ({
   title: 'Garden sync',
@@ -13,6 +13,8 @@ const meeting = (over: Partial<Meeting> = {}): Meeting => ({
   readable: false,
   series: 'Garden sync',
   earlier: 0,
+  inWiki: false,
+  waiting: false,
   ...over,
 })
 
@@ -43,6 +45,21 @@ describe('meetings model', () => {
   it('ticks the meetings Copilot can read something of', () => {
     const picks = defaultPicks([meeting({ readable: true }), meeting(), meeting({ readable: true })])
     expect([...picks]).toEqual([0, 2])
+  })
+
+  it('does not tick a meeting already in the wiki or still waiting, and says why (2026-11-18)', () => {
+    const list = [meeting({ readable: true, inWiki: true }), meeting({ readable: true, waiting: true }), meeting({ readable: true })]
+    expect([...defaultPicks(list)]).toEqual([2])
+    expect(meetingNote(list[0])).toBe('In your wiki: Add reads it again')
+    expect(meetingNote(list[1])).toBe('Waiting for Copilot from an earlier Add')
+    expect(meetingNote(list[2])).toBe('')
+  })
+
+  it('reads the same notes again as already up to date', () => {
+    const s = rowStateFromAdd(normalizeSubmitResult({ intent: 'add', status: 'unchanged', page: { title: 'Garden sync · 2031-04-09' } }))
+    expect(s.step).toBe('unchanged')
+    expect(rowStateText(s)).toBe('Already up to date: nothing changed since the last time')
+    expect(runSummary([s])).toBe('1 added.')
   })
 
   it('counts in the Add button', () => {
