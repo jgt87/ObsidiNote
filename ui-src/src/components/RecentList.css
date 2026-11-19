@@ -24,6 +24,9 @@
 .recent__open { padding: 0; border: 0; background: none; font: inherit; font-weight: 500; text-align: left; cursor: pointer; text-underline-offset: 0.2em; }
 @media (hover: hover) { .recent__open:hover, a.recent__title:hover { color: var(--accent); text-decoration: underline; } }
 .recent__open:focus-visible, a.recent__title:focus-visible { text-decoration: underline; }
+/* A row's title is the row's control: 44px of reach on touch, by invisible padding (audit
+   2026-11-19: 19px; it had been exempted as a link in a sentence, which it is not). */
+@media (pointer: coarse) { .recent__open, a.recent__title { padding-block: calc((var(--touch-target) - 1lh) / 2); } }
 .recent__state .notice { flex: 1 1 auto; }
 .recent__path, .recent__when { font-size: var(--text-meta); color: var(--muted); }
 .recent__path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

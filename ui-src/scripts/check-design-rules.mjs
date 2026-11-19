@@ -75,8 +75,10 @@ const send = (method, params = {}, sessionId) =>
 
 // Visible, enabled-or-not primary buttons outside closed dialogs.
 const PRIMARIES = `JSON.stringify([...document.querySelectorAll('.btn--primary')].filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && (!e.closest('dialog') || e.closest('dialog[open]')) && (!document.querySelector('dialog[open]') || e.closest('dialog[open]')) }).map((e) => e.textContent.trim()))`
-// Controls under 44 px on a touch screen. Text links inside a sentence are exempt (WCAG 2.5.8 inline).
-const SMALL = `JSON.stringify([...document.querySelectorAll('button, a.btn, select, input:not([type=checkbox]):not([type=radio]):not([type=file]), [role=tab]')].filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !e.closest('svg') && !e.matches('.link-btn, .kg-linkbtn, .kg-rowbtn, .recent__open, .ask-src__page') && r.height < 43.5 }).map((e) => (e.textContent.trim() || e.getAttribute('aria-label') || e.tagName).slice(0, 24) + '=' + Math.round(e.getBoundingClientRect().height)))`
+// Controls under 44 px on a touch screen. Only a text link inside a sentence is exempt (WCAG 2.5.8
+// inline); a control of its own is not, whatever its look (audit 2026-11-19: the side bar's Show and
+// the Recently changed titles were exempted as links and were 17 and 19 px).
+const SMALL = `JSON.stringify([...document.querySelectorAll('button, a.btn, select, input:not([type=checkbox]):not([type=radio]):not([type=file]), [role=tab]')].filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !e.closest('svg') && !e.matches('.kg-linkbtn, .kg-rowbtn, .ask-src__page') && r.height < 43.5 }).map((e) => (e.textContent.trim() || e.getAttribute('aria-label') || e.tagName).slice(0, 24) + '=' + Math.round(e.getBoundingClientRect().height)))`
 const FIELD_EDGES = `JSON.stringify((() => {
   // At rest: a focused field shows its focus look (the home box has autofocus and passed on it).
   if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur()

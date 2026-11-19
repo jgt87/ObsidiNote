@@ -30,7 +30,9 @@
   --active: color-mix(in srgb, CanvasText 10%, transparent);
 
   /* lines */
-  --border: color-mix(in srgb, CanvasText 14%, Canvas);
+  /* the hairline is translucent so it blends into any surface it sits on (a card, the darker dark
+     page, a raised menu); the strong edge stays solid because its 3:1 is measured */
+  --border: color-mix(in srgb, CanvasText 14%, transparent);
   --border-strong: color-mix(in srgb, CanvasText 50%, Canvas); /* field and button edges: >= 3:1 */
 
   /* text */
@@ -62,18 +64,27 @@
   --scroll-thumb-hover: color-mix(in srgb, CanvasText 35%, transparent);
 }
 
-/* dark accent: lighter purple with dark text on it (#A78BFA: 6.4:1 on #1A1A1A) */
+/* dark accent: lighter purple with dark text on it (#A78BFA: 6.4:1 on #1A1A1A).
+   Dark depth (audit 2026-11-19, shared rule "no panel darker than the page"): a shadow barely
+   shows on dark, so height reads as lightness: the page is the darkest layer, cards are a step
+   lighter, floating layers (menus, dialogs, popovers) a step more. Light keeps grey page, white cards. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --accent: var(--purple-400); --accent-hover: var(--purple-300);
     --accent-soft: color-mix(in srgb, var(--purple-400) 16%, transparent);
     --on-accent: #141414; --ring: var(--purple-400);
+    --sunken: Canvas;
+    --surface: color-mix(in srgb, CanvasText 4%, Canvas);
+    --raised: color-mix(in srgb, CanvasText 7%, Canvas);
   }
 }
 :root[data-theme="dark"] {
   --accent: var(--purple-400); --accent-hover: var(--purple-300);
   --accent-soft: color-mix(in srgb, var(--purple-400) 16%, transparent);
   --on-accent: #141414; --ring: var(--purple-400);
+  --sunken: Canvas;
+  --surface: color-mix(in srgb, CanvasText 4%, Canvas);
+  --raised: color-mix(in srgb, CanvasText 7%, Canvas);
 }
 
 :root {
@@ -117,7 +128,8 @@
   --dur-fast: 120ms;
   --dur: 150ms;
   --dur-slow: 200ms;
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);  /* things that enter or leave */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);  /* things already on screen that move (a chevron turning) */
 }
 
 /* ---------- base ---------- */
@@ -125,6 +137,8 @@ html { font-family: var(--font-sans); font-size: var(--text-body); line-height: 
        color: var(--ink); background: var(--bg); font-synthesis: none; }
 .num, time, td.num { font-variant-numeric: tabular-nums; }
 code, kbd, .mono { font-family: var(--font-mono); }
+/* one underline gap for every link (shared docs/01 §3); link-styled buttons set the same 0.2em */
+a { text-underline-offset: 0.2em; }
 
 :where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--ring);

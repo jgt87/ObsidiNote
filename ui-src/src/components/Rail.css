@@ -132,7 +132,7 @@ nav.rail > .rail__footer { margin-top: auto; }
 .tree__row--plain { color: var(--muted); }
 @media (hover: hover) { .tree__toggle:hover { background: var(--hover); } }
 .tree__toggle:focus-visible { outline-offset: -2px; }
-.tree__chev { display: inline-flex; width: 16px; height: 16px; flex: none; color: var(--muted); transition: transform var(--dur-fast) ease-out; }
+.tree__chev { display: inline-flex; width: 16px; height: 16px; flex: none; color: var(--muted); transition: transform var(--dur-fast) var(--ease-in-out); }
 .tree__chev[data-open="true"] { transform: rotate(90deg); }
 .tree__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree__count { flex: none; color: var(--muted); font-size: var(--text-meta); }
@@ -181,5 +181,8 @@ nav.rail > .rail__footer { margin-top: auto; }
 }
 @media (max-width: 760px) and (pointer: coarse) {
   .rail__brand { min-height: 48px; }
+  /* Show/Hide is a control of its own, not a link in a sentence: 44px of reach on touch, by
+     invisible padding (audit 2026-11-19: 17px). */
+  .rail__fold { display: inline-block; padding-block: calc((var(--touch-target) - 1lh) / 2); }
   .rail__theme { width: 200px; }
 }

@@ -48,7 +48,7 @@ describe('AddResult', () => {
     expect(html).toContain('also under Projects / Partner portal')
     expect(html).toContain('new topic: Zero trust')
     expect(html).toContain('aria-label="Strength 3 of 3"')
-    expect(html).toContain('on the words &quot;checks who the user is&quot;')
+    expect(html).toContain('on the words “checks who the user is”')
     expect(html).toContain('Filed under')
     expect(html).toContain('Backlinks added to 2 pages')
     expect(html).toContain('Device trust checklist')

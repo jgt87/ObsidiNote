@@ -217,11 +217,13 @@ Describe 'Pacing (config\obsidinote.json "pacing")' {
         Remove-Item $app -Recurse -Force
     }
     It 'pauses nothing when a pause is 0 or the bridge has no pacing' {
+        # A pause reads the page's events until it ends; no pause reads none. Counted, not timed
+        # (tests/SpeedRules.Tests.ps1: no test holds a millisecond limit).
         $m = Get-Module CopilotBridge
-        $w = [Diagnostics.Stopwatch]::StartNew()
+        Mock -ModuleName CopilotBridge Receive-CdpEvent { }
         & $m { Wait-Pacing ([pscustomobject]@{ Session = $null; Pacing = @{ beforeSendSec = 0 } }) 'beforeSendSec' 'test' }
         & $m { Wait-Pacing ([pscustomobject]@{ Session = $null }) 'beforeSendSec' 'test' }
-        $w.ElapsedMilliseconds | Should BeLessThan 500
+        Assert-MockCalled -ModuleName CopilotBridge Receive-CdpEvent -Times 0 -Exactly
     }
 }
 

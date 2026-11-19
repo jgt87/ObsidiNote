@@ -113,7 +113,7 @@
 .kg-tbl__fold:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .kg-tbl__groupname { font-size: var(--text-control); font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
 .kg-tbl__count { flex: none; font-size: var(--text-meta); color: var(--muted); font-variant-numeric: tabular-nums; }
-.kg-tbl__chev { width: 14px; height: 14px; flex: none; color: var(--muted); transition: transform var(--dur-fast) var(--ease-out); }
+.kg-tbl__chev { width: 14px; height: 14px; flex: none; color: var(--muted); transition: transform var(--dur-fast) var(--ease-in-out); }
 .kg-tbl__chev.is-open { transform: rotate(90deg); }
 
 /* rows */

@@ -30,13 +30,13 @@ export function LinksCard({ links, backlinks, title = 'Links', showBacklinks = t
             <StrengthBar strength={l.strength} />
             <div className="add-link__main">
               {l.link ? (
-                <a className="add-a" href={l.link} title={`Open "${l.title}" in OneNote`}>
+                <a className="add-a" href={l.link} title={`Open “${l.title}” in OneNote`}>
                   {l.title || l.target}
                 </a>
               ) : (
                 <span>{l.title || l.target}</span>
               )}
-              {l.anchor && <div className="add-muted">on the words "{l.anchor}"</div>}
+              {l.anchor && <div className="add-muted">on the words “{l.anchor}”</div>}
             </div>
             <div className="add-muted">{l.why}</div>
           </li>

@@ -5,6 +5,14 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.16] - 2026-11-19
+
+### Changed
+- Dark theme: the page is now the darkest layer, cards sit a step lighter and menus, dialogs and the page window a step more, so what is on top reads as on top (cards had been darker than the page behind them). Thin dividers blend into whatever they sit on. No upgrade step: colours only, nothing stored changes.
+
+### Fixed
+- On a touch screen, the side bar's Show/Hide and the page titles in Recently changed are now easy to tap (44 px of reach instead of 17 and 19 px).
+
 ## [v0.12.15] - 2026-11-19
 
 ### Added

@@ -229,8 +229,8 @@ export function shortDate(date: string): string {
 export function journalCaption(filter: JournalFilter, topic: GraphTopic | undefined, days: JournalDay[], seriesName = ''): string {
   const n = days.reduce((s, d) => s + d.items.length, 0)
   const what = n === 1 ? '1 item' : `${n} items`
-  if (filter.series) return `The meetings of "${seriesName || filter.series}": ${n === 1 ? '1 meeting' : `${n} meetings`}, newest day first.`
+  if (filter.series) return `The meetings of “${seriesName || filter.series}”: ${n === 1 ? '1 meeting' : `${n} meetings`}, newest day first.`
   if (!filter.topicId && !filter.text.trim()) return `Your journal and meetings: ${what}, newest day first.`
-  const about = [topic ? `topic "${topic.path}"` : '', filter.text.trim() ? `"${filter.text.trim()}"` : ''].filter(Boolean).join(' and ')
+  const about = [topic ? `topic “${topic.path}”` : '', filter.text.trim() ? `“${filter.text.trim()}”` : ''].filter(Boolean).join(' and ')
   return `Everything about ${about}, from all sources and all days: ${what}.`
 }

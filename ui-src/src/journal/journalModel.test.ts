@@ -55,7 +55,7 @@ describe('the journal without a search', () => {
     expect(matchingSeries(list, 'kitchen')).toHaveLength(0)
     const only = buildJournal(m, { topicId: '', text: '', series: 'garden sync beds' })
     expect(only.flatMap((d) => d.items.map((i) => i.pageId))).toEqual(['m2', 'm1'])
-    expect(journalCaption({ topicId: '', text: '', series: 'garden sync beds' }, undefined, only, 'Garden sync Beds')).toBe('The meetings of "Garden sync Beds": 2 meetings, newest day first.')
+    expect(journalCaption({ topicId: '', text: '', series: 'garden sync beds' }, undefined, only, 'Garden sync Beds')).toBe('The meetings of “Garden sync Beds”: 2 meetings, newest day first.')
   })
   it('names the series page, but neither lists nor counts it as a meeting (2026-11-19)', () => {
     const m = model()
@@ -122,6 +122,6 @@ describe('wording and helpers', () => {
     const all = buildJournal(m, { topicId: '', text: '' })
     expect(journalCaption({ topicId: '', text: '' }, undefined, all)).toBe('Your journal and meetings: 3 items, newest day first.')
     const t = m.topics.find((x) => x.id === 'Projects')
-    expect(journalCaption({ topicId: 'Projects', text: '' }, t, buildJournal(m, { topicId: 'Projects', text: '' }))).toBe('Everything about topic "Projects", from all sources and all days: 4 items.')
+    expect(journalCaption({ topicId: 'Projects', text: '' }, t, buildJournal(m, { topicId: 'Projects', text: '' }))).toBe('Everything about topic “Projects”, from all sources and all days: 4 items.')
   })
 })

@@ -13,6 +13,20 @@ Set-Location $root
 $utf8NoBom = New-Object Text.UTF8Encoding $false
 
 if (git status --porcelain) { throw 'Working tree is not clean.' }
+
+# CI gate: every CI run of HEAD must be finished and green. A local pass is not enough (CI has an
+# 8.3 temp path, a clean module path and the interface build); two releases once went out while
+# CI was red. Runs are looked up by the commit, not the branch, so a release from a worktree on its
+# own branch (lessons: committed build output) finds the runs of the commit that main pushed.
+$head = (git rev-parse HEAD).Trim()
+$json = (gh run list --commit $head --json status,conclusion,workflowName) -join "`n"
+if ($LASTEXITCODE -ne 0) { throw 'gh run list failed: is gh signed in?' }
+$parsed = $json | ConvertFrom-Json   # assigned first: PS 5.1 hands a JSON array over as one object
+$runs = @($parsed)
+if (-not $runs.Count) { throw "No CI run found for HEAD ($head). Push and let CI finish first." }
+$notGreen = @($runs | Where-Object { $_.status -ne 'completed' -or $_.conclusion -ne 'success' })
+if ($notGreen.Count) { throw "CI for HEAD is not green: $(($notGreen | ForEach-Object { "$($_.workflowName) $($_.status)/$($_.conclusion)" }) -join ', '). Fix it before releasing." }
+
 $plain = $Version.TrimStart('v')
 
 # Write without BOM: Set-Content -Encoding utf8 adds one on PS 5.1.
