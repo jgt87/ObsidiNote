@@ -98,18 +98,21 @@ export function focusNeighbourhood(index: GraphIndex, id: string, depth: FocusDe
   if (!index.pageById.has(id)) return seen
   seen.add(id)
   let ring = [id]
-  for (let step = 0; step < depth; step++) {
-    const next: string[] = []
-    for (const p of ring) {
-      for (const n of index.neighbours.get(p) ?? []) {
-        if (seen.has(n)) continue
-        seen.add(n)
-        next.push(n)
-      }
-    }
-    ring = next
-  }
+  for (let step = 0; step < depth; step++) ring = stepOut(index, ring, seen)
   return seen
+}
+
+/** The pages one link step beyond `ring` that are not in `seen` yet, in order; adds them to `seen`. */
+function stepOut(index: GraphIndex, ring: string[], seen: Set<string>): string[] {
+  const next: string[] = []
+  for (const p of ring) {
+    for (const n of index.neighbours.get(p) ?? []) {
+      if (seen.has(n)) continue
+      seen.add(n)
+      next.push(n)
+    }
+  }
+  return next
 }
 
 function underTopics(page: GraphPage, wanted: Set<string>): boolean {
@@ -128,26 +131,38 @@ function expandTopics(index: GraphIndex, topics: Set<string>): Set<string> {
   return wanted
 }
 
+type PageCheck = (p: GraphPage) => boolean
+
+/** One check per active choice of the filter (the focus aside); a page must pass all of them.
+ *  Each check is pure, so their order does not change which pages pass. */
+function pageChecks(index: GraphIndex, f: GraphFilter): PageCheck[] {
+  const checks: PageCheck[] = []
+  if (!f.showArchived) checks.push((p) => !p.archived)
+  if (f.types.size) checks.push((p) => f.types.has(typeOf(p)))
+  if (f.topics.size) {
+    const wanted = expandTopics(index, f.topics)
+    checks.push((p) => underTopics(p, wanted))
+  }
+  if (f.tags.size) checks.push((p) => p.tags.some((t) => f.tags.has(t)))
+  if (f.unlinkedOnly) checks.push((p) => isUnlinked(index, p))
+  if (f.duplicatesOnly) {
+    const dups = duplicateIds(index.model.pages, f.showArchived)
+    checks.push((p) => dups.has(p.id))
+  }
+  const cutOff = f.staleBefore
+  if (cutOff !== null) checks.push((p) => isStale(p, cutOff))
+  return checks
+}
+
 /** The ids of the pages that stay visible, in model order. */
 export function visiblePageIds(index: GraphIndex, f: GraphFilter): Set<string> {
-  const wanted = f.topics.size ? expandTopics(index, f.topics) : null
   const near = f.focus ? focusNeighbourhood(index, f.focus.id, f.focus.depth) : null
-  const dups = f.duplicatesOnly ? duplicateIds(index.model.pages, f.showArchived) : null
+  const focusId = f.focus?.id ?? null
+  const checks = pageChecks(index, f)
   const shown = new Set<string>()
   for (const p of index.model.pages) {
-    if (near && p.id === f.focus!.id) {
-      shown.add(p.id)
-      continue
-    }
-    if (near && !near.has(p.id)) continue
-    if (p.archived && !f.showArchived) continue
-    if (f.types.size && !f.types.has(typeOf(p))) continue
-    if (wanted && !underTopics(p, wanted)) continue
-    if (f.tags.size && !p.tags.some((t) => f.tags.has(t))) continue
-    if (f.unlinkedOnly && !isUnlinked(index, p)) continue
-    if (dups && !dups.has(p.id)) continue
-    if (f.staleBefore !== null && !isStale(p, f.staleBefore)) continue
-    shown.add(p.id)
+    // The focused page itself stays whatever the other choices say.
+    if (p.id === focusId || ((!near || near.has(p.id)) && checks.every((c) => c(p)))) shown.add(p.id)
   }
   return shown
 }
@@ -178,37 +193,50 @@ export interface TopicOption {
  */
 export function filterOptions(index: GraphIndex, showArchived: boolean): { types: TypeOption[]; topics: TopicOption[]; tags: TagCount[] } {
   const pages = index.model.pages.filter((p) => showArchived || !p.archived)
+  return { types: typeOptions(pages), topics: topicOptions(index, pages), tags: tagCounts(pages) }
+}
+
+/** Code-unit order (not the locale's), as the panel has always listed them. */
+function byText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
+function typeOptions(pages: GraphPage[]): TypeOption[] {
   const typeCount = new Map<string, number>()
   for (const p of pages) {
     const k = typeOf(p)
     typeCount.set(k, (typeCount.get(k) ?? 0) + 1)
   }
-  const types = [...typeCount].map(([key, count]) => ({ key, count })).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+  return [...typeCount].map(([key, count]) => ({ key, count })).sort((a, b) => byText(a.key, b.key))
+}
 
+/** Every topic by path with its page count, then Unfiled when some pages have no topic. */
+function topicOptions(index: GraphIndex, pages: GraphPage[]): TopicOption[] {
   const desc = topicDescendants(index)
-  const byId = index.topicById
-  const depthOf = (id: string): number => {
-    let d = 0
-    let t = byId.get(id)
-    const guard = new Set<string>()
-    while (t && t.parent !== null && !guard.has(t.id)) {
-      guard.add(t.id)
-      d++
-      t = byId.get(t.parent)
-    }
-    return d
-  }
   const topics: TopicOption[] = index.model.topics
     .map((t) => {
       const ids = desc.get(t.id)!
       let count = 0
       for (const p of pages) if (p.topicIds.some((x) => ids.has(x))) count++
-      return { id: t.id, name: t.name, path: t.path, depth: depthOf(t.id), count }
+      return { id: t.id, name: t.name, path: t.path, depth: topicDepth(index, t.id), count }
     })
-    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    .sort((a, b) => byText(a.path, b.path))
   const unfiled = pages.filter((p) => !p.topicIds.length).length
   if (unfiled) topics.push({ id: UNFILED_ID, name: 'Unfiled', path: 'Unfiled', depth: 0, count: unfiled })
-  return { types, topics, tags: tagCounts(pages) }
+  return topics
+}
+
+/** Steps from the topic up to its root; 0 for a root. A cycle in a broken tree stops the walk. */
+function topicDepth(index: GraphIndex, id: string): number {
+  let d = 0
+  let t = index.topicById.get(id)
+  const guard = new Set<string>()
+  while (t && t.parent !== null && !guard.has(t.id)) {
+    guard.add(t.id)
+    d++
+    t = index.topicById.get(t.parent)
+  }
+  return d
 }
 
 /** Archived pages the current filter hides because "Show archived" is off. */
