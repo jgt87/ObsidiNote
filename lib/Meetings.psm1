@@ -99,7 +99,10 @@ function New-MeetingNotesPrompt {
     param([Parameter(Mandatory)][string]$Title, [string]$Start = '', [Parameter(Mandatory)][string]$Ref)
     $s = Get-MeetingText $Start 40
     'From the transcript, the Copilot recap or the meeting notes of my Teams meeting "' + (Format-PromptTitle $Title) + '"' + $(if ($s) { ' (started ' + $s + ')' } else { '' }) + ', write structured meeting notes for my personal wiki. ' +
-    'For each attendee give the display name and the e-mail address exactly as in the meeting invitation; leave the address empty when you do not see it, never guess one. ' +
+    # Attendees = who joined, not who was invited (operator, 2026-11-18: "previously it captured
+    # everyone who joined, now it lists all of the invitees"). Only the address comes from the invitation.
+    'Attendees are only the people who joined the meeting (who spoke in the transcript or are in its attendance), not everyone who was invited. ' +
+    'For each attendee give the display name and the e-mail address as the meeting invitation has it; leave the address empty when you do not see it, never guess one. ' +
     'Answer only with one JSON object and no other text: {"ref": "' + $Ref + '", "found": true or false, "date": "yyyy-mm-dd", "attendees": [{"name": "display name", "email": "address or empty"}], "summary": "3 to 5 sentences", "decisions": ["each decision in one sentence"], ' +
     '"actions": [{"text": "the action", "owner": "a name or empty", "due": "yyyy-mm-dd or empty"}], "basedOn": "transcript, recap, notes or empty"}. ' +
     'A summary only: never copy the transcript. If you cannot read it, answer {"ref": "' + $Ref + '", "found": false, "attendees": [], "decisions": [], "actions": []}.'
@@ -284,6 +287,160 @@ function Get-MeetingInfoFromText {
     @{ series = $series; key = (Get-MeetingSeriesKey $series); day = $day; at = $(if ($day) { Format-MeetingAt -Day $day -Time $w.Groups[2].Value } else { '' }) }
 }
 
+# ---------------------------------------------------------------- series page (operator, 2026-11-19)
+# One overview page per series, written by ObsidiNote after each import of the series: Copilot's
+# summary of what the series covered lately, the latest meeting, decisions and actions by date, who
+# joined and how often, and every meeting linked. The meetings' own pages stay as they are.
+
+function Get-MeetingDataFromText {
+    <# A meeting's notes from the text ConvertTo-MeetingNoteText wrote (the text an Add files):
+       @{ summary; decisions; actions = @(@{ text; owner; due }); people = @(@{ name; email }) }, or
+       $null for other text. Reads its own format back; nothing is asked. Pure. #>
+    # -Body: $Text is a meeting page's body read back from OneNote (the upgrade step series-data,
+    # 2026-11-19): no meeting line is needed, a heading may come back at another level or as a bold
+    # line, and links the linker put in the text (other than mailto) are read as their words.
+    param([AllowEmptyString()][AllowNull()][string]$Text, [switch]$Body)
+    if (-not $Body -and -not (Get-MeetingInfoFromText $Text)) { return $null }
+    if (-not $Text) { return $null }
+    $sections = @{}; $cur = ''
+    foreach ($raw in ($Text -split '\r?\n')) {
+        $line = [regex]::Replace($raw, '\[([^\]]+)\]\((?!mailto:)[^)]*\)', '$1')
+        $h = [regex]::Match($line, '^\s*(?:#{1,6}\s+|\*\*)(.+?)(?:\*\*)?\s*:?\s*$')
+        if ($h.Success -and ($Body -or $line -match '^##\s')) {
+            $name = $h.Groups[1].Value.Trim().TrimEnd(':').ToLowerInvariant()
+            if ($Body -and $name -notin 'attendees', 'summary', 'decisions', 'actions') { $cur = ''; continue }
+            $cur = $name; $sections[$cur] = New-Object System.Collections.Generic.List[string]; continue
+        }
+        if ($cur -and $line.Trim()) { $sections[$cur].Add(($line.Trim() -replace '^[*+]\s+', '- ' -replace '^\d+[.)]\s+', '- ')) }
+    }
+    if ($Body -and -not $sections.Count) { return $null }
+    $items = { param($name) @(if ($sections.ContainsKey($name)) { $sections[$name] | Where-Object { $_ -match '^-\s+' } | ForEach-Object { ($_ -replace '^-\s+', '').Trim() } }) }
+    $people = @(foreach ($p in (& $items 'attendees')) {
+            $m = [regex]::Match($p, '^(.*?)\s*\(\[([^\]]+)\]\(mailto:[^)]*\)\)\s*$')
+            if ($m.Success) { @{ name = $m.Groups[1].Value.Trim(); email = $m.Groups[2].Value } }
+            elseif ($p -match '^\[([^\]]+)\]\(mailto:') { @{ name = $Matches[1]; email = $Matches[1] } }
+            else { @{ name = $p; email = '' } }
+        })
+    $actions = @(foreach ($a in (& $items 'actions')) {
+            $m = [regex]::Match($a, '^(.*?)\s*\(([^()]*)\)\s*$')
+            $text = $a; $owner = ''; $due = ''
+            if ($m.Success) {
+                $text = $m.Groups[1].Value.Trim()
+                foreach ($part in ($m.Groups[2].Value -split ',\s*')) { if ($part -match '^due (\d{4}-\d{2}-\d{2})$') { $due = $Matches[1] } elseif ($part) { $owner = $part } }
+            }
+            @{ text = $text; owner = $owner; due = $due }
+        })
+    @{
+        summary = $(if ($sections.ContainsKey('summary')) { ($sections['summary'] -join ' ').Trim() } else { '' })
+        decisions = @(& $items 'decisions'); actions = $actions; people = $people
+    }
+}
+
+function ConvertTo-MeetingDataValue {
+    <# The obsn.meeting value of a meeting page: compact JSON of Get-MeetingDataFromText's result. #>
+    param([hashtable]$Data)
+    if (-not $Data) { return '' }
+    $o = [ordered]@{
+        s = [string]$Data.summary
+        d = @($Data.decisions)
+        a = @(@($Data.actions) | ForEach-Object { [ordered]@{ t = [string]$_.text; o = [string]$_.owner; u = [string]$_.due } })
+        p = @(@($Data.people) | ForEach-Object { [ordered]@{ n = [string]$_.name; e = [string]$_.email } })
+    }
+    ConvertTo-Json -InputObject $o -Depth 5 -Compress
+}
+
+function ConvertFrom-MeetingDataValue {
+    <# obsn.meeting -> @{ summary; decisions; actions; people }, or $null when there is none or it
+       cannot be read (a page from before 2026-11-19). Pure. #>
+    param([AllowEmptyString()][AllowNull()][string]$Value)
+    if (-not $Value) { return $null }
+    try { $j = ConvertFrom-Json -InputObject $Value -ErrorAction Stop } catch { return $null }
+    $g = { param($o, $k) if ($o.PSObject.Properties[$k]) { $o.$k } else { $null } }
+    @{
+        summary = [string](& $g $j 's')
+        decisions = @(@(& $g $j 'd') | Where-Object { $_ } | ForEach-Object { [string]$_ })
+        actions = @(@(& $g $j 'a') | Where-Object { $_ } | ForEach-Object { @{ text = [string](& $g $_ 't'); owner = [string](& $g $_ 'o'); due = [string](& $g $_ 'u') } })
+        people = @(@(& $g $j 'p') | Where-Object { $_ } | ForEach-Object { @{ name = [string](& $g $_ 'n'); email = [string](& $g $_ 'e') } })
+    }
+}
+
+function Format-SeriesPageTitle([string]$Series) { "$Series (series)" }
+
+function New-SeriesSummaryPrompt {
+    <# The question for a series' summary: the latest meetings' notes (newest first, at most 10),
+       written into the prompt, so Copilot answers from them only (Work IQ is not needed). #>
+    param([Parameter(Mandatory)][string]$Series, [Parameter(Mandatory)][object[]]$Days, [Parameter(Mandatory)][string]$Ref)
+    $b = New-Object System.Text.StringBuilder
+    [void]$b.Append("These are the notes of the latest meetings of the series ""$((Get-MeetingText $Series $script:MaxTitle).Replace('"', "'"))"", newest first. ")
+    [void]$b.Append('In 3 to 5 sentences, say what the series has covered lately, what was decided and what is still open. Use only these notes. ')
+    [void]$b.Append('Answer only with one JSON object and no other text: {"ref": "' + $Ref + '", "summary": "..."}.' + "`n")
+    foreach ($d in @($Days | Select-Object -First 10)) {
+        $x = $d.data
+        [void]$b.Append("`n=== Meeting of $($d.day) ===`n")
+        if ($x) {
+            if ($x.summary) { [void]$b.Append("Summary: $($x.summary)`n") }
+            foreach ($t in @($x.decisions)) { [void]$b.Append("Decision: $t`n") }
+            foreach ($a in @($x.actions)) { [void]$b.Append("Action: $($a.text)$(if ($a.owner) { ' (' + $a.owner + ')' })`n") }
+        } elseif ($d.summary) { [void]$b.Append("Summary: $($d.summary)`n") }
+    }
+    $b.ToString()
+}
+
+function ConvertFrom-SeriesSummaryReply {
+    <# The summary of a reply to New-SeriesSummaryPrompt, or '' when it cannot be used. #>
+    param([AllowEmptyString()][AllowNull()][string]$Reply, [string]$Ref = '')
+    $j = Get-ReplyJson $Reply
+    if (-not $j.ok -or -not (Test-ReplyRef -Reply $j.value -Ref $Ref).ok -or -not $j.value.PSObject.Properties['summary']) { return '' }
+    Get-MeetingText $j.value.summary $script:MaxSummary
+}
+
+function ConvertTo-SeriesPageText {
+    <# The series page's own text (Markdown, kept as headings and lists): Copilot's summary, the latest
+       meeting, decisions and actions by date (newest first), who joined and how often, and every
+       meeting linked to its page. $Days: @(@{ day; time; title; link; summary; data }) newest first. #>
+    param([Parameter(Mandatory)][string]$Series, [AllowEmptyString()][string]$Summary = '', [Parameter(Mandatory)][object[]]$Days)
+    $l = New-Object System.Collections.Generic.List[string]
+    $ref = { param($d) if ($d.link) { "[$($d.day)]($($d.link))" } else { $d.day } }
+    $l.Add("# $(Get-MeetingText $Series $script:MaxTitle)")
+    $l.Add('')
+    $l.Add("A meeting series of $(@($Days).Count) $(if (@($Days).Count -eq 1) { 'meeting' } else { 'meetings' }) in your wiki. ObsidiNote writes this page again after each import; your own notes go in Your notes.")
+    if ($Summary) { $l.Add(''); $l.Add('## Lately'); $l.Add($Summary) }
+    $last = @($Days)[0]
+    if ($last) {
+        $l.Add(''); $l.Add("## Latest meeting: $(& $ref $last)$(if ($last.time) { ' at ' + $last.time })")
+        $s = if ($last.data -and $last.data.summary) { $last.data.summary } else { $last.summary }
+        if ($s) { $l.Add($s) }
+    }
+    $dec = @(foreach ($d in $Days) { if ($d.data) { foreach ($t in @($d.data.decisions)) { "- $(& $ref $d): $t" } } })
+    if ($dec.Count) { $l.Add(''); $l.Add('## Decisions'); foreach ($x in $dec) { $l.Add($x) } }
+    $act = @(foreach ($d in $Days) { if ($d.data) { foreach ($a in @($d.data.actions)) { $w = @($(if ($a.owner) { $a.owner }), $(if ($a.due) { "due $($a.due)" })) | Where-Object { $_ }; "- $(& $ref $d): $($a.text)$(if ($w) { ' (' + ($w -join ', ') + ')' })" } } })
+    if ($act.Count) { $l.Add(''); $l.Add('## Actions'); foreach ($x in $act) { $l.Add($x) } }
+    # People: who joined, how often; one person per address, else per name.
+    $count = [ordered]@{}; $shown = @{}
+    foreach ($d in $Days) {
+        if (-not $d.data) { continue }
+        $seen = @{}
+        foreach ($p in @($d.data.people)) {
+            $k = if ($p.email) { $p.email.ToLowerInvariant() } else { $p.name.ToLowerInvariant() }
+            if (-not $k -or $seen.ContainsKey($k)) { continue }
+            $seen[$k] = $true
+            if (-not $count.Contains($k)) { $count[$k] = 0; $shown[$k] = $(if ($p.email -and $p.name -and $p.name -ne $p.email) { "$($p.name) ([$($p.email)](mailto:$($p.email)))" } elseif ($p.email) { "[$($p.email)](mailto:$($p.email))" } else { $p.name }) }
+            $count[$k]++
+        }
+    }
+    $withData = @($Days | Where-Object { $_.data }).Count
+    if ($count.Count) {
+        $l.Add(''); $l.Add('## People')
+        foreach ($k in @($count.Keys | Sort-Object { -[int]$count[$_] }, { $shown[$_] })) { $l.Add("- $($shown[$k]): $($count[$k]) of $withData") }
+    }
+    $l.Add(''); $l.Add('## All meetings')
+    foreach ($d in $Days) {
+        $s = if ($d.data -and $d.data.summary) { $d.data.summary } else { $d.summary }
+        $l.Add("- $(& $ref $d)$(if ($d.time) { ' ' + $d.time }): $(if ($s) { (Get-MeetingText $s 240) } else { $d.title })")
+    }
+    $l.ToArray() -join "`n"
+}
+
 function Get-MeetingDayOf([AllowEmptyString()][string]$MeetingAt) { if ($MeetingAt -match '^(\d{4}-\d{2}-\d{2})') { $Matches[1] } else { '' } }
 
-Export-ModuleMember -Function Get-MeetingSeriesName, Get-MeetingSeriesKey, Format-MeetingPageTitle, Format-MeetingAt, Get-MeetingDayOf, Get-MeetingTimeOf, Test-MeetingSameOccurrence, Get-MeetingInfoFromText, Test-MeetingDay, New-MeetingDayPrompt, ConvertFrom-MeetingDayReply, New-MeetingNotesPrompt, ConvertFrom-MeetingNotesReply, ConvertTo-MeetingNoteText
+Export-ModuleMember -Function Get-MeetingDataFromText, ConvertTo-MeetingDataValue, ConvertFrom-MeetingDataValue, Format-SeriesPageTitle, New-SeriesSummaryPrompt, ConvertFrom-SeriesSummaryReply, ConvertTo-SeriesPageText, Get-MeetingSeriesName, Get-MeetingSeriesKey, Format-MeetingPageTitle, Format-MeetingAt, Get-MeetingDayOf, Get-MeetingTimeOf, Test-MeetingSameOccurrence, Get-MeetingInfoFromText, Test-MeetingDay, New-MeetingDayPrompt, ConvertFrom-MeetingDayReply, New-MeetingNotesPrompt, ConvertFrom-MeetingNotesReply, ConvertTo-MeetingNoteText

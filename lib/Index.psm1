@@ -51,7 +51,7 @@ function Add-IndexTopic {
 
 function New-PageRecord {
     param([hashtable]$From = @{})
-    $r = @{ key = ''; id = ''; title = ''; type = ''; bucket = ''; section = ''; oneNoteId = ''; link = ''; summary = ''; topics = @(); aliases = @(); status = ''; url = ''; host = ''; kind = ''; summarizedAt = ''; archivedFrom = ''; links = @(); updated = ''; created = ''; entries = @(); owner = 'obsn'; level = 1; parent = ''; origin = ''; tags = @(); series = ''; meetingAt = '' }
+    $r = @{ key = ''; id = ''; title = ''; type = ''; bucket = ''; section = ''; oneNoteId = ''; link = ''; summary = ''; topics = @(); aliases = @(); status = ''; url = ''; host = ''; kind = ''; summarizedAt = ''; archivedFrom = ''; links = @(); updated = ''; created = ''; entries = @(); owner = 'obsn'; level = 1; parent = ''; origin = ''; tags = @(); series = ''; meetingAt = ''; meetingData = '' }
     foreach ($k in @($From.Keys)) { $r[$k] = $From[$k] }
     $r.entries = @(@($r.entries) | Where-Object { $_ })
     $r.tags = @(@($r.tags) | Where-Object { $_ } | ForEach-Object { [string]$_ })
@@ -97,7 +97,10 @@ function Test-PageUnfiled { param([hashtable]$Page) (-not @($Page.topics).Count)
 
 # ---------------------------------------------------------------- compact entries (index Meta)
 
-$script:EntryMap = [ordered]@{ id = 'i'; title = 't'; oneNoteId = 'o'; link = 'k'; bucket = 'b'; section = 'c'; type = 'y'; topics = 'p'; summary = 's'; status = 'st'; url = 'u'; host = 'h'; kind = 'kd'; summarizedAt = 'sa'; archivedFrom = 'af'; aliases = 'a'; links = 'l'; updated = 'm'; owner = 'w'; origin = 'or'; tags = 'g'; series = 'sr'; meetingAt = 'ma' }
+$script:EntryMap = [ordered]@{ id = 'i'; title = 't'; oneNoteId = 'o'; link = 'k'; bucket = 'b'; section = 'c'; type = 'y'; topics = 'p'; summary = 's'; status = 'st'; url = 'u'; host = 'h'; kind = 'kd'; summarizedAt = 'sa'; archivedFrom = 'af'; aliases = 'a'; links = 'l'; updated = 'm'; owner = 'w'; origin = 'or'; tags = 'g'; series = 'sr'; meetingAt = 'ma'; meetingData = 'md' }
+# meetingData (2026-11-19): '1' when the meeting page's notes are in its obsn.meeting Meta, 'none' when
+# its text was read and held none; '' = not read yet (upgrade step series-data). The notes themselves
+# stay on the page, not in the index.
 
 function ConvertTo-IndexEntry {
     param([Parameter(Mandatory)][hashtable]$Page)

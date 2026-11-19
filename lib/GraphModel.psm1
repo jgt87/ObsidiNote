@@ -149,6 +149,9 @@ function ConvertTo-GraphModel {
             # (operator, 2026-11-18; pinned by tests/fixtures/graph-pages.json).
             series = $(if ($p.ContainsKey('series')) { [string]$p['series'] } else { '' })
             meetingAt = $(if ($p.ContainsKey('meetingAt')) { [string]$p['meetingAt'] } else { '' })
+            # seriesPage: the overview page of a meeting series (record kind series, 2026-11-19), not a
+            # meeting: the Journal and the series counts leave it out.
+            seriesPage = ([string]$p['kind'] -eq 'series')
         }
     })
     # The tags of the shown source with their page counts, sorted by name (ordinal).

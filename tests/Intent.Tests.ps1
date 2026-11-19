@@ -122,7 +122,7 @@ Describe 'Get-Intent: every example of tests/fixtures/intent-samples.json (2026-
 
 Describe 'Get-Intent: a company link with your own words (2026-11-18)' {
     It 'names the Add it will be: the link''s page with the words as notes' {
-        $r = Get-Intent -Text 'Plan for the beds https://contoso.sharepoint.com/sites/garden/Beds.aspx'
+        $r = Get-Intent -Text 'Plan for the beds https://fernbrook.sharepoint.com/sites/garden/Beds.aspx'
         $r.intent | Should Be 'add'
         $r.reason | Should Match 'company link with your words'
         (Get-Intent -Text 'Plan for the beds https://example.org/beds').intent | Should Not Be 'add'

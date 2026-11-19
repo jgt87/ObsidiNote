@@ -62,7 +62,7 @@ export function ActivityRow({ item, canChange, vaultId, onChanged, onOpen }: { i
       <div className="act__actions">
         {ask ? (
           <>
-            <span className="act__confirm">{ask === 'undo' ? 'Undo this page?' : 'Remove this item?'} It goes to OneNote's Deleted Pages.</span>
+            <span className="act__confirm">{ask === 'undo' ? 'Undo this page?' : 'Remove this item?'} It goes to OneNote’s Deleted Pages.</span>
             <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setAsk(null)}>
               Keep
             </button>

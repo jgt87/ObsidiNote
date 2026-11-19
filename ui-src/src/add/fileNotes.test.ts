@@ -8,8 +8,8 @@ describe('file notes', () => {
   })
 
   it('keeps the address only when exactly one synced file matched', () => {
-    const found = fileLocatedNote('a.docx', '', { status: 'found', url: 'https://contoso.example/a.docx' })
-    expect(found.url).toBe('https://contoso.example/a.docx')
+    const found = fileLocatedNote('a.docx', '', { status: 'found', url: 'https://fernbrook.example/a.docx' })
+    expect(found.url).toBe('https://fernbrook.example/a.docx')
     expect(found.note.text).toContain('the page keeps its link')
     expect(fileLocatedNote('a.docx', '', { status: 'found', url: '' }).url).toBeNull()
     const many = fileLocatedNote('a.docx', '', { status: 'many', url: '' })
@@ -30,7 +30,7 @@ describe('drops', () => {
   })
 
   it('reads the first web address of a link list', () => {
-    expect(droppedLink('# comment\r\n  https://contoso.example/x  \nhttps://b.example')).toBe('https://contoso.example/x')
+    expect(droppedLink('# comment\r\n  https://fernbrook.example/x  \nhttps://b.example')).toBe('https://fernbrook.example/x')
     expect(droppedLink('file:///C:/a.txt')).toBeNull()
     expect(droppedLink('')).toBeNull()
   })

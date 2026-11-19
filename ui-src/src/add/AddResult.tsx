@@ -93,7 +93,7 @@ const OPTIONAL_ACTIONS: [keyof AddResultView & ('editPlacement' | 'updateLink'),
 function ConfirmUndo({ busy, onKeep, onUndo }: { busy: boolean; onKeep: () => void; onUndo?: () => void }) {
   return (
     <div className="add-actions">
-      <span className="add-text">Undo this page? It goes to OneNote's Deleted Pages.</span>
+      <span className="add-text">Undo this page? It goes to OneNote’s Deleted Pages.</span>
       <button type="button" className="btn" onClick={onKeep} disabled={busy}>
         Keep
       </button>

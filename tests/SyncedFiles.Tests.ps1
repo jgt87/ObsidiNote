@@ -16,26 +16,26 @@ function New-SyncedTree {
     [IO.File]::SetLastWriteTimeUtc($f, $t)
     $other = Join-Path $d 'Budget review.docx'
     [IO.File]::WriteAllBytes($other, [byte[]](1..50))
-    @{ dir = $d; file = $f; time = $t; root = @{ path = $d; url = 'https://contoso-my.sharepoint.com/personal/someone_example_invalid/Documents' } }
+    @{ dir = $d; file = $f; time = $t; root = @{ path = $d; url = 'https://fernbrook-my.sharepoint.com/personal/someone_example_invalid/Documents' } }
 }
 
 Describe 'ConvertTo-SyncedUrl (pure)' {
     It 'turns a path under the synced folder into its web address, each part escaped' {
-        $r = @{ path = 'C:\Sync\Docs'; url = 'https://contoso-my.sharepoint.com/personal/x/Documents/' }
-        ConvertTo-SyncedUrl -Root $r -Path 'C:\Sync\Docs\Q3 plans\Budget review.docx' | Should Be 'https://contoso-my.sharepoint.com/personal/x/Documents/Q3%20plans/Budget%20review.docx'
+        $r = @{ path = 'C:\Sync\Docs'; url = 'https://fernbrook-my.sharepoint.com/personal/x/Documents/' }
+        ConvertTo-SyncedUrl -Root $r -Path 'C:\Sync\Docs\Q3 plans\Budget review.docx' | Should Be 'https://fernbrook-my.sharepoint.com/personal/x/Documents/Q3%20plans/Budget%20review.docx'
         ConvertTo-SyncedUrl -Root $r -Path 'C:\Sync\Other\a.docx' | Should Be ''
         ConvertTo-SyncedUrl -Root $r -Path 'C:\Sync\DocsMore\a.docx' | Should Be ''
     }
     It 'escapes the library''s own address too, and never twice (code review 2026-11-15)' {
         $e = [string][char]0xE9   # e with an acute accent; this file stays ASCII
-        $want = 'https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Caf%C3%A9%20plans/Q3%20plans/Budget%20review.docx'
-        $raw = @{ path = 'C:\Sync\Team'; url = "https://contoso.sharepoint.com/sites/Team/Shared Documents/Caf$e plans/" }
+        $want = 'https://fernbrook.sharepoint.com/sites/Team/Shared%20Documents/Caf%C3%A9%20plans/Q3%20plans/Budget%20review.docx'
+        $raw = @{ path = 'C:\Sync\Team'; url = "https://fernbrook.sharepoint.com/sites/Team/Shared Documents/Caf$e plans/" }
         ConvertTo-SyncedUrl -Root $raw -Path 'C:\Sync\Team\Q3 plans\Budget review.docx' | Should Be $want
-        $escaped = @{ path = 'C:\Sync\Team'; url = 'https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Caf%C3%A9%20plans' }
+        $escaped = @{ path = 'C:\Sync\Team'; url = 'https://fernbrook.sharepoint.com/sites/Team/Shared%20Documents/Caf%C3%A9%20plans' }
         ConvertTo-SyncedUrl -Root $escaped -Path 'C:\Sync\Team\Q3 plans\Budget review.docx' | Should Be $want
         # A root without a path, and personal OneDrive's root with the account id, stay as they are.
         ConvertTo-SyncedUrl -Root @{ path = 'C:\Sync\P'; url = 'https://d.docs.live.net/0123456789abcdef/' } -Path 'C:\Sync\P\a b.txt' | Should Be 'https://d.docs.live.net/0123456789abcdef/a%20b.txt'
-        ConvertTo-SyncedUrl -Root @{ path = 'C:\Sync\P'; url = 'https://contoso.sharepoint.com' } -Path 'C:\Sync\P\a.txt' | Should Be 'https://contoso.sharepoint.com/a.txt'
+        ConvertTo-SyncedUrl -Root @{ path = 'C:\Sync\P'; url = 'https://fernbrook.sharepoint.com' } -Path 'C:\Sync\P\a.txt' | Should Be 'https://fernbrook.sharepoint.com/a.txt'
     }
 }
 
@@ -45,7 +45,7 @@ Describe 'Resolve-SyncRootUrl (pure)' {
         Resolve-SyncRootUrl -Url 'https://d.docs.live.net/' | Should Be ''
     }
     It 'keeps a work or SharePoint library''s full address' {
-        Resolve-SyncRootUrl -Url 'https://contoso-my.sharepoint.com/personal/x/Documents' -PersonalCid 'zz' | Should Be 'https://contoso-my.sharepoint.com/personal/x/Documents'
+        Resolve-SyncRootUrl -Url 'https://fernbrook-my.sharepoint.com/personal/x/Documents' -PersonalCid 'zz' | Should Be 'https://fernbrook-my.sharepoint.com/personal/x/Documents'
     }
 }
 
@@ -54,7 +54,7 @@ Describe 'Find-SyncedFile' {
     It 'finds the one file with that name, size and time, and gives its address' {
         $r = Find-SyncedFile -Name 'Budget review.docx' -Size 100 -ModifiedUtc $t.time -Roots @($t.root)
         $r.status | Should Be 'found'
-        $r.url | Should Be 'https://contoso-my.sharepoint.com/personal/someone_example_invalid/Documents/Projects/Q3%20plans/Budget%20review.docx'
+        $r.url | Should Be 'https://fernbrook-my.sharepoint.com/personal/someone_example_invalid/Documents/Projects/Q3%20plans/Budget%20review.docx'
     }
     It 'accepts a time 1 s off (rounding), not a different size or a time far off' {
         (Find-SyncedFile -Name 'Budget review.docx' -Size 100 -ModifiedUtc $t.time.AddSeconds(1) -Roots @($t.root)).status | Should Be 'found'
@@ -83,11 +83,11 @@ Describe 'Find-SyncedFile' {
 
 Describe 'The summary prompt for a dropped file' {
     It 'gives Copilot the file text and asks it not to open the address' {
-        $p = New-LinkSummaryPrompt -Url 'https://contoso-my.sharepoint.com/x.docx' -Bucket 'Internal links' -Ref 'rAAAA0001' -SourceText 'Tidal gardens need salt marsh hay.'
+        $p = New-LinkSummaryPrompt -Url 'https://fernbrook-my.sharepoint.com/x.docx' -Bucket 'Internal links' -Ref 'rAAAA0001' -SourceText 'Tidal gardens need salt marsh hay.'
         $p | Should Match 'do not open the URL'
         $p | Should Match 'FILE TEXT START\r?\nTidal gardens need salt marsh hay\.'
         $p | Should Match '"ref": "rAAAA0001"'
-        New-LinkSummaryPrompt -Url 'https://contoso-my.sharepoint.com/x.docx' -Bucket 'Internal links' | Should Not Match 'FILE TEXT'
+        New-LinkSummaryPrompt -Url 'https://fernbrook-my.sharepoint.com/x.docx' -Bucket 'Internal links' | Should Not Match 'FILE TEXT'
     }
 }
 

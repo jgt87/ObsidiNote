@@ -36,11 +36,11 @@ export function RecentList({ notebook, onOpen }: { notebook: NotebookState; onOp
             <li key={`${p.pageId || p.link || p.title}:${i}`} className="recent__row">
               <div className="recent__main">
                 {p.pageId && onOpen ? (
-                  <button type="button" className="recent__title recent__open" onClick={() => onOpen(p.pageId!)} title={`Open "${p.title}"`}>
+                  <button type="button" className="recent__title recent__open" onClick={() => onOpen(p.pageId!)} title={`Open “${p.title}”`}>
                     {p.title}
                   </button>
                 ) : p.link ? (
-                  <a className="recent__title" href={p.link} title={`Open "${p.title}" in OneNote`}>
+                  <a className="recent__title" href={p.link} title={`Open “${p.title}” in OneNote`}>
                     {p.title}
                   </a>
                 ) : (
@@ -52,7 +52,7 @@ export function RecentList({ notebook, onOpen }: { notebook: NotebookState; onOp
                 {formatModified(p.modified)}
               </time>
               {p.pageId && onOpen && p.link ? (
-                <a className="btn btn--sm btn--ghost" href={p.link} aria-label={`Open "${p.title}" in OneNote`}>
+                <a className="btn btn--sm btn--ghost" href={p.link} aria-label={`Open “${p.title}” in OneNote`}>
                   OneNote
                 </a>
               ) : (

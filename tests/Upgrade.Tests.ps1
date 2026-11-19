@@ -22,15 +22,15 @@ function Add-OldLinkPage($W, [string]$Id, [string]$Title, [string]$Url, [string]
 
 Describe 'Upgrade: link pages move to the section the current rule asks for' {
     $w = New-SyntheticVault
-    $snow = Add-OldLinkPage $w 'p7' 'Service desk article' 'https://contoso.service-now.com/kb?id=1' -Links '[{"t":"p1","s":2,"w":"explains"}]'
+    $snow = Add-OldLinkPage $w 'p7' 'Service desk article' 'https://fernbrook.service-now.com/kb?id=1' -Links '[{"t":"p1","s":2,"w":"explains"}]'
     $null = Add-OldLinkPage $w 'p8' 'Public handbook' 'https://www.example.org/handbook'
-    $null = Add-OldLinkPage $w 'p9' 'Old portal page' 'https://contoso.service-now.com/old' -Section 'Archive' -Status 'archived'
-    $named = Add-OldLinkPage $w 'p10' 'Internal vacancies' 'https://contoso.example-hr.com/vacancies'
+    $null = Add-OldLinkPage $w 'p9' 'Old portal page' 'https://fernbrook.service-now.com/old' -Section 'Archive' -Status 'archived'
+    $named = Add-OldLinkPage $w 'p10' 'Internal vacancies' 'https://fernbrook.example-hr.com/vacancies'
     # the store as the start makes it: the company name comes from the vault's own address
-    $store = New-VaultStore -Adapter $w.a -Vault $w.open.vault -Model $w.open.model -GetLease { $w.box.lease }.GetNewClosure() -CompanyNames @('contoso')
+    $store = New-VaultStore -Adapter $w.a -Vault $w.open.vault -Model $w.open.model -GetLease { $w.box.lease }.GetNewClosure() -CompanyNames @('fernbrook')
 
     It 'plans only ObsidiNote''s live link pages in the wrong section' {
-        $plan = @(Get-UpgradePlan -Model $w.open.model -CompanyNames @('contoso'))
+        $plan = @(Get-UpgradePlan -Model $w.open.model -CompanyNames @('fernbrook'))
         (@($plan | ForEach-Object { "$($_.id):$($_.to):$($_.type)" } | Sort-Object) -join ',') | Should Be 'p10:Internal links:link-internal,p7:Internal links:link-internal'
     }
     $userText = $w.f.Nodes[$snow].outlines | Where-Object { $_.xml -match 'Text the person typed' } | ForEach-Object { $_.xml }
@@ -106,6 +106,65 @@ Describe 'Upgrade: "Link it" links written as loose (1) before 2026-11-14 become
     }
 }
 
+Describe 'Upgrade: meetings imported before series pages get their notes kept and one series page (operator, 2026-11-19)' {
+    Import-Module (Join-Path $root 'lib\Meetings.psm1') -Force -Global
+    $w = New-SyntheticVault
+    # Old shape (v0.12.11-v0.12.14): meeting pages with series and meetingAt, the notes only as text.
+    $notes = @{ found = $true; date = ''; attendees = @(@{ name = 'Ada Example'; email = 'ada@example.com' }, @{ name = 'Bo Sample'; email = '' }); summary = 'The beds move north.'; decisions = @('Move the beds.'); actions = @(@{ text = 'Order a pump'; owner = 'Ada Example'; due = '2031-04-12' }); basedOn = 'transcript' }
+    $made = @{}
+    foreach ($d in '2031-04-08', '2031-04-09') {
+        $text = ConvertTo-MeetingNoteText -Title 'Garden sync' -Day $d -Time '10:00' -Notes $notes
+        $id = & $w.store.NewId
+        $page = @{ id = $id; type = 'meeting'; bucket = (& $w.store.BucketForType 'meeting'); title = "Garden sync $d"; summary = 'The beds move north.'; topics = @('Garden'); aliases = @(); links = @(); status = ''; origin = 'meeting'
+            series = 'Garden sync'; meetingAt = "${d}T10:00"; outlines = @(@{ role = 'body'; lines = (ConvertTo-BodyLines $text) }) }
+        $cp = & $w.store.CreatePage $page
+        $page.pageId = [string]$cp['pageId']; $page.link = [string]$cp['link']; $page.section = [string]$cp['section']
+        & $w.store.IndexAddPage $page | Out-Null
+        $made[$d] = $page
+    }
+    It 'plans each page''s notes and one series page' {
+        $plan = @(Get-UpgradePlan -Model $w.open.model)
+        (@($plan | Where-Object { $_.step -eq 'series-data' } | ForEach-Object { $_.id } | Sort-Object) -join ',') | Should Be (@($made.Values | ForEach-Object { $_.id } | Sort-Object) -join ',')
+        (@($plan | Where-Object { $_.step -eq 'series-page' } | ForEach-Object { "$($_.from):$($_.type)" }) -join ',') | Should Be 'garden sync:new'
+    }
+    $r = Invoke-VaultUpgrade -Store $w.store
+    It 'reads the notes back from the page''s own text and keeps them as its data' {
+        $r.status | Should Be 'done'
+        $r.meetingData | Should Be 2
+        $pg = $w.f.Nodes[$made['2031-04-08'].pageId]
+        $d = ConvertFrom-MeetingDataValue (ConvertFrom-ObsnMeta -Meta $pg.meta).meeting
+        $d.summary | Should Be 'The beds move north.'
+        $d.decisions -join '|' | Should Be 'Move the beds.'
+        "$($d.actions[0].text)|$($d.actions[0].owner)|$($d.actions[0].due)" | Should Be 'Order a pump|Ada Example|2031-04-12'
+        (@($d.people | ForEach-Object { "$($_.name)/$($_.email)" }) -join ',') | Should Be 'Ada Example/ada@example.com,Bo Sample/'
+    }
+    It 'writes one series page that links both meetings, without asking Copilot, and says so' {
+        $r.seriesPages | Should Be 1
+        $sp = @($w.open.model.pages.Values | Where-Object { $_.kind -eq 'series' })
+        $sp.Count | Should Be 1
+        $sp[0].title | Should Be 'Garden sync (series)'
+        (@($sp[0].links | ForEach-Object { $_.target } | Sort-Object) -join ',') | Should Be (@($made.Values | ForEach-Object { $_.id } | Sort-Object) -join ',')
+        (Format-UpgradeStatus $r).detail | Should Match '1 series page\(s\) written'
+        (Format-UpgradeStatus $r).detail | Should Match 'the notes of 2 meeting page\(s\)'
+    }
+    It 'finds nothing to do at the next start, also after the index was loaded again (idempotent)' {
+        @(Get-UpgradePlan -Model $w.open.model | Where-Object { $_.step -like 'series-*' }).Count | Should Be 0
+        # The index keeps only the marker, never the notes: a reload must not plan the pages again.
+        $entry = ConvertFrom-IndexEntry (ConvertFrom-Json (ConvertTo-CompactJson (ConvertTo-IndexEntry $w.open.model.pages[$made['2031-04-09'].id])))
+        $entry['meetingData'] | Should Be '1'
+        $entry.ContainsKey('meeting') | Should Be $false
+    }
+    It 'adds a later meeting to the series page at the next start' {
+        $page = $made['2031-04-09'].Clone(); $page.id = & $w.store.NewId; $page.meetingAt = '2031-04-10T10:00'; $page.title = 'Garden sync 2031-04-10'
+        $cp = & $w.store.CreatePage $page; $page.pageId = [string]$cp['pageId']
+        & $w.store.IndexAddPage $page | Out-Null
+        $r2 = Invoke-VaultUpgrade -Store $w.store
+        $r2.seriesPages | Should Be 1
+        @($w.open.model.pages.Values | Where-Object { $_.kind -eq 'series' }).Count | Should Be 1
+        @(@($w.open.model.pages.Values | Where-Object { $_.kind -eq 'series' })[0].links).Count | Should Be 3
+    }
+}
+
 Describe 'Upgrade: meeting pages from before series get their series (operator, 2026-11-18)' {
     $w = New-SyntheticVault
     # Old shape: a page Today's meetings made on 17 Nov (v0.12.8-v0.12.10), Copilot's title with the date.
@@ -152,7 +211,7 @@ Describe 'Upgrade: counts pages, not steps' {
     $w = New-SyntheticVault
     # One link page needs both steps: wrong section and a weak "Link it" link.
     $why = 'Linked by you (mentioned in the text)'
-    $null = Add-OldLinkPage $w 'p7' 'Service desk article' 'https://contoso.service-now.com/kb?id=1' -Links ('[{"t":"p1","s":1,"w":"' + $why + '"}]')
+    $null = Add-OldLinkPage $w 'p7' 'Service desk article' 'https://fernbrook.service-now.com/kb?id=1' -Links ('[{"t":"p1","s":1,"w":"' + $why + '"}]')
     $w.box.lease = @{ mode = 'readonly'; sessionId = 'other'; holder = 'other'; expires = (Get-Date).AddMinutes(1); statePageId = ''; indexSectionId = '' }
     It 'plans two steps but reports one page' {
         @(Get-UpgradePlan -Model $w.open.model).Count | Should Be 2
@@ -169,9 +228,9 @@ Describe 'Upgrade: counts pages, not steps' {
 
 Describe 'Upgrade: a partial run reports what really happened (code review 2026-11-15)' {
     $w = New-SyntheticVault
-    $null = Add-OldLinkPage $w 'p7' 'Service desk article' 'https://contoso.service-now.com/kb?id=1'
-    $null = Add-OldLinkPage $w 'p10' 'Internal vacancies' 'https://contoso.service-now.com/vacancies' -Links '[{"t":"p1","s":2,"w":"explains"}]'
-    $null = Add-OldLinkPage $w 'p11' 'Change calendar' 'https://contoso.service-now.com/changes'
+    $null = Add-OldLinkPage $w 'p7' 'Service desk article' 'https://fernbrook.service-now.com/kb?id=1'
+    $null = Add-OldLinkPage $w 'p10' 'Internal vacancies' 'https://fernbrook.service-now.com/vacancies' -Links '[{"t":"p1","s":2,"w":"explains"}]'
+    $null = Add-OldLinkPage $w 'p11' 'Change calendar' 'https://fernbrook.service-now.com/changes'
     $real = New-VaultStore -Adapter $w.a -Vault $w.open.vault -Model $w.open.model -GetLease { $w.box.lease }.GetNewClosure()
     # Two pages cannot be moved; then the step after the moves (the "Linked from" lists) stops the run.
     $store = @{} + $real
@@ -231,7 +290,7 @@ Describe 'Upgrade: personal OneDrive links filed under Web links before 2026-11-
 
 Describe 'Upgrade: a read-only session only reports' {
     $w = New-SyntheticVault
-    $null = Add-OldLinkPage $w 'p7' 'Service desk article' 'https://contoso.service-now.com/kb?id=1'
+    $null = Add-OldLinkPage $w 'p7' 'Service desk article' 'https://fernbrook.service-now.com/kb?id=1'
     $w.box.lease = @{ mode = 'readonly'; sessionId = 'other'; holder = 'other'; expires = (Get-Date).AddMinutes(1); statePageId = ''; indexSectionId = '' }
     It 'writes nothing and says why' {
         $before = $w.f.Writes.Count

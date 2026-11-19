@@ -120,7 +120,7 @@ function Protect-Addresses([string]$Text) {
 function Protect-LocalIdentity([string]$Text) {
     if ($env:USERPROFILE) { $Text = [regex]::Replace($Text, [regex]::Escape($env:USERPROFILE), '%USERPROFILE%', 'IgnoreCase') }
     $Text = [regex]::Replace($Text, '(?i)\b[a-z]:\\(Users|Documents and Settings)\\[^\\/\s"'']+', '%USERPROFILE%')
-    # "OneDrive - Contoso Ltd" folders name the organisation.
+    # "OneDrive - Fernbrook Ltd" folders name the organisation.
     $Text = [regex]::Replace($Text, '(?i)OneDrive - [^\\/"'';,\r\n]+', 'OneDrive - <org>')
     $Text = [regex]::Replace($Text, '\bS-1-\d+(-\d+){1,14}\b', '<sid>')
     foreach ($pair in @(@($env:COMPUTERNAME, '<computer>'), @($env:USERDOMAIN, '<domain>'), @($env:USERNAME, '<user>'))) {

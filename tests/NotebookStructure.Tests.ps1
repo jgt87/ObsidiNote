@@ -68,8 +68,8 @@ Describe 'Rollover at 500 pages' {
 
 Describe 'Link bucket by host' {
     It 'files Microsoft 365 hosts as Internal links' {
-        foreach ($u in 'https://contoso.sharepoint.com/sites/Team/Shared%20Documents/a.docx', 'https://contoso-my.sharepoint.com/personal/x/Documents/b.xlsx',
-            'https://teams.microsoft.com/l/channel/abc', 'https://contoso.loop.cloud.microsoft/p/xyz', 'https://loop.microsoft.com/p/1',
+        foreach ($u in 'https://fernbrook.sharepoint.com/sites/Team/Shared%20Documents/a.docx', 'https://fernbrook-my.sharepoint.com/personal/x/Documents/b.xlsx',
+            'https://teams.microsoft.com/l/channel/abc', 'https://fernbrook.loop.cloud.microsoft/p/xyz', 'https://loop.microsoft.com/p/1',
             'https://outlook.office.com/mail/', 'https://www.office.com/', 'https://m365.cloud.microsoft/chat') {
             Get-LinkBucket $u | Should Be 'Internal links'
         }
@@ -86,30 +86,30 @@ Describe 'Link bucket by host' {
         Get-LinkBucket 'https://other.example/' -InternalHosts @('*.corp.example') | Should Be 'Web links'
     }
     It 'files a company''s SaaS tenant as Internal links (user, 2026-11-13: timesheets, internal vacancies)' {
-        foreach ($u in 'https://wd3.myworkday.com/contoso/d/inst/1$2/rel-task/3.htmld', 'https://contosoitsmprod.service-now.com/msh?id=kb_article',
-            'https://contoso.atlassian.net/wiki/spaces/OPS', 'https://contoso.okta.com/app/UserHome', 'https://contoso.my.salesforce.com/001',
-            'https://contoso.zoom.us/j/123', 'https://app.slack.com/client/T01') {
+        foreach ($u in 'https://wd3.myworkday.com/fernbrook/d/inst/1$2/rel-task/3.htmld', 'https://fernbrookitsmprod.service-now.com/msh?id=kb_article',
+            'https://fernbrook.atlassian.net/wiki/spaces/OPS', 'https://fernbrook.okta.com/app/UserHome', 'https://fernbrook.my.salesforce.com/001',
+            'https://fernbrook.zoom.us/j/123', 'https://app.slack.com/client/T01') {
             Get-LinkBucket $u | Should Be 'Internal links'
         }
     }
     It 'keeps the vendors'' public pages, job boards and public hosting as Web links' {
         foreach ($u in 'https://www.myworkday.com/', 'https://docs.service-now.com/x', 'https://community.atlassian.net/t/1', 'https://www.okta.com/',
-            'https://contoso.wd3.myworkdayjobs.com/External', 'https://contoso.github.io/tools', 'https://myworkday.com/') {
-            Get-LinkBucket $u -CompanyNames @('contoso') | Should Be 'Web links'
+            'https://fernbrook.wd3.myworkdayjobs.com/External', 'https://fernbrook.github.io/tools', 'https://myworkday.com/') {
+            Get-LinkBucket $u -CompanyNames @('fernbrook') | Should Be 'Web links'
         }
     }
     It 'files a host with the company''s name in a subdomain as internal, not the company''s own public site' {
-        Get-LinkBucket 'https://contoso.example-hr.com/vacancies/internal' -CompanyNames @('contoso') | Should Be 'Internal links'
-        Get-LinkBucket 'https://hr-contoso.example.net/' -CompanyNames @('contoso') | Should Be 'Internal links'
-        Get-LinkBucket 'https://www.contoso.com/about' -CompanyNames @('contoso') | Should Be 'Web links'
-        Get-LinkBucket 'https://contoso.com/' -CompanyNames @('contoso') | Should Be 'Web links'
-        Get-LinkBucket 'https://news.example.org/companies/contoso' -CompanyNames @('contoso') | Should Be 'Web links'
-        Get-LinkBucket 'https://contoso.example-hr.com/' | Should Be 'Web links'
+        Get-LinkBucket 'https://fernbrook.example-hr.com/vacancies/internal' -CompanyNames @('fernbrook') | Should Be 'Internal links'
+        Get-LinkBucket 'https://hr-fernbrook.example.net/' -CompanyNames @('fernbrook') | Should Be 'Internal links'
+        Get-LinkBucket 'https://www.fernbrook.com/about' -CompanyNames @('fernbrook') | Should Be 'Web links'
+        Get-LinkBucket 'https://fernbrook.com/' -CompanyNames @('fernbrook') | Should Be 'Web links'
+        Get-LinkBucket 'https://news.example.org/companies/fernbrook' -CompanyNames @('fernbrook') | Should Be 'Web links'
+        Get-LinkBucket 'https://fernbrook.example-hr.com/' | Should Be 'Web links'
     }
     It 'takes the company''s tenant names from its own Microsoft 365 addresses only' {
-        $n = @(Get-CompanyNames -Locations @('https://contoso-my.sharepoint.com/personal/someone/Documents/ObsidiNote', 'onenote:https://contoso.sharepoint.com/sites/Team/x.one', 'C:\Notes\x.onetoc2', '', 'https://fabrikam.sharepoint.com/'))
+        $n = @(Get-CompanyNames -Locations @('https://fernbrook-my.sharepoint.com/personal/someone/Documents/ObsidiNote', 'onenote:https://fernbrook.sharepoint.com/sites/Team/x.one', 'C:\Notes\x.onetoc2', '', 'https://fabrikam.sharepoint.com/'))
         $n.Count | Should Be 2
-        ($n -join ',') | Should Be 'contoso,fabrikam'
+        ($n -join ',') | Should Be 'fernbrook,fabrikam'
         # as the server passes them on: two separate names, not one joined string
         Get-LinkBucket 'https://fabrikam.example-hr.com/' -CompanyNames $n | Should Be 'Internal links'
         @(Get-CompanyNames -Locations @('https://ab.sharepoint.com/', 'https://example.org/')).Count | Should Be 0
@@ -127,7 +127,7 @@ Describe 'URL normalization for dedup' {
         ConvertTo-NormalizedUrl 'http://example.org:8080/a' | Should Be 'http://example.org:8080/a'
     }
     It 'keeps a sharing token and returns non-URLs trimmed' {
-        ConvertTo-NormalizedUrl 'https://contoso.sharepoint.com/:w:/s/T/Eabc?e=Xy12&utm_campaign=q' | Should Be 'https://contoso.sharepoint.com/:w:/s/T/Eabc?e=Xy12'
+        ConvertTo-NormalizedUrl 'https://fernbrook.sharepoint.com/:w:/s/T/Eabc?e=Xy12&utm_campaign=q' | Should Be 'https://fernbrook.sharepoint.com/:w:/s/T/Eabc?e=Xy12'
         ConvertTo-NormalizedUrl '  just text ' | Should Be 'just text'
     }
     It 'makes the same link equal however it was pasted' {
@@ -169,9 +169,9 @@ Describe 'Hierarchy parsing' {
 
 Describe 'Link rules and origin: one place each (code review 2026-11-15)' {
     It 'Get-LinkRules puts a vault''s rules together from its setting and the addresses it owns' {
-        $r = Get-LinkRules -InternalHosts @('wiki.example.invalid', '', $null) -Locations @('https://contoso-my.sharepoint.com/personal/x/Documents/V/', '', 'onenote:https://contoso.sharepoint.com/sites/a/x.one', 'C:\nb\L')
+        $r = Get-LinkRules -InternalHosts @('wiki.example.invalid', '', $null) -Locations @('https://fernbrook-my.sharepoint.com/personal/x/Documents/V/', '', 'onenote:https://fernbrook.sharepoint.com/sites/a/x.one', 'C:\nb\L')
         (@($r.InternalHosts) -join ',') | Should Be 'wiki.example.invalid'
-        (@($r.CompanyNames) -join ',') | Should Be 'contoso'
+        (@($r.CompanyNames) -join ',') | Should Be 'fernbrook'
         $none = Get-LinkRules
         "$(@($none.InternalHosts).Count):$(@($none.CompanyNames).Count)" | Should Be '0:0'
     }

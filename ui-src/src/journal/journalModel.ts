@@ -12,7 +12,7 @@
 // Built from the knowledge graph's model (GET /api/graph of the active vault): no request of its own.
 // Pure (tests: journalModel.test.ts, on tests/fixtures/journal-pages.json).
 import type { GraphModel, GraphPage, GraphTopic } from '../graph/model'
-import { seriesKey } from '../model/series'
+import { isSeriesMeeting, seriesKey, seriesPageId } from '../model/series'
 
 export interface JournalFilter {
   /** A topic id (path); its subtopics are included. '' = none. */
@@ -28,23 +28,27 @@ export interface MeetingSeries {
   key: string
   name: string
   count: number
+  /** The series' overview page (2026-11-19), '' when it has none yet. */
+  pageId: string
 }
 
-/** Every meeting series with at least one page (archived pages left out), by name. */
+/** Every meeting series with at least one meeting page (archived pages left out), by name; the
+ *  series page is not counted as a meeting, only named as the series' page. */
 export function meetingSeries(model: GraphModel): MeetingSeries[] {
   const by = new Map<string, MeetingSeries & { at: string }>()
   for (const p of model.pages) {
-    if (p.archived || p.kind !== 'meeting' || !p.series) continue
-    const key = seriesKey(p.series)
+    if (p.archived || !isSeriesMeeting(p)) continue
+    const key = seriesKey(p.series ?? '')
     const at = p.meetingAt || p.created || ''
     const s = by.get(key)
-    if (!s) by.set(key, { key, name: p.series, count: 1, at })
+    if (!s) by.set(key, { key, name: p.series ?? '', count: 1, at, pageId: '' })
     else {
       s.count++
       if (at > s.at) Object.assign(s, { name: p.series, at })
     }
   }
-  return [...by.values()].map(({ key, name, count }) => ({ key, name, count })).sort((a, b) => a.name.localeCompare(b.name))
+  for (const s of by.values()) s.pageId = seriesPageId(model.pages, s.name)
+  return [...by.values()].map(({ key, name, count, pageId }) => ({ key, name, count, pageId })).sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** Series whose name holds every word typed, at most $max. */
@@ -102,7 +106,7 @@ const DATE_TITLE = /^\d{4}-\d{2}-\d{2}$/
 const isJournal = (p: GraphPage) => p.kind === 'log'
 
 /** A meeting page (Today's meetings, or a pasted meeting): listed in the journal too. */
-const isMeeting = (p: GraphPage) => p.kind === 'meeting'
+const isMeeting = (p: GraphPage) => p.kind === 'meeting' && !p.seriesPage
 
 /** Whether $ids touch the topic $topicId or one of its subtopics. */
 export function inTopic(ids: string[], topicId: string): boolean {

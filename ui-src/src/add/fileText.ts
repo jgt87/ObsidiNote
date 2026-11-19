@@ -88,21 +88,21 @@ const OLD_OFFICE: Record<string, string> = { doc: 'docx', xls: 'xlsx', ppt: 'ppt
 
 /** Kinds of file that cannot be read, in the order they are tested: by extension, or by media type. */
 const UNSUPPORTED: { exts: string[]; mime?: RegExp; message: string }[] = [
-  { exts: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'heic', 'heif', 'tif', 'tiff', 'ico', 'svg'], mime: /^image\//, message: "Image files can't be read here. Open it and paste the text instead." },
-  { exts: ['zip', '7z', 'rar', 'gz', 'tar', 'cab'], message: "Zip files can't be read here. Unpack it and add one file at a time." },
-  { exts: ['exe', 'dll', 'msi', 'com', 'scr', 'sys'], message: "Program files can't be read here." },
-  { exts: ['mp3', 'mp4', 'wav', 'm4a', 'mov', 'avi', 'wmv', 'webm', 'ogg'], mime: /^(audio|video)\//, message: "Audio and video files can't be read here. Paste a written summary instead." },
-  { exts: ['rtf'], message: "RTF files can't be read here. Save it as .docx first, or paste the text." },
+  { exts: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'heic', 'heif', 'tif', 'tiff', 'ico', 'svg'], mime: /^image\//, message: 'Image files can’t be read here. Open it and paste the text instead.' },
+  { exts: ['zip', '7z', 'rar', 'gz', 'tar', 'cab'], message: 'Zip files can’t be read here. Unpack it and add one file at a time.' },
+  { exts: ['exe', 'dll', 'msi', 'com', 'scr', 'sys'], message: 'Program files can’t be read here.' },
+  { exts: ['mp3', 'mp4', 'wav', 'm4a', 'mov', 'avi', 'wmv', 'webm', 'ogg'], mime: /^(audio|video)\//, message: 'Audio and video files can’t be read here. Paste a written summary instead.' },
+  { exts: ['rtf'], message: 'RTF files can’t be read here. Save it as .docx first, or paste the text.' },
 ]
 
 function unsupportedMessage(name: string, mime: string): string {
   const ext = extensionOf(name)
-  if (OLD_OFFICE[ext]) return `Old .${ext} files can't be read here. Save it as .${OLD_OFFICE[ext]} first, or paste the text.`
+  if (OLD_OFFICE[ext]) return `Old .${ext} files can’t be read here. Save it as .${OLD_OFFICE[ext]} first, or paste the text.`
   const known = UNSUPPORTED.find((u) => u.exts.includes(ext) || !!u.mime?.test(mime))
   if (known) return known.message
   return ext
-    ? `.${ext} files can't be read here. Open it and paste the text instead.`
-    : "This kind of file can't be read here. Open it and paste the text instead."
+    ? `.${ext} files can’t be read here. Open it and paste the text instead.`
+    : 'This kind of file can’t be read here. Open it and paste the text instead.'
 }
 
 function fail(kind: FileKind | null, message: string): FileTextResult {

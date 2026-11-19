@@ -28,7 +28,7 @@ describe('parsePlan / parseResult: what the server sends', () => {
 describe('confirmWording: the question names the page and what happens', () => {
   it('archive: where it goes and that Restore brings it back', () => {
     const w = confirmWording('archive', { pages: [page('p1', 'Archive/Web links')], refused: [] })
-    expect(w.title).toBe('Archive "Page p1"?')
+    expect(w.title).toBe('Archive “Page p1”?')
     expect(w.lines[0]).toBe('It moves to Archive / Web links. Its links stay, and Restore puts it back where it was.')
     expect(w.confirm).toBe('Archive')
   })
@@ -40,9 +40,9 @@ describe('confirmWording: the question names the page and what happens', () => {
   })
   it('delete: 60 days in Deleted Pages, the links that point here, archive as the way back', () => {
     const w = confirmWording('delete', { pages: [page('p1', '', 2)], refused: [] })
-    expect(w.title).toBe('Delete "Page p1"?')
+    expect(w.title).toBe('Delete “Page p1”?')
     expect(w.lines.join(' ')).toMatch(/Deleted Pages, which keeps deleted pages for 60 days/)
-    expect(w.lines.join(' ')).toMatch(/2 links from other pages point here; they become plain text "\(deleted: Page p1\)"/)
+    expect(w.lines.join(' ')).toMatch(/2 links from other pages point here; they become plain text “\(deleted: Page p1\)”/)
     expect(w.confirm).toBe('Delete')
   })
   it('delete without inbound links says nothing about links', () => {

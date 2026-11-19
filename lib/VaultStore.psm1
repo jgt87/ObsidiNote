@@ -17,6 +17,7 @@ Import-Module (Join-Path $PSScriptRoot 'Vault.psm1')
 Import-Module (Join-Path $PSScriptRoot 'WriterLease.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
 Import-Module (Join-Path $PSScriptRoot 'MarkdownLines.psm1')
+Import-Module (Join-Path $PSScriptRoot 'MarkdownExport.psm1')   # BodyMarkdown: a page's body outline as Markdown
 
 $script:FixedIndexKeys = @('root', 'bytype', 'az', 'unfiled', 'links', 'archive', 'other', 'state')
 $script:DeletedKeepDays = 60
@@ -69,6 +70,9 @@ function ConvertTo-IngestPage {
         series = $(if ($Page.ContainsKey('series')) { [string]$Page.series } else { '' })
         meetingAt = $(if ($Page.ContainsKey('meetingAt')) { [string]$Page.meetingAt } else { '' })
         summaryHash = $(if ($Page.ContainsKey('summaryHash')) { [string]$Page.summaryHash } else { '' })
+        # kind 'series': a meeting series' overview page; meeting: a meeting's notes as JSON (2026-11-19).
+        kind = $(if ($Page.ContainsKey('kind')) { [string]$Page.kind } else { '' })
+        meeting = $(if ($Page.ContainsKey('meeting')) { [string]$Page.meeting } else { '' })
     }
 }
 
@@ -279,6 +283,13 @@ function Invoke-VsReadPage {
     @{ pageId = $PageId; title = $t.title; meta = (ConvertFrom-ObsnMeta -Meta $p.meta); outlines = $t.outlines }
 }
 
+function Get-VsBodyMarkdown {
+    <# The body outline (obsn.role body) of one page as Markdown, in memory (upgrade step series-data,
+       2026-11-19). Read only. #>
+    param([hashtable]$Ctx, [string]$PageId)
+    ConvertFrom-OnePageXml -Xml ([string]$Ctx.Adapter.GetPageContent($PageId)) -SkipRoles @('props', 'backlinks', 'index', 'state', 'summary', 'notes', 'checked', 'history') -LinkStyle page
+}
+
 function Invoke-VsUpdatePage {
     param([hashtable]$Ctx, [string]$PageId, [hashtable]$Meta, [object[]]$Outlines, [string]$Title)
     Assert-VsWritable $Ctx
@@ -365,7 +376,7 @@ function Invoke-VsIndexAddPage {
     $old = if ($Ctx.Model.pages.Contains($id)) { $Ctx.Model.pages[$id] } else { $null }
     $rec = @{}
     if ($old) { foreach ($k in @($old.Keys)) { $rec[$k] = $old[$k] } }
-    foreach ($k in 'id', 'title', 'type', 'summary', 'topics', 'aliases', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'link', 'section', 'origin', 'tags', 'entries', 'series', 'meetingAt', 'summaryHash') { if ($Page.ContainsKey($k)) { $rec[$k] = $Page[$k] } }
+    foreach ($k in 'id', 'title', 'type', 'summary', 'topics', 'aliases', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'link', 'section', 'origin', 'tags', 'entries', 'series', 'meetingAt', 'summaryHash', 'meeting', 'meetingData') { if ($Page.ContainsKey($k)) { $rec[$k] = $Page[$k] } }
     # A page made in this session has no OneNote date in the model until the next scan: now.
     if (-not $rec['created']) { $rec.created = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z') }
     if ($Page.ContainsKey('pageId') -and $Page['pageId']) { $rec.oneNoteId = [string]$Page['pageId'] }
@@ -518,6 +529,7 @@ function Invoke-VaultStoreCall {
         'ReadInboxItem' { return (Invoke-VsReadInboxItem -Ctx $Ctx @Arguments) }
         'CreatePage' { return (Invoke-VsCreatePage -Ctx $Ctx @Arguments) }
         'ReadPage' { return (Invoke-VsReadPage -Ctx $Ctx @Arguments) }
+        'BodyMarkdown' { return (Get-VsBodyMarkdown -Ctx $Ctx @Arguments) }
         'UpdatePage' { return (Invoke-VsUpdatePage -Ctx $Ctx @Arguments) }
         'JournalEntry' { return (Invoke-VsJournalEntry -Ctx $Ctx @Arguments) }
         'WaitingTexts' { return (Get-VsWaitingTexts -Ctx $Ctx) }
@@ -562,6 +574,7 @@ function New-VaultStore {
         ReadInboxItem   = { param([string]$PageId) & $call $ctx 'ReadInboxItem' @{ PageId = $PageId } }.GetNewClosure()
         CreatePage      = { param([hashtable]$Page) & $call $ctx 'CreatePage' @{ Page = $Page } }.GetNewClosure()
         ReadPage        = { param([string]$PageId) & $call $ctx 'ReadPage' @{ PageId = $PageId } }.GetNewClosure()
+        BodyMarkdown    = { param([string]$PageId) & $call $ctx 'BodyMarkdown' @{ PageId = $PageId } }.GetNewClosure()
         UpdatePage      = { param([string]$PageId, [hashtable]$Meta, [object[]]$Outlines, [string]$Title) & $call $ctx 'UpdatePage' @{ PageId = $PageId; Meta = $Meta; Outlines = $Outlines; Title = $Title } }.GetNewClosure()
         SetLinkedFrom   = { param([string]$Id, [object[]]$Sources) & $call $ctx 'SetLinkedFrom' @{ Id = $Id; Sources = $Sources } }.GetNewClosure()
         DeletePage      = { param([string]$PageId) & $call $ctx 'DeletePage' @{ PageId = $PageId } }.GetNewClosure()

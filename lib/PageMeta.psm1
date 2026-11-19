@@ -27,12 +27,15 @@ Import-Module (Join-Path $PSScriptRoot 'OneNote.psm1')
 # series / meetingAt: a meeting page's series (the Teams title as the meeting list gave it) and when
 # the meeting started (yyyy-MM-ddTHH:mm, local), written by ObsidiNote at import, never by Copilot
 # (operator, 2026-11-18: a daily meeting is one series of pages). '' or absent on other pages.
-$script:MetaKeys = @('id', 'type', 'topics', 'aliases', 'summary', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'linkSummary', 'summaryHash', 'history', 'seenAt', 'checkStatus', 'origin', 'tags', 'entries', 'series', 'meetingAt')
+# meeting: a meeting page's notes in structured form (JSON: s summary, d decisions, a actions
+# {t, o owner, u due}, p people {n, e}), read from its own text at import (2026-11-19), for the
+# series page. kind 'series' marks a series page (the overview of a meeting series).
+$script:MetaKeys = @('id', 'type', 'topics', 'aliases', 'summary', 'links', 'status', 'url', 'host', 'kind', 'summarizedAt', 'archivedFrom', 'linkSummary', 'summaryHash', 'history', 'seenAt', 'checkStatus', 'origin', 'tags', 'entries', 'series', 'meetingAt', 'meeting')
 $script:ListKeys = @('topics', 'aliases', 'tags')
 $script:MaxTagLength = 40
 $script:MaxTagsPerPage = 12
 # Values that can grow past one Meta tag: always written with their obsn.X.n part count.
-$script:SplitKeys = @('linkSummary', 'history', 'entries')
+$script:SplitKeys = @('linkSummary', 'history', 'entries', 'meeting')
 # Outlines ObsidiNote owns (obsn.role). body: the item as added; checked: when a link was summarized
 # and its earlier summaries; notes: "Your notes" on a link page, written once when the page is made
 # and never again (Write-ObsnPage refuses it on an existing page).

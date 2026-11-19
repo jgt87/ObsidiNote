@@ -11,7 +11,7 @@ function New-FakeIndex {
             @{ id = 'p4'; title = 'Device trust checklist'; type = 'howto'; section = 'Notes'; pageId = '{P4}'; link = 'onenote:#p4'; summary = 'What a device needs before it is trusted.'; aliases = @(); topics = @('Security'); links = @() }
             @{ id = 'p5'; title = 'Single sign-on setup'; type = 'howto'; section = 'Notes'; pageId = '{P5}'; link = 'onenote:#p5'; summary = 'How sign-in works for the portal users.'; aliases = @('SSO'); topics = @('Security/Identity'); links = @() }
             @{ id = 'p6'; title = 'Sourdough bread'; type = 'note'; section = 'Notes'; pageId = '{P6}'; link = 'onenote:#p6'; summary = 'Flour, water, salt and time.'; aliases = @(); topics = @('Cooking'); links = @() }
-            @{ id = 'p7'; title = 'Contoso handbook'; type = 'link-internal'; section = 'Internal links'; pageId = '{P7}'; link = 'onenote:#p7'; summary = 'The staff handbook.'; aliases = @(); topics = @('Projects'); links = @(@{ target = 'p4'; strength = 1; why = 'device rules' }); url = 'https://contoso.sharepoint.com/sites/hr/handbook.aspx' }
+            @{ id = 'p7'; title = 'Fernbrook handbook'; type = 'link-internal'; section = 'Internal links'; pageId = '{P7}'; link = 'onenote:#p7'; summary = 'The staff handbook.'; aliases = @(); topics = @('Projects'); links = @(@{ target = 'p4'; strength = 1; why = 'device rules' }); url = 'https://fernbrook.sharepoint.com/sites/hr/handbook.aspx' }
         )
         topics = @('Security', 'Security/Networking', 'Security/Identity', 'Projects', 'Projects/Partner portal', 'Cooking')
         edges = @(@{ from = 'p3'; to = 'p1'; strength = 2; why = 'replaced by' })
@@ -38,9 +38,9 @@ function New-FakeVault {
         indexOps = (New-Object System.Collections.Generic.List[object])
     }
     $st.content['{P7}'] = @{
-        meta = @{ type = 'link-internal'; url = 'https://contoso.sharepoint.com/sites/hr/handbook.aspx'; summarizedAt = '2026-08-01'; summaryHash = ''; history = '[]'; seenAt = ''
-            linkSummary = '{"title":"Contoso handbook","where":"HR site","kind":"page","summary":"The staff handbook. Covers leave and devices.","keyFacts":["Leave is 25 days","Devices are managed"],"useFor":"Policy questions","sensitivity":"General"}' }
-        outlines = @(@{ role = 'summary'; text = 'Link: https://contoso.sharepoint.com/sites/hr/handbook.aspx' }, @{ role = 'notes'; text = 'Your notes' })
+        meta = @{ type = 'link-internal'; url = 'https://fernbrook.sharepoint.com/sites/hr/handbook.aspx'; summarizedAt = '2026-08-01'; summaryHash = ''; history = '[]'; seenAt = ''
+            linkSummary = '{"title":"Fernbrook handbook","where":"HR site","kind":"page","summary":"The staff handbook. Covers leave and devices.","keyFacts":["Leave is 25 days","Devices are managed"],"useFor":"Policy questions","sensitivity":"General"}' }
+        outlines = @(@{ role = 'summary'; text = 'Link: https://fernbrook.sharepoint.com/sites/hr/handbook.aspx' }, @{ role = 'notes'; text = 'Your notes' })
     }
     $guard = {
         param([string]$What)
@@ -114,10 +114,20 @@ function New-FakeVault {
 function New-FakeCopilot {
     <# A Copilot that answers from a queue of reply strings and records the prompts it got. #>
     param([string[]]$Replies = @())
-    $q = @{ replies = (New-Object System.Collections.Generic.Queue[string]); prompts = (New-Object System.Collections.Generic.List[string]) }
+    # The series page's summary question (2026-11-19) is answered here and recorded apart, so a
+    # meeting Add keeps using the queue as before. seriesReply: '' = answer with a summary; any other
+    # string is sent as is (e.g. 'fail' throws, to test a Copilot that does not answer).
+    $q = @{ replies = (New-Object System.Collections.Generic.Queue[string]); prompts = (New-Object System.Collections.Generic.List[string]); seriesPrompts = (New-Object System.Collections.Generic.List[string]); seriesReply = '' }
     foreach ($r in $Replies) { $q.replies.Enqueue($r) }
     $ask = {
         param([string]$Prompt)
+        if ($Prompt -match 'These are the notes of the latest meetings of the series') {
+            $q.seriesPrompts.Add($Prompt)
+            if ($q.seriesReply -eq 'fail') { throw 'series summary not answered' }
+            if ($q.seriesReply) { return $q.seriesReply }
+            $ref = [regex]::Match($Prompt, '"ref": "(r[0-9a-z]+)"').Groups[1].Value
+            return ('{"ref": "' + $ref + '", "summary": "The series covered the tidal beds."}')
+        }
         $q.prompts.Add($Prompt)
         if ($q.replies.Count -eq 0) { throw 'no recorded reply left' }
         $q.replies.Dequeue()

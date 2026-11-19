@@ -340,7 +340,7 @@ is about later without opening it again.
     pages (`www.`, `docs.`, `community.` ...);
   - any host with the company's name in a subdomain of someone else's domain (a service run for
     the company). The name comes from the vault's own OneDrive/SharePoint address at run time
-    (`contoso-my.sharepoint.com` -> `contoso`), never from a file.
+    (`fernbrook-my.sharepoint.com` -> `fernbrook`), never from a file.
 - **External** (`Web links`): obvious public pages: public job boards (`*.myworkdayjobs.com`),
   public site hosting (`*.github.io` ...), the company's own public domain, and everything else.
 

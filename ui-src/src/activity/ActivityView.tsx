@@ -37,7 +37,7 @@ export function ActivityView({ refreshKey, onOpen }: { refreshKey: string; onOpe
     <div className="page">
       <h1 className="page__title">History</h1>
       <p className="act__intro">
-        Everything you added and every link page you updated, newest first, from your vault's Intake.
+        Everything you added and every link page you updated, newest first, from your vault’s Intake.
         {data && !data.canChange ? ' Undo and Remove are not available in this window for now; the note above says why.' : ''}
       </p>
       {!data && error ? (

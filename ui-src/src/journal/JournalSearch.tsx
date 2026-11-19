@@ -5,13 +5,15 @@ import { matchingSeries, matchingTopics, type JournalFilter, type MeetingSeries 
 /** One field: words find titles and summaries; a topic picked from the suggestions under it narrows
  *  the list to that topic and its subtopics (shown as a removable "Topic:" line); a meeting series
  *  picked there lists that series' meetings only, with "Ask about these meetings" (2026-11-18). */
-export function JournalSearch({ topics, series, filter, topic, onChange, onAskSeries }: {
+export function JournalSearch({ topics, series, filter, topic, onChange, onAskSeries, onOpen }: {
   topics: GraphTopic[]
   series: MeetingSeries[]
   filter: JournalFilter
   topic: GraphTopic | undefined
   onChange: (f: JournalFilter) => void
   onAskSeries: (s: MeetingSeries) => void
+  /** Opens a page in the page window: here the series' overview page (2026-11-19). */
+  onOpen: (pageId: string) => void
 }) {
   const id = useId()
   const [typed, setTyped] = useState(filter.text)
@@ -69,6 +71,11 @@ export function JournalSearch({ topics, series, filter, topic, onChange, onAskSe
               Remove
             </button>
           </span>
+          {picked.pageId && (
+            <button type="button" className="btn btn--sm" onClick={() => onOpen(picked.pageId)}>
+              Open the series page
+            </button>
+          )}
           <button type="button" className="btn btn--sm" onClick={() => onAskSeries(picked)}>
             Ask about these meetings
           </button>

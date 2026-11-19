@@ -128,6 +128,7 @@ export function DialogTabs({ tab, topicName, onTab }: { tab: DialogTab; topicNam
           type="button"
           role="tab"
           className="kg-tab"
+          data-label={tabLabel(t, topicName)}
           aria-selected={tab === t}
           aria-controls="kg-tabpanel"
           tabIndex={tab === t ? 0 : -1}

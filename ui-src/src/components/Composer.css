@@ -127,7 +127,7 @@ kbd {
   color: var(--ink);
   font: inherit;
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-underline-offset: 0.2em;
   cursor: pointer;
 }
 @media (hover: hover) { .link-btn:hover { color: var(--accent); } }

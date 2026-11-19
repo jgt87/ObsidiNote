@@ -11,19 +11,19 @@ export function MeetingsPanel({ onAdded }: { onAdded: () => void }) {
   return (
     <section className="mt" aria-labelledby="meetings-heading">
       <h2 id="meetings-heading" className="mt__heading">
-        Today's meetings
+        Today’s meetings
       </h2>
       {phase.kind === 'idle' && (
         <div className="mt__bar">
           <p className="mt__text">Copilot lists your Teams meetings of today. Pick the ones to keep: each becomes a meeting page with its summary, decisions and actions.</p>
           <button type="button" className="btn" onClick={() => void m.fetchDay()}>
-            Fetch today's meetings
+            Fetch today’s meetings
           </button>
         </div>
       )}
       {phase.kind === 'loading' && (
         <p className="mt__text mt__pad" role="status" aria-busy="true">
-          Copilot is listing today's meetings. This can take a minute.
+          Copilot is listing today’s meetings. This can take a minute.
         </p>
       )}
       {phase.kind === 'error' && (

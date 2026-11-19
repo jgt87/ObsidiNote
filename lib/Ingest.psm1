@@ -409,6 +409,7 @@ function Invoke-AddRequest {
                 $same = Find-MeetingOccurrence -Index (Invoke-Store $Store 'GetIndex') -Key $mi.key -At $mi.at
                 if ($same) {
                     $u = Update-MeetingOccurrence -Store $Store -Page $same -Text $text -Info $mi -Result $r
+                    if ($u.status -eq 'updated') { Update-SeriesPage -Store $Store -Ask $Ask -Info $mi -Result $u }
                     # An answer fetched later for a meeting that got its page meanwhile (2026-11-18): the
                     # page is updated and the waiting item filed with it, never a second page.
                     if ($Resume -and $u.status -in 'updated', 'unchanged') {
@@ -439,8 +440,9 @@ function Invoke-AddRequest {
 function Get-MeetingPagesOf {
     <# The meeting pages of series $Key in the index (archived ones left out). #>
     param($Index, [string]$Key)
+    # The series page itself (kind series) is the overview, not a meeting of the series.
     @(@(Get-LkProp $Index 'pages' @()) | Where-Object {
-            (Get-LkString $_ 'type') -eq 'meeting' -and (Get-LkString $_ 'status') -ne 'archived' -and (Get-LkString $_ 'series') -and (Get-MeetingSeriesKey (Get-LkString $_ 'series')) -eq $Key
+            (Get-LkString $_ 'type') -eq 'meeting' -and (Get-LkString $_ 'kind') -ne 'series' -and (Get-LkString $_ 'status') -ne 'archived' -and (Get-LkString $_ 'series') -and (Get-MeetingSeriesKey (Get-LkString $_ 'series')) -eq $Key
         })
 }
 
@@ -454,6 +456,67 @@ function Find-MeetingOccurrence {
     $exact = @($same | Where-Object { (Get-LkString $_ 'meetingAt') -eq $At })
     if ($exact.Count) { return $exact[0] }
     $same | Select-Object -First 1
+}
+
+function Find-SeriesPage {
+    <# The series page of series $Key (kind series), or $null. #>
+    param($Index, [string]$Key)
+    @(@(Get-LkProp $Index 'pages' @()) | Where-Object { (Get-LkString $_ 'kind') -eq 'series' -and (Get-LkString $_ 'status') -ne 'archived' -and (Get-MeetingSeriesKey (Get-LkString $_ 'series')) -eq $Key }) | Select-Object -First 1
+}
+
+function Update-SeriesPage {
+    <# Writes the series page of a meeting series after one of its meetings was added or updated
+       (operator, 2026-11-19: "the same meeting but many occurrences", consolidated in one page): made
+       the first time, rewritten after: Copilot's summary of the latest meetings (one question; when it
+       cannot answer, the page keeps its last summary), the latest meeting, decisions and actions by
+       date, who joined and how often, every meeting linked. Only its own body outline is written;
+       "Your notes" is written once. A failure is a warning on the Add, never a failed Add. #>
+    param($Store, [scriptblock]$Ask, [hashtable]$Info, $Result)
+    try {
+        $idx = Invoke-Store $Store 'GetIndex'
+        $pages = @(Get-MeetingPagesOf $idx $Info.key | Sort-Object { Get-LkString $_ 'meetingAt' } -Descending)
+        if (-not $pages.Count) { return }
+        $days = @(foreach ($p in $pages) {
+                $data = ConvertFrom-MeetingDataValue (Get-LkString $p 'meeting')
+                if (-not $data) { try { $data = ConvertFrom-MeetingDataValue (Get-LkString (Get-LkProp (Invoke-Store $Store 'ReadPage' @{ PageId = (Get-LkString $p 'pageId') }) 'meta' $null) 'meeting') } catch { $data = $null } }
+                $at = Get-LkString $p 'meetingAt'
+                @{ id = (Get-LkString $p 'id'); day = (Get-MeetingDayOf $at); time = (Get-MeetingTimeOf $at); title = (Get-LkString $p 'title'); link = (Get-LkString $p 'link'); summary = (Get-LkString $p 'summary'); data = $data; topics = @(Get-LkProp $p 'topics' @()) }
+            })
+        $sp = Find-SeriesPage -Index $idx -Key $Info.key
+        # Without $Ask (the upgrade at start, before Copilot is connected) no summary is asked: the
+        # page keeps its last one, and the next import of the series writes a new one.
+        $summary = ''; $ans = @{ ok = $false; error = 'not asked'; ms = 0 }
+        if ($Ask) {
+            $ref = New-RequestRef
+            $ans = Invoke-IngestAsk -Ask $Ask -Prompt (New-SeriesSummaryPrompt -Series $Info.series -Days $days -Ref $ref)
+            $Result.timings.copilotMs += $ans.ms
+            if ($ans.ok) { $summary = ConvertFrom-SeriesSummaryReply -Reply $ans.text -Ref $ref }
+        }
+        $fresh = [bool]$summary
+        if (-not $summary -and $sp) { $summary = Get-LkString $sp 'summary' }
+        $lines = ConvertTo-BodyLines (ConvertTo-SeriesPageText -Series $Info.series -Summary $summary -Days $days)
+        $links = @($days | ForEach-Object { @{ target = $_.id; strength = 1; why = 'A meeting of this series.' } })
+        if ($sp) {
+            Invoke-Store $Store 'UpdatePage' @{ PageId = (Get-LkString $sp 'pageId'); Meta = @{ summary = $summary; links = $links }; Outlines = @(@{ role = 'body'; lines = $lines }); Title = $null } | Out-Null
+            Invoke-Store $Store 'IndexUpdatePage' @{ Page = @{ id = (Get-LkString $sp 'id'); summary = $summary; links = $links } } | Out-Null
+            $id = Get-LkString $sp 'id'; $title = Get-LkString $sp 'title'
+        } else {
+            # Its topics: the three most frequent of its meetings'.
+            $topics = @($days | ForEach-Object { @($_.topics) } | Where-Object { $_ } | Group-Object | Sort-Object Count -Descending | Select-Object -First 3 | ForEach-Object { $_.Name })
+            $id = [string](Invoke-Store $Store 'NewId')
+            $title = Format-SeriesPageTitle $Info.series
+            $page = @{
+                id = $id; type = 'meeting'; bucket = [string](Invoke-Store $Store 'BucketForType' @{ Type = 'meeting' }); title = $title; summary = $summary
+                topics = $topics; aliases = @(); links = $links; status = ''; origin = 'meeting'; kind = 'series'; series = [string]$Info.series
+                outlines = @(@{ role = 'body'; lines = $lines }, @{ role = 'notes'; lines = (New-LinkNotesLines) })
+            }
+            $cp = Invoke-Store $Store 'CreatePage' @{ Page = $page }
+            $page.pageId = [string]$cp['pageId']; $page.link = [string]$cp['link']; $page.section = [string]$cp['section']
+            Invoke-Store $Store 'IndexAddPage' @{ Page = $page } | Out-Null
+        }
+        $Result['series'] = @{ id = $id; title = $title; meetings = $days.Count; summary = $fresh; made = (-not $sp) }
+        if ($Ask -and -not $fresh) { $Result.warnings = @($Result.warnings) + "The series page was written without a new summary: Copilot did not answer ($(if ($ans.error) { $ans.error } else { 'no usable answer' }))." }
+    } catch { $Result.warnings = @($Result.warnings) + "The series page could not be written: $($_.Exception.Message)" }
 }
 
 function Find-WaitingMeeting {
@@ -499,9 +562,10 @@ function Update-MeetingOccurrence {
     }
     # A start time is never lost: a page with a time keeps it when the new notes have none.
     $at = if ((Get-MeetingTimeOf $Info.at) -or -not (Get-MeetingTimeOf $atNow)) { $Info.at } else { $atNow }
+    $data = ConvertTo-MeetingDataValue (Get-MeetingDataFromText $Text)
     try {
-        Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = @{ meetingAt = $at; series = $Info.series; summaryHash = $hash }; Outlines = @(@{ role = 'body'; lines = $lines }); Title = $null } | Out-Null
-        Invoke-Store $Store 'IndexUpdatePage' @{ Page = @{ id = $id; meetingAt = $at; series = $Info.series; summaryHash = $hash } } | Out-Null
+        Invoke-Store $Store 'UpdatePage' @{ PageId = $pageId; Meta = @{ meetingAt = $at; series = $Info.series; summaryHash = $hash; meeting = $data }; Outlines = @(@{ role = 'body'; lines = $lines }); Title = $null } | Out-Null
+        Invoke-Store $Store 'IndexUpdatePage' @{ Page = @{ id = $id; meetingAt = $at; series = $Info.series; summaryHash = $hash; meeting = $data; meetingData = $(if ($data) { '1' } else { 'none' }) } } | Out-Null
     } catch { $r.message = "This meeting is in your wiki already, and its page could not be updated: $($_.Exception.Message)"; return $r }
     $rec = (Get-IndexPageMap (Invoke-Store $Store 'GetIndex'))[$id]
     $r.status = 'updated'
@@ -587,6 +651,9 @@ function Invoke-TextAdd {
         $page.series = [string]$mi.series; $page.meetingAt = [string]$mi.at
         # The notes' hash, so the same notes imported again write nothing (Update-MeetingOccurrence).
         $page.summaryHash = Get-SummaryHash (Get-LinesPlainText (ConvertTo-BodyLines $Text))
+        # The notes in structured form, for the series page (2026-11-19).
+        $page.meeting = ConvertTo-MeetingDataValue (Get-MeetingDataFromText $Text)
+        $page.meetingData = $(if ($page.meeting) { '1' } else { 'none' })
         # "Your notes", written once now and never by a later import (2026-11-18), as on a link page.
         $page.outlines = @($page.outlines) + @(@{ role = 'notes'; lines = (New-LinkNotesLines) })
     }
@@ -615,6 +682,8 @@ function Invoke-TextAdd {
     $r.links = ConvertTo-LinkResult $val.links
     $r.related = Get-RelatedPages -Shortlist $sl -Links $val.links -Count (Get-IngestOption $Options 'RelatedCount' 3)
     $r.undo = @{ id = $id; pageId = $page.pageId; targets = $targets }
+    # A meeting of a series: its series page is written again (2026-11-19).
+    if ($mi -and $val.type -eq 'meeting') { Update-SeriesPage -Store $Store -Ask $Ask -Info $mi -Result $r }
     $r
 }
 
@@ -1873,4 +1942,4 @@ function Rename-Tag {
     $r
 }
 
-Export-ModuleMember -Function Get-RetirePlan, Invoke-PageRetire, Set-PageTags, Rename-Tag, Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle, Add-PageLink, Test-PagesLinked, Edit-Page, Test-WeakLinkIt, Update-LinkItStrength
+Export-ModuleMember -Function Update-SeriesPage, Get-RetirePlan, Invoke-PageRetire, Set-PageTags, Rename-Tag, Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle, Add-PageLink, Test-PagesLinked, Edit-Page, Test-WeakLinkIt, Update-LinkItStrength

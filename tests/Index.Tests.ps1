@@ -15,7 +15,7 @@ function New-TestVault {
     $p.zt = $f.AddPage($s['Notes'], 'Zero-trust basics', (ConvertTo-ObsnMeta @{ id = 'p1'; type = 'concept'; topics = @('Security/Networking'); summary = 'No implicit trust.'; links = @(@{ target = 'p2'; strength = 3; why = 'uses' }) }))
     $p.iap = $f.AddPage($s['Notes'], 'Identity-aware proxy', (ConvertTo-ObsnMeta @{ id = 'p2'; type = 'concept'; topics = @('Security/Networking', 'Security/Identity'); summary = 'Checks identity per request.' }))
     $p.web = $f.AddPage($s['Web links'], 'Example article', (ConvertTo-ObsnMeta @{ id = 'pa'; type = 'link-web'; topics = @('Gardening'); url = 'https://www.example.org/a'; host = 'www.example.org' }))
-    $p.int = $f.AddPage($s['Internal links'], 'Team site home', (ConvertTo-ObsnMeta @{ id = 'pb'; type = 'link-internal'; url = 'https://contoso.sharepoint.com/sites/Ops/SitePages/Home.aspx'; host = 'contoso.sharepoint.com' }))
+    $p.int = $f.AddPage($s['Internal links'], 'Team site home', (ConvertTo-ObsnMeta @{ id = 'pb'; type = 'link-internal'; url = 'https://fernbrook.sharepoint.com/sites/Ops/SitePages/Home.aspx'; host = 'fernbrook.sharepoint.com' }))
     $arch = $a.OpenHierarchy('Notes.one', $s['Archive'], 3)
     $p.old = $f.AddPage($arch, 'Old idea', (ConvertTo-ObsnMeta @{ id = 'p9'; type = 'note'; topics = @('Gardening'); status = 'archived'; archivedFrom = 'Notes' }))
     $p.userInNotes = $f.AddPage($s['Notes'], 'Typed by hand', @{}, 1, 'my text')
@@ -328,7 +328,7 @@ Describe 'Connected (foreign) notebook, read only' {
 
 Describe 'Links page grouping' {
     It 'groups internal links by site or team and web links by domain' {
-        Get-LinkGroup @{ bucket = 'Internal links'; url = 'https://contoso.sharepoint.com/sites/Ops/SitePages/Home.aspx'; host = 'contoso.sharepoint.com'; type = '' } | Should Be 'contoso.sharepoint.com/sites/Ops'
+        Get-LinkGroup @{ bucket = 'Internal links'; url = 'https://fernbrook.sharepoint.com/sites/Ops/SitePages/Home.aspx'; host = 'fernbrook.sharepoint.com'; type = '' } | Should Be 'fernbrook.sharepoint.com/sites/Ops'
         Get-LinkGroup @{ bucket = 'Internal links'; url = 'https://teams.microsoft.com/l/channel/x'; host = ''; type = '' } | Should Be 'Teams'
         Get-LinkGroup @{ bucket = 'Web links'; url = 'https://www.example.org/a'; host = ''; type = '' } | Should Be 'example.org'
     }

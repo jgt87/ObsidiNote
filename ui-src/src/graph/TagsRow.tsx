@@ -56,7 +56,7 @@ export function TagsRow({ tags, all, onChange, label, onPick }: Props) {
           {tags.map((t) => (
             <li key={t} className="kg-tagchip">
               {onPick ? (
-                <button type="button" className="kg-tagchip__name" onClick={() => onPick(t)} title={`Show every page tagged "${t}"`}>
+                <button type="button" className="kg-tagchip__name" onClick={() => onPick(t)} title={`Show every page tagged “${t}”`}>
                   {t}
                 </button>
               ) : (

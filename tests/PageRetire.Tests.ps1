@@ -150,7 +150,7 @@ Describe 'Edit: another type or address moves the page' {
         $sid = $w.v.sectionIds['Web links']
         $pid4 = $w.f.AddPage($sid, 'Example handbook', @{ 'obsn.id' = 'p4'; 'obsn.type' = 'link-web'; 'obsn.url' = 'https://www.example.org/handbook'; 'obsn.host' = 'www.example.org'; 'obsn.links' = '[]' }, 1, 'A public handbook.')
         & $w.store.IndexAddPage @{ id = 'p4'; title = 'Example handbook'; type = 'link-web'; url = 'https://www.example.org/handbook'; host = 'www.example.org'; topics = @(); links = @(); pageId = $pid4; section = 'Web links'; link = 'onenote:#p4' } | Out-Null
-        $r = Edit-Page -Store $w.store -Id 'p4' -Changes @{ url = 'https://contoso.sharepoint.com/sites/handbook' }
+        $r = Edit-Page -Store $w.store -Id 'p4' -Changes @{ url = 'https://fernbrook.sharepoint.com/sites/handbook' }
         $r.status | Should Be 'edited'
         $r.moved | Should Be 'Internal links'
         (Get-PageNode $w 'p4').meta['obsn.type'] | Should Be 'link-internal'

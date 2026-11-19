@@ -55,7 +55,7 @@ function ConvertTo-SyncedUrl {
 
 function ConvertTo-EscapedRootUrl {
     <# A synced folder's address with every path part escaped once: OneDrive records a library as
-       typed ("https://contoso.sharepoint.com/sites/Team/Shared Documents/"), and an address with a
+       typed ("https://fernbrook.sharepoint.com/sites/Team/Shared Documents/"), and an address with a
        space is refused as a link (code review 2026-11-15). A part that is escaped already ("%20")
        is decoded first, so it is never escaped twice. Scheme and host stay as they are. Pure. #>
     param([AllowEmptyString()][string]$Url = '')

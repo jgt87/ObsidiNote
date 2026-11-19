@@ -231,7 +231,7 @@ function FocusSteps({ index, filter, onChange }: PanelProps) {
       </span>
       <span className="seg seg--sm" role="group" aria-label="Link steps">
         {([1, 2] as const).map((d) => (
-          <button key={d} type="button" className="seg__btn" aria-pressed={focus.depth === d} onClick={() => setDepth(d)}>
+          <button key={d} type="button" className="seg__btn" data-label={d === 1 ? '1 step' : '2 steps'} aria-pressed={focus.depth === d} onClick={() => setDepth(d)}>
             {d === 1 ? '1 step' : '2 steps'}
           </button>
         ))}

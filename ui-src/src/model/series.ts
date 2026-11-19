@@ -9,9 +9,21 @@ export function seriesKey(name: string): string {
     .trim()
 }
 
-/** How many meeting pages of $series are in $pages (archived ones left out). */
-export function seriesCount(pages: { kind: string; series?: string; archived?: boolean }[], series: string): number {
+type SeriesPageLike = { id?: string; kind: string; series?: string; archived?: boolean; seriesPage?: boolean }
+
+/** A meeting of a series: a meeting page with a series that is not the series' own overview page. */
+export const isSeriesMeeting = (p: SeriesPageLike) => p.kind === 'meeting' && !p.seriesPage && !!p.series
+
+/** How many meeting pages of $series are in $pages (archived ones and the series page left out). */
+export function seriesCount(pages: SeriesPageLike[], series: string): number {
   const k = seriesKey(series)
   if (!k) return 0
-  return pages.filter((p) => p.kind === 'meeting' && !p.archived && p.series && seriesKey(p.series) === k).length
+  return pages.filter((p) => isSeriesMeeting(p) && !p.archived && seriesKey(p.series ?? '') === k).length
+}
+
+/** The id of $series' overview page (2026-11-19), '' when there is none. */
+export function seriesPageId(pages: SeriesPageLike[], series: string): string {
+  const k = seriesKey(series)
+  if (!k) return ''
+  return pages.find((p) => p.seriesPage && !p.archived && p.series && seriesKey(p.series) === k)?.id ?? ''
 }

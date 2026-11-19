@@ -77,7 +77,7 @@ export interface GraphPage {
   readOnly: boolean
   /** Other names for the page (index `aliases`); search and mentions match them like the title. */
   aliases: string[]
-  /** Host of a link page's source ("contoso.sharepoint.com", "example.org"); '' for other pages. */
+  /** Host of a link page's source ("fernbrook.sharepoint.com", "example.org"); '' for other pages. */
   site: string
   /** Archived (in `Archive / <bucket>`, restorable). */
   archived: boolean
@@ -97,6 +97,9 @@ export interface GraphPage {
    *  (2026-11-18; tests/fixtures/graph-pages.json). */
   series?: string
   meetingAt?: string
+  /** The overview page of a meeting series (2026-11-19): not a meeting, so the Journal and the series
+   *  counts leave it out. */
+  seriesPage?: boolean
 }
 
 /** One entry of a journal day page (lib/GraphModel.psm1 ConvertTo-GraphEntries). */
@@ -276,6 +279,7 @@ function normalizePage(p: Record<string, unknown>, id: string, topicIds: Set<str
     entries: normalizeEntries(p.entries),
     series: str(p.series),
     meetingAt: str(p.meetingAt),
+    seriesPage: p.seriesPage === true,
   }
 }
 

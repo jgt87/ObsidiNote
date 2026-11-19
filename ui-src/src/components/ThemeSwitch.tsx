@@ -31,6 +31,7 @@ export function ThemeSwitch() {
           aria-checked={theme === t}
           tabIndex={theme === t ? 0 : -1}
           data-theme-option={t}
+          data-label={LABEL[t]}
           className="seg__btn theme-switch__btn"
           onClick={() => choose(t)}
         >

@@ -119,8 +119,8 @@ Describe 'Masking of the log' {
         Protect-ValidationText 'failed on Plan to acquire Fabrikam: 0x80042014' $c | Should Be 'failed on <name>: 0x80042014'
     }
     It 'masks e-mail addresses, GUIDs and long ids' {
-        $t = Protect-ValidationText 'user ada.example@contoso.example tenant 12345678-90ab-cdef-1234-567890abcdef page {ABCDEF01-2345-6789-ABCD-EF0123456789}{1}{B0} key 0123456789abcdef0123456789abcdef'
-        $t | Should Not Match 'contoso|ada\.example|12345678-90ab|ABCDEF01|0123456789abcdef0123'
+        $t = Protect-ValidationText 'user ada.example@fernbrook.example tenant 12345678-90ab-cdef-1234-567890abcdef page {ABCDEF01-2345-6789-ABCD-EF0123456789}{1}{B0} key 0123456789abcdef0123456789abcdef'
+        $t | Should Not Match 'fernbrook|ada\.example|12345678-90ab|ABCDEF01|0123456789abcdef0123'
         $t | Should Match '<email>'
         $t | Should Match '<id>'
     }
@@ -131,15 +131,15 @@ Describe 'Masking of the log' {
         $t | Should Be 'at %USERPROFILE%\AppData\x and %USERPROFILE%\Documents\y'
     }
     It 'keeps only the host of a web address and masks the tenant in SharePoint hosts' {
-        $t = Protect-ValidationText 'read https://contoso.sharepoint.com/sites/Finance/Pay.aspx?id=7&web=1 and https://example.org/a/b?q=1#f and https://example.org'
+        $t = Protect-ValidationText 'read https://fernbrook.sharepoint.com/sites/Finance/Pay.aspx?id=7&web=1 and https://example.org/a/b?q=1#f and https://example.org'
         $t | Should Be 'read https://<tenant>.sharepoint.com/<path> and https://example.org/<path> and https://example.org'
-        Protect-ValidationText 'https://contoso-my.sharepoint.com/personal/ada/Documents/x.docx' | Should Be 'https://<tenant>-my.sharepoint.com/<path>'
+        Protect-ValidationText 'https://fernbrook-my.sharepoint.com/personal/ada/Documents/x.docx' | Should Be 'https://<tenant>-my.sharepoint.com/<path>'
     }
     It 'drops onenote: links whole (they hold notebook, section and page names)' {
         Protect-ValidationText 'link onenote:https://example.invalid/Docs/Secret%20Book/Notes.one#Plan&section-id={x}&end done' | Should Be 'link onenote:<link> done'
     }
     It 'masks the machine, domain and user name, SIDs and OneDrive organisation folders' {
-        $t = Protect-ValidationText "pc $env:COMPUTERNAME user $env:USERNAME sid S-1-5-21-1004336348-1177238915-682003330-512 folder OneDrive - Contoso Ltd\Docs"
+        $t = Protect-ValidationText "pc $env:COMPUTERNAME user $env:USERNAME sid S-1-5-21-1004336348-1177238915-682003330-512 folder OneDrive - Fernbrook Ltd\Docs"
         if ($env:COMPUTERNAME) { $t | Should Not Match ([regex]::Escape($env:COMPUTERNAME)) }
         if ($env:USERNAME.Length -ge 2) { $t | Should Not Match ('\b' + [regex]::Escape($env:USERNAME) + '\b') }
         $t | Should Match '<sid>'
@@ -150,10 +150,10 @@ Describe 'Masking of the log' {
         $log = Join-Path $d 'log.txt'
         $c2 = New-TestCtx -LogPath $log
         $null = Register-ValidationName $c2 'notebook' 'Team Alpha Notes'
-        Write-ValidationLine $c2 'see Team Alpha Notes at https://contoso.sharepoint.com/sites/x?y=1 by ada@contoso.example'
-        Add-ValidationResult $c2 'V2' 'FAIL' 'Something' "in $env:USERPROFILE\x for Team Alpha Notes" 'mail ada@contoso.example'
+        Write-ValidationLine $c2 'see Team Alpha Notes at https://fernbrook.sharepoint.com/sites/x?y=1 by ada@fernbrook.example'
+        Add-ValidationResult $c2 'V2' 'FAIL' 'Something' "in $env:USERPROFILE\x for Team Alpha Notes" 'mail ada@fernbrook.example'
         $text = [IO.File]::ReadAllText($log)
-        $text | Should Not Match 'Team Alpha|contoso|ada@'
+        $text | Should Not Match 'Team Alpha|fernbrook|ada@'
         $text | Should Match 'notebook #1'
         $text | Should Match '%USERPROFILE%'
         Remove-Item $d -Recurse -Force
@@ -162,14 +162,14 @@ Describe 'Masking of the log' {
 
 Describe 'The log header' {
     It 'names the date, versions, stages and boolean flags, never the address flags' {
-        $c = New-TestCtx -Flags @{ WriteTest = $true; NoCopilot = $false; SharePointUrl = 'https://contoso.sharepoint.com/sites/x' }
+        $c = New-TestCtx -Flags @{ WriteTest = $true; NoCopilot = $false; SharePointUrl = 'https://fernbrook.sharepoint.com/sites/x' }
         $h = (Get-ValidationHeader -Ctx $c -AppVersion 'v9.9.9') -join "`n"
         $h | Should Match 'Kit:'
         $h | Should Match 'ObsidiNote: v9.9.9'
         $h | Should Match 'PowerShell:'
         $h | Should Match 'Stages:\s+V1, V2'
         $h | Should Match '-WriteTest'
-        $h | Should Not Match 'NoCopilot|contoso|SharePointUrl'
+        $h | Should Not Match 'NoCopilot|fernbrook|SharePointUrl'
     }
 }
 
@@ -263,11 +263,11 @@ Describe 'V2 OneNote: the log holds counts, no names or titles' {
         $log = Join-Path $d 'v2.txt'
         $global:ObsnValFake = New-PrivateFake
         Mock Get-KitOneNote -ModuleName StageOneNote { $global:ObsnValFake }
-        Mock Get-NotebookRecord -ModuleName StageOneNote { 'onenote:https://contoso.sharepoint.com/sites/Finance/Q3%20Budget%20Secrets' }
+        Mock Get-NotebookRecord -ModuleName StageOneNote { 'onenote:https://fernbrook.sharepoint.com/sites/Finance/Q3%20Budget%20Secrets' }
         $c = New-TestCtx -LogPath $log
         Invoke-StageOneNote -Ctx $c
         $text = [IO.File]::ReadAllText($log)
-        $text | Should Not Match 'Budget|Salaries|Fabrikam|Confidential|contoso|Finance'
+        $text | Should Not Match 'Budget|Salaries|Fabrikam|Confidential|fernbrook|Finance'
         $text | Should Match 'notebook #1'
         $text | Should Match '1 pages; vault'
         $text | Should Match 'P1, P1b, P1c'
@@ -345,8 +345,8 @@ Describe 'V5 Grounding probes' {
         (Test-LinkReply '{"title":"t","where":"w","kind":"page","summary":"","keyFacts":[],"useItFor":"u","sensitivity":"","access":"no-access"}').found | Should Be $false
     }
     It 'tells SharePoint, OneDrive and web addresses apart' {
-        Get-UrlKind 'https://contoso.sharepoint.com/sites/x/SitePages/Home.aspx' | Should Be 'sharepoint'
-        Get-UrlKind 'https://contoso-my.sharepoint.com/personal/a/Documents/b.docx' | Should Be 'onedrive'
+        Get-UrlKind 'https://fernbrook.sharepoint.com/sites/x/SitePages/Home.aspx' | Should Be 'sharepoint'
+        Get-UrlKind 'https://fernbrook-my.sharepoint.com/personal/a/Documents/b.docx' | Should Be 'onedrive'
         Get-UrlKind 'https://example.org/a' | Should Be 'web'
         Get-UrlKind 'http://example.org/a' | Should Be ''
         Get-UrlKind 'not a url' | Should Be ''
@@ -360,10 +360,10 @@ Describe 'V5 Grounding probes' {
             [pscustomobject]@{ ok = $true; result = 'Success'; ms = 1234; error = ''; workIq = 'on'
                 text = '{"title":"Merger plan Fabrikam","where":"Finance site","kind":"page","summary":"Secret merger summary.","keyFacts":["Price 12M"],"useItFor":"deal","sensitivity":"Confidential","access":"ok"}' }
         }
-        $c = New-TestCtx -LogPath $log -Flags @{ NoPrompt = $true; SharePointUrl = 'https://contoso.sharepoint.com/sites/Finance/SitePages/Merger.aspx?a=1'; OneDriveUrl = 'https://contoso-my.sharepoint.com/personal/ada/Documents/Deal.docx'; PublicUrl = 'https://example.org/secret-article' }
+        $c = New-TestCtx -LogPath $log -Flags @{ NoPrompt = $true; SharePointUrl = 'https://fernbrook.sharepoint.com/sites/Finance/SitePages/Merger.aspx?a=1'; OneDriveUrl = 'https://fernbrook-my.sharepoint.com/personal/ada/Documents/Deal.docx'; PublicUrl = 'https://example.org/secret-article' }
         Invoke-StageGrounding -Ctx $c
         $text = [IO.File]::ReadAllText($log)
-        $text | Should Not Match 'contoso|Finance|Merger|Fabrikam|Secret|Deal|secret-article|example\.org|12M'
+        $text | Should Not Match 'fernbrook|Finance|Merger|Fabrikam|Secret|Deal|secret-article|example\.org|12M'
         @($c.Results | Where-Object { $_.name -like 'P7*' -and $_.status -eq 'OK' }).Count | Should Be 2
         @($c.Results | Where-Object { $_.name -like 'P8*' -and $_.status -eq 'OK' }).Count | Should Be 2
         @($c.Results | Where-Object { $_.name -eq 'P3 OneNote grounding' })[0].status | Should Be 'SKIP'
@@ -384,8 +384,8 @@ Describe 'V5 Grounding probes' {
 }
 
 Describe 'V5 P10 meetings (operator, 2026-11-14)' {
-    $list = '{"meetings":[{"title":"Fabrikam merger steering","start":"2026-11-13 10:00","attendees":6,"hasTranscript":true,"hasRecap":true,"hasNotes":false,"link":"https://contoso.sharepoint.com/recap/1"},{"title":"Coffee with Ada","start":"2026-11-12 09:00","attendees":2,"hasTranscript":false,"hasRecap":false,"hasNotes":false,"link":""}],"searched":["Teams"]}'
-    $notes = '{"found":true,"date":"2026-11-13","attendees":[{"name":"Ada Lovelace","email":"ada@contoso.example"},{"name":"Grace Hopper","email":""}],"summary":"Secret merger talk.","decisions":["Buy Fabrikam for 12M"],"actions":[{"text":"Draft term sheet","owner":"Ada Lovelace","due":"2026-11-20"},{"text":"Call the bank","owner":"","due":""}],"basedOn":"transcript","source":"https://contoso.sharepoint.com/recap/1"}'
+    $list = '{"meetings":[{"title":"Fabrikam merger steering","start":"2026-11-13 10:00","attendees":6,"hasTranscript":true,"hasRecap":true,"hasNotes":false,"link":"https://fernbrook.sharepoint.com/recap/1"},{"title":"Coffee with Ada","start":"2026-11-12 09:00","attendees":2,"hasTranscript":false,"hasRecap":false,"hasNotes":false,"link":""}],"searched":["Teams"]}'
+    $notes = '{"found":true,"date":"2026-11-13","attendees":[{"name":"Ada Lovelace","email":"ada@fernbrook.example"},{"name":"Grace Hopper","email":""}],"summary":"Secret merger talk.","decisions":["Buy Fabrikam for 12M"],"actions":[{"text":"Draft term sheet","owner":"Ada Lovelace","due":"2026-11-20"},{"text":"Call the bank","owner":"","due":""}],"basedOn":"transcript","source":"https://fernbrook.sharepoint.com/recap/1"}'
     It 'counts meetings and what Copilot can read of them; picks the newest one that has something' {
         $l = Test-MeetingListReply $list
         "$($l.valid)|$($l.count)|$($l.transcript)|$($l.recap)|$($l.notes)|$($l.links)" | Should Be 'True|2|1|1|0|1'
@@ -397,7 +397,7 @@ Describe 'V5 P10 meetings (operator, 2026-11-14)' {
         $n = Test-MeetingNotesReply $notes
         "$($n.found)|$($n.attendees)|$($n.addresses)|$($n.decisions)|$($n.actions)|$($n.owners)|$($n.dues)|$($n.basedOn)|$($n.source)" | Should Be 'True|2|1|1|2|1|1|transcript|True'
         # The old shape (plain names, also "Name <address>") still counts.
-        (Test-MeetingNotesReply '{"found":true,"attendees":["Ada <ada@contoso.example>","Grace"],"decisions":[],"actions":[]}').addresses | Should Be 1
+        (Test-MeetingNotesReply '{"found":true,"attendees":["Ada <ada@fernbrook.example>","Grace"],"decisions":[],"actions":[]}').addresses | Should Be 1
         (Test-MeetingNotesReply '{"found":false,"attendees":[],"decisions":[],"actions":[]}').found | Should Be $false
     }
     # The full day (operator, 2026-11-15): every meeting of 2026-11-13, two of them with something to read.
@@ -424,12 +424,12 @@ Describe 'V5 P10 meetings (operator, 2026-11-14)' {
         Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Scope It -ParameterFilter { $Text -like 'From the transcript*"Northwind budget review"*' } -Times 1 -Exactly
         Assert-MockCalled Send-KitPrompt -ModuleName StageGrounding -Scope It -ParameterFilter { $Text -like '*Coffee with Ada*' } -Times 0 -Exactly
         $text = [IO.File]::ReadAllText($log)
-        $text | Should Not Match 'Fabrikam|Northwind|Ada|Grace|Lovelace|contoso|recap/1|term sheet|bank|12M|Secret|2026-11-1[23]'
+        $text | Should Not Match 'Fabrikam|Northwind|Ada|Grace|Lovelace|fernbrook|recap/1|term sheet|bank|12M|Secret|2026-11-1[23]'
         (@($c.Results | ForEach-Object { "$($_.name)=$($_.status)" }) -join ',') | Should Be 'P10 meetings list=OK,P10 day''s meetings=OK,P10 meeting notes 1=OK,P10 meeting notes 2=OK'
         $text | Should Match '2 meetings in the last 7 days; with a transcript 1, a recap 1, notes 0, a link 1'
         $text | Should Match '3 meetings on the busiest day of the last 7 days \(0 of another day\); with a transcript 1, a recap 2, notes 1; the week''s list had 1 of that day'
         $text | Should Match 'date matches the day yes; 2 attendees \(1 with an address\), 1 decisions, 2 actions \(1 with an owner, 1 with a due date\); source link yes'
-        $text | Should Not Match 'contoso\.example|@'
+        $text | Should Not Match 'fernbrook\.example|@'
         Remove-Item $d -Recurse -Force
         Clear-P10Replies
     }

@@ -25,7 +25,7 @@
 .add-summary { margin-top: var(--space-3); }
 .add-note { margin: var(--space-4) 0 0; }
 
-.add-a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+.add-a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 0.2em; }
 @media (hover: hover) { .add-a:hover { color: var(--accent); text-decoration-color: currentColor; } }
 
 .add-path { font-size: var(--text-control); font-weight: 500; overflow-wrap: anywhere; }

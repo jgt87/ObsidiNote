@@ -127,7 +127,7 @@ export function editProblem(form: EditForm, isLink: boolean): string {
   if (title) return title
   if (isLink && !webUrl(form.url)) return 'The address must be an http(s) link.'
   if (summaryProblem(form.summary)) return summaryProblem(form.summary)
-  if (form.links.some((l) => l.why.length > 300)) return 'A link\'s reason can be at most 300 characters.'
+  if (form.links.some((l) => l.why.length > 300)) return 'A link’s reason can be at most 300 characters.'
   return ''
 }
 

@@ -66,7 +66,7 @@ describe('AddResult', () => {
     expect(html).not.toContain('Filed under')
   })
   it('shows a waiting item with "Check for the answer", and no primary button of its own (Send is the view\'s)', () => {
-    const r = normalizeAddResult({ status: 'waiting', kind: 'link', message: 'Copilot is still working on this.', text: 'https://contoso.sharepoint.com/sites/x', inboxId: '{I}', ref: 'rabc12345' })
+    const r = normalizeAddResult({ status: 'waiting', kind: 'link', message: 'Copilot is still working on this.', text: 'https://fernbrook.sharepoint.com/sites/x', inboxId: '{I}', ref: 'rabc12345' })
     const html = renderToStaticMarkup(<AddResult result={r} onDone={noop} onCheckAnswer={noop} />)
     expect(html).toContain('Waiting for Copilot')
     expect(html).toContain('waits in your Intake')
@@ -86,12 +86,12 @@ describe('AddResult', () => {
     expect(html).toContain('>Check for the answer</button>')
   })
   it('shows old vs new for an updated link, and the confirmation for an edited summary', () => {
-    const base = { title: 'Contoso handbook', where: 'HR site', kind: 'page', summary: 'Old text.', keyFacts: ['Leave is 25 days'], useFor: '', sensitivity: '' }
+    const base = { title: 'Fernbrook handbook', where: 'HR site', kind: 'page', summary: 'Old text.', keyFacts: ['Leave is 25 days'], useFor: '', sensitivity: '' }
     const next = { ...base, kind: 'site', summary: 'New text.', keyFacts: ['Leave is 26 days'] }
     const r = normalizeAddResult({
       status: 'needs-confirmation',
       kind: 'link',
-      text: 'https://contoso.sharepoint.com/x',
+      text: 'https://fernbrook.sharepoint.com/x',
       update: { old: base, new: next, diff: { changed: true, factsAdded: ['Leave is 26 days'], factsRemoved: ['Leave is 25 days'] }, oldAt: '2026-08-01', newAt: '', review: [] },
       confirm: { id: 'p7', question: 'Replace it?', detail: 'Your notes are not touched.', options: ['replace', 'keep'], editedText: 'My words.', proposed: next },
     })

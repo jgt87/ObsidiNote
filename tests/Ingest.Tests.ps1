@@ -263,7 +263,7 @@ Describe 'A dropped file found in OneDrive becomes its link page (operator, 2026
     It 'summarizes the file text, not the address, and files the link page under that address' {
         $v = New-FakeVault
         $c = New-FakeCopilot @('{"readable": false, "problem": "other"}')
-        $fileUrl = 'https://contoso-my.sharepoint.com/personal/x/Documents/Budget%20review.docx'
+        $fileUrl = 'https://fernbrook-my.sharepoint.com/personal/x/Documents/Budget%20review.docx'
         $r = Invoke-AddRequest -Request @{ text = "File: Budget review.docx`n`nThe Q3 budget moves 10% to tidal gardens."; mode = 'add'; origin = 'file'; fileUrl = $fileUrl } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
         $r.kind | Should Be 'link'
         $c.q.prompts[0] | Should Match 'do not open the URL'
@@ -279,7 +279,7 @@ Describe 'A dropped file found in OneDrive becomes its link page (operator, 2026
 }
 
 Describe 'A SharePoint link with your own words becomes its link page, the words in Your notes (operator, 2026-11-17)' {
-    $sp = 'https://contoso.sharepoint.com/sites/garden/SitePages/Tidal-beds.aspx'
+    $sp = 'https://fernbrook.sharepoint.com/sites/garden/SitePages/Tidal-beds.aspx'
     $words = "Plan for the tidal beds.`nAsk Ada about pumps."
     function Get-NotesTexts($Page) {
         $o = @($Page['outlines'] | Where-Object { $_['role'] -eq 'notes' })[0]
@@ -292,7 +292,7 @@ Describe 'A SharePoint link with your own words becomes its link page, the words
         $r.kind | Should Be 'link'
         $c.q.prompts[0] | Should Match ([regex]::Escape($sp))
         $p = @($v.st.created.Values)[0]
-        $p['url'] | Should Match 'contoso\.sharepoint\.com'
+        $p['url'] | Should Match 'fernbrook\.sharepoint\.com'
         (Get-NotesTexts $p) -join '|' | Should Be 'Your notes|Plan for the tidal beds.|Ask Ada about pumps.'
         $v.st.inbox['{IN0}'].text | Should Be "$words`n$sp"
     }
@@ -306,7 +306,7 @@ Describe 'A SharePoint link with your own words becomes its link page, the words
     }
     It 'keeps two different links as text' {
         $v = New-FakeVault
-        $two = "$words $sp https://contoso.sharepoint.com/sites/garden/Other.aspx"
+        $two = "$words $sp https://fernbrook.sharepoint.com/sites/garden/Other.aspx"
         (Invoke-AddRequest -Request @{ text = $two; mode = 'add' } -Store $v.store -Ask (New-FakeCopilot @((Get-GoodReply))).ask -Options @{ Now = $script:Now }).kind | Should Be 'text'
     }
     It 'finds the words again when the answer is fetched later (Check for the answer)' {
@@ -329,7 +329,8 @@ Describe 'A daily meeting is one series of pages (operator, 2026-11-18)' {
     $c = New-FakeCopilot @((Get-GoodReply), (Get-GoodReply))
     $r1 = Invoke-AddRequest -Request @{ text = (& $day '2031-04-08' '10:00'); mode = 'add'; origin = 'meeting' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
     $r2 = Invoke-AddRequest -Request @{ text = (& $day '2031-04-09' '10:00'); mode = 'add'; origin = 'meeting' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
-    $pages = @($v.st.created.Values)
+    # Meeting pages only: the series page (kind series) has its own tests below.
+    $pages = @($v.st.created.Values | Where-Object { $_['kind'] -ne 'series' })
     It 'names each page "<series> . <day>" and keeps the series and start on it' {
         $r1.status | Should Be 'added'
         $r2.status | Should Be 'added'
@@ -351,7 +352,7 @@ Describe 'A daily meeting is one series of pages (operator, 2026-11-18)' {
         $r3.message | Should Match 'Already up to date'
         $c.q.prompts.Count | Should Be $asked
         $v.st.updates.Count | Should Be $updates
-        @($v.st.created.Values).Count | Should Be 2
+        @($v.st.created.Values | Where-Object { $_['kind'] -ne 'series' }).Count | Should Be 2
     }
     It 'updates the page with newer notes of the same meeting (fetched later that day), body only' {
         $asked = $c.q.prompts.Count
@@ -359,13 +360,13 @@ Describe 'A daily meeting is one series of pages (operator, 2026-11-18)' {
         $r4 = Invoke-AddRequest -Request @{ text = $later; mode = 'add'; origin = 'meeting' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
         $r4.status | Should Be 'updated'
         $c.q.prompts.Count | Should Be $asked
-        @($v.st.created.Values).Count | Should Be 2
-        $u = $v.st.updates[$v.st.updates.Count - 1]
+        @($v.st.created.Values | Where-Object { $_['kind'] -ne 'series' }).Count | Should Be 2
+        $u = @($v.st.updates | Where-Object { $_.meta['meetingAt'] })[-1]
         (@($u.outlines | ForEach-Object { $_['role'] }) -join ',') | Should Be 'body'
         $u.meta['meetingAt'] | Should Be '2031-04-09T10:00'
     }
     It 'gives a new meeting page a "Your notes" part that later imports never write' {
-        $p = @($v.st.created.Values)[0]
+        $p = $pages[0]
         (@($p['outlines'] | ForEach-Object { $_['role'] }) -join ',') | Should Be 'body,notes'
         @($v.st.updates | Where-Object { @($_.outlines | Where-Object { $_['role'] -eq 'notes' }).Count }).Count | Should Be 0
     }
@@ -374,7 +375,7 @@ Describe 'A daily meeting is one series of pages (operator, 2026-11-18)' {
         $r5.status | Should Be 'added'
         $dot = [string][char]0x00B7
         @($v.st.created.Values | Where-Object { $_['meetingAt'] -eq '2031-04-09T15:00' })[0]['title'] | Should Be "Garden sync | Tidal beds $dot 2031-04-09 15:00"
-        @($v.st.created.Values).Count | Should Be 3
+        @($v.st.created.Values | Where-Object { $_['kind'] -ne 'series' }).Count | Should Be 3
     }
     It 'does not send a meeting again while its first Add waits for Copilot, and files a later answer on the page' {
         $v2 = New-FakeVault
@@ -391,7 +392,7 @@ Describe 'A daily meeting is one series of pages (operator, 2026-11-18)' {
         $v2.st.index.pages = @($v2.st.index.pages) + @{ id = 'p900'; title = 'Garden sync . 2031-04-10'; type = 'meeting'; status = ''; series = 'Garden sync | Tidal beds'; meetingAt = '2031-04-10T10:00'; pageId = '{P900}'; summaryHash = 'other' }
         $x = Receive-AddAnswer -Store $v2.store -Ask (New-FakeCopilot @()).ask -ReadChat (New-ChatReader (Add-Ref (Get-GoodReply) $w.ref)).read -InboxId $w.inboxId -Options @{ Now = $script:Now }
         $x.status | Should Be 'updated'
-        $v2.st.created.Count | Should Be 0
+        @($v2.st.created.Values | Where-Object { $_['kind'] -ne 'series' }).Count | Should Be 0
         $v2.st.inbox[$w.inboxId].status | Should Be 'linked'
         $v2.st.inbox[$w.inboxId].filedAs | Should Be 'p900'
     }
@@ -404,17 +405,74 @@ Describe 'A daily meeting is one series of pages (operator, 2026-11-18)' {
     }
 }
 
+Describe 'A meeting series has one overview page (operator, 2026-11-19)' {
+    Import-Module (Join-Path $root 'lib\Meetings.psm1') -Global
+    $n1 = @{ found = $true; date = ''; attendees = @(@{ name = 'Ada Example'; email = 'ada@example.com' }, @{ name = 'Bo Sample'; email = '' }); summary = 'The beds move north.'; decisions = @('Move the beds.'); actions = @(@{ text = 'Order a pump'; owner = 'Ada Example'; due = '2031-04-12' }); basedOn = 'transcript' }
+    $n2 = @{ found = $true; date = ''; attendees = @(@{ name = 'Ada Example'; email = 'ada@example.com' }); summary = 'The pump arrived.'; decisions = @('Keep the old pump as a spare.'); actions = @(); basedOn = 'transcript' }
+    $day = { param($d, $n) ConvertTo-MeetingNoteText -Title 'Garden sync' -Day $d -Time '10:00' -Notes $n }
+    $v = New-FakeVault
+    $c = New-FakeCopilot @((Get-GoodReply), (Get-GoodReply), (Get-GoodReply))
+    $r1 = Invoke-AddRequest -Request @{ text = (& $day '2031-04-08' $n1); mode = 'add'; origin = 'meeting' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+    $r2 = Invoke-AddRequest -Request @{ text = (& $day '2031-04-09' $n2); mode = 'add'; origin = 'meeting' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+    $series = @($v.st.created.Values | Where-Object { $_['kind'] -eq 'series' })
+    $meetings = @($v.st.created.Values | Where-Object { $_['kind'] -ne 'series' })
+    It 'is made once, with its own title, and links every meeting of the series' {
+        $series.Count | Should Be 1
+        $series[0]['title'] | Should Be 'Garden sync (series)'
+        $series[0]['type'] | Should Be 'meeting'
+        $last = @($v.st.updates | Where-Object { $_.pageId -eq $series[0]['pageId'] })[-1]
+        @($last.meta['links'] | ForEach-Object { $_['target'] } | Sort-Object) -join ',' | Should Be (@($meetings | ForEach-Object { $_['id'] } | Sort-Object) -join ',')
+        "$($r1.series.meetings)|$($r2.series.meetings)" | Should Be '1|2'
+    }
+    It 'keeps each meeting''s notes as page data, read from its own text' {
+        $d = ConvertFrom-MeetingDataValue (@($meetings | Where-Object { $_['meetingAt'] -like '2031-04-08*' })[0]['meeting'])
+        $d.summary | Should Be 'The beds move north.'
+        $d.decisions -join '|' | Should Be 'Move the beds.'
+        "$($d.actions[0].text)|$($d.actions[0].owner)|$($d.actions[0].due)" | Should Be 'Order a pump|Ada Example|2031-04-12'
+        (@($d.people | ForEach-Object { "$($_.name)/$($_.email)" }) -join ',') | Should Be 'Ada Example/ada@example.com,Bo Sample/'
+    }
+    It 'writes the summary, the latest meeting, decisions and actions by date, people and every meeting' {
+        $text = @($c.q.seriesPrompts)[-1]
+        $text | Should Match 'The pump arrived'
+        $body = ConvertTo-SeriesPageText -Series 'Garden sync' -Summary 'The series covered the tidal beds.' -Days @(
+            @{ day = '2031-04-09'; time = '10:00'; title = 't2'; link = 'onenote:b'; summary = ''; data = (ConvertFrom-MeetingDataValue (ConvertTo-MeetingDataValue (Get-MeetingDataFromText (& $day '2031-04-09' $n2)))) },
+            @{ day = '2031-04-08'; time = '10:00'; title = 't1'; link = 'onenote:a'; summary = ''; data = (ConvertFrom-MeetingDataValue (ConvertTo-MeetingDataValue (Get-MeetingDataFromText (& $day '2031-04-08' $n1)))) })
+        $body | Should Match '## Lately'
+        $body | Should Match '## Latest meeting: \[2031-04-09\]\(onenote:b\) at 10:00'
+        $body | Should Match '- \[2031-04-09\]\(onenote:b\): Keep the old pump as a spare\.'
+        $body | Should Match '- \[2031-04-08\]\(onenote:a\): Order a pump \(Ada Example, due 2031-04-12\)'
+        $body | Should Match 'Ada Example \(\[ada@example\.com\]\(mailto:ada@example\.com\)\): 2 of 2'
+        $body | Should Match '- Bo Sample: 1 of 2'
+        $body.IndexOf('2031-04-09](onenote:b) 10:00') | Should BeLessThan ($body.IndexOf('2031-04-08](onenote:a) 10:00'))
+    }
+    It 'is not a meeting of its own series: never listed, linked or counted as one' {
+        # Get-MeetingPagesOf is the module's own: called inside it.
+        $n = & (Get-Module Ingest) { param($s) @(Get-MeetingPagesOf (Invoke-Store $s 'GetIndex') 'garden sync').Count } $v.store
+        $n | Should Be 2
+    }
+    It 'keeps its last summary and warns when Copilot does not answer; the Add itself is done' {
+        $c.q.seriesReply = 'fail'
+        $n3 = $n2.Clone(); $n3.summary = 'Another day.'
+        $r3 = Invoke-AddRequest -Request @{ text = (& $day '2031-04-10' $n3); mode = 'add'; origin = 'meeting' } -Store $v.store -Ask $c.ask -Options @{ Now = (Get-Date '2031-04-10') }
+        $r3.status | Should Be 'added'
+        $r3.series.summary | Should Be $false
+        (@($r3.warnings) -join ' ') | Should Match 'without a new summary'
+        $last = @($v.st.updates | Where-Object { $_.pageId -eq $series[0]['pageId'] })[-1]
+        $last.meta['summary'] | Should Be 'The series covered the tidal beds.'
+    }
+}
+
 Describe 'Get-LinkWithNotes (pure)' {
     Import-Module (Join-Path $root 'lib\LinkCapture.psm1') -Global
     It 'takes one address and the words around it' {
-        $x = Get-LinkWithNotes "See <https://contoso.sharepoint.com/a.aspx>. My take: good."
-        $x.url | Should Be 'https://contoso.sharepoint.com/a.aspx'
+        $x = Get-LinkWithNotes "See <https://fernbrook.sharepoint.com/a.aspx>. My take: good."
+        $x.url | Should Be 'https://fernbrook.sharepoint.com/a.aspx'
         $x.notes | Should Be 'See . My take: good.'
     }
     It 'gives nothing for a bare link, no link, or only words over 4000 characters' {
-        Get-LinkWithNotes 'https://contoso.sharepoint.com/a.aspx' | Should Be $null
+        Get-LinkWithNotes 'https://fernbrook.sharepoint.com/a.aspx' | Should Be $null
         Get-LinkWithNotes 'just words' | Should Be $null
-        Get-LinkWithNotes ('x' * 4001 + ' https://contoso.sharepoint.com/a.aspx') | Should Be $null
+        Get-LinkWithNotes ('x' * 4001 + ' https://fernbrook.sharepoint.com/a.aspx') | Should Be $null
     }
 }
 

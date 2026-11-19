@@ -46,7 +46,7 @@ if ($notes.pages.Count -lt 3) {
         @{ s = 'Notes'; t = 'Salt-tolerant crops'; m = @{ type = 'note'; topics = @('Gardening/Coast', 'Plants'); summary = 'Crops that cope with salty soil.' } },
         @{ s = 'Notes'; t = 'Compost basics'; m = @{ type = 'howto'; topics = @('Gardening/Soil'); summary = 'Brown and green layers.' } },
         @{ s = 'Web links'; t = 'Example article on dunes'; m = @{ type = 'link-web'; topics = @('Gardening/Coast'); url = 'https://www.example.org/dunes'; host = 'www.example.org'; kind = 'article'; summary = 'How dunes move.' } },
-        @{ s = 'Internal links'; t = 'Team site home'; m = @{ type = 'link-internal'; url = 'https://contoso.sharepoint.com/sites/Ops/SitePages/Home.aspx'; host = 'contoso.sharepoint.com'; kind = 'page'; summary = 'Start page of a made-up team.' } },
+        @{ s = 'Internal links'; t = 'Team site home'; m = @{ type = 'link-internal'; url = 'https://fernbrook.sharepoint.com/sites/Ops/SitePages/Home.aspx'; host = 'fernbrook.sharepoint.com'; kind = 'page'; summary = 'Start page of a made-up team.' } },
         @{ s = 'People'; t = 'Ada Example (gardener)'; m = @{ type = 'person'; topics = @('Gardening'); summary = 'Fictional person.' } }
     )
     $st = Get-VaultState -Adapter $a -IndexSectionId $v.indexSectionId

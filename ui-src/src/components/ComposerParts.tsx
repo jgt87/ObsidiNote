@@ -13,7 +13,7 @@ export function FileStatus({ linkDropped, note }: { linkDropped: boolean; note: 
     <>
       {linkDropped && (
         <p className="composer__file-note" role="status">
-          The file's link is no longer kept: the text in the box is not the file's any more. Choose "File" under From to keep it.
+          The file’s link is no longer kept: the text in the box is not the file’s any more. Choose “File” under From to keep it.
         </p>
       )}
       {note && (

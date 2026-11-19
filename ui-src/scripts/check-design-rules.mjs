@@ -40,15 +40,15 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 // ---------- invented data for the app's API ----------
 const VAULT = '{11111111-1111-1111-1111-111111111111}{1}{B0}'
 const ago = (min) => new Date(Date.now() - min * 60000).toISOString()
-const waitingItem = (n) => ({ inboxId: `i${n}`, title: `https://contoso.example/sites/platform/plan-${n}.docx`, state: 'waiting', kind: 'link', requestKind: 'add', updated: ago(14 * n), since: ago(14 * n), reason: '', filedAs: '', filedTitle: '', filedType: '', canCheck: true, canRemove: true, canUndo: false })
+const waitingItem = (n) => ({ inboxId: `i${n}`, title: `https://fernbrook.example/sites/platform/plan-${n}.docx`, state: 'waiting', kind: 'link', requestKind: 'add', updated: ago(14 * n), since: ago(14 * n), reason: '', filedAs: '', filedTitle: '', filedType: '', canCheck: true, canRemove: true, canUndo: false })
 const addedItem = { inboxId: 'i9', title: 'Notes from the steering group', state: 'added', kind: 'text', requestKind: 'add', updated: ago(45), since: '', reason: '', filedAs: 'p12', filedTitle: 'Steering group', filedType: 'meeting', canCheck: false, canRemove: false, canUndo: true }
 const notebook = { id: VAULT, name: 'Work wiki', vault: true, active: true, location: 'OneDrive', vaultId: 'v1', kind: 'notebook', notebookId: VAULT }
 const section = (name, pages) => ({ name, kind: 'section', pages, children: [] })
 let graph = null
 let waiting = false
 let vaultStatus = null
-const added = { intent: 'add', status: 'added', kind: 'link', message: 'Added.', inboxId: '', ref: 'r1a2b3c4d', text: 'https://contoso.example/sites/platform/plan.docx',
-  page: { id: 'p900', title: 'Network segmentation plan', type: 'link-internal', bucket: 'Internal links', section: 'Internal links', link: 'onenote:x', url: 'https://contoso.example/sites/platform/plan.docx', topicPath: 'Security/Networking', alsoUnder: [], oneNotePath: ['Work wiki', 'Internal links', 'Network segmentation plan'], unfiled: false },
+const added = { intent: 'add', status: 'added', kind: 'link', message: 'Added.', inboxId: '', ref: 'r1a2b3c4d', text: 'https://fernbrook.example/sites/platform/plan.docx',
+  page: { id: 'p900', title: 'Network segmentation plan', type: 'link-internal', bucket: 'Internal links', section: 'Internal links', link: 'onenote:x', url: 'https://fernbrook.example/sites/platform/plan.docx', topicPath: 'Security/Networking', alsoUnder: [], oneNotePath: ['Work wiki', 'Internal links', 'Network segmentation plan'], unfiled: false },
   chips: [{ kind: 'type', label: 'Internal link' }], links: [{ target: 'p3', title: 'Zero trust overview', link: 'onenote:x', anchor: 'zero trust', strength: 3, why: 'Applies the model.' }],
   backlinks: 1, related: [], dropped: [], warnings: [], timings: { totalMs: 48200 }, undo: { id: 'u1', pageId: 'p900', targets: ['p3'] }, inbox: { pageId: 'i9', status: 'filed' }, update: null, confirm: null }
 let submitAnswer = added
@@ -483,7 +483,7 @@ async function onePrimaryPerView({ S, js, go, click, openDot, expect, onePrimary
   // After a send: the result's own buttons must not be a second primary beside Send.
   const sendLink = async () => {
     await js(`document.querySelector('#composer-text').focus()`)
-    await S('Input.insertText', { text: 'https://contoso.example/sites/platform/plan.docx' })
+    await S('Input.insertText', { text: 'https://fernbrook.example/sites/platform/plan.docx' })
     await wait(700)
     await js(`document.querySelector('.composer__send').click()`)
     await wait(900)

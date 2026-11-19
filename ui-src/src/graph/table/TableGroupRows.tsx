@@ -61,7 +61,7 @@ function Row({ row, onOpen, selected, onSelect, onPickTag }: { row: TableRow; on
           ? row.tags.map((t, i) => (
               <span key={t}>
                 {i > 0 && ', '}
-                <button type="button" className="kg-linkbtn" onClick={() => onPickTag(t)} title={`Show the pages tagged "${t}" on the map`}>
+                <button type="button" className="kg-linkbtn" onClick={() => onPickTag(t)} title={`Show the pages tagged “${t}” on the map`}>
                   {t}
                 </button>
               </span>

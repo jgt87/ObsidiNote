@@ -11,7 +11,7 @@ export function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode)
   return (
     <div className="seg" role="group" aria-label="Mode">
       {MODES.map((m) => (
-        <button key={m.mode} type="button" className="seg__btn" aria-pressed={mode === m.mode} onClick={() => onChange(m.mode)}>
+        <button key={m.mode} type="button" className="seg__btn" data-label={m.label} aria-pressed={mode === m.mode} onClick={() => onChange(m.mode)}>
           {m.label}
         </button>
       ))}

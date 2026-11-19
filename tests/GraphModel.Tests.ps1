@@ -65,15 +65,15 @@ Describe 'ConvertTo-GraphModel' {
 
 Describe 'Get-LinkSource: where a link page''s address lives (Sources view)' {
     $cases = @(
-        @('https://contoso-my.sharepoint.com/personal/x/Documents/a.docx', 'onedrive', 'OneDrive'),
-        @('https://contoso.sharepoint.com/sites/HR%20Team/SitePages/Leave.aspx', 'sharepoint/hr team', 'SharePoint: HR Team'),
-        @('https://contoso.sharepoint.com/teams/IT/Shared%20Documents/x.pdf', 'sharepoint/it', 'SharePoint: IT'),
-        @('https://contoso.sharepoint.com/SitePages/Home.aspx', 'sharepoint', 'SharePoint'),
+        @('https://fernbrook-my.sharepoint.com/personal/x/Documents/a.docx', 'onedrive', 'OneDrive'),
+        @('https://fernbrook.sharepoint.com/sites/HR%20Team/SitePages/Leave.aspx', 'sharepoint/hr team', 'SharePoint: HR Team'),
+        @('https://fernbrook.sharepoint.com/teams/IT/Shared%20Documents/x.pdf', 'sharepoint/it', 'SharePoint: IT'),
+        @('https://fernbrook.sharepoint.com/SitePages/Home.aspx', 'sharepoint', 'SharePoint'),
         @('https://teams.microsoft.com/l/message/1', 'teams', 'Teams'),
-        @('https://contoso.loop.cloud.microsoft/p/x', 'loop', 'Loop'),
+        @('https://fernbrook.loop.cloud.microsoft/p/x', 'loop', 'Loop'),
         @('https://outlook.office.com/mail/', 'm365', 'Microsoft 365'),
-        @('https://contoso.service-now.com/kb?id=1', 'service/servicenow', 'ServiceNow'),
-        @('https://wd3.myworkday.com/contoso/d/home.htmld', 'service/workday', 'Workday'),
+        @('https://fernbrook.service-now.com/kb?id=1', 'service/servicenow', 'ServiceNow'),
+        @('https://wd3.myworkday.com/fernbrook/d/home.htmld', 'service/workday', 'Workday'),
         @('https://docs.service-now.com/bundle/x', 'web/docs.service-now.com', 'docs.service-now.com'),
         @('https://www.example.org/handbook', 'web/example.org', 'example.org')
     )
@@ -86,13 +86,13 @@ Describe 'Get-LinkSource: where a link page''s address lives (Sources view)' {
     }
     It 'calls internal what the link rules file as internal (code review 2026-11-14)' {
         # internalHosts setting, the company's name on another host, a tenant host without a service name
-        (Get-LinkSource -Url 'https://intranet.contoso.local/a' -InternalHosts @('intranet.contoso.local')).id | Should Be 'internal/intranet.contoso.local'
-        $c = Get-LinkSource -Url 'https://contoso.example-hr.com/vacancies' -CompanyNames @('contoso')
-        "$($c.id):$($c.kind)" | Should Be 'internal/contoso.example-hr.com:service'
-        (Get-LinkSource -Url 'https://contoso.example-hr.com/vacancies').kind | Should Be 'web'
-        foreach ($u in 'https://intranet.contoso.local/a', 'https://contoso.example-hr.com/vacancies') {
-            $bucket = Get-LinkBucket -Url $u -InternalHosts @('intranet.contoso.local') -CompanyNames @('contoso')
-            $kind = (Get-LinkSource -Url $u -InternalHosts @('intranet.contoso.local') -CompanyNames @('contoso')).kind
+        (Get-LinkSource -Url 'https://intranet.fernbrook.local/a' -InternalHosts @('intranet.fernbrook.local')).id | Should Be 'internal/intranet.fernbrook.local'
+        $c = Get-LinkSource -Url 'https://fernbrook.example-hr.com/vacancies' -CompanyNames @('fernbrook')
+        "$($c.id):$($c.kind)" | Should Be 'internal/fernbrook.example-hr.com:service'
+        (Get-LinkSource -Url 'https://fernbrook.example-hr.com/vacancies').kind | Should Be 'web'
+        foreach ($u in 'https://intranet.fernbrook.local/a', 'https://fernbrook.example-hr.com/vacancies') {
+            $bucket = Get-LinkBucket -Url $u -InternalHosts @('intranet.fernbrook.local') -CompanyNames @('fernbrook')
+            $kind = (Get-LinkSource -Url $u -InternalHosts @('intranet.fernbrook.local') -CompanyNames @('fernbrook')).kind
             "$bucket=$kind" | Should Be 'Internal links=service'
         }
     }
@@ -106,7 +106,7 @@ Describe 'ConvertTo-GraphModel: sources' {
     $m = New-TestModel
     foreach ($i in 1..3) { $null = Add-IndexPage -Model $m -Page @{ id = "w$i"; title = "Example $i"; type = 'link-web'; bucket = 'Web links'; section = 'Web links'; oneNoteId = "{W$i}"; url = "https://www.example.org/p$i" } }
     $null = Add-IndexPage -Model $m -Page @{ id = 'x1'; title = 'Lone site'; type = 'link-web'; bucket = 'Web links'; section = 'Web links'; oneNoteId = '{X1}'; url = 'https://lone.example.net/a' }
-    $null = Add-IndexPage -Model $m -Page @{ id = 's1'; title = 'Leave policy'; type = 'link-internal'; bucket = 'Internal links'; section = 'Internal links'; oneNoteId = '{S1}'; url = 'https://contoso.sharepoint.com/sites/HR/Leave.aspx' }
+    $null = Add-IndexPage -Model $m -Page @{ id = 's1'; title = 'Leave policy'; type = 'link-internal'; bucket = 'Internal links'; section = 'Internal links'; oneNoteId = '{S1}'; url = 'https://fernbrook.sharepoint.com/sites/HR/Leave.aspx' }
     $g = ConvertTo-GraphModel -Model $m -Source @{ kind = 'vault'; id = 'v1'; name = 'S'; readOnly = $false }
     $src = { param($id) @($g.pages | Where-Object { $_.id -eq $id })[0].sourceId }
     It 'gives every page a source: link pages by address, the rest ObsidiNote notes' {
@@ -122,8 +122,8 @@ Describe 'ConvertTo-GraphModel: sources' {
         (@($g.sources | ForEach-Object { "$($_.id):$($_.pageCount)" }) -join ',') | Should Be 'sharepoint/hr:1,web/example.org:3,web:1,obsidinote:3'
     }
     It 'groups internal sites by the vault''s link rules, small ones as Other company sites' {
-        $null = Add-IndexPage -Model $m -Page @{ id = 'c1'; title = 'Vacancies'; type = 'link-internal'; bucket = 'Internal links'; section = 'Internal links'; oneNoteId = '{C1}'; url = 'https://contoso.example-hr.com/vacancies' }
-        $g2 = ConvertTo-GraphModel -Model $m -Source @{ kind = 'vault'; id = 'v1'; name = 'S'; readOnly = $false } -LinkRules @{ CompanyNames = @('contoso') }
+        $null = Add-IndexPage -Model $m -Page @{ id = 'c1'; title = 'Vacancies'; type = 'link-internal'; bucket = 'Internal links'; section = 'Internal links'; oneNoteId = '{C1}'; url = 'https://fernbrook.example-hr.com/vacancies' }
+        $g2 = ConvertTo-GraphModel -Model $m -Source @{ kind = 'vault'; id = 'v1'; name = 'S'; readOnly = $false } -LinkRules @{ CompanyNames = @('fernbrook') }
         $c1 = @($g2.pages | Where-Object { $_.id -eq 'c1' })[0].sourceId
         $c1 | Should Be 'internal'
         $s = @($g2.sources | Where-Object { $_.id -eq 'internal' })[0]
@@ -165,6 +165,7 @@ Describe 'ConvertTo-GraphModel: section, bucket and kind per page (tests/fixture
         if (@($p.tags).Count) { $meta['obsn.tags'] = (ConvertTo-Json -InputObject @($p.tags) -Compress) }
         if ($p.PSObject.Properties['summarizedAt']) { $meta['obsn.summarizedAt'] = $p.summarizedAt }
         foreach ($k in 'series', 'meetingAt') { if ($p.PSObject.Properties[$k]) { $meta["obsn.$k"] = $p.$k } }
+        if ($p.PSObject.Properties['seriesPage'] -and $p.seriesPage) { $meta['obsn.kind'] = 'series' }
         $null = $f.AddPage((Add-FixtureSection $f $vault $p.section), "Page $($p.id)", $meta, 1, '')
     }
     # A page the person made in the vault: no obsn Meta (it is listed, never changed).
@@ -194,6 +195,7 @@ Describe 'ConvertTo-GraphModel: section, bucket and kind per page (tests/fixture
             $got.summarizedAt | Should Be $sa
             $got.own | Should Be ([bool]$p.own)
             foreach ($k in 'series', 'meetingAt') { $got.$k | Should Be $(if ($p.PSObject.Properties[$k]) { $p.$k } else { '' }) }
+            $got.seriesPage | Should Be ([bool]$(if ($p.PSObject.Properties['seriesPage']) { $p.seriesPage } else { $false }))
         }
     }
     It 'sends the tags of the shown source with their page counts, sorted by name, as a list' {

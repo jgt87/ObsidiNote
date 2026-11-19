@@ -3,8 +3,8 @@ import { loneLink, splitLinks, webUrl } from './links'
 
 describe('loneLink: a text that is one link and nothing else', () => {
   it('reads a bare address and a titled Markdown link as that address', () => {
-    expect(loneLink('  https://contoso.sharepoint.com/sites/SupportApp \n')).toBe('https://contoso.sharepoint.com/sites/SupportApp')
-    expect(loneLink('[Support App - Home](https://contoso.sharepoint.com/sites/SupportApp)')).toBe('https://contoso.sharepoint.com/sites/SupportApp')
+    expect(loneLink('  https://fernbrook.sharepoint.com/sites/SupportApp \n')).toBe('https://fernbrook.sharepoint.com/sites/SupportApp')
+    expect(loneLink('[Support App - Home](https://fernbrook.sharepoint.com/sites/SupportApp)')).toBe('https://fernbrook.sharepoint.com/sites/SupportApp')
     expect(loneLink('[a (b)](https://example.org/wiki/Topic_(area))')).toBe('https://example.org/wiki/Topic_(area)')
   })
   it('is null for a link with other text, two links, or a link that is not a web address', () => {

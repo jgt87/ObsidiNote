@@ -162,7 +162,7 @@ function Test-HostRule {
 
 function Get-CompanyNames {
     <# The company's tenant names, from Microsoft 365 addresses it owns (the vault's notebook location,
-       a OneDrive or SharePoint URL: 'contoso-my.sharepoint.com' -> 'contoso'). Lower case, at least 3
+       a OneDrive or SharePoint URL: 'fernbrook-my.sharepoint.com' -> 'fernbrook'). Lower case, at least 3
        characters, unique. Nothing is stored: the names come from the open vault at run time. #>
     param([string[]]$Locations = @())
     $names = @(foreach ($l in @($Locations | Where-Object { $_ })) {
@@ -188,9 +188,9 @@ function Test-TenantHost {
 }
 
 function Test-CompanyHost {
-    <# The company's name in a subdomain of someone else's host (contoso.zoom.us, contosoitsm.example-saas.com,
-       hr-contoso.example.net): a service run for the company. The company's own domain (contoso.com,
-       www.contoso.com) is its public web site and does not count. #>
+    <# The company's name in a subdomain of someone else's host (fernbrook.zoom.us, fernbrookitsm.example-saas.com,
+       hr-fernbrook.example.net): a service run for the company. The company's own domain (fernbrook.com,
+       www.fernbrook.com) is its public web site and does not count. #>
     param([string]$HostName, [string[]]$CompanyNames = @())
     $labels = $HostName.Split('.')
     if ($labels.Count -lt 3) { return $false }

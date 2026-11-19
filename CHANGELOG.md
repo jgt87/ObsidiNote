@@ -5,6 +5,17 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.15] - 2026-11-19
+
+### Added
+- Each meeting series gets one overview page, "‹meeting› (series)", in Meetings: Copilot's short summary of what the series covered lately, the latest meeting, every decision and action with its date, who joined and how often, and every meeting linked. ObsidiNote writes it again after each import of a meeting of the series (one extra Copilot question for the summary; when Copilot does not answer, the page keeps its last summary). Its "Your notes" part is never written over. In the Journal, a picked series has **Open the series page**.
+- Upgrade at the next start (steps `series-data` and `series-page`): meetings imported before keep their notes as data, read once from their own page text, and every series gets its overview page, linking all its meetings. Copilot is not asked at start, so a series page made there gets its summary at the next import of that series. Attendees imported as invitees (v0.12.12-v0.12.14) stay so until that day is imported again.
+
+### Fixed
+- Meeting pages list the people who joined the meeting again, not everyone who was invited (since v0.12.12 the question asked for attendees "as in the invitation"). Addresses still come from the invitation.
+- Messages use typographic quotes, link underlines sit at a steady distance, and choosing Auto, Add or Ask (or another segment) no longer shifts the buttons next to it.
+- Tests, examples and README screenshot data use invented company names and book titles only; real names had been used in two tests and in the screenshot data.
+
 ## [v0.12.14] - 2026-11-18
 
 ### Fixed

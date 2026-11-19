@@ -217,7 +217,7 @@ function SourceRow({ source: s, id, share, sentences, stale: st, setLit, onShowP
         {s.link && (
           <>
             {s.age ? ' · ' : ''}
-            <a className="ask-src__onenote" href={s.link} aria-label={`Open "${s.title}" in OneNote`}>
+            <a className="ask-src__onenote" href={s.link} aria-label={`Open “${s.title}” in OneNote`}>
               OneNote
             </a>
           </>

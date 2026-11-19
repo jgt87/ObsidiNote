@@ -44,9 +44,9 @@ describe('submit: what is sent to the server', () => {
     return JSON.parse(body)
   }
   it('sends the "From" choice and a dropped file\'s address (origin was left out until 2026-11-14)', async () => {
-    const b = await sentBody({ text: 'x', mode: 'add', origin: 'teams', fileUrl: 'https://contoso-my.sharepoint.com/a.docx' })
+    const b = await sentBody({ text: 'x', mode: 'add', origin: 'teams', fileUrl: 'https://fernbrook-my.sharepoint.com/a.docx' })
     expect(b.origin).toBe('teams')
-    expect(b.fileUrl).toBe('https://contoso-my.sharepoint.com/a.docx')
+    expect(b.fileUrl).toBe('https://fernbrook-my.sharepoint.com/a.docx')
   })
   it('leaves both out when not set (typed text)', async () => {
     const b = await sentBody({ text: 'x', mode: 'add' })

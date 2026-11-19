@@ -57,7 +57,7 @@ export function NewVaultDialog({ notebooks, onClose, onMade }: { notebooks: Note
           ) : (
             <>
               <p id="nv-desc" className="nv__muted">
-                A vault is a OneNote notebook with ObsidiNote's sections and its own index. It becomes the active vault.
+                A vault is a OneNote notebook with ObsidiNote’s sections and its own index. It becomes the active vault.
               </p>
               <label className="nv__label" htmlFor="nv-name">
                 Name

@@ -180,6 +180,10 @@ a.btn { text-decoration: none; } /* a link styled as a button is a button: no un
 .seg__btn[aria-pressed="true"], .seg__btn[aria-checked="true"] {
   background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: inset 0 0 0 1px var(--border-strong);
 }
+/* The chosen segment is bold: a hidden bold copy of the label (data-label) under it holds the bold
+   width, so choosing never moves the other segments. */
+.seg__btn { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; }
+.seg__btn::after { content: attr(data-label); height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
 /* In a bar of small controls: the track has no padding, so the control is as tall as its neighbours. */
 .seg--sm { padding: 0; gap: 0; }
 .seg--sm .seg__btn { font-size: var(--text-meta); padding: 0 var(--space-3); }

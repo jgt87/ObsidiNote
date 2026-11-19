@@ -14,8 +14,8 @@ export interface AttentionNote {
 const COPILOT: Record<CopilotState, string> = {
   connected: '',
   skipped: 'Copilot is off for this start. Adding and asking need it: close ObsidiNote and start it again the usual way.',
-  'not-running': "ObsidiNote's Edge window is closed, so Copilot is not available. Press the refresh button to open it again.",
-  'no-tab': "Copilot is not connected in ObsidiNote's Edge window. Press the refresh button to connect again; sign in there if it asks.",
+  'not-running': "ObsidiNote’s Edge window is closed, so Copilot is not available. Press the refresh button to open it again.",
+  'no-tab': "Copilot is not connected in ObsidiNote’s Edge window. Press the refresh button to connect again; sign in there if it asks.",
 }
 
 /** The states the refresh button can fix; "skipped" was the person's choice for this start. */

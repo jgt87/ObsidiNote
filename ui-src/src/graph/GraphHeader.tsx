@@ -53,13 +53,13 @@ export function GraphTools({ mode, onMode, groupBy, onGroup, filter, query, onQu
       {mode === 'graph' && (
         <>
           <div className="seg seg--sm" role="group" aria-label="Group the map by">
-            <button type="button" className="seg__btn" aria-pressed={groupBy === 'topics'} onClick={() => onGroup('topics')}>
+            <button type="button" className="seg__btn" data-label="Topics" aria-pressed={groupBy === 'topics'} onClick={() => onGroup('topics')}>
               Topics
             </button>
-            <button type="button" className="seg__btn" aria-pressed={groupBy === 'sources'} onClick={() => onGroup('sources')}>
+            <button type="button" className="seg__btn" data-label="Sources" aria-pressed={groupBy === 'sources'} onClick={() => onGroup('sources')}>
               Sources
             </button>
-            <button type="button" className="seg__btn" aria-pressed={groupBy === 'tags'} onClick={() => onGroup('tags')}>
+            <button type="button" className="seg__btn" data-label="Tags" aria-pressed={groupBy === 'tags'} onClick={() => onGroup('tags')}>
               Tags
             </button>
           </div>
@@ -104,10 +104,10 @@ export function GraphTools({ mode, onMode, groupBy, onGroup, filter, query, onQu
         {matches ? plural(matches.length, 'match', 'matches') : ''}
       </span>
       <div className="seg seg--sm" role="group" aria-label="View">
-        <button type="button" className="seg__btn" aria-pressed={mode === 'graph'} onClick={() => onMode('graph')}>
+        <button type="button" className="seg__btn" data-label="Graph" aria-pressed={mode === 'graph'} onClick={() => onMode('graph')}>
           Graph
         </button>
-        <button type="button" className="seg__btn" aria-pressed={mode === 'list'} onClick={() => onMode('list')}>
+        <button type="button" className="seg__btn" data-label="List" aria-pressed={mode === 'list'} onClick={() => onMode('list')}>
           List
         </button>
       </div>
@@ -133,7 +133,7 @@ export function TagBar({ tags, choice, onToggle, onAll, shownPages, allPages }: 
   return (
     <div className="kg-tagbar" role="group" aria-label="Tags shown as areas">
       {tags.length === 0 ? (
-        <span className="kg-meta">No page has a tag yet. Add one in a page's window, or tick rows in the List and tag them together.</span>
+        <span className="kg-meta">No page has a tag yet. Add one in a page’s window, or tick rows in the List and tag them together.</span>
       ) : (
         <>
           <span className="kg-meta">Areas:</span>

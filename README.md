@@ -89,6 +89,8 @@ Under the box, **Fetch today's meetings** has Copilot list your Teams meetings o
 
 **Meeting series.** A meeting that recurs (a daily stand-up) is one series: each day gets its own page, "‹meeting› · ‹date›", linked to the day before, with the meeting's own start time. A second meeting of the series on the same day gets its own page, titled with its time. In the **Journal**, search for the meeting and pick "Meetings: ‹name›" to see the series day by day.
 
+**Series page.** Each series also has one overview page, "‹meeting› (series)": a short summary of what the series covered lately (written by Copilot from the latest meetings' notes), the latest meeting, every decision and action with its date, who joined and how often, and a link to every meeting. ObsidiNote writes it again after each import of the series; your own notes on it, in "Your notes", stay. In the Journal, **Open the series page** next to "Meetings: ‹name›" opens it.
+
 ![A meeting series in the Journal: each day's meeting with its time, and Ask about these meetings](docs/screenshots/series.png)
 
 **Ask within a series.** **Ask about these meetings** (Journal) or **Ask about this series** (a meeting's page window) limits the next questions to that series. The box shows it, with **Remove**. ObsidiNote picks those meeting pages itself, up to 50, newest first, and Copilot answers from them only, citing them.

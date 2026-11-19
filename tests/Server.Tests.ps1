@@ -591,9 +591,9 @@ Describe 'Invoke-ApiRoute: History belongs to one vault (activity vaultId; optio
 Describe 'Invoke-ApiRoute: the graph of another vault uses that vault''s link rules (code review 2026-11-15)' {
     $w = New-SyntheticVault -SessionId 'server'
     # A second vault at a company address, with its own internalHosts setting.
-    $v2 = New-ObsidiVault -Adapter $w.a -Name 'Team Vault' -Location 'https://contoso-my.sharepoint.com/personal/someone/Documents' -Year 2026
+    $v2 = New-ObsidiVault -Adapter $w.a -Name 'Team Vault' -Location 'https://fernbrook-my.sharepoint.com/personal/someone/Documents' -Year 2026
     $web = $v2.sectionIds['Web links']
-    $null = $w.f.AddPage($web, 'Vacancies', @{ 'obsn.id' = 'p1'; 'obsn.type' = 'link-web'; 'obsn.url' = 'https://contoso.example-hr.com/vacancies'; 'obsn.links' = '[]' }, 1, '')
+    $null = $w.f.AddPage($web, 'Vacancies', @{ 'obsn.id' = 'p1'; 'obsn.type' = 'link-web'; 'obsn.url' = 'https://fernbrook.example-hr.com/vacancies'; 'obsn.links' = '[]' }, 1, '')
     $null = $w.f.AddPage($web, 'Team intranet', @{ 'obsn.id' = 'p2'; 'obsn.type' = 'link-web'; 'obsn.url' = 'https://intranet.example.invalid/home'; 'obsn.links' = '[]' }, 1, '')
     $null = $w.f.AddPage($web, 'A wiki', @{ 'obsn.id' = 'p3'; 'obsn.type' = 'link-web'; 'obsn.url' = 'https://wiki.example.invalid/a'; 'obsn.links' = '[]' }, 1, '')
     $vaults = @(Get-VaultList -Adapter $w.a)
@@ -614,7 +614,7 @@ Describe 'Invoke-ApiRoute: the graph of another vault uses that vault''s link ru
         @($g.body.pages).Count | Should Be 3
     }
     It 'groups by the shown vault''s company name and its own internalHosts, not the active vault''s' {
-        & $src 'p1' | Should Be 'internal'   # contoso from the shown vault's own address
+        & $src 'p1' | Should Be 'internal'   # fernbrook from the shown vault's own address
         & $src 'p2' | Should Be 'internal'   # the shown vault's internalHosts setting
         & $src 'p3' | Should Be 'web'        # internal only in the active vault's setting
     }

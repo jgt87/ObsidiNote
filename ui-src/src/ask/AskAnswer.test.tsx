@@ -108,7 +108,7 @@ describe('AskView', () => {
     expect(html).not.toContain('href="#ask-c1-1-src-2"')
     // a page that is not a link opens on the map; OneNote stays a small second link
     expect(html).toContain('class="ask-src__page"')
-    expect(html).toContain('aria-label="Open &quot;Example proxy page&quot; in OneNote"')
+    expect(html).toContain('aria-label="Open “Example proxy page” in OneNote"')
     expect(html).toContain('>Sources<')
     expect(html).not.toContain('open in OneNote)')
   })

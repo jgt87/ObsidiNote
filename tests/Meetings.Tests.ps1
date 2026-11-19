@@ -21,7 +21,7 @@ Here you go:
 ]} [1] [2]
 '@
 $script:NotesReply = @'
-{"ref":"REF","found":true,"date":"2031-04-09","attendees":[{"name":"Ada Example","email":"Ada.Example@contoso.example"},{"name":"Bo Sample","email":""}],
+{"ref":"REF","found":true,"date":"2031-04-09","attendees":[{"name":"Ada Example","email":"Ada.Example@fernbrook.example"},{"name":"Bo Sample","email":""}],
  "summary":"The team agreed to move the tidal beds.\nThe pumps stay.",
  "decisions":["Move the tidal beds north.",""],
  "actions":[{"text":"Order new pumps","owner":"Ada Example","due":""},{"text":"Draw the plan","owner":"","due":"2031-04-20"},{"text":""}],
@@ -100,18 +100,21 @@ Describe 'One meeting''s notes (pure)' {
     }
     It 'reads attendees with their display name and address, old and new shapes (2026-11-18)' {
         $n = ConvertFrom-MeetingNotesReply -Reply (Set-Ref $script:NotesReply 'r9') -Day $script:Day -Ref 'r9'
-        (@($n.attendees | ForEach-Object { "$($_.name)|$($_.email)" }) -join ';') | Should Be 'Ada Example|ada.example@contoso.example;Bo Sample|'
-        $old = ConvertFrom-MeetingNotesReply -Reply '{"ref":"r9","found":true,"attendees":["Ada Example <ada@contoso.example>","Bo Sample","cy@contoso.example","Ada again (ADA@contoso.example)"],"summary":"x","decisions":[],"actions":[]}' -Ref 'r9'
-        (@($old.attendees | ForEach-Object { "$($_.name)|$($_.email)" }) -join ';') | Should Be 'Ada Example|ada@contoso.example;Bo Sample|;cy@contoso.example|cy@contoso.example'
+        (@($n.attendees | ForEach-Object { "$($_.name)|$($_.email)" }) -join ';') | Should Be 'Ada Example|ada.example@fernbrook.example;Bo Sample|'
+        $old = ConvertFrom-MeetingNotesReply -Reply '{"ref":"r9","found":true,"attendees":["Ada Example <ada@fernbrook.example>","Bo Sample","cy@fernbrook.example","Ada again (ADA@fernbrook.example)"],"summary":"x","decisions":[],"actions":[]}' -Ref 'r9'
+        (@($old.attendees | ForEach-Object { "$($_.name)|$($_.email)" }) -join ';') | Should Be 'Ada Example|ada@fernbrook.example;Bo Sample|;cy@fernbrook.example|cy@fernbrook.example'
     }
     It 'keeps no address that is not one, and never guesses one' {
-        $bad = ConvertFrom-MeetingNotesReply -Reply '{"ref":"r9","found":true,"attendees":[{"name":"Ada Example","email":"Ada Example"},{"name":"","email":"not an address"},{"name":"Bo","email":"bo@contoso"}],"summary":"x","decisions":[],"actions":[]}' -Ref 'r9'
+        $bad = ConvertFrom-MeetingNotesReply -Reply '{"ref":"r9","found":true,"attendees":[{"name":"Ada Example","email":"Ada Example"},{"name":"","email":"not an address"},{"name":"Bo","email":"bo@fernbrook"}],"summary":"x","decisions":[],"actions":[]}' -Ref 'r9'
         (@($bad.attendees | ForEach-Object { "$($_.name)|$($_.email)" }) -join ';') | Should Be 'Ada Example|;Bo|'
     }
     It 'asks for the display name and the address, and says never to guess one' {
         $p = New-MeetingNotesPrompt -Title 'Garden sync' -Ref 'r9'
         $p | Should Match '"attendees": \[\{"name": "display name", "email": "address or empty"\}\]'
         $p | Should Match 'never guess one'
+        # Who joined, not who was invited (target machine, 2026-11-18).
+        $p | Should Match 'only the people who joined the meeting'
+        $p | Should Match 'not everyone who was invited'
     }
     It 'builds the page text with headings and lists' {
         $n = ConvertFrom-MeetingNotesReply -Reply (Set-Ref $script:NotesReply 'r9') -Day $script:Day -Ref 'r9'
@@ -122,7 +125,7 @@ Describe 'One meeting''s notes (pure)' {
         $t | Should Match '(?m)^## Decisions\n- Move the tidal beds north\.$'
         $t | Should Match '(?m)^- Order new pumps \(Ada Example\)$'
         $t | Should Match '(?m)^- Draw the plan \(due 2031-04-20\)$'
-        $t | Should Match '(?m)^## Attendees\n- Ada Example \(\[ada\.example@contoso\.example\]\(mailto:ada\.example@contoso\.example\)\)\n- Bo Sample$'
+        $t | Should Match '(?m)^## Attendees\n- Ada Example \(\[ada\.example@fernbrook\.example\]\(mailto:ada\.example@fernbrook\.example\)\)\n- Bo Sample$'
     }
 }
 

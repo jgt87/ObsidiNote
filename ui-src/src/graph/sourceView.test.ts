@@ -8,7 +8,7 @@ const model = normalizeGraph({
   source: { kind: 'vault', id: 'v1', name: 'Test vault' },
   topics: [{ id: 'Security', name: 'Security', path: 'Security' }],
   pages: [
-    { id: 'a', title: 'Leave policy', topicIds: ['Security'], url: 'https://contoso.sharepoint.com/sites/HR/x', sourceId: 'sharepoint/hr' },
+    { id: 'a', title: 'Leave policy', topicIds: ['Security'], url: 'https://fernbrook.sharepoint.com/sites/HR/x', sourceId: 'sharepoint/hr' },
     { id: 'b', title: 'Plan.docx', topicIds: ['Security'], sourceId: 'onedrive' },
     { id: 'c', title: 'A typed note', topicIds: [], sourceId: 'obsidinote' },
     { id: 'd', title: 'No source sent', topicIds: ['Security'] },

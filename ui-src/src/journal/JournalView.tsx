@@ -45,6 +45,7 @@ export function JournalView({ vaultKey, load, onOpen, onAsk, onAskSeries }: Jour
           filter={filter}
           topic={topic}
           onAskSeries={onAskSeries}
+          onOpen={onOpen}
           onChange={(f) => {
             setFilter(f)
             if (!f.topicId) setTab('all')

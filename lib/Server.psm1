@@ -208,7 +208,7 @@ function Get-MeetingSeriesCounts($State) {
         $model = $u.model
         if (-not $model) { return $out }
         foreach ($p in $model.pages.Values) {
-            if ($p.type -ne 'meeting' -or $p.status -eq 'archived' -or -not $p['series']) { continue }
+            if ($p.type -ne 'meeting' -or $p.status -eq 'archived' -or -not $p['series'] -or [string]$p['kind'] -eq 'series') { continue }
             $k = Get-MeetingSeriesKey ([string]$p['series'])
             if (-not $out.pages.ContainsKey($k)) { $out.pages[$k] = New-Object System.Collections.Generic.List[string] }
             $out.pages[$k].Add([string]$p['meetingAt'])

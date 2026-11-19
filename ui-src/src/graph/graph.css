@@ -187,7 +187,7 @@
 
 /* ---------- shared bits (the List view's table lives in table/table.css) ---------- */
 .kg-dlg__export { margin: var(--space-4) 0 0; }
-.kg-linkbtn { all: unset; cursor: pointer; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 2px; }
+.kg-linkbtn { all: unset; cursor: pointer; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 0.2em; }
 @media (hover: hover) { .kg-linkbtn:hover { color: var(--accent); text-decoration-color: currentColor; } }
 .kg-linkbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 2px; }
 .kg-tag { color: var(--muted); font-size: var(--text-label); }
@@ -205,7 +205,7 @@
 .kg-tagchip { display: inline-flex; align-items: center; height: 24px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface); font-size: var(--text-label); font-weight: 500; }
 .kg-tagchip__name { all: unset; padding: 0 var(--space-3); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 button.kg-tagchip__name { cursor: pointer; }
-@media (hover: hover) { button.kg-tagchip__name:hover { text-decoration: underline; text-underline-offset: 3px; } }
+@media (hover: hover) { button.kg-tagchip__name:hover { text-decoration: underline; text-underline-offset: 0.2em; } }
 button.kg-tagchip__name:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; border-radius: var(--radius-pill); }
 .kg-tagchip__x { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-right: 1px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
 .kg-tagchip__x svg { width: 12px; height: 12px; }
@@ -237,6 +237,10 @@ button.kg-tagchip__name:focus-visible { outline: 2px solid var(--ring); outline-
 .kg-tab { height: 30px; padding: 0 var(--space-4); border: 0; border-bottom: 2px solid transparent; background: transparent;
   font: inherit; font-size: var(--text-body); color: var(--muted); cursor: pointer; }
 .kg-tab[aria-selected="true"] { border-bottom-color: var(--ink); color: var(--ink); font-weight: 600; }
+/* A tab turns bold when chosen: a hidden bold copy of its label (data-label) under the label holds
+   the bold width, so choosing a tab never moves the others. */
+.kg-tab { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; }
+.kg-tab::after { content: attr(data-label); height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
 @media (hover: hover) { .kg-tab:hover { color: var(--ink); } }
 .kg-dlg__body { overflow: auto; padding: var(--space-5) var(--space-6); flex: 1 1 auto; min-height: 0; }
 /* design (operator, 2026-11-16): the page itself (summary, tags, page text) is what is read, so it
@@ -255,7 +259,7 @@ button.kg-tagchip__name:focus-visible { outline: 2px solid var(--ring); outline-
 .kg-inline[data-empty] .kg-inline__text { color: var(--muted); }
 .kg-inline svg { flex: none; width: 14px; height: 14px; align-self: center; color: var(--muted); opacity: 0; transition: opacity var(--dur-fast) ease-out; }
 .kg-inline:focus-visible svg { opacity: 1; }
-@media (hover: hover) { .kg-inline:hover svg { opacity: 1; } .kg-inline:hover .kg-inline__text { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; } }
+@media (hover: hover) { .kg-inline:hover svg { opacity: 1; } .kg-inline:hover .kg-inline__text { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 0.2em; } }
 @media (hover: none) { .kg-inline svg { opacity: 1; } }
 @media (pointer: coarse) { .kg-inline { min-height: var(--touch-target); align-items: center; } }
 .kg-inline-edit { display: flex; flex-direction: column; gap: var(--space-3); font-size: var(--text-body); font-weight: 400; }
@@ -290,7 +294,7 @@ textarea.kg-inline-edit__field { height: auto; padding: var(--space-3); resize: 
   box-sizing: border-box; border: 1.5px solid var(--border-strong); border-radius: 2px; }
 .kg-body li[data-task="done"]::before { background: var(--ink); border-color: var(--ink); }
 .kg-body code { font-size: var(--text-body); padding: 1px var(--space-2); border-radius: var(--radius-sm); background: var(--neutral-soft); }
-.kg-body a, .kg-body__page { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 2px; color: inherit; }
+.kg-body a, .kg-body__page { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 0.2em; color: inherit; }
 @media (hover: hover) { .kg-body a:hover { color: var(--accent); text-decoration-color: currentColor; } }
 .kg-body__table { overflow-x: auto; }
 .kg-body table { border-collapse: collapse; font-size: var(--text-body); }
@@ -304,7 +308,7 @@ textarea.kg-inline-edit__field { height: auto; padding: var(--space-3); resize: 
 .kg-rowbtn { all: unset; box-sizing: border-box; display: flex; flex-direction: column; min-width: 0; cursor: pointer;
   margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-3)); padding: var(--space-2) var(--space-3); border-radius: var(--radius);
   overflow-wrap: anywhere; }
-@media (hover: hover) { .kg-rowbtn:hover { background: var(--hover); } .kg-rowbtn:hover .kg-rowbtn__title { text-decoration: underline; text-underline-offset: 3px; } }
+@media (hover: hover) { .kg-rowbtn:hover { background: var(--hover); } .kg-rowbtn:hover .kg-rowbtn__title { text-decoration: underline; text-underline-offset: 0.2em; } }
 .kg-rowbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .kg-row__none { color: var(--muted); font-size: var(--text-meta); padding: var(--space-3) 0; border-top: 1px solid var(--border); }
 .kg-bar { display: flex; gap: 2px; padding-top: 7px; }

@@ -87,7 +87,7 @@ export interface ConfirmWording {
 export function confirmWording(action: AskingAction, plan: RetirePlan): ConfirmWording {
   const n = plan.pages.length
   const one = n === 1 ? plan.pages[0] : null
-  const object = one ? `"${one.title}"` : `${n} pages`
+  const object = one ? `“${one.title}”` : `${n} pages`
   const inbound = plan.pages.reduce((s, p) => s + p.inbound, 0)
   if (action === 'archive') {
     const where = [...new Set(plan.pages.map((p) => sectionLabel(p.to)))]
@@ -105,8 +105,8 @@ export function confirmWording(action: AskingAction, plan: RetirePlan): ConfirmW
       busy: 'Archiving…',
     }
   }
-  const lines = [`${one ? 'It goes' : 'They go'} to OneNote's Deleted Pages, which keeps deleted pages for 60 days; get ${one ? 'it' : 'them'} back there if you need to.`]
-  if (inbound) lines.push(`${inbound === 1 ? '1 link' : `${inbound} links`} from other pages ${inbound === 1 ? 'points' : 'point'} here; ${inbound === 1 ? 'it becomes' : 'they become'} plain text "(deleted: ${one ? one.title : 'its title'})".`)
+  const lines = [`${one ? 'It goes' : 'They go'} to OneNote’s Deleted Pages, which keeps deleted pages for 60 days; get ${one ? 'it' : 'them'} back there if you need to.`]
+  if (inbound) lines.push(`${inbound === 1 ? '1 link' : `${inbound} links`} from other pages ${inbound === 1 ? 'points' : 'point'} here; ${inbound === 1 ? 'it becomes' : 'they become'} plain text “(deleted: ${one ? one.title : 'its title'})”.`)
   lines.push('Archive keeps a page out of the way and can be undone here.')
   return { title: `Delete ${object}?`, lines, confirm: n === 1 ? 'Delete' : `Delete ${n} pages`, busy: 'Deleting…' }
 }

@@ -46,7 +46,7 @@ Describe 'Reply reconstruction from Chathub frames' {
 
 Describe 'Cited sources (Work IQ / web)' {
     It 'lists sourceAttributions and references once, with title, url and kind' {
-        $bot = '{"sourceAttributions":[{"providerDisplayName":"Q3 budget.xlsx","seeMoreUrl":"https://contoso.sharepoint.com/x","sourceType":"File"},{"providerDisplayName":"Q3 budget.xlsx","seeMoreUrl":"https://contoso.sharepoint.com/x","sourceType":"File"}],"references":[{"title":"RE: planning","type":"Email"},{"imageLink":"only-an-image"}]}' | ConvertFrom-Json
+        $bot = '{"sourceAttributions":[{"providerDisplayName":"Q3 budget.xlsx","seeMoreUrl":"https://fernbrook.sharepoint.com/x","sourceType":"File"},{"providerDisplayName":"Q3 budget.xlsx","seeMoreUrl":"https://fernbrook.sharepoint.com/x","sourceType":"File"}],"references":[{"title":"RE: planning","type":"Email"},{"imageLink":"only-an-image"}]}' | ConvertFrom-Json
         $refs = @(& (Get-Module CopilotBridge) { param($b) Get-ReplyReferences $b } $bot)
         $refs.Count | Should Be 2
         $refs[0].title | Should Be 'Q3 budget.xlsx'

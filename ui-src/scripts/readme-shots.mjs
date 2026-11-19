@@ -26,7 +26,8 @@ const MORE = {
   Projects: ['Intranet refresh', 'Data platform pilot', 'Mobile app beta', 'Office move', 'Onboarding portal', 'Service desk tool', 'Analytics dashboard', 'Customer survey 2026', 'Migration wave 2', 'Print service retirement', 'Website relaunch', 'API gateway', 'Archive cleanup', 'Room booking', 'Partner onboarding', 'Kiosk devices', 'Chat assistant trial', 'Field app', 'Translation workflow', 'Budget tool'],
   Methods: ['Retrospective format', 'RACI template', 'Risk register', 'Weekly status', 'Pre-mortem', 'Definition of done', 'Meeting notes template', 'Post-incident review', 'Stakeholder map', 'Release checklist', 'OKR template', 'Interview guide', 'Workshop agenda', 'Estimation guide', 'Handover checklist'],
   People: ['Jamie (finance)', 'Taylor (legal)', 'Morgan (HR)', 'Casey (facilities)', 'Riley (support lead)', 'Quinn (architecture)', 'Avery (sales)'],
-  'Reading notes': ['Accelerate', 'The phoenix project', 'Shape Up', 'Thinking in systems', 'Deep work', 'Range', 'Turn the ship around', 'Drive', 'The manager’s path', 'Atomic habits', 'Radical candor', 'Inspired', 'The goal', 'Measure what matters', 'Good strategy bad strategy', 'Building a second brain', 'How to take smart notes', 'Show your work', 'Four thousand weeks', 'The art of gathering', 'Essentialism', 'Make time', 'Resilient management', 'Staff engineer', 'Writing for busy readers'],
+  // Invented titles only: no real book, author or company (operator, 2026-11-19).
+  'Reading notes': ['Notes on team flow', 'Small batches', 'Plans that bend', 'Systems at the kitchen table', 'Quiet focus', 'Wide and shallow', 'Leading from the back', 'Why people care', 'From engineer to lead', 'Habits in small steps', 'Honest feedback', 'Products people want', 'One bottleneck', 'Counting what counts', 'Strategy on one page', 'A notebook that remembers', 'Notes that link', 'Working in the open', 'Time is short', 'Meetings worth having', 'Doing less, better', 'Room in the calendar', 'Steady teams', 'The senior path', 'Writing for people in a hurry'],
   Networking: ['DNS filtering', 'Branch firewalls', 'Wi-Fi guest network', 'SD-WAN pilot', 'IPv6 plan', 'Load balancers', 'Network diagram', 'Remote access options'],
 }
 function realTitles(g) {
@@ -62,8 +63,8 @@ let submitAnswer = null
 // Answers of POST /api/submit in turn (Today's meetings adds several); null = submitAnswer.
 let submitQueue = null
 const addResult = {
-  intent: 'add', status: 'added', kind: 'link', message: 'Added.', inboxId: '', ref: 'r1a2b3c4d', text: 'https://contoso.example/sites/security/zero-trust-roadmap.docx',
-  page: { id: 'p900', title: 'Zero-trust roadmap 2026', type: 'link-internal', bucket: 'Internal links', section: 'Internal links', link: 'onenote:x', url: 'https://contoso.example/sites/security/zero-trust-roadmap.docx', topicPath: 'Security/Networking', alsoUnder: ['Projects'], oneNotePath: ['Work wiki', 'Internal links', 'Zero-trust roadmap 2026'], unfiled: false },
+  intent: 'add', status: 'added', kind: 'link', message: 'Added.', inboxId: '', ref: 'r1a2b3c4d', text: 'https://fernbrook.example/sites/security/zero-trust-roadmap.docx',
+  page: { id: 'p900', title: 'Zero-trust roadmap 2026', type: 'link-internal', bucket: 'Internal links', section: 'Internal links', link: 'onenote:x', url: 'https://fernbrook.example/sites/security/zero-trust-roadmap.docx', topicPath: 'Security/Networking', alsoUnder: ['Projects'], oneNotePath: ['Work wiki', 'Internal links', 'Zero-trust roadmap 2026'], unfiled: false },
   chips: [{ kind: 'type', label: 'Internal link' }, { kind: 'topic', label: 'Security / Networking' }, { kind: 'topic', label: 'Projects' }],
   links: [
     { target: 'p3', title: 'Identity-aware proxies', link: 'onenote:x', anchor: 'identity-aware proxies', strength: 3, why: 'The roadmap is built on this approach.' },
@@ -231,7 +232,7 @@ async function main() {
   // 3 add: a pasted link, filed and linked
   await go('/#/', '.recent__row')
   submitAnswer = addResult
-  await type('https://contoso.example/sites/security/zero-trust-roadmap.docx')
+  await type('https://fernbrook.example/sites/security/zero-trust-roadmap.docx')
   await js(`document.querySelector('.composer__send').click()`)
   for (let k = 0; k < 50 && !(await js(`!!document.querySelector('.add-result, [class*="add-res"]')`)); k++) await wait(100)
   await wait(700)
@@ -329,6 +330,9 @@ function addJournal(g) {
     g.pages.push({ id: `pm${back}`, title: `${series} · ${date}`, kind: 'meeting', bucket: 'Meetings', section: 'Meetings', topicIds: [proj.id], tags: [], aliases: [], summary, created: `${date}T20:00:00.000Z`, series, meetingAt: `${date}T${hm}` })
     if (back < 3) g.edges.push({ from: `pm${back}`, to: `pm${back + 1}`, strength: 1 })
   }
+  // Its overview page (2026-11-19): not a meeting, linked to each of them.
+  g.pages.push({ id: 'pms', title: `${series} (series)`, kind: 'meeting', seriesPage: true, bucket: 'Meetings', section: 'Meetings', topicIds: [proj.id], tags: [], aliases: [], summary: 'Wave 2 moves two teams; laptops are ordered and the pilot group has moved.', created: `${dayOf(3)}T20:05:00.000Z`, series, meetingAt: '' })
+  for (const [back] of standups) g.edges.push({ from: 'pms', to: `pm${back}`, strength: 1 })
   const pick = (title) => g.pages.find((p) => p.title === title)?.id
   g.pages.push({ id: 'pjd', title: 'Decision: partners leave the VPN first', kind: 'decision', bucket: 'Decisions', section: 'Decisions', topicIds: [proj.id], tags: [], aliases: [], summary: 'The partner portal moves to the identity-aware proxy before staff do.', created: new Date(Date.now() - 86400000).toISOString() })
   for (const t of ['Partner portal', 'VPN retirement plan', 'Identity-aware proxies']) if (pick(t)) g.edges.push({ from: 'pjd', to: pick(t), strength: 3 })

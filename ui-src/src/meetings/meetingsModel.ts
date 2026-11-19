@@ -85,13 +85,13 @@ export function rowStateText(s: RowState): string {
     case 'adding':
       return 'Adding to your wiki…'
     case 'added':
-      return s.pageTitle ? `Added as "${s.pageTitle}"` : 'Added'
+      return s.pageTitle ? `Added as “${s.pageTitle}”` : 'Added'
     case 'updated':
-      return s.pageTitle ? `Updated "${s.pageTitle}": already in your wiki, its text read again` : 'Updated: already in your wiki'
+      return s.pageTitle ? `Updated “${s.pageTitle}”: already in your wiki, its text read again` : 'Updated: already in your wiki'
     case 'unchanged':
       return 'Already up to date: nothing changed since the last time'
     case 'waiting':
-      return 'Waiting for Copilot: see "Waiting for Copilot" or History'
+      return 'Waiting for Copilot: see “Waiting for Copilot” or History'
     case 'skipped':
       return `Not added: ${s.message}`
     case 'failed':

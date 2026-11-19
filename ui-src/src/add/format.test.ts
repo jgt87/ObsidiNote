@@ -47,8 +47,8 @@ describe('labels', () => {
     expect(chipLabel({ kind: 'alias', label: 'IAP' })).toBe('alias: IAP')
   })
   it('counts backlinks', () => {
-    expect(backlinksLine(3)).toBe('Backlinks added to 3 pages (in their "Linked from" block only)')
-    expect(backlinksLine(1)).toBe('Backlinks added to 1 page (in their "Linked from" block only)')
+    expect(backlinksLine(3)).toBe('Backlinks added to 3 pages (in their “Linked from” block only)')
+    expect(backlinksLine(1)).toBe('Backlinks added to 1 page (in their “Linked from” block only)')
     expect(backlinksLine(0)).toBe('No backlinks were added')
   })
   it('heads each status in sentence case', () => {

@@ -10,7 +10,7 @@ describe('composerView', () => {
   })
 
   it('no "From" for an empty box, a link alone, Ask mode or a text read as a question', () => {
-    for (const over of [{ text: '  \n' }, { onlyLink: 'https://contoso.example/x' }, { mode: 'ask' as const }, { intent: 'ask' as const }]) {
+    for (const over of [{ text: '  \n' }, { onlyLink: 'https://fernbrook.example/x' }, { mode: 'ask' as const }, { intent: 'ask' as const }]) {
       expect(view(over)).toMatchObject({ showFrom: false, sendOrigin: '' })
     }
   })
@@ -23,7 +23,7 @@ describe('composerView', () => {
   })
 
   it('keeps a dropped file\'s address while "From" is File and the box holds text, and says when it is dropped', () => {
-    const fileLink = { url: 'https://contoso.example/a.docx' }
+    const fileLink = { url: 'https://fernbrook.example/a.docx' }
     expect(view({ fileLink, origin: 'file' })).toMatchObject({ liveFileUrl: fileLink.url, linkDropped: false })
     expect(view({ fileLink, origin: 'teams' })).toMatchObject({ liveFileUrl: '', linkDropped: true })
     expect(view({ fileLink, origin: 'file', text: '' })).toMatchObject({ liveFileUrl: '', linkDropped: false })

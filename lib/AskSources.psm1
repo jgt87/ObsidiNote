@@ -61,7 +61,8 @@ function Get-AskSeriesData {
     param([Parameter(Mandatory)][hashtable]$Model, [Parameter(Mandatory)][hashtable]$Ids, [Parameter(Mandatory)][string]$Key, [bool]$IncludeArchived = $false)
     $list = @(foreach ($k in @($Model.pages.Keys)) {
             $p = $Model.pages[$k]
-            if ($p.type -ne 'meeting' -or -not $p['series'] -or (Get-MeetingSeriesKey ([string]$p['series'])) -ne $Key) { continue }
+            # The series page (kind series) is ObsidiNote's overview, not a meeting: left out (2026-11-19).
+            if ($p.type -ne 'meeting' -or [string]$p['kind'] -eq 'series' -or -not $p['series'] -or (Get-MeetingSeriesKey ([string]$p['series'])) -ne $Key) { continue }
             if (-not $IncludeArchived -and $p.status -eq 'archived') { continue }
             @{ id = $Ids.toAsk[$k]; title = $p.title; summary = $p.summary; type = $p.type; topics = @($p.topics)
                 link = $p.link; updated = $p.updated; summarizedAt = $p.summarizedAt; url = $p.url; status = $p.status

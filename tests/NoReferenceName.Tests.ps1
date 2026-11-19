@@ -11,6 +11,17 @@ $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $script:Names = @(('obsid' + 'ian'), ('ccb' + 'ridge'), ('stream' + 'hub'), ('repo' + 'wise'))
 $script:Allowed = '/' + 'stream' + 'hub'   # Microsoft's endpoint path, matched case-insensitively
 
+# Real names of people and companies seen in the operator's own data (operator, 2026-11-19: "make sure
+# that no existing names of people or companies are being used"): kept in tasks/private-names.txt,
+# which is gitignored and stays on that machine, one name per line ('#' starts a comment), matched as a
+# whole word in any case. The repo itself never holds them; on CI the file is absent and adds nothing.
+function Get-PrivateNames {
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return @() }
+    @(foreach ($l in [IO.File]::ReadAllLines($Path)) { $t = $l.Trim(); if ($t -and -not $t.StartsWith('#')) { '(?<![\p{L}\p{N}])' + [regex]::Escape($t) + '(?![\p{L}\p{N}])' } })
+}
+$script:Names = @($script:Names) + @(Get-PrivateNames -Path (Join-Path $root 'tasks\private-names.txt'))
+
 function Get-ReferenceNameHits {
     param([Parameter(Mandatory)][string]$Root)
     # Paths inside the repo; .NET enumeration keeps the root as given (8.3 short names on CI).
@@ -45,6 +56,21 @@ Describe 'No reference or sister-project names in the repo' {
             [IO.File]::WriteAllText((Join-Path $tmp 'c.md'), ('Same install as ' + 'Stream' + 'Hub.'))
             [IO.File]::WriteAllText((Join-Path $tmp 'ok.json'), ('{ "streamUrlPattern": "/' + 'Stream' + 'Hub/" } ObsidiNote'))
             (@(Get-ReferenceNameHits -Root $tmp) | Sort-Object) -join ',' | Should Be 'a.md:1,b.ps1:1,c.md:1'
+        } finally { Remove-Item -LiteralPath $tmp -Recurse -Force }
+    }
+
+    It 'reads a local list of real names as whole words in any case; no list adds nothing' {
+        $tmp = Join-Path $env:TEMP ('obsn-priv-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        $null = New-Item -ItemType Directory -Force $tmp
+        try {
+            $list = Join-Path $tmp 'names.txt'
+            [IO.File]::WriteAllText($list, "# invented names for this test`nQuillon Works`nZed`n")
+            $pats = @(Get-PrivateNames -Path $list)
+            $pats.Count | Should Be 2
+            ('Notes from QUILLON works' -match $pats[0]) | Should Be $true
+            ('Zed joined' -match $pats[1]) | Should Be $true
+            ('Zedonia and zeds' -match $pats[1]) | Should Be $false
+            @(Get-PrivateNames -Path (Join-Path $tmp 'absent.txt')).Count | Should Be 0
         } finally { Remove-Item -LiteralPath $tmp -Recurse -Force }
     }
 }

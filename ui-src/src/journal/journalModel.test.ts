@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { normalizeGraph } from '../graph/model'
+import { seriesCount } from '../model/series'
 import { buildJournal, dayLabel, decisionsFor, inTopic, journalCaption, localParts, matchingSeries, matchingTopics, meetingSeries, shortDate } from './journalModel'
 
 // The pages as the server sends them (tests/Journal.Tests.ps1 checks the server against this file).
@@ -49,12 +50,23 @@ describe('the journal without a search', () => {
     expect(m1.time).toBe('10:00')
     expect(m1.series).toBe('Garden sync | Beds')
     const list = meetingSeries(m)
-    expect(list).toEqual([{ key: 'garden sync beds', name: 'Garden sync Beds', count: 2 }])
+    expect(list).toEqual([{ key: 'garden sync beds', name: 'Garden sync Beds', count: 2, pageId: '' }])
     expect(matchingSeries(list, 'garden')).toHaveLength(1)
     expect(matchingSeries(list, 'kitchen')).toHaveLength(0)
     const only = buildJournal(m, { topicId: '', text: '', series: 'garden sync beds' })
     expect(only.flatMap((d) => d.items.map((i) => i.pageId))).toEqual(['m2', 'm1'])
     expect(journalCaption({ topicId: '', text: '', series: 'garden sync beds' }, undefined, only, 'Garden sync Beds')).toBe('The meetings of "Garden sync Beds": 2 meetings, newest day first.')
+  })
+  it('names the series page, but neither lists nor counts it as a meeting (2026-11-19)', () => {
+    const m = model()
+    const other = m.pages.find((p) => p.kind !== 'log' && p.kind !== 'decision')!
+    m.pages.push({ ...other, id: 'm1', title: 'Garden sync · 2026-11-12', kind: 'meeting', series: 'Garden sync', meetingAt: '2026-11-12T10:00', created: '2026-11-12T21:00:00.000Z', archived: false })
+    m.pages.push({ ...other, id: 's1', title: 'Garden sync (series)', kind: 'meeting', series: 'Garden sync', seriesPage: true, meetingAt: '', created: '2026-11-12T21:05:00.000Z', archived: false })
+    expect(meetingSeries(m)).toEqual([{ key: 'garden sync', name: 'Garden sync', count: 1, pageId: 's1' }])
+    const ids = (f: { topicId: string; text: string; series?: string }) => buildJournal(m, f).flatMap((d) => d.items.map((i) => i.pageId))
+    expect(ids({ topicId: '', text: '' })).not.toContain('s1')
+    expect(ids({ topicId: '', text: '', series: 'garden sync' })).toEqual(['m1'])
+    expect(seriesCount(m.pages, 'Garden sync')).toBe(1)
   })
   it('leaves archived pages out', () => {
     const m = model()

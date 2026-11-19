@@ -8,7 +8,7 @@ import { syntheticGraph } from './synthetic'
 // The page window's first render (the Page tab). Its decisions are tested in pageDialogModel.test.ts;
 // the other tabs and the keys in the browser (scripts/check-design-rules.mjs opens the window).
 const raw = syntheticGraph({ pages: 30, topics: 4, seed: 3 }) as unknown as { pages: Record<string, unknown>[]; source: object }
-raw.pages[0] = { ...raw.pages[0], url: 'https://contoso.example/x', onenoteUrl: 'onenote:x' }
+raw.pages[0] = { ...raw.pages[0], url: 'https://fernbrook.example/x', onenoteUrl: 'onenote:x' }
 raw.pages[1] = { ...raw.pages[1], url: '', onenoteUrl: '' }
 raw.pages[2] = { ...raw.pages[2], url: '', archived: true }
 raw.pages[4] = { ...raw.pages[4], own: false }
@@ -21,7 +21,7 @@ const render = (i: number, extra: object = {}, idx = index) => renderToStaticMar
 describe('PageDialog: the first render', () => {
   it('a link page: "Open link" is the primary, OneNote the second', () => {
     const html = render(0)
-    expect(html).toMatch(/<a class="btn btn--primary" href="https:\/\/contoso.example\/x"[^>]*>Open link<\/a><a class="btn" href="onenote:x">Open in OneNote<\/a>/)
+    expect(html).toMatch(/<a class="btn btn--primary" href="https:\/\/fernbrook.example\/x"[^>]*>Open link<\/a><a class="btn" href="onenote:x">Open in OneNote<\/a>/)
   })
 
   it('a page without a OneNote link: "Open in OneNote" shows, disabled', () => {

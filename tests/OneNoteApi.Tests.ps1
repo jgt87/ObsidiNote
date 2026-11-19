@@ -71,7 +71,7 @@ function New-ComFake([string[]]$Fail = @(), [bool]$NoPages = $false, [bool]$OneP
     $pages = if ($NoPages) { '' }
     elseif ($OnePage) { "<one:Page ID=""$p1"" name=""Confidential salaries""/>" }
     else { "<one:Page ID=""$p1"" name=""Confidential salaries""/><one:Page ID=""$p2"" name=""Budget plan""/><one:Page ID=""{9}"" name=""Old"" isInRecycleBin=""true""/>" }
-    $xml = "<one:Notebooks xmlns:one=""http://schemas.microsoft.com/office/onenote/2013/onenote""><one:Notebook ID=""$nb"" name=""Fabrikam Finance"" path=""https://contoso.sharepoint.com/sites/Finance/Notebook""><one:Section ID=""$sec"" name=""Salaries"">$pages</one:Section></one:Notebook></one:Notebooks>"
+    $xml = "<one:Notebooks xmlns:one=""http://schemas.microsoft.com/office/onenote/2013/onenote""><one:Notebook ID=""$nb"" name=""Fabrikam Finance"" path=""https://fernbrook.sharepoint.com/sites/Finance/Notebook""><one:Section ID=""$sec"" name=""Salaries"">$pages</one:Section></one:Notebook></one:Notebooks>"
     $f = [pscustomobject]@{ Calls = (New-Object System.Collections.Generic.List[string]); Fail = $Fail; Xml = $xml; Ids = @{ nb = $nb; sec = $sec; p1 = $p1; p2 = $p2 } }
     $f | Add-Member NoteProperty Windows ([pscustomobject]@{ Count = 1; CurrentWindow = [pscustomobject]@{ CurrentNotebookId = $nb } })
     $f | Add-Member ScriptMethod Call { param([string]$Name) $this.Calls.Add($Name); if ($this.Fail -contains $Name) { throw (New-Object Runtime.InteropServices.COMException('failed', -2147213292)) } }
@@ -83,8 +83,8 @@ function New-ComFake([string[]]$Fail = @(), [bool]$NoPages = $false, [bool]$OneP
         $x.Value = "<one:Page xmlns:one=""http://schemas.microsoft.com/office/onenote/2013/onenote"" name=""Confidential salaries""><one:T>Secret text</one:T>$img</one:Page>"
     }
     $f | Add-Member ScriptMethod GetBinaryPageContent { param($id, $cb, [ref]$x) $this.Call('GetBinaryPageContent'); $x.Value = 'QUJD' * 600 }
-    $f | Add-Member ScriptMethod GetHyperlinkToObject { param($id, $obj, [ref]$x) $this.Call('GetHyperlinkToObject'); $x.Value = "onenote:https://contoso.sharepoint.com/sites/Finance/Notebook/Salaries.one#Confidential&page-id=$id" }
-    $f | Add-Member ScriptMethod GetWebHyperlinkToObject { param($id, $obj, [ref]$x) $this.Call('GetWebHyperlinkToObject'); $x.Value = 'https://contoso.sharepoint.com/sites/Finance/_layouts/OneNote.aspx?id=Confidential' }
+    $f | Add-Member ScriptMethod GetHyperlinkToObject { param($id, $obj, [ref]$x) $this.Call('GetHyperlinkToObject'); $x.Value = "onenote:https://fernbrook.sharepoint.com/sites/Finance/Notebook/Salaries.one#Confidential&page-id=$id" }
+    $f | Add-Member ScriptMethod GetWebHyperlinkToObject { param($id, $obj, [ref]$x) $this.Call('GetWebHyperlinkToObject'); $x.Value = 'https://fernbrook.sharepoint.com/sites/Finance/_layouts/OneNote.aspx?id=Confidential' }
     $f | Add-Member ScriptMethod FindPages { param($s, $q, [ref]$x, $u, $d) $this.Call('FindPages'); $x.Value = $this.Xml.Replace('name="Budget plan"', 'name="Budget plan" isIndexed="false"') }
     $f | Add-Member ScriptMethod FindMeta { param($s, $n, [ref]$x, $u) $this.Call('FindMeta'); $x.Value = $this.Xml.Replace('name="Budget plan"/>', 'name="Budget plan"><one:Meta name="obsn.id" content="p7"/></one:Page>') }
     $f | Add-Member ScriptMethod GetSpecialLocation { param($l, [ref]$x) $this.Call('GetSpecialLocation'); $x.Value = 'D:\Secret Folder\OneNote Notebooks' }
@@ -119,7 +119,7 @@ Describe 'OneNote API probe (stage V2, read only)' {
         $c = New-ApiCtx
         Invoke-ApiProbe -Ctx $c -Com $f -HierarchyXml $f.Xml
         $text = @($c.Results | ForEach-Object { "$($_.name) $($_.detail)" }) -join "`n"
-        $text | Should Not Match 'Confidential|salaries|Salaries|Budget|Fabrikam|Finance|contoso|Secret|someone|CB-1|11111111|22222222|33333333|44444444|onenote:https'
+        $text | Should Not Match 'Confidential|salaries|Salaries|Budget|Fabrikam|Finance|fernbrook|Secret|someone|CB-1|11111111|22222222|33333333|44444444|onenote:https'
         $text | Should Match "a page's parent is its section: yes"
         # The fake answers both searches, indexed only or not, with the whole hierarchy, recycle bin
         # included (as OneNote's search does for pages not yet indexed): three pages each time.

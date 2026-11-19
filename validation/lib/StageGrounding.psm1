@@ -230,7 +230,8 @@ function Test-MeetingListReply {
 function New-MeetingNotesPrompt([string]$Title, [string]$Start) {
     'From the transcript, the Copilot recap or the meeting notes of my Teams meeting "' + $Title + '"' + $(if ($Start) { ' (started ' + $Start + ')' } else { '' }) + ', write structured meeting notes for my personal wiki. ' +
     # The app's own question asks the same attendee shape (lib/Meetings.psm1, 2026-11-18).
-    'For each attendee give the display name and the e-mail address exactly as in the meeting invitation; leave the address empty when you do not see it, never guess one. ' +
+    'Attendees are only the people who joined the meeting (who spoke in the transcript or are in its attendance), not everyone who was invited. ' +
+    'For each attendee give the display name and the e-mail address as the meeting invitation has it; leave the address empty when you do not see it, never guess one. ' +
     'Answer only with one JSON object and no other text: {"found": true or false, "date": "yyyy-mm-dd", "attendees": [{"name": "display name", "email": "address or empty"}], "summary": "3 to 5 sentences", "decisions": ["each decision in one sentence"], ' +
     '"actions": [{"text": "the action", "owner": "a name or empty", "due": "yyyy-mm-dd or empty"}], "basedOn": "transcript, recap, notes or empty", "source": "the address of the recap or notes, or empty"}. ' +
     'A summary only: never copy the transcript. If you cannot read it, answer {"found": false, "attendees": [], "decisions": [], "actions": []}.'

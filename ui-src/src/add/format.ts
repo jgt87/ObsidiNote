@@ -55,7 +55,7 @@ export function chipLabel(chip: Chip): string {
 
 export function backlinksLine(n: number): string {
   if (n <= 0) return 'No backlinks were added'
-  return `Backlinks added to ${plural(n, 'page')} (in their "Linked from" block only)`
+  return `Backlinks added to ${plural(n, 'page')} (in their “Linked from” block only)`
 }
 
 /** The heading of a result screen. */

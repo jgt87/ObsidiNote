@@ -157,7 +157,7 @@ export function SettingsDialog({ onClose, onSaved, onTagsChanged, version = '' }
               aria-describedby="st-hosts-hint"
             />
             <p id="st-hosts-hint" className="nv__muted">
-              Links to these addresses are filed under Internal links. Microsoft 365 and your company's own tenants are found without this list.
+              Links to these addresses are filed under Internal links. Microsoft 365 and your company’s own tenants are found without this list.
             </p>
             {hosts.bad.length > 0 && (
               <p className="nv__error" role="alert">

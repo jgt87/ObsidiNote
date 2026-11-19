@@ -10,10 +10,10 @@ Import-Module (Join-Path $here '..\lib\Ingest.psm1') -Force
 $script:Now = [datetime]'2026-11-13T10:00:00'
 $script:WebSummary = '{"readable": true, "problem": "", "title": "Identity-aware proxy explained", "where": "example.org", "kind": "article", "summary": "An identity-aware proxy checks the user and the device before it forwards a request. It replaces a VPN for many apps.", "keyFacts": ["Checks user and device", "Works per request"], "useFor": "When you plan remote access", "sensitivity": ""}'
 $script:WebLinks = '{"title": "x", "summary": "How identity-aware proxies replace a VPN.", "type": "link-web", "topics": [{"new": "Security/Networking"}], "links": [{"target": "p3", "anchor": "replaces a VPN", "strength": 2, "why": "same move away from VPN"}], "aliases": ["IAP"], "intent": "add"}'
-$script:HandbookNew = '{"readable": true, "title": "Contoso handbook", "where": "HR site", "kind": "page", "summary": "The staff handbook. Covers leave, devices and travel.", "keyFacts": ["Leave is 26 days", "Devices are managed", "Travel needs approval"], "useFor": "Policy questions", "sensitivity": "General"}'
-$script:HandbookSame = '{"readable": true, "title": "Contoso handbook", "where": "HR site", "kind": "page", "summary": "The staff handbook.  Covers leave and devices.", "keyFacts": ["Leave is 25 days", "Devices are managed"], "useFor": "Policy questions", "sensitivity": "General"}'
-$script:HandbookLinks = '{"title": "Contoso handbook", "summary": "The staff handbook.", "type": "link-internal", "topics": [{"new": "Projects"}], "links": [{"target": "p1", "anchor": "devices", "strength": 1, "why": "device rules"}], "aliases": [], "intent": "add"}'
-$script:HandbookUrl = 'https://contoso.sharepoint.com/sites/hr/handbook.aspx'
+$script:HandbookNew = '{"readable": true, "title": "Fernbrook handbook", "where": "HR site", "kind": "page", "summary": "The staff handbook. Covers leave, devices and travel.", "keyFacts": ["Leave is 26 days", "Devices are managed", "Travel needs approval"], "useFor": "Policy questions", "sensitivity": "General"}'
+$script:HandbookSame = '{"readable": true, "title": "Fernbrook handbook", "where": "HR site", "kind": "page", "summary": "The staff handbook.  Covers leave and devices.", "keyFacts": ["Leave is 25 days", "Devices are managed"], "useFor": "Policy questions", "sensitivity": "General"}'
+$script:HandbookLinks = '{"title": "Fernbrook handbook", "summary": "The staff handbook.", "type": "link-internal", "topics": [{"new": "Projects"}], "links": [{"target": "p1", "anchor": "devices", "strength": 1, "why": "device rules"}], "aliases": [], "intent": "add"}'
+$script:HandbookUrl = 'https://fernbrook.sharepoint.com/sites/hr/handbook.aspx'
 
 function Get-Roles($Update) { @($Update.outlines | ForEach-Object { $_['role'] }) }
 
@@ -155,8 +155,8 @@ Describe 'A new link' {
         $r.update.new.title | Should Be 'Identity-aware proxy explained'
     }
     It 'sends a SharePoint link to Internal links with the Microsoft 365 prompt' {
-        $v = New-FakeVault; $c = New-FakeCopilot @(($script:HandbookNew -replace 'Contoso handbook', 'Travel policy'), $script:HandbookLinks)
-        $r = Invoke-AddRequest -Request @{ text = 'https://contoso.sharepoint.com/sites/hr/travel.aspx'; mode = 'add' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+        $v = New-FakeVault; $c = New-FakeCopilot @(($script:HandbookNew -replace 'Fernbrook handbook', 'Travel policy'), $script:HandbookLinks)
+        $r = Invoke-AddRequest -Request @{ text = 'https://fernbrook.sharepoint.com/sites/hr/travel.aspx'; mode = 'add' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
         $r.status | Should Be 'added'
         $c.q.prompts[0] | Should Match 'Microsoft 365 item'
         $v.st.created['{NEW-p101}'].bucket | Should Be 'Internal links'
@@ -164,7 +164,7 @@ Describe 'A new link' {
     }
     It 'keeps the link with "could not be read" and leaves it Unfiled, without a linking call' {
         $v = New-FakeVault; $c = New-FakeCopilot @('{"readable": false, "problem": "no-access"}')
-        $r = Invoke-AddRequest -Request @{ text = 'https://contoso.sharepoint.com/sites/secret/x.aspx' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+        $r = Invoke-AddRequest -Request @{ text = 'https://fernbrook.sharepoint.com/sites/secret/x.aspx' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
         $r.status | Should Be 'added'
         $c.q.prompts.Count | Should Be 1
         $r.page.unfiled | Should Be $true
@@ -233,7 +233,7 @@ Describe 'The same link again: update instead of a new page' {
         $r.status | Should Be 'needs-confirmation'
         $v.st.updates.Count | Should Be 0
         ($r.confirm.options -join ',') | Should Be 'replace,keep'
-        $r.confirm.proposed.title | Should Be 'Contoso handbook'
+        $r.confirm.proposed.title | Should Be 'Fernbrook handbook'
         $r.confirm.editedText | Should Match 'Link:'
         $r.update.diff.changed | Should Be $true
         { $r | ConvertTo-Json -Depth 10 } | Should Not Throw

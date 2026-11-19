@@ -12,7 +12,7 @@
 .sf__key { color: var(--muted); }
 .sf__chip svg { width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
 .sf__clear { padding: 0 var(--space-2); height: 24px; border: 0; background: none; color: var(--muted);
-  font: inherit; font-size: var(--text-meta); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+  font: inherit; font-size: var(--text-meta); text-decoration: underline; text-underline-offset: 0.2em; cursor: pointer; }
 @media (hover: hover) {
   .sf__chip:hover { background: var(--hover); }
   .sf__clear:hover { color: var(--accent); }

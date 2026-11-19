@@ -38,7 +38,7 @@ describe('meetings model', () => {
   it('reads a re-imported day as updated, and counts it with the added ones', () => {
     const s = rowStateFromAdd(normalizeSubmitResult({ intent: 'add', status: 'updated', page: { title: 'Garden sync · 2031-04-09' } }))
     expect(s).toEqual({ step: 'updated', pageTitle: 'Garden sync · 2031-04-09' })
-    expect(rowStateText(s)).toBe('Updated "Garden sync · 2031-04-09": already in your wiki, its text read again')
+    expect(rowStateText(s)).toBe('Updated “Garden sync · 2031-04-09”: already in your wiki, its text read again')
     expect(runSummary([s, { step: 'added', pageTitle: '' }])).toBe('2 added.')
   })
 
