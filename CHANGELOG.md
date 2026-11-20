@@ -5,6 +5,8 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.22] - 2026-11-20
+
 ### Fixed
 - **Knowledge graph**: every meeting of a series with a long Teams title showed the same cut-off name ("Daily Sync | A & B | Platform Pla…"), so you could not tell them apart. A meeting of a series now shows a short series name and its day, such as "Daily Sync · Wed 18 Nov" (with the time for a second meeting that day), and a series page "Daily Sync (series)". The short name is the part of the title before the first "|". The full title stays in the hover card, the page window and the List. No upgrade step: only how names are drawn changed.
 
