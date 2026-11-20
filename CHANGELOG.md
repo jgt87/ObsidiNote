@@ -5,6 +5,8 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.24] - 2026-11-20
+
 ### Changed
 - **Knowledge graph**: a meeting series is always one dot, named "‹series› · N meetings" (a series with one meeting too), and its meetings are no longer told apart by a date in their name on the map. The switch **Each meeting of a series** in Filter is gone. Each meeting is still in the List, the search and the Journal, and the series page links to all of them. No upgrade step: only what the map draws changed.
 
