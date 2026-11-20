@@ -5,6 +5,8 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.23] - 2026-11-20
+
 ### Changed
 - **Knowledge graph**: a meeting series is one dot on the map, not one dot per meeting. The dot is the series page, named with the series and its number of meetings ("Daily Sync · 6 meetings"); the meetings' links go to it, so it sits among the pages its meetings link to. Open it to reach each meeting. A series without a series page shows its newest meeting as the dot. **Filter → Show on the map → Each meeting of a series** draws every meeting again. The List, the search and the Journal still show every meeting; searching for a meeting lights up its series' dot. No upgrade step: only what the map draws changed.
 
