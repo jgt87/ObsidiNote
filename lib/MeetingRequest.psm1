@@ -224,7 +224,7 @@ function Get-MeetingRequest {
     $r = [ordered]@{ days = @(); series = $series; when = 'today'; error = '' }
     # No time: today; a named series without a time takes its meetings of the past 7 days (operator,
     # 2026-11-20: a series fetched on a day it does not meet came back empty).
-    if (-not $when -and $series) { $r.when = 'the past 7 days'; $r.days = @(@(Get-WorkDays $Today.Date.AddDays(-6) $Today.Date) | ForEach-Object { $_ } | ForEach-Object { ConvertTo-IsoDay $_ }); return $r }
+    if (-not $when -and $series) { $r.when = 'the past 7 days'; $wd = Get-WorkDays $Today.Date.AddDays(-6) $Today.Date; $r.days = @($wd | ForEach-Object { ConvertTo-IsoDay $_ }); return $r }
     if (-not $when) { $r.days = @(ConvertTo-IsoDay $Today.Date); return $r }
     $r.when = $rest.Substring($when.index, $when.length).Trim()
     if ($when.error) { $r.error = $when.error; return $r }
