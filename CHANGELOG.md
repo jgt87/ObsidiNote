@@ -5,6 +5,8 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.21] - 2026-11-20
+
 ### Changed
 - Many more ways to ask for meetings from the box, checked against 162 sample phrasings in English and Dutch (`tests/fixtures/meeting-request-samples.json`):
   - Times: `todays`, `monday's`, `since monday`, `between monday and wednesday`, `tuesday and wednesday`, `3 days ago`, `the day before yesterday`, `8 april`, `April 8`, `mon-wed`, `this morning`, `the whole week`, `this week so far`, `earlier this week`, `this working week`, `the last two weeks`, `this month`; in Dutch also `sinds maandag`, `de afgelopen twee weken`, `deze werkweek`.
