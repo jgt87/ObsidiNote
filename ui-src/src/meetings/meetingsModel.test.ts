@@ -28,6 +28,7 @@ const meeting = (over: Partial<Meeting> = {}): Meeting => ({
   start: '2031-04-09 10:00',
   time: '10:00',
   attendees: 4,
+  joined: true,
   hasTranscript: false,
   hasRecap: false,
   hasNotes: false,
@@ -49,6 +50,10 @@ describe('meetings model', () => {
     expect(meetingSubline(meeting({ attendees: 1 }))).toBe('10:00 · Copilot listed no transcript, recap or notes · 1 person')
     expect(meetingSubline(meeting({ attendees: 5, hasTranscript: true, readable: true }))).toBe('10:00 · Transcript · 5 people')
     expect(meetingSubline(meeting({ attendees: 0, time: '' }))).toBe('Copilot listed no transcript, recap or notes')
+  })
+
+  it('says when you were invited but did not join (2026-11-20)', () => {
+    expect(meetingSubline(meeting({ attendees: 3, joined: false, hasRecap: true, readable: true }))).toBe('10:00 · Recap · you did not join · 3 people')
   })
 
   it('says when a meeting is part of a series already in the wiki (2026-11-18)', () => {

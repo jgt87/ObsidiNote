@@ -15,6 +15,9 @@ export interface Meeting {
   /** hh:mm, or '' when Copilot gave no time. */
   time: string
   attendees: number
+  /** false when Copilot says you were invited but did not join (2026-11-20): its notes can still
+   *  be read when the transcript or recap is shared with you. */
+  joined: boolean
   hasTranscript: boolean
   hasRecap: boolean
   hasNotes: boolean
@@ -66,7 +69,7 @@ export function readableLabel(m: Meeting): string {
 export function meetingSubline(m: Meeting): string {
   const people = m.attendees === 1 ? '1 person' : m.attendees > 1 ? `${m.attendees} people` : ''
   const series = m.earlier === 1 ? 'series, 1 earlier in your wiki' : m.earlier > 1 ? `series, ${m.earlier} earlier in your wiki` : ''
-  return [m.time, readableLabel(m), people, series].filter(Boolean).join(' · ')
+  return [m.time, readableLabel(m), m.joined ? '' : 'you did not join', people, series].filter(Boolean).join(' · ')
 }
 
 /** The meetings ticked when the list comes: every one Copilot can read something of. */

@@ -10,7 +10,7 @@
 Set-StrictMode -Version 2.0
 
 $script:MaxDays = 14
-$script:MaxLength = 120
+$script:MaxLength = 250   # Teams titles can be long: "Daily Sync | A & B | Platform Governance"
 $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 
 # The word that makes it a meetings command (plural only: "meeting with Ada yesterday" is a note).
@@ -19,6 +19,9 @@ $script:MeetWord = '(?:teams[\s-]+)?(?:meetings|vergaderingen)'
 $script:Verb = '^(?:please\s+)?(?:fetch|get|import|load|pull|grab|list|show|haal|ophalen|toon|importeer)\b\s*'
 # Words around the series that are not part of it.
 $script:Filler = @('all', 'my', 'the', 'of', 'from', 'for', 'on', 'in', 'occurrences', 'series', 'alle', 'mijn', 'de', 'het', 'van', 'voor', 'op', 'uit', 'reeks', 'and', 'en')
+# Words that introduce the series ("with the topic of Daily Standup", "called Daily Standup", "met
+# het onderwerp ..."; operator, 2026-11-20): everything after them, up to a time, is the series.
+$script:SeriesMarker = '(?i)(?:^|\s)(?:(?:(?:with|having|for|on|of|met|van|voor)\s+)?(?:the\s+|a\s+|het\s+|de\s+)?(?:topic|title|subject|name|series|onderwerp|titel|naam|reeks)(?:\s+(?:of|is|van))?\s*:?|called|named|titled|genaamd|getiteld)(?=\s)'
 # Openings of a question about meetings ("which meetings last week", "what meetings ..."): Ask's.
 $script:QuestionStart = '^(?:(?:show|tell|give|toon|geef)\s+(?:me|us|mij)|what|which|how|who|whom|why|when|where|did|do|does|were|was|are|is|can|could|wat|welke|welk|hoe|wie|waarom|wanneer|waar|hadden|had|zijn|waren|kan|heb|hebben)\b'
 
@@ -91,7 +94,7 @@ function Get-AllDays([datetime]$From, [datetime]$To) {
 
 function Find-WhenPhrase {
     <# The when-phrase at the end of $Text: @{ index; length; dates (datetime[]); error } or $null. #>
-    param([Parameter(Mandatory)][string]$Text, [Parameter(Mandatory)][datetime]$Today)
+    param([Parameter(Mandatory)][string]$Text, [Parameter(Mandatory)][datetime]$Today, [switch]$Anywhere)
     $t = $Today.Date
     $lead = '(?:^|\s)(?:(?:on|op|of|from|for|in|van|voor|uit|during|tijdens)\s+)?'
     $rules = @(
@@ -130,7 +133,10 @@ function Find-WhenPhrase {
         }
     )
     foreach ($r in $rules) {
-        $m = [regex]::Match($Text, $r.re, 'IgnoreCase')
+        # -Anywhere: the phrase may stand in the middle ("this week Daily Standup"), up to a space.
+        # Every rule above ends in the 4 characters \s*$, which this swaps for a look-ahead.
+        $re = if ($Anywhere) { $r.re.Substring(0, $r.re.Length - 4) + '(?=\s|$)' } else { $r.re }
+        $m = [regex]::Match($Text, $re, 'IgnoreCase')
         if (-not $m.Success) { continue }
         $dates = & $r.get $m
         if ($null -eq $dates) { return @{ index = $m.Index; length = $m.Length; dates = @(); error = 'That is not a date ObsidiNote can read: write it as yyyy-mm-dd or day-month, such as 17-11.' } }
@@ -153,6 +159,19 @@ function Get-MeetingRequest {
     $qm = [regex]::Match($t, ('["' + [char]0x201C + [char]0x201D + ']([^"' + [char]0x201C + [char]0x201D + ']{1,100})["' + [char]0x201C + [char]0x201D + ']'))
     if (-not $qm.Success) { $qm = [regex]::Match($t, "(?:^|\s)'([^']{1,100})'(?:\s|$)") }
     if ($qm.Success) { $quoted = $qm.Groups[1].Value.Trim(); $t = ($t.Remove($qm.Index, $qm.Length).Insert($qm.Index, ' ')).Trim() -replace '\s+', ' ' }
+    # A series named after a marker word, as typed: "... this week with the topic of Daily Standup".
+    if (-not $quoted) {
+        $sm = [regex]::Match($t, $script:SeriesMarker)
+        $tail = if ($sm.Success) { $t.Substring($sm.Index + $sm.Length).Trim() } else { '' }
+        if ($tail) {
+            $head = $t.Substring(0, $sm.Index).Trim()
+            # A time after the series goes back to the command: "called Daily Standup this week".
+            $w = Find-WhenPhrase -Text $tail -Today $Today
+            if ($w -and $w.index -gt 0) { $head = "$head $($tail.Substring($w.index).Trim())"; $tail = $tail.Substring(0, $w.index).Trim() }
+            $quoted = $tail.Trim(' ', ':', '"', "'")
+            $t = $head.Trim()
+        }
+    }
     # About a subject or with someone: a question for Ask or a note, not a list of days. A quoted
     # series name may hold these words; it is out of $t by now.
     if ($t -match '(?i)\b(about|regarding|with|over|met|waarin|where)\b') { return $null }
@@ -164,25 +183,38 @@ function Get-MeetingRequest {
     if (-not $rest.Trim()) { return $null }   # "Fetch" alone
     $mw = [regex]::Match($rest, "(?:^|\s)$script:MeetWord(?=\s|$)", 'IgnoreCase')
     $when = Find-WhenPhrase -Text $rest -Today $Today
+    # A time in the middle or first ("meetings this week Daily Standup", "Fetch for this week meetings
+    # Daily Standup", operator 2026-11-20): only after Fetch/Get/Import, so "Board meetings this
+    # week went well" stays a note.
+    if (-not $when -and $verb.Success) { $when = Find-WhenPhrase -Text $rest -Today $Today -Anywhere }
     if (-not $mw.Success) {
         # A verb and a time without the word (operator, 2026-11-20: "also on Fetch, Get or Import"):
         # "Fetch yesterday", "Get Daily Standup this week", "Import last week". Without a time it is
         # not a request ("Import the budget file"); the words before the time are the series.
         # Only a time that names past days: "Get milk tomorrow" stays a note.
         if (-not $verb.Success -or -not $when -or $when.error -or -not @($when.dates | Where-Object { $_ -le $Today.Date }).Count) { return $null }
-        if (@($rest.Substring(0, $when.index).Trim() -split '\s+' | Where-Object { $_ }).Count -gt 5) { return $null }
+        # A time right after the verb takes a series of any length ("Fetch this week Daily Sync | A & B");
+        # else at most 5 words, so "Get the budget done this week and send it" stays a note.
+        if ($rest.Substring(0, $when.index).Trim() -and @(($rest.Remove($when.index, $when.length)).Trim() -split '\s+' | Where-Object { $_ }).Count -gt 5) { return $null }
         $mw = [regex]::Match($rest, '^')   # empty, at the start: everything before the time is "before"
     }
-    if ($when -and $when.index -lt $mw.Index + $mw.Length) { $when = $null }   # the phrase must come after the word
+    # Without a verb the time comes after the word ("meetings yesterday"); after a verb it may also
+    # come first ("Fetch for this week meetings Daily Sync").
+    if ($when -and -not $verb.Success -and $when.index -lt $mw.Index + $mw.Length) { $when = $null }
     $before = $rest.Substring(0, $mw.Index).Trim()
-    $after = if ($when) { $rest.Substring($mw.Index + $mw.Length, $when.index - $mw.Index - $mw.Length) } else { $rest.Substring($mw.Index + $mw.Length) }
     # "Daily Standup meetings" with neither a verb nor a time is a few words, not a command.
     if ($before -and -not $verb.Success -and -not $when -and -not $quoted) { return $null }
-    $words = @("$before $after" -split '\s+' | Where-Object { $_ })
+    # The series: what is left without the word and the time, in the order typed.
+    $left = $rest
+    $spans = @(@{ i = $mw.Index; l = $mw.Length })
+    if ($when) { $spans += @{ i = $when.index; l = $when.length } }
+    foreach ($sp in @($spans | Sort-Object { $_.i } -Descending)) { $left = $left.Remove($sp.i, $sp.l).Insert($sp.i, ' ') }
+    $words = @($left -split '\s+' | Where-Object { $_ })
     while ($words.Count -and $script:Filler -contains $words[0].ToLowerInvariant()) { $words = @($words | Select-Object -Skip 1) }
     while ($words.Count -and $script:Filler -contains $words[$words.Count - 1].ToLowerInvariant()) { $words = @($words | Select-Object -First ($words.Count - 1)) }
     $series = if ($quoted) { $quoted } else { ($words -join ' ').Trim() }
-    if (-not $quoted -and $words.Count -gt 8) { return $null }   # a sentence, not a series name
+    # A sentence, not a series name: more than 8 words without a verb, 20 with one (Teams titles are long).
+    if (-not $quoted -and $words.Count -gt $(if ($verb.Success) { 20 } else { 8 })) { return $null }
     $r = [ordered]@{ days = @(); series = $series; when = 'today'; error = '' }
     if (-not $when) { $r.days = @(ConvertTo-IsoDay $Today.Date); return $r }
     $r.when = $rest.Substring($when.index, $when.length).Trim()

@@ -104,6 +104,42 @@ Describe 'Get-MeetingRequest: Fetch, Get or Import with a time, without the word
     }
 }
 
+Describe 'Get-MeetingRequest: a series named in a sentence (operator, 2026-11-20)' {
+    It 'takes the words after "with the topic of", "called", "met het onderwerp" as the series' {
+        $r = Get-Req 'Fetch the meetings for this week with the topic of Daily Fernbrook & Tidal'
+        $r.series | Should Be 'Daily Fernbrook & Tidal'
+        @($r.days).Count | Should Be 5
+        (Get-Req 'Get meetings called Garden sync last week').series | Should Be 'Garden sync'
+        $nl = Get-Req 'haal vergaderingen van deze week op met het onderwerp Tuinoverleg'
+        $nl.series | Should Be 'Tuinoverleg'
+        @($nl.days).Count | Should Be 5
+    }
+    It 'gives a time after the series back to the command' {
+        $r = Get-Req 'Get the meetings with the title: Garden sync from monday to wednesday'
+        $r.series | Should Be 'Garden sync'
+        (@($r.days)) -join ',' | Should Be '2031-04-07,2031-04-08,2031-04-09'
+    }
+    It 'reads a time in the middle, the words after it as the series' {
+        $r = Get-Req 'Fetch meetings this week Daily Standup'
+        $r.series | Should Be 'Daily Standup'
+        @($r.days).Count | Should Be 5
+    }
+    It 'reads the time before the word after a verb, with a long Teams title as the series (operator, 2026-11-20)' {
+        $r = Get-Req 'Fetch for this week meetings Daily Sync | Fernbrook & Tidal | Garden Platform & Pump Studio Governance'
+        $r.series | Should Be 'Daily Sync | Fernbrook & Tidal | Garden Platform & Pump Studio Governance'
+        @($r.days).Count | Should Be 5
+        (Get-Req 'Fetch this week Daily Sync | Fernbrook & Tidal').series | Should Be 'Daily Sync | Fernbrook & Tidal'
+    }
+    It 'keeps notes with a time in them as notes' {
+        Get-Req 'Yesterday meetings ran late' | Should Be $null
+        Get-Req 'Get the budget done this week and send it' | Should Be $null
+    }
+    It 'still leaves "with" in a note alone' {
+        Get-Req 'meeting with Ada yesterday' | Should Be $null
+        Get-Req 'Monday sync notes are in the folder' | Should Be $null
+    }
+}
+
 Describe 'Get-MeetingRequest: what is not a request' {
     It 'leaves questions, notes and singular "meeting" alone' {
         foreach ($t in @(

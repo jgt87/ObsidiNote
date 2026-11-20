@@ -31,6 +31,7 @@ export async function getMeetingsOfDay(day: string, series = '', signal?: AbortS
     start: text(m.start),
     time: text(m.time),
     attendees: typeof m.attendees === 'number' ? m.attendees : 0,
+    joined: m.joined !== false,
     hasTranscript: m.hasTranscript === true,
     hasRecap: m.hasRecap === true,
     hasNotes: m.hasNotes === true,

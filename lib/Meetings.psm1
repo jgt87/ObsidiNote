@@ -61,10 +61,16 @@ function Format-PromptTitle([string]$Title) {
 }
 
 function New-MeetingDayPrompt {
-    <# The question for every Teams meeting of $Day (kit P10's day question, with the reference). #>
-    param([Parameter(Mandatory)][string]$Day, [Parameter(Mandatory)][string]$Ref)
-    "List all my Teams meetings on $Day, in the order they started. For each, say whether a transcript, a Copilot recap (intelligent recap) or meeting notes (for example Facilitator or Loop notes) exist that you can read. " +
-    'Answer only with one JSON object and no other text: {"ref": "' + $Ref + '", "meetings": [{"title": "...", "start": "yyyy-mm-dd hh:mm", "attendees": 0, "hasTranscript": true or false, "hasRecap": true or false, "hasNotes": true or false}]}. ' +
+    <# The question for every Teams meeting of $Day (kit P10's day question, with the reference).
+       Also the meetings the person was invited to and did not join (operator, 2026-11-20: "I didn't
+       join, but because I was invited I do have access to the transcript and Copilot summary"), and
+       with $Series every meeting of that series by name: a general list missed them. #>
+    param([Parameter(Mandatory)][string]$Day, [Parameter(Mandatory)][string]$Ref, [string]$Series = '')
+    $s = Get-MeetingText $Series $script:MaxTitle
+    "List all my Teams meetings on $Day, in the order they started: the ones I joined and also the ones I was invited to but did not join (their transcript or Copilot recap can still be shared with me). " +
+    $(if ($s) { 'Be sure to include every meeting on that day whose title contains "' + (Format-PromptTitle $s) + '". ' } else { '' }) +
+    'For each, say whether a transcript, a Copilot recap (intelligent recap) or meeting notes (for example Facilitator or Loop notes) exist that you can read, and whether I joined it. ' +
+    'Answer only with one JSON object and no other text: {"ref": "' + $Ref + '", "meetings": [{"title": "...", "start": "yyyy-mm-dd hh:mm", "attendees": 0, "joined": true or false, "hasTranscript": true or false, "hasRecap": true or false, "hasNotes": true or false}]}. ' +
     'If you cannot see my meetings of that day, answer {"ref": "' + $Ref + '", "meetings": []}.'
 }
 
@@ -89,7 +95,9 @@ function ConvertFrom-MeetingDayReply {
         $n = 0
         if ($m.PSObject.Properties['attendees']) { [void][int]::TryParse("$($m.attendees)", [ref]$n) }
         $t = Get-MeetingFlag $m 'hasTranscript'; $r = Get-MeetingFlag $m 'hasRecap'; $o = Get-MeetingFlag $m 'hasNotes'
-        $out.Add([ordered]@{ title = $title; start = $start; time = $time; attendees = [Math]::Max(0, $n); hasTranscript = $t; hasRecap = $r; hasNotes = $o; readable = ($t -or $r -or $o) })
+        # joined: false only when Copilot says so ("not joined" shows in the list); missing = joined.
+        $joined = -not ($m.PSObject.Properties['joined'] -and "$($m.joined)".Trim().ToLowerInvariant() -in 'false', 'no', 'n', '0', 'nee')
+        $out.Add([ordered]@{ title = $title; start = $start; time = $time; attendees = [Math]::Max(0, $n); joined = $joined; hasTranscript = $t; hasRecap = $r; hasNotes = $o; readable = ($t -or $r -or $o) })
     }
     @{ ok = $true; error = ''; meetings = @($out.ToArray()); flagForms = (Get-MeetingFlagForms @($j.value.meetings)) }
 }
@@ -99,6 +107,8 @@ function New-MeetingNotesPrompt {
     param([Parameter(Mandatory)][string]$Title, [string]$Start = '', [Parameter(Mandatory)][string]$Ref)
     $s = Get-MeetingText $Start 40
     'From the transcript, the Copilot recap or the meeting notes of my Teams meeting "' + (Format-PromptTitle $Title) + '"' + $(if ($s) { ' (started ' + $s + ')' } else { '' }) + ', write structured meeting notes for my personal wiki. ' +
+    # Invited but not joined (operator, 2026-11-20): the recording is shared with the invitees.
+    'I may not have joined this meeting myself: I was invited, so its transcript and Copilot recap are shared with me. Read them all the same. ' +
     # Attendees = who joined, not who was invited (operator, 2026-11-18: "previously it captured
     # everyone who joined, now it lists all of the invitees"). Only the address comes from the invitation.
     'Attendees are only the people who joined the meeting (who spoke in the transcript or are in its attendance), not everyone who was invited. ' +

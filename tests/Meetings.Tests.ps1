@@ -34,6 +34,15 @@ Describe 'A day''s meetings (pure)' {
         $p = New-MeetingDayPrompt -Day $script:Day -Ref 'rabc12345'
         $p | Should Match 'on 2031-04-09'
         $p | Should Match '"ref": "rabc12345"'
+        # Invited but not joined (operator, 2026-11-20).
+        $p | Should Match 'invited to but did not join'
+        $p | Should Not Match 'whose title contains'
+    }
+    It 'names the series when one was typed, and reads who did not join (2026-11-20)' {
+        (New-MeetingDayPrompt -Day $script:Day -Ref 'r1' -Series 'Daily "Sync" | Tidal') | Should Match 'whose title contains "Daily ''Sync'' \| Tidal"'
+        $reply = '{"ref":"r2","meetings":[{"title":"A","start":"2031-04-09 09:00","joined":false},{"title":"B","start":"2031-04-09 10:00","joined":"yes"},{"title":"C","start":"2031-04-09 11:00"}]}'
+        $x = ConvertFrom-MeetingDayReply -Reply $reply -Day $script:Day -Ref 'r2'
+        @($x.meetings | ForEach-Object { $_.joined }) -join ',' | Should Be 'False,True,True'
     }
     It 'keeps titled meetings of that day, says which can be read, and leaves out the rest' {
         $x = ConvertFrom-MeetingDayReply -Reply (Set-Ref $script:DayReply 'rabc12345') -Day $script:Day -Ref 'rabc12345'
@@ -77,6 +86,7 @@ Describe 'One meeting''s notes (pure)' {
         $p | Should Match 'meeting "The ''big'' sync" \(started 2031-04-09 10:00\)'
         $p | Should Match '"ref": "r9"'
         $p | Should Match 'never copy the transcript'
+        $p | Should Match 'I may not have joined this meeting myself'
     }
     It 'reads the notes: empty items out, one line each' {
         $n = ConvertFrom-MeetingNotesReply -Reply (Set-Ref $script:NotesReply 'r9') -Day $script:Day -Ref 'r9'

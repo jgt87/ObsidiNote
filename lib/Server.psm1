@@ -236,7 +236,7 @@ function Invoke-MeetingsDayRoute($State, [string]$Body) {
     if ($series.Length -gt 200) { return @{ status = 400; body = @{ error = 'series must be at most 200 characters.' } } }
     if (-not (Test-CopilotReady $State)) { return (Get-CopilotMissing 'meetings') }
     $ref = New-RequestRef
-    $a = Send-MeetingQuestion $State (New-MeetingDayPrompt -Day $day -Ref $ref)
+    $a = Send-MeetingQuestion $State (New-MeetingDayPrompt -Day $day -Ref $ref -Series $series)
     if (-not $a.ok) { return @{ status = 502; body = @{ error = $a.error } } }
     $x = ConvertFrom-MeetingDayReply -Reply $a.text -Day $day -Ref $ref
     if (-not $x.ok) { return @{ status = 502; body = @{ error = "Copilot's list of meetings could not be read: $($x.error) Try again." } } }

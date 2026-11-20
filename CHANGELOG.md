@@ -5,6 +5,10 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- "Fetch the meetings for this week with the topic of ‹name›" was not read as a meetings request (it said "Not sure yet"). The series can now be named in a sentence: after "with the topic of", "with the title", "called", "named", "titled", or in Dutch "met het onderwerp", "genaamd", "getiteld", with the time before or after it ("Get meetings called Garden sync last week"). A time in the middle or first counts too after Fetch, Get or Import ("Fetch meetings this week Daily Standup", "Fetch for this week meetings Daily Sync | A & B | Platform Governance"), and long Teams titles with "|" and "&" are taken whole. No upgrade step: nothing stored changes.
+- Meetings you were invited to but did not join were not listed or read, though their transcript and Copilot recap are shared with you. Copilot is now asked for those too (the list says "you did not join"), and when you name a series it is asked for that series by name. Not yet checked on the business tenant.
+
 ## [v0.12.18] - 2026-11-20
 
 ### Added
