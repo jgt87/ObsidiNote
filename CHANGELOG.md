@@ -5,6 +5,8 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.17] - 2026-11-20
+
 ### Added
 - **Merge duplicates** on a meeting series' page: when one meeting of the series has two pages (imported twice by an older version), ObsidiNote keeps one, adds the other's attendees, decisions, actions and links to it, points links to the other copy at it, and moves the copy to the Archive (Restore brings it back). Like Archive it always asks first and shows which page stays.
 
