@@ -5,6 +5,10 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- A meeting series named without a time ("Fetch Daily Sync meetings") was fetched for today only, so a series that does not meet that day came back empty. It now lists the past 7 days (workdays). Without a series, no time still means today.
+- "Fetch this weeks meetings ...", "Fetch meetings for the week ..." and "Fetch ‹long meeting title› this week" were read without the week (or not at all). "this weeks", "this week's" and "the week" now mean this week, and after Fetch, Get or Import a long name before the time is taken as the series when it reads as a meeting title (a "|" in it, or every word capitalised). No upgrade step: nothing stored changes.
+
 ## [v0.12.19] - 2026-11-20
 
 ### Fixed

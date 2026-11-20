@@ -110,8 +110,9 @@ function Find-WhenPhrase {
                 Get-AllDays $a $b
             }
         }
-        @{ re = "$lead(this|deze|current|huidige)\s+(work\s*)?week\s*$"; get = { param($m) $mo = Get-MondayOf $t; Get-WorkDays $mo $mo.AddDays(4) } }
-        @{ re = "$lead(last|previous|past|vorige|afgelopen)\s+(work\s*)?week\s*$"; get = { param($m) $mo = (Get-MondayOf $t).AddDays(-7); Get-WorkDays $mo $mo.AddDays(4) } }
+        # "this week", "the week", "this weeks" / "this week's" (the possessive typed without the word after it).
+        @{ re = "$lead(this|the|deze|current|huidige)\s+(work\s*)?week(?:s|'s|$([char]0x2019)s)?\s*$"; get = { param($m) $mo = Get-MondayOf $t; Get-WorkDays $mo $mo.AddDays(4) } }
+        @{ re = "$lead(last|previous|past|vorige|afgelopen)\s+(work\s*)?week(?:s|'s|$([char]0x2019)s)?\s*$"; get = { param($m) $mo = (Get-MondayOf $t).AddDays(-7); Get-WorkDays $mo $mo.AddDays(4) } }
         @{ re = "$lead(?:the\s+)?(?:last|past|previous|afgelopen|laatste|vorige)\s+(\d{1,2})\s+(work\s*days|workdays|werkdagen|days|dagen)\s*$"; get = {
                 param($m)
                 $n = [int]$m.Groups[1].Value
@@ -195,7 +196,12 @@ function Get-MeetingRequest {
         if (-not $verb.Success -or -not $when -or $when.error -or -not @($when.dates | Where-Object { $_ -le $Today.Date }).Count) { return $null }
         # A time right after the verb takes a series of any length ("Fetch this week Daily Sync | A & B");
         # else at most 5 words, so "Get the budget done this week and send it" stays a note.
-        if ($rest.Substring(0, $when.index).Trim() -and @(($rest.Remove($when.index, $when.length)).Trim() -split '\s+' | Where-Object { $_ }).Count -gt 5) { return $null }
+        # A longer series before the time must look like a meeting title: a "|" in it, or every word
+        # capitalised ("Fetch Daily Sync | A & B this week", "Get Weekly Garden Review last week").
+        $named = ($rest.Remove($when.index, $when.length)).Trim()
+        $nw = @($named -split '\s+' | Where-Object { $_ })
+        $titleLike = $named.Contains('|') -or -not @($nw | Where-Object { $_ -cmatch '^\p{Ll}' }).Count
+        if ($rest.Substring(0, $when.index).Trim() -and $nw.Count -gt 5 -and -not $titleLike) { return $null }
         $mw = [regex]::Match($rest, '^')   # empty, at the start: everything before the time is "before"
     }
     # Without a verb the time comes after the word ("meetings yesterday"); after a verb it may also
@@ -216,6 +222,9 @@ function Get-MeetingRequest {
     # A sentence, not a series name: more than 8 words without a verb, 20 with one (Teams titles are long).
     if (-not $quoted -and $words.Count -gt $(if ($verb.Success) { 20 } else { 8 })) { return $null }
     $r = [ordered]@{ days = @(); series = $series; when = 'today'; error = '' }
+    # No time: today; a named series without a time takes its meetings of the past 7 days (operator,
+    # 2026-11-20: a series fetched on a day it does not meet came back empty).
+    if (-not $when -and $series) { $r.when = 'the past 7 days'; $r.days = @(@(Get-WorkDays $Today.Date.AddDays(-6) $Today.Date) | ForEach-Object { $_ } | ForEach-Object { ConvertTo-IsoDay $_ }); return $r }
     if (-not $when) { $r.days = @(ConvertTo-IsoDay $Today.Date); return $r }
     $r.when = $rest.Substring($when.index, $when.length).Trim()
     if ($when.error) { $r.error = $when.error; return $r }

@@ -140,6 +140,31 @@ Describe 'Get-MeetingRequest: a series named in a sentence (operator, 2026-11-20
     }
 }
 
+Describe 'Get-MeetingRequest: a series fetched on a day it does not meet (operator, 2026-11-20)' {
+    It 'takes the past 7 days for a series without a time, today for no series' {
+        $r = Get-Req 'Fetch Daily Sync | Fernbrook & Tidal meetings'
+        (@($r.days)) -join ',' | Should Be '2031-04-07,2031-04-08,2031-04-09,2031-04-10,2031-04-11'
+        $r.when | Should Be 'the past 7 days'
+        # A Monday: last Tuesday to Friday, and the Monday itself.
+        (@((Get-MeetingRequest -Text 'Fetch Daily Standup meetings' -Today ([datetime]'2031-04-14')).days)) -join ',' | Should Be '2031-04-08,2031-04-09,2031-04-10,2031-04-11,2031-04-14'
+        Get-Days 'Fetch meetings' | Should Be '2031-04-11'
+    }
+    It 'reads "this weeks", "this week''s" and "the week" as this week' {
+        foreach ($t in @('Fetch this weeks meetings Daily Sync | Fernbrook', 'Fetch meetings for the week Daily Sync | Fernbrook', ('Fetch this week' + [char]0x2019 + 's meetings Daily Sync | Fernbrook'))) {
+            $r = Get-Req $t
+            $r.series | Should Be 'Daily Sync | Fernbrook'
+            @($r.days).Count | Should Be 5
+        }
+    }
+    It 'takes a long series before the time after a verb when it reads as a meeting title' {
+        $r = Get-Req 'Fetch Daily Sync | Fernbrook & Tidal | Garden Platform this week'
+        $r.series | Should Be 'Daily Sync | Fernbrook & Tidal | Garden Platform'
+        @($r.days).Count | Should Be 5
+        (Get-Req 'Get Weekly Garden Review Board Sync last week').series | Should Be 'Weekly Garden Review Board Sync'
+        Get-Req 'Get the slides ready for the review this week' | Should Be $null
+    }
+}
+
 Describe 'Get-MeetingRequest: what is not a request' {
     It 'leaves questions, notes and singular "meeting" alone' {
         foreach ($t in @(
