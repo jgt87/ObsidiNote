@@ -3,8 +3,7 @@
 // model: the meetings of a series are left out and their links go to the series' dot. That dot is the
 // series page ("‹series› (series)"); a series without one (or whose page is archived) keeps its
 // newest meeting as the dot. The List, the search, the page window and the Journal keep every
-// meeting: the series page links to each of them. "Each meeting of a series" in Filter's "Show on
-// the map" draws them all again.
+// meeting: the series page links to each of them.
 import type { GraphEdge, GraphModel, GraphPage } from './model'
 
 export interface SeriesFold {
@@ -16,8 +15,8 @@ export interface SeriesFold {
 
 const seriesKey = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
 
-/** The map's model with each series as one page; `seriesCount` on that page is its meeting count.
- *  A series with one meeting and no series page stays as it is. Pure. */
+/** The map's model with each series as one page; `seriesCount` on that page is its meeting count
+ *  (the map names the dot by it, pageLabel.ts). Pure. */
 export function foldSeries(model: GraphModel): SeriesFold {
   const meetings = new Map<string, GraphPage[]>()
   const seriesPages = new Map<string, GraphPage>()
@@ -38,12 +37,12 @@ export function foldSeries(model: GraphModel): SeriesFold {
     const page = seriesPages.get(key)
     const live = list.filter((m) => !m.archived)
     const newest = [...(live.length ? live : list)].sort((a, b) => (a.meetingAt! < b.meetingAt! ? 1 : a.meetingAt! > b.meetingAt! ? -1 : 0))[0]
-    const dot = page && !page.archived ? page : !page && list.length < 2 ? null : newest
-    if (!dot) continue
+    // A series with one meeting is a dot too: named by its series, never by the meeting's date.
+    const dot = page && !page.archived ? page : newest
     for (const m of list) if (m.id !== dot.id) dotOf.set(m.id, dot.id)
     counts.set(dot.id, list.length)
   }
-  if (!dotOf.size) return { model, dotOf }
+  if (!counts.size) return { model, dotOf }
   const pages = model.pages.filter((p) => !dotOf.has(p.id)).map((p) => (counts.has(p.id) ? { ...p, seriesCount: counts.get(p.id)! } : p))
   // Links of a folded meeting go to its series' dot; within one series they fall away; two links
   // between the same pages become one, the strongest.

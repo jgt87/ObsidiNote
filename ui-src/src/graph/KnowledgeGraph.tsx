@@ -72,10 +72,10 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   const choices = useMapChoices(model.source.readOnly, setFilterState)
   const { groupBy, filters } = choices
   const tags = useTagGrouping(model)
-  // One dot per meeting series on the map unless "Each meeting of a series" is on (seriesFold.ts);
-  // the List, the search and the page window keep the whole model.
-  const fold = useMemo(() => (filters.seriesMeetings ? null : foldSeries(model)), [model, filters.seriesMeetings])
-  const mapModel = fold && fold.dotOf.size ? fold.model : model
+  // One dot per meeting series on the map (seriesFold.ts); the List, the search and the page window
+  // keep the whole model.
+  const fold = useMemo(() => foldSeries(model), [model])
+  const mapModel = fold.model
   const mapIndex = useMemo(() => (mapModel === model ? index : buildIndex(mapModel)), [mapModel, model, index])
   const { layout: mapTopicLayout, sourceLayout, tagLayout, mapLayout } = useMapLayouts(mapModel, mapIndex, aspect, groupBy, tags.tagChoice)
   const layout = useMemo(() => (mapModel === model ? mapTopicLayout : layoutGraph(model, { aspect }, index)), [mapModel, model, mapTopicLayout, aspect, index])
@@ -86,7 +86,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   const { liveFilter, shown, allShown, hiddenArchived, matches, listMatches } = useVisiblePages(index, filter, search.query, focus)
   const { onStageActive, onSearchKey } = useSearchKeys({ ...search, matches, active, setActive, open: page.open })
   // The map's view of the visible pages, the matches and the active page: a folded meeting is its series' dot.
-  const dotOf = mapModel === model ? null : fold!.dotOf
+  const dotOf = fold.dotOf.size ? fold.dotOf : null
   const mapShown = useMemo(() => (allShown ? null : dotOf ? new Set(foldIds(shown, dotOf)) : shown), [allShown, shown, dotOf])
   const mapMatches = useMemo(() => (matches && dotOf ? foldIds(matches, dotOf) : matches), [matches, dotOf])
   const mapActive = active && dotOf?.has(active.id) ? { ...active, id: dotOf.get(active.id)! } : active

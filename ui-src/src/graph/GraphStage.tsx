@@ -22,8 +22,6 @@ export interface Filters {
   links: boolean
   mentions: boolean
   hubsOnly: boolean
-  /** Each meeting of a series as its own dot; off: one dot per series (seriesFold.ts). */
-  seriesMeetings?: boolean
 }
 
 export interface Active {

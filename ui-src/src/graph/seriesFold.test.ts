@@ -34,12 +34,15 @@ describe('foldSeries (operator, 2026-11-20: a series as one dot)', () => {
     expect(m.pages).toHaveLength(5)
     expect(m.pages[0].seriesCount).toBeUndefined()
   })
-  it('uses the newest meeting as the dot when the series has no page, and leaves a single meeting alone', () => {
+  it('uses the newest meeting as the dot when the series has no page, a single meeting too', () => {
     const f = foldSeries(model([meeting('m1', '2031-04-07'), meeting('m2', '2031-04-08')], [edge('m1', 'm2')]))
     expect(f.model.pages.map((p) => p.id)).toEqual(['m2'])
     expect(f.model.edges).toEqual([])
-    const one = model([meeting('m1', '2031-04-07')], [])
-    expect(foldSeries(one).model).toBe(one)
+    const one = foldSeries(model([meeting('m1', '2031-04-07')], []))
+    expect(one.model.pages.map((p) => p.id)).toEqual(['m1'])
+    expect(pageMapLabel(one.model.pages[0])).toBe('Garden sync · 1 meeting')
+    const none = model([page('pump')], [])
+    expect(foldSeries(none).model).toBe(none)
   })
   it('does not hide a series behind an archived series page', () => {
     const f = foldSeries(model([page('sp', { series: S, seriesPage: true, archived: true }), meeting('m1', '2031-04-07'), meeting('m2', '2031-04-08')], []))
