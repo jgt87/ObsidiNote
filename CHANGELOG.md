@@ -5,6 +5,9 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Knowledge graph**: meetings that belong to one series could still show as separate dots. The map matched series by their exact name, while ObsidiNote itself treats "Daily Sync | A & B" and "Daily Sync - A B" (and a name with a date in it) as one series; a meeting page without a start time was left out of its series; and a meeting page added before series existed, without a series, was never folded. The server now sends each page's series by its one rule, and the map folds every page of a series into one dot, existing pages included: a meeting page without a series counts by its title (without the date) when it came from Today's meetings or has a date in its title. No upgrade step: nothing stored changes; the map reads the series when it loads.
+
 ## [v0.12.24] - 2026-11-20
 
 ### Changed

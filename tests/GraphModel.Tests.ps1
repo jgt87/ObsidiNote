@@ -196,6 +196,7 @@ Describe 'ConvertTo-GraphModel: section, bucket and kind per page (tests/fixture
             $got.own | Should Be ([bool]$p.own)
             foreach ($k in 'series', 'meetingAt') { $got.$k | Should Be $(if ($p.PSObject.Properties[$k]) { $p.$k } else { '' }) }
             $got.seriesPage | Should Be ([bool]$(if ($p.PSObject.Properties['seriesPage']) { $p.seriesPage } else { $false }))
+            $got.seriesKey | Should Be $(if ($p.PSObject.Properties['seriesKey']) { $p.seriesKey } else { '' })
         }
     }
     It 'sends the tags of the shown source with their page counts, sorted by name, as a list' {
@@ -205,6 +206,17 @@ Describe 'ConvertTo-GraphModel: section, bucket and kind per page (tests/fixture
         @($fx.notebookTags).Count | Should Be 0
         $jn | Should Match '"tags":\[\]\}$'
         $jv | Should Match '"tags":\[\{"name":"follow up","count":1\},'
+    }
+    It 'gives a meeting page without a series its key from its title when it came from Today''s meetings or carries a date (operator, 2026-11-20: a series as one dot)' {
+        $m0 = New-IndexModel -Kind 'vault' -VaultId 'v1'
+        foreach ($r in @(
+                @{ key = 'a'; title = 'Kickoff 2031-04-08'; type = 'meeting' },
+                @{ key = 'b'; title = 'Kickoff 9-4-2031'; type = 'meeting' },
+                @{ key = 'c'; title = 'Garden sync'; type = 'meeting'; origin = 'meeting' },
+                @{ key = 'd'; title = 'Garden sync'; type = 'meeting' },
+                @{ key = 'e'; title = 'Plan 2031-04-08'; type = 'note' })) { $m0.pages[$r.key] = & (Get-Module Index) { param($x) New-PageRecord $x } $r }
+        $g = ConvertTo-GraphModel -Model $m0 -Source @{ kind = 'vault'; id = 'v1'; name = 'S'; readOnly = $false }
+        (@($g.pages | ForEach-Object { "$($_.id)=$($_.seriesKey)" }) -join ';') | Should Be 'a=kickoff;b=kickoff;c=garden sync;d=;e='
     }
     It 'says why a read-only source cannot be changed (readOnlyReason)' {
         $gv.source.readOnlyReason | Should Be ''

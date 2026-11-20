@@ -18,6 +18,7 @@
 Set-StrictMode -Version 2.0
 Import-Module (Join-Path $PSScriptRoot 'PageMeta.psm1')
 Import-Module (Join-Path $PSScriptRoot 'NotebookStructure.psm1')
+Import-Module (Join-Path $PSScriptRoot 'Meetings.psm1')
 
 $script:MinWebPages = 3   # a web site with fewer pages joins "Other web sites"
 # Order of the kinds in the sources list (the map packs the strongest linked first anyway).
@@ -89,6 +90,14 @@ function ConvertTo-GraphEntries($Page) {
     }
 }
 
+function Get-GraphSeriesKey($Page) {
+    $series = $(if ($Page.ContainsKey('series')) { [string]$Page['series'] } else { '' })
+    if ($series) { return (Get-MeetingSeriesKey $series) }
+    $title = [string]$Page.title
+    if ([string]$Page.type -eq 'meeting' -and $title -and ([string]$Page['origin'] -eq 'meeting' -or $title -match '\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\b')) { return (Get-MeetingSeriesKey $title) }
+    ''
+}
+
 function ConvertTo-GraphModel {
     <# GraphModel from an index model. $Source: @{ kind (vault|notebook); id; name; readOnly }.
        $LinkRules: @{ InternalHosts; CompanyNames } as the vault store files links (Sources view). #>
@@ -149,6 +158,11 @@ function ConvertTo-GraphModel {
             # (operator, 2026-11-18; pinned by tests/fixtures/graph-pages.json).
             series = $(if ($p.ContainsKey('series')) { [string]$p['series'] } else { '' })
             meetingAt = $(if ($p.ContainsKey('meetingAt')) { [string]$p['meetingAt'] } else { '' })
+            # seriesKey: which series the page belongs to, by the one rule the server groups series by
+            # (Get-MeetingSeriesKey: punctuation and dates aside), so the map draws each series as one
+            # dot (operator, 2026-11-20). A meeting page without a series counts by its title when it
+            # came from Today's meetings or carries a date ("Kickoff 2026-11-18"); '' otherwise.
+            seriesKey = (Get-GraphSeriesKey $p)
             # seriesPage: the overview page of a meeting series (record kind series, 2026-11-19), not a
             # meeting: the Journal and the series counts leave it out.
             seriesPage = ([string]$p['kind'] -eq 'series')

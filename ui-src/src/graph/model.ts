@@ -100,6 +100,9 @@ export interface GraphPage {
   /** The overview page of a meeting series (2026-11-19): not a meeting, so the Journal and the series
    *  counts leave it out. */
   seriesPage?: boolean
+  /** Which series the page belongs to, by the server's one rule (Get-MeetingSeriesKey: punctuation
+   *  and dates aside; a meeting without a series by its title), '' when none (2026-11-20). */
+  seriesKey?: string
   /** On the map only (seriesFold.ts): the series' dot stands for this many meetings. */
   seriesCount?: number
 }
@@ -281,6 +284,7 @@ function normalizePage(p: Record<string, unknown>, id: string, topicIds: Set<str
     entries: normalizeEntries(p.entries),
     series: str(p.series),
     meetingAt: str(p.meetingAt),
+    seriesKey: str(p.seriesKey),
     seriesPage: p.seriesPage === true,
   }
 }

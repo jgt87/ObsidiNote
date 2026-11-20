@@ -52,6 +52,30 @@ describe('foldSeries (operator, 2026-11-20: a series as one dot)', () => {
     const f = foldSeries(model([meeting('a1', '2031-04-07'), meeting('a2', '2031-04-08', { series: ' garden SYNC |  Tidal beds ' }), meeting('b1', '2031-04-07', { series: 'Pump review' }), meeting('b2', '2031-04-08', { series: 'Pump review' })], []))
     expect(f.model.pages.map((p) => p.id).sort()).toEqual(['a2', 'b2'])
   })
+  it('groups by the server\'s series key: punctuation and dates aside, with or without a start (existing pages)', () => {
+    const f = foldSeries(
+      model(
+        [
+          page('sp', { series: S, seriesPage: true, seriesKey: 'garden sync tidal beds' }),
+          meeting('m1', '2031-04-07', { series: 'Garden sync & Tidal beds', seriesKey: 'garden sync tidal beds' }),
+          page('m2', { series: 'Garden sync - Tidal beds 8-4-2031', seriesKey: 'garden sync tidal beds', meetingAt: '' }),
+          page('m3', { title: 'Garden sync Tidal beds 2031-04-09', seriesKey: 'garden sync tidal beds' }),
+        ],
+        [edge('m3', 'm1')],
+      ),
+    )
+    expect(f.model.pages.map((p) => p.id)).toEqual(['sp'])
+    expect(f.model.pages[0].seriesCount).toBe(3)
+  })
+  it('keys a series without the server\'s key by the same rule', () => {
+    const f = foldSeries(model([meeting('m1', '2031-04-07', { series: 'Garden sync | Tidal beds' }), meeting('m2', '2031-04-08', { series: 'garden SYNC & tidal beds 2031-04-08' })], []))
+    expect(f.model.pages.map((p) => p.id)).toEqual(['m2'])
+  })
+  it('names a dot known only by its title without the date', () => {
+    const f = foldSeries(model([page('k1', { title: 'Kickoff · 2031-04-07', seriesKey: 'kickoff', created: '2031-04-07' }), page('k2', { title: 'Kickoff · 2031-04-08', seriesKey: 'kickoff', created: '2031-04-08' })], []))
+    expect(f.model.pages.map((p) => p.id)).toEqual(['k2'])
+    expect(pageMapLabel(f.model.pages[0])).toBe('Kickoff · 2 meetings')
+  })
   it('maps ids of the full model to the map\'s dots', () => {
     const f = foldSeries(m)
     expect(foldIds(['m1', 'm2', 'pump', 'sp'], f.dotOf)).toEqual(['sp', 'pump'])

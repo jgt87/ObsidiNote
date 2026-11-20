@@ -21,9 +21,12 @@ export interface LabelPage {
   seriesCount?: number
 }
 
+const DATES = /\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\b/g
+
 /** The page's name on the map: "Daily Sync · 6 meetings" for a series' one dot, else the title. */
 export function pageMapLabel(p: LabelPage): string {
-  const series = (p.series ?? '').trim()
-  if (!series || !p.seriesCount) return p.title
+  if (!p.seriesCount) return p.title
+  // A meeting without a series (counted by its title): the title without its date and the dot.
+  const series = (p.series ?? '').trim() || p.title.replace(DATES, ' ').replace(/[\s\u00b7|:,-]+$/, '').replace(/\s+/g, ' ').trim() || p.title
   return `${shortSeriesName(series)} · ${p.seriesCount} ${p.seriesCount === 1 ? 'meeting' : 'meetings'}`
 }

@@ -13,7 +13,11 @@ export interface SeriesFold {
   dotOf: Map<string, string>
 }
 
-const seriesKey = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
+// The server's key (lib/Meetings.psm1 Get-MeetingSeriesKey) when it sent one; else the same rule
+// here: dates out, letters and digits only, lower case.
+const DATES = /\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\b/g
+export const seriesKeyOf = (p: GraphPage): string =>
+  (p.seriesKey ?? '').trim() || (p.series ?? '').replace(DATES, ' ').replace(/[^\p{L}\p{Nd}]+/gu, ' ').trim().toLowerCase()
 
 /** The map's model with each series as one page; `seriesCount` on that page is its meeting count
  *  (the map names the dot by it, pageLabel.ts). Pure. */
@@ -21,11 +25,11 @@ export function foldSeries(model: GraphModel): SeriesFold {
   const meetings = new Map<string, GraphPage[]>()
   const seriesPages = new Map<string, GraphPage>()
   for (const p of model.pages) {
-    const key = seriesKey(p.series ?? '')
+    const key = seriesKeyOf(p)
     if (!key) continue
     if (p.seriesPage) {
       if (!seriesPages.has(key) || (seriesPages.get(key)!.archived && !p.archived)) seriesPages.set(key, p)
-    } else if (p.meetingAt) {
+    } else {
       const list = meetings.get(key) ?? []
       list.push(p)
       meetings.set(key, list)
@@ -36,7 +40,8 @@ export function foldSeries(model: GraphModel): SeriesFold {
   for (const [key, list] of meetings) {
     const page = seriesPages.get(key)
     const live = list.filter((m) => !m.archived)
-    const newest = [...(live.length ? live : list)].sort((a, b) => (a.meetingAt! < b.meetingAt! ? 1 : a.meetingAt! > b.meetingAt! ? -1 : 0))[0]
+    const when = (m: GraphPage) => m.meetingAt || m.created || ''
+    const newest = [...(live.length ? live : list)].sort((a, b) => (when(a) < when(b) ? 1 : when(a) > when(b) ? -1 : 0))[0]
     // A series with one meeting is a dot too: named by its series, never by the meeting's date.
     const dot = page && !page.archived ? page : newest
     for (const m of list) if (m.id !== dot.id) dotOf.set(m.id, dot.id)
