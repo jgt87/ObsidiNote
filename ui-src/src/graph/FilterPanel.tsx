@@ -22,6 +22,7 @@ export interface MapShow {
   links: boolean
   mentions: boolean
   hubsOnly: boolean
+  seriesMeetings?: boolean
 }
 
 interface ButtonProps extends PanelProps {
@@ -120,7 +121,7 @@ function BoxSet({ legend, none, children }: { legend: string; none?: string; chi
   )
 }
 
-const SHOW_BOXES: [keyof MapShow, string][] = [['links', 'Links'], ['mentions', 'Mentions, not linked'], ['hubsOnly', 'Labels: hubs only']]
+const SHOW_BOXES: [keyof MapShow, string][] = [['links', 'Links'], ['mentions', 'Mentions, not linked'], ['hubsOnly', 'Labels: hubs only'], ['seriesMeetings', 'Each meeting of a series']]
 
 export function FilterButton({ index, filter, onChange, show, onShow, staleDays = 90 }: ButtonProps) {
   const pop = usePopover()
@@ -172,7 +173,7 @@ function ShowBoxes({ show, onShow }: { show?: MapShow; onShow?: ButtonProps['onS
   if (!show || !onShow) return null
   return (
     <BoxSet legend="Show on the map">
-      {SHOW_BOXES.map(([key, label]) => <Box key={`show:${key}`} label={label} checked={show[key]} onToggle={() => onShow(key, !show[key])} />)}
+      {SHOW_BOXES.map(([key, label]) => <Box key={`show:${key}`} label={label} checked={!!show[key]} onToggle={() => onShow(key, !show[key])} />)}
     </BoxSet>
   )
 }

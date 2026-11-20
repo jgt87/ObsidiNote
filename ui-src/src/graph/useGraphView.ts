@@ -37,7 +37,7 @@ export function useVisiblePages(index: GraphIndex, filter: GraphFilter, query: s
  */
 export function useMapChoices(readOnly: boolean, setFilter: (f: (prev: GraphFilter) => GraphFilter) => void) {
   const [groupBy, setGroupBy] = useState<GroupBy>('topics')
-  const [filters, setFilters] = useState<Filters>({ links: true, mentions: false, hubsOnly: false })
+  const [filters, setFilters] = useState<Filters>({ links: true, mentions: false, hubsOnly: false, seriesMeetings: false })
   const { staleDays, remember } = useGraphSettings(readOnly, (s) => {
     setGroupBy(s.graphView)
     setFilters((f) => ({ ...f, hubsOnly: s.labelsHubsOnly }))

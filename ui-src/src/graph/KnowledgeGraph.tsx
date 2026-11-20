@@ -4,6 +4,8 @@
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { FilterButton, FilterSummary } from './FilterPanel'
 import { buildIndex } from './graphIndex'
+import { layoutGraph } from './layout'
+import { foldIds, foldSeries } from './seriesFold'
 import { GraphHeading, GraphTools, SourceBanner, TagBar } from './GraphHeader'
 import { GraphList } from './GraphList'
 import { GraphStage, type Active } from './GraphStage'
@@ -70,13 +72,24 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   const choices = useMapChoices(model.source.readOnly, setFilterState)
   const { groupBy, filters } = choices
   const tags = useTagGrouping(model)
-  const { layout, sourceLayout, tagLayout, mapLayout } = useMapLayouts(model, index, aspect, groupBy, tags.tagChoice)
+  // One dot per meeting series on the map unless "Each meeting of a series" is on (seriesFold.ts);
+  // the List, the search and the page window keep the whole model.
+  const fold = useMemo(() => (filters.seriesMeetings ? null : foldSeries(model)), [model, filters.seriesMeetings])
+  const mapModel = fold && fold.dotOf.size ? fold.model : model
+  const mapIndex = useMemo(() => (mapModel === model ? index : buildIndex(mapModel)), [mapModel, model, index])
+  const { layout: mapTopicLayout, sourceLayout, tagLayout, mapLayout } = useMapLayouts(mapModel, mapIndex, aspect, groupBy, tags.tagChoice)
+  const layout = useMemo(() => (mapModel === model ? mapTopicLayout : layoutGraph(model, { aspect }, index)), [mapModel, model, mapTopicLayout, aspect, index])
 
   // The page window, the search box and its keys, and a quick-switcher request (useGraphInteraction.ts).
   const page = usePageDialog(stageRef, mode, setActive)
   const search = useGraphSearch(index, setActive, !!page.dialog)
   const { liveFilter, shown, allShown, hiddenArchived, matches, listMatches } = useVisiblePages(index, filter, search.query, focus)
   const { onStageActive, onSearchKey } = useSearchKeys({ ...search, matches, active, setActive, open: page.open })
+  // The map's view of the visible pages, the matches and the active page: a folded meeting is its series' dot.
+  const dotOf = mapModel === model ? null : fold!.dotOf
+  const mapShown = useMemo(() => (allShown ? null : dotOf ? new Set(foldIds(shown, dotOf)) : shown), [allShown, shown, dotOf])
+  const mapMatches = useMemo(() => (matches && dotOf ? foldIds(matches, dotOf) : matches), [matches, dotOf])
+  const mapActive = active && dotOf?.has(active.id) ? { ...active, id: dotOf.get(active.id)! } : active
   useFindRequest(request, model, { index, onQuery: search.onQuery, showList: () => setMode('list'), setActive, openRequested: page.openRequested, onRequestDone })
 
   // A tag picked in the page window or the List: the Tags grouping with that tag alone.
@@ -114,7 +127,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
       <SourceBanner source={model.source} appNote={readOnlyNote} checkResult={checkResult} onCheckAgain={onCheckAgain} />
       <SearchFilters query={search.query} onQuery={search.onQuery} />
       {mode === 'graph' && groupBy === 'tags' && (
-        <TagBar tags={tags.groupTags} choice={tags.tagChoice} onToggle={tags.toggleTag} onAll={() => tags.setTagChoice(null)} shownPages={mapLayout.dots.length} allPages={model.pages.length} />
+        <TagBar tags={tags.groupTags} choice={tags.tagChoice} onToggle={tags.toggleTag} onAll={() => tags.setTagChoice(null)} shownPages={mapLayout.dots.length} allPages={mapModel.pages.length} />
       )}
 
       <FilterSummary index={index} filter={liveFilter} onChange={setFilter} shown={shown.size} />
@@ -123,13 +136,13 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
 
       {mode === 'graph' ? (
         <GraphStage
-          index={index}
+          index={mapIndex}
           layout={mapLayout}
           areaWord={areaWordOf({ tags: !!tagLayout, sources: !!sourceLayout })}
           filters={filters}
-          shown={allShown ? null : shown}
-          matches={matches}
-          active={active}
+          shown={mapShown}
+          matches={mapMatches}
+          active={mapActive}
           onActive={onStageActive}
           onOpen={page.open}
           onFocusPage={focusOn}

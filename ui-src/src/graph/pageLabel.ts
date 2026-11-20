@@ -21,6 +21,7 @@ export interface LabelPage {
   series?: string
   meetingAt?: string
   seriesPage?: boolean
+  seriesCount?: number
 }
 
 /** The page's name on the map: "Daily Sync · Wed 18 Nov" for a meeting of a series (with its time
@@ -30,6 +31,8 @@ export function pageMapLabel(p: LabelPage, now: Date = new Date()): string {
   const series = (p.series ?? '').trim()
   if (!series) return p.title
   const short = shortSeriesName(series)
+  // One dot for the whole series (seriesFold.ts): its name and how many meetings it stands for.
+  if (p.seriesCount) return `${short} · ${p.seriesCount} ${p.seriesCount === 1 ? 'meeting' : 'meetings'}`
   if (p.seriesPage) return `${short} (series)`
   const at = (p.meetingAt ?? '').trim()
   const day = /^\d{4}-\d{2}-\d{2}/.exec(at)?.[0]
