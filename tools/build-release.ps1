@@ -19,11 +19,22 @@ if (git status --porcelain) { throw 'Working tree is not clean.' }
 # CI was red. Runs are looked up by the commit, not the branch, so a release from a worktree on its
 # own branch (lessons: committed build output) finds the runs of the commit that main pushed.
 $head = (git rev-parse HEAD).Trim()
-$json = (gh run list --commit $head --json status,conclusion,workflowName) -join "`n"
+# CI skips a push that changes only Markdown (ci.yml paths-ignore "**.md"), so the release commit
+# that only moves the CHANGELOG section has no run (v0.12.17, 2026-11-20). The runs checked are then
+# those of the nearest commit before it that changed anything else; the commits in between changed
+# only Markdown, which CI does not test.
+$ciCommit = $head
+for ($i = 0; $i -lt 50; $i++) {
+    $files = @(git diff-tree --no-commit-id --name-only -r $ciCommit | Where-Object { $_ })
+    if (@($files | Where-Object { $_ -notlike '*.md' }).Count) { break }
+    $ciCommit = (git rev-parse "$ciCommit^").Trim()
+}
+if ($ciCommit -ne $head) { Write-Host "HEAD changes only Markdown (CI skips it): checking the CI of $($ciCommit.Substring(0, 7))." }
+$json = (gh run list --commit $ciCommit --json status,conclusion,workflowName) -join "`n"
 if ($LASTEXITCODE -ne 0) { throw 'gh run list failed: is gh signed in?' }
 $parsed = $json | ConvertFrom-Json   # assigned first: PS 5.1 hands a JSON array over as one object
 $runs = @($parsed)
-if (-not $runs.Count) { throw "No CI run found for HEAD ($head). Push and let CI finish first." }
+if (-not $runs.Count) { throw "No CI run found for $ciCommit. Push and let CI finish first." }
 $notGreen = @($runs | Where-Object { $_.status -ne 'completed' -or $_.conclusion -ne 'success' })
 if ($notGreen.Count) { throw "CI for HEAD is not green: $(($notGreen | ForEach-Object { "$($_.workflowName) $($_.status)/$($_.conclusion)" }) -join ', '). Fix it before releasing." }
 
