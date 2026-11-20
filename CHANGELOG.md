@@ -5,6 +5,8 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.18] - 2026-11-20
+
 ### Added
 - **Meetings of other days, from the box.** Type `meetings yesterday`, `meetings 17-11`, `meetings 17-11 to 19-11`, `meetings last 3 days` or `meetings last week` (Dutch works too: `vergaderingen gisteren`) and press **Fetch meetings**: the Meetings panel lists those days, one Copilot question per day (a list of several days at once comes back empty), grouped by day, and you tick the ones to add as before. Name a series to keep only its meetings, for example `Daily Standup meetings this week` or `meetings of "Daily Standup" last week`: every occurrence of that week, oldest first, so each links to the one before. "This week" and "last week" are Monday to Friday; days still to come are left out; at most 14 days at once. A day Copilot could not list says so and can be tried again on its own. `Fetch`, `Get` or `Import` with a time works without the word "meetings" too: `Fetch yesterday`, `Get Daily Standup this week`, `Import last week`, `Fetch yesterday's meetings` (a time still to come, as in `Get milk tomorrow`, stays a note). Add or Ask mode, or a `+` in front, still adds or asks the text. No upgrade step: only how meetings are fetched changed; pages are filed as before.
 
