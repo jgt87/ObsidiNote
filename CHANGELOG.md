@@ -5,6 +5,15 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Merge duplicates** on a meeting series' page: when one meeting of the series has two pages (imported twice by an older version), ObsidiNote keeps one, adds the other's attendees, decisions, actions and links to it, points links to the other copy at it, and moves the copy to the Archive (Restore brings it back). Like Archive it always asks first and shows which page stays.
+
+### Changed
+- All meetings of a series sit under one topic on the map: the series page's topic (for a new series, the newest meeting's). A new meeting of the series takes it instead of the topic Copilot proposed.
+
+### Fixed
+- Meeting pages imported before series existed stayed apart from their series: the series was taken from Copilot's page title, which on pages of 17 November could name another series. Upgrade at the next start (step `meeting-join`, replacing `meeting-series`): each such page takes its series and start from its own text (the Teams title ObsidiNote wrote there), gets the series' title "‹series› · ‹day›" (a second copy of the same day keeps its time until merged), joins the series page, and every meeting of a series takes the series' topic (step `series-topics`). Nothing is archived at start: copies of one meeting wait for **Merge duplicates**.
+
 ## [v0.12.16] - 2026-11-19
 
 ### Changed

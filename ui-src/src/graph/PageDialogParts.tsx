@@ -337,12 +337,15 @@ export interface DialogFooterProps {
   canEdit: boolean
   onToggleEdit: () => void
   onRetirePages?: (action: RetireAction, ids: string[]) => void
+  /** "Merge duplicates" of the series (a series page only, with `copies` second copies of meetings). */
+  onMergePages?: (series: string) => void
+  copies?: number
   onFocusPage?: () => void
   /** The keys line: "Esc closes" and what the arrows do here. */
   keys: ReactNode
 }
 
-export function DialogFooter({ page, editing, readOnly, why, src, onAsk, seriesCount = 0, canEdit, onToggleEdit, onRetirePages, onFocusPage, keys }: DialogFooterProps) {
+export function DialogFooter({ page, editing, readOnly, why, src, onAsk, seriesCount = 0, canEdit, onToggleEdit, onRetirePages, onMergePages, copies = 0, onFocusPage, keys }: DialogFooterProps) {
   const open = openButtons(page, editing)
   return (
     <footer className="kg-dlg__foot">
@@ -371,6 +374,12 @@ export function DialogFooter({ page, editing, readOnly, why, src, onAsk, seriesC
       {onAsk && page.series && seriesCount > 1 && (
         <button type="button" className="btn" onClick={() => onAsk(page, { series: page.series ?? '', count: seriesCount })}>
           Ask about this series
+        </button>
+      )}
+      {/* The series page offers it only when a meeting of the series has a second copy (2026-11-19). */}
+      {onMergePages && !readOnly && page.series && copies > 0 && (
+        <button type="button" className="btn" onClick={() => onMergePages(page.series ?? '')}>
+          Merge duplicates ({copies})
         </button>
       )}
       {readOnly && (

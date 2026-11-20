@@ -252,6 +252,17 @@ function Format-MeetingPageTitle {
     "$Series $($script:Dot) $Day$(if ($Time) { ' ' + $Time } else { '' })"
 }
 
+function Test-MeetingPageTitle {
+    <# Whether $Title is the title ObsidiNote gives a meeting of $Series that starts at $MeetingAt:
+       "<series> . <day>", or with the time for a second meeting that day. Pages imported before
+       series existed carry Copilot's title and are joined to their series at start (2026-11-19). #>
+    param([AllowEmptyString()][string]$Title, [AllowEmptyString()][string]$Series, [AllowEmptyString()][string]$MeetingAt)
+    $day = Get-MeetingDayOf $MeetingAt
+    if (-not $Series -or -not $day) { return $false }
+    $time = Get-MeetingTimeOf $MeetingAt
+    ($Title -ceq (Format-MeetingPageTitle -Series $Series -Day $day)) -or ($time -and $Title -ceq (Format-MeetingPageTitle -Series $Series -Day $day -Time $time))
+}
+
 function Get-MeetingTimeOf([AllowEmptyString()][string]$MeetingAt) { if ($MeetingAt -match 'T(\d{2}:\d{2})') { $Matches[1] } else { '' } }
 
 function Test-MeetingSameOccurrence {
@@ -276,11 +287,17 @@ function Get-MeetingInfoFromText {
        <title>" and "Teams meeting on <day> at <time>."): @{ series; key; at; day }, or $null when the
        text is not one. Read from the text, so an Add that waited for Copilot (its Intake item keeps
        the text) files the same series. Pure. #>
-    param([AllowEmptyString()][AllowNull()][string]$Text)
+    # -Body: $Text is a meeting page's body read back from OneNote (the upgrade step meeting-join,
+    # 2026-11-19): the heading may come back at another level or as a bold line, and the linker may
+    # have put links in the title; they are read as their words.
+    param([AllowEmptyString()][AllowNull()][string]$Text, [switch]$Body)
     if (-not $Text) { return $null }
-    $m = [regex]::Match($Text, '(?m)^#\s*Meeting:\s*(.+?)\s*$')
+    $pattern = if ($Body) { '(?m)^\s*(?:#{1,6}\s*|\*\*)?Meeting:\s*(.+?)(?:\*\*)?\s*$' } else { '(?m)^#\s*Meeting:\s*(.+?)\s*$' }
+    $m = [regex]::Match($Text, $pattern)
     if (-not $m.Success) { return $null }
-    $series = Get-MeetingSeriesName $m.Groups[1].Value
+    $title = $m.Groups[1].Value
+    if ($Body) { $title = [regex]::Replace($title, '\[([^\]]+)\]\([^)]*\)', '$1') }
+    $series = Get-MeetingSeriesName $title
     if (-not $series) { return $null }
     $w = [regex]::Match($Text, 'Teams meeting on (\d{4}-\d{2}-\d{2})(?: at (\d{1,2}:\d{2}))?')
     $day = if ($w.Success) { $w.Groups[1].Value } else { '' }
@@ -443,4 +460,4 @@ function ConvertTo-SeriesPageText {
 
 function Get-MeetingDayOf([AllowEmptyString()][string]$MeetingAt) { if ($MeetingAt -match '^(\d{4}-\d{2}-\d{2})') { $Matches[1] } else { '' } }
 
-Export-ModuleMember -Function Get-MeetingDataFromText, ConvertTo-MeetingDataValue, ConvertFrom-MeetingDataValue, Format-SeriesPageTitle, New-SeriesSummaryPrompt, ConvertFrom-SeriesSummaryReply, ConvertTo-SeriesPageText, Get-MeetingSeriesName, Get-MeetingSeriesKey, Format-MeetingPageTitle, Format-MeetingAt, Get-MeetingDayOf, Get-MeetingTimeOf, Test-MeetingSameOccurrence, Get-MeetingInfoFromText, Test-MeetingDay, New-MeetingDayPrompt, ConvertFrom-MeetingDayReply, New-MeetingNotesPrompt, ConvertFrom-MeetingNotesReply, ConvertTo-MeetingNoteText
+Export-ModuleMember -Function Get-MeetingDataFromText, ConvertTo-MeetingDataValue, ConvertFrom-MeetingDataValue, Format-SeriesPageTitle, New-SeriesSummaryPrompt, ConvertFrom-SeriesSummaryReply, ConvertTo-SeriesPageText, Get-MeetingSeriesName, Get-MeetingSeriesKey, Format-MeetingPageTitle, Test-MeetingPageTitle, Format-MeetingAt, Get-MeetingDayOf, Get-MeetingTimeOf, Test-MeetingSameOccurrence, Get-MeetingInfoFromText, Test-MeetingDay, New-MeetingDayPrompt, ConvertFrom-MeetingDayReply, New-MeetingNotesPrompt, ConvertFrom-MeetingNotesReply, ConvertTo-MeetingNoteText

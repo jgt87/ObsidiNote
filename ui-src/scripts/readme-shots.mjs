@@ -156,35 +156,54 @@ function answer(path) {
   }
 }
 
+// ---------- the browser ----------
 let ws, id = 0
 const pending = new Map()
 const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => { const i = ++id; pending.set(i, { resolve, reject }); ws.send(JSON.stringify({ id: i, method, params, sessionId })) })
 
-async function main() {
-  let ver
-  for (let k = 0; k < 60 && !ver; k++) { try { ver = await (await fetch(`http://127.0.0.1:${PORT}/json/version`)).json() } catch { await wait(200) } }
+/** Edge's debug endpoint, once it answers (about 12 s at most; undefined when it never does). */
+async function debuggerVersion() {
+  for (let k = 0; k < 60; k++) {
+    try { return await (await fetch(`http://127.0.0.1:${PORT}/json/version`)).json() } catch { await wait(200) } // not up yet: try again
+  }
+  return undefined
+}
+
+/** A command's answer settles its promise; a paused API request is answered from answer(). */
+function onMessage(m) {
+  const d = JSON.parse(m.data)
+  if (d.id && pending.has(d.id)) { const p = pending.get(d.id); pending.delete(d.id); d.error ? p.reject(new Error(JSON.stringify(d.error))) : p.resolve(d.result) }
+  else if (d.method === 'Fetch.requestPaused') {
+    const { requestId, request } = d.params
+    const body = answer(new URL(request.url).pathname)
+    // A request of a page that has navigated away cannot be answered any more: nothing to do.
+    send('Fetch.fulfillRequest', { requestId, responseCode: body ? 200 : 404, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: Buffer.from(JSON.stringify(body ?? { error: 'not stubbed' })).toString('base64') }, d.sessionId).catch(() => {})
+  }
+}
+
+/** Opens a tab in the headless Edge and attaches to it; returns the tab's command function. */
+async function connect() {
+  const ver = await debuggerVersion()
   ws = new WebSocket(ver.webSocketDebuggerUrl)
   await new Promise((r) => ws.addEventListener('open', r))
   const { targetId } = await new Promise((resolve) => {
     ws.addEventListener('message', function first(m) { const d = JSON.parse(m.data); if (d.id === 1) { ws.removeEventListener('message', first); resolve(d.result) } })
     ws.send(JSON.stringify({ id: ++id, method: 'Target.createTarget', params: { url: 'about:blank' } }))
   })
-  ws.addEventListener('message', (m) => {
-    const d = JSON.parse(m.data)
-    if (d.id && pending.has(d.id)) { const p = pending.get(d.id); pending.delete(d.id); d.error ? p.reject(new Error(JSON.stringify(d.error))) : p.resolve(d.result) }
-    else if (d.method === 'Fetch.requestPaused') {
-      const { requestId, request } = d.params
-      const body = answer(new URL(request.url).pathname)
-      send('Fetch.fulfillRequest', { requestId, responseCode: body ? 200 : 404, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: Buffer.from(JSON.stringify(body ?? { error: 'not stubbed' })).toString('base64') }, d.sessionId).catch(() => {})
-    }
-  })
+  ws.addEventListener('message', onMessage)
   const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true })
-  const S = (m, p) => send(m, p, sessionId)
+  return (m, p) => send(m, p, sessionId)
+}
+
+/** What the scenes do in the tab: 1440x900, light, reduced motion, the API answered here. */
+async function tabTools(S) {
   const js = async (e) => (await S('Runtime.evaluate', { expression: e, awaitPromise: true, returnByValue: true })).result.value
   await S('Page.enable')
   await S('Fetch.enable', { patterns: [{ urlPattern: '*/api/*' }] })
   await S('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false })
   await S('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }, { name: 'prefers-reduced-motion', value: 'reduce' }] })
+  /** Polls a page expression every 100 ms until it is true or the tries run out. */
+  const until = async (expr, tries = 50) => { for (let k = 0; k < tries && !(await js(expr)); k++) await wait(100) }
   const go = async (path, ready) => {
     await S('Page.navigate', { url: 'about:blank' })
     await S('Page.navigate', { url: BASE + path })
@@ -210,97 +229,133 @@ async function main() {
     await S('Input.insertText', { text })
     await wait(900)
   }
+  /** Types into the Journal's search the way React sees typing (its own value setter, then input). */
+  const search = (text) => js(`(() => { const i = document.querySelector('.jr__field'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(i, ${JSON.stringify(text)}); i.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  /** Clicks the segmented button with this label (Topics | Sources | Tags, Map | List). */
+  const seg = (label) => js(`[...document.querySelectorAll('.seg__btn')].find((b) => b.textContent.trim() === ${JSON.stringify(label)}).click()`)
+  return { js, until, go, shot, mouse, dotOf, type, search, seg }
+}
 
-  await go('/graph-demo.html?pages=100', '.kg-dot')
-  graph = realTitles(JSON.parse(await js(`import('/src/graph/synthetic.ts').then((m) => JSON.stringify(m.syntheticGraph({ pages: 110, topics: 6, seed: 7 })))`)))
+// ---------- the scenes, in the order they are taken ----------
+
+/** The map's invented vault: the demo graph with real-looking titles, journal days and a series. */
+async function loadGraph(t) {
+  await t.go('/graph-demo.html?pages=100', '.kg-dot')
+  graph = realTitles(JSON.parse(await t.js(`import('/src/graph/synthetic.ts').then((m) => JSON.stringify(m.syntheticGraph({ pages: 110, topics: 6, seed: 7 })))`)))
   graph.source = { ...graph.source, id: 'v1', kind: 'vault', name: 'Work wiki', readOnly: false, readOnlyReason: '' }
   addJournal(graph)
+}
 
+async function homeAndAsk(t) {
   // 1 home: a question typed, the box says what it will do
-  await go('/#/', '.recent__row')
-  await type('What did we decide about remote access for the partner portal?')
-  await shot('home')
+  await t.go('/#/', '.recent__row')
+  await t.type('What did we decide about remote access for the partner portal?')
+  await t.shot('home')
 
   // 2 ask: the answer with its sources
   submitAnswer = askResult
-  await js(`document.querySelector('.composer__send').click()`)
-  for (let k = 0; k < 50 && !(await js(`!!document.querySelector('[aria-label="Answer"]')`)); k++) await wait(100)
+  await t.js(`document.querySelector('.composer__send').click()`)
+  await t.until(`!!document.querySelector('[aria-label="Answer"]')`)
   await wait(600)
-  await js(`window.scrollTo(0, 0)`)
-  await shot('ask')
+  await t.js(`window.scrollTo(0, 0)`)
+  await t.shot('ask')
+}
 
+async function addLink(t) {
   // 3 add: a pasted link, filed and linked
-  await go('/#/', '.recent__row')
+  await t.go('/#/', '.recent__row')
   submitAnswer = addResult
-  await type('https://fernbrook.example/sites/security/zero-trust-roadmap.docx')
-  await js(`document.querySelector('.composer__send').click()`)
-  for (let k = 0; k < 50 && !(await js(`!!document.querySelector('.add-result, [class*="add-res"]')`)); k++) await wait(100)
+  await t.type('https://fernbrook.example/sites/security/zero-trust-roadmap.docx')
+  await t.js(`document.querySelector('.composer__send').click()`)
+  await t.until(`!!document.querySelector('.add-result, [class*="add-res"]')`)
   await wait(700)
-  await shot('add')
+  await t.shot('add')
+}
 
+async function mapAndPage(t) {
   // 4 map: topics, one page pointed at
-  await go('/#/graph', '.kg-dot')
-  const at = await dotOf('Identity-aware proxies')
-  await mouse(at[0], at[1])
+  await t.go('/#/graph', '.kg-dot')
+  const at = await t.dotOf('Identity-aware proxies')
+  await t.mouse(at[0], at[1])
   await wait(700)
-  await shot('map')
+  await t.shot('map')
 
   // 5 page window: the page's own text
-  await mouse(at[0], at[1], true)
-  for (let k = 0; k < 50 && !(await js(`!!document.querySelector('dialog[open] .kg-body')`)); k++) await wait(100)
+  await t.mouse(at[0], at[1], true)
+  await t.until(`!!document.querySelector('dialog[open] .kg-body')`)
   await wait(500)
-  await shot('page')
+  await t.shot('page')
+}
 
+async function tagsAndList(t) {
   // 6 tags: one area per tag, the topics named inside
-  await go('/#/graph', '.kg-dot')
-  await js(`[...document.querySelectorAll('.seg__btn')].find((b) => b.textContent.trim() === 'Tags').click()`)
+  await t.go('/#/graph', '.kg-dot')
+  await t.seg('Tags')
   await wait(1000)
-  await mouse(5, 5)
-  await shot('tags')
+  await t.mouse(5, 5)
+  await t.shot('tags')
 
   // 7 list: every page in one table
-  await js(`[...document.querySelectorAll('.seg__btn')].find((b) => b.textContent.trim() === 'Topics').click()`)
+  await t.seg('Topics')
   await wait(400)
-  await js(`[...document.querySelectorAll('.seg__btn')].find((b) => b.textContent.trim() === 'List').click()`)
+  await t.seg('List')
   await wait(900)
-  await shot('list')
+  await t.shot('list')
+}
 
+async function journalOnTopic(t) {
   // 8 journal: one page per day, searched on a topic (everything about it, all sources and days)
-  await go('/#/journal', '.jr__row')
-  const topic = graph.topics.find((t) => t.name === 'Projects') ?? graph.topics[0]
-  await js(`(() => { const i = document.querySelector('.jr__field'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(i, 'proj'); i.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  await t.go('/#/journal', '.jr__row')
+  const topic = graph.topics.find((x) => x.name === 'Projects') ?? graph.topics[0]
+  await t.search('proj')
   await wait(300)
-  await js(`[...document.querySelectorAll('.jr__suggest button')].find((b) => b.textContent.endsWith(${JSON.stringify(topic.path)}))?.click()`)
+  await t.js(`[...document.querySelectorAll('.jr__suggest button')].find((b) => b.textContent.endsWith(${JSON.stringify(topic.path)}))?.click()`)
   await wait(500)
-  await shot('journal')
+  await t.shot('journal')
+}
 
+async function todaysMeetings(t) {
   // 9 today's meetings: the day's list, two added (one added, one still waiting for Copilot)
-  await go('/#/', '.mt')
-  await js(`[...document.querySelectorAll('.mt button')].find((b) => b.textContent.includes('Fetch')).click()`)
-  for (let k = 0; k < 50 && !(await js(`!!document.querySelector('.mt__row')`)); k++) await wait(100)
+  await t.go('/#/', '.mt')
+  await t.js(`[...document.querySelectorAll('.mt button')].find((b) => b.textContent.includes('Fetch')).click()`)
+  await t.until(`!!document.querySelector('.mt__row')`)
   submitQueue = [{ intent: 'add', status: 'added', page: { title: 'Migration wave 2: two teams still need laptops' } }, { intent: 'add', status: 'waiting', inboxId: 'i2', message: '' }]
-  await js(`[...document.querySelectorAll('.mt__row input')][3].click()`)
+  await t.js(`[...document.querySelectorAll('.mt__row input')][3].click()`)
   await wait(200)
-  await js(`[...document.querySelectorAll('.mt button')].find((b) => b.textContent.startsWith('Add ')).click()`)
-  for (let k = 0; k < 80 && !(await js(`!!document.querySelector('.mt__foot [role=status]')`)); k++) await wait(100)
+  await t.js(`[...document.querySelectorAll('.mt button')].find((b) => b.textContent.startsWith('Add ')).click()`)
+  await t.until(`!!document.querySelector('.mt__foot [role=status]')`, 80)
   submitQueue = null
-  await js(`window.scrollTo(0, 0)`)
+  await t.js(`window.scrollTo(0, 0)`)
   await wait(400)
-  await shot('meetings')
+  await t.shot('meetings')
+}
 
+async function seriesAndAsk(t) {
   // 10 a meeting series in the Journal: its meetings only, and "Ask about these meetings"
-  await go('/#/journal', '.jr__row')
-  await js(`(() => { const i = document.querySelector('.jr__field'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(i, 'stand-up'); i.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  await t.go('/#/journal', '.jr__row')
+  await t.search('stand-up')
   await wait(300)
-  await js(`[...document.querySelectorAll('.jr__suggest button')].find((b) => b.textContent.startsWith('Meetings:'))?.click()`)
+  await t.js(`[...document.querySelectorAll('.jr__suggest button')].find((b) => b.textContent.startsWith('Meetings:'))?.click()`)
   await wait(500)
-  await shot('series')
+  await t.shot('series')
 
   // 11 asking within that series: the home page with the limit above the box
-  await js(`[...document.querySelectorAll('.jr__series button')].find((b) => b.textContent.startsWith('Ask about'))?.click()`)
-  for (let k = 0; k < 50 && !(await js(`!!document.querySelector('#composer-text')`)); k++) await wait(100)
-  await type('What did the stand-ups say about laptops?')
-  await shot('ask-series')
+  await t.js(`[...document.querySelectorAll('.jr__series button')].find((b) => b.textContent.startsWith('Ask about'))?.click()`)
+  await t.until(`!!document.querySelector('#composer-text')`)
+  await t.type('What did the stand-ups say about laptops?')
+  await t.shot('ask-series')
+}
+
+async function main() {
+  const t = await tabTools(await connect())
+  await loadGraph(t)
+  await homeAndAsk(t)
+  await addLink(t)
+  await mapAndPage(t)
+  await tagsAndList(t)
+  await journalOnTopic(t)
+  await todaysMeetings(t)
+  await seriesAndAsk(t)
 }
 
 // Journal day pages of the last days and a decision page with the pages it came from (invented).

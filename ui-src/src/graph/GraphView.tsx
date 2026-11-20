@@ -19,12 +19,12 @@ export interface GraphViewProps extends Omit<KnowledgeGraphProps, 'model'> {
   onAdd?: () => void
 }
 
-export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, onTagPages, loadBody, onRetire, onUpdateLink, ...rest }: GraphViewProps) {
+export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, onTagPages, loadBody, onRetire, onUpdateLink, onMergeSeries, ...rest }: GraphViewProps) {
   const { state, refresh, retry } = useGraphLoad(load, sourceKey)
   const loaded = state.status === 'ready' ? state.model : null
   // Mentions, not linked: found here from titles, aliases and summaries (the server sends links only).
   const model = useMemo(() => (loaded ? withMentions(loaded) : null), [loaded])
-  const writes = useGraphWrites(model, refresh, { onLinkMention, onEditPage, onTagPages, loadBody, onRetire, onUpdateLink })
+  const writes = useGraphWrites(model, refresh, { onLinkMention, onEditPage, onTagPages, loadBody, onRetire, onUpdateLink, onMergeSeries })
   const title = rest.title ?? 'Knowledge graph'
 
   if (state.status === 'loading') return <GraphSkeleton title={title} />

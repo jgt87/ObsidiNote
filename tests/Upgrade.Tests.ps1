@@ -165,27 +165,86 @@ Describe 'Upgrade: meetings imported before series pages get their notes kept an
     }
 }
 
-Describe 'Upgrade: meeting pages from before series get their series (operator, 2026-11-18)' {
+Describe 'Upgrade: a meeting page whose text has no meeting line takes its series from its title (operator, 2026-11-18)' {
     $w = New-SyntheticVault
-    # Old shape: a page Today's meetings made on 17 Nov (v0.12.8-v0.12.10), Copilot's title with the date.
+    # Old shape: a meeting page with Copilot's title and the date in it, its text not ObsidiNote's meeting text.
     $pg = Find-FakePage $w.f 'Partner portal: access review notes'
     $pg.meta['obsn.type'] = 'meeting'; $pg.meta['obsn.origin'] = 'meeting'
     $rec = $w.open.model.pages['p2']
     $rec.type = 'meeting'; $rec.origin = 'meeting'; $rec.title = '2026-11-17 Garden sync Tidal beds'
     It 'plans the meeting page' {
-        (@(Get-UpgradePlan -Model $w.open.model) | Where-Object { $_.step -eq 'meeting-series' } | ForEach-Object { "$($_.id):$($_.to):$($_.type)" }) -join ',' | Should Be 'p2:Garden sync Tidal beds:2026-11-17'
+        (@(Get-UpgradePlan -Model $w.open.model) | Where-Object { $_.step -eq 'meeting-join' } | ForEach-Object { "$($_.id):$($_.to):$($_.type)" }) -join ',' | Should Be 'p2:Garden sync Tidal beds:2026-11-17'
     }
     $r = Invoke-VaultUpgrade -Store $w.store
-    It 'writes the series and the day on the page and its index record, and says so' {
+    It 'writes the series, the day and the series'' title, and says so' {
         $r.status | Should Be 'done'
         $r.series | Should Be 1
-        (Format-UpgradeStatus $r).detail | Should Match '1 meeting page\(s\) given their series'
+        (Format-UpgradeStatus $r).detail | Should Match '1 meeting page\(s\) joined to their series'
         $pg.meta['obsn.series'] | Should Be 'Garden sync Tidal beds'
         $pg.meta['obsn.meetingAt'] | Should Be '2026-11-17'
         $w.open.model.pages['p2'].series | Should Be 'Garden sync Tidal beds'
+        $w.open.model.pages['p2'].title | Should Be "Garden sync Tidal beds $([char]0x00B7) 2026-11-17"
     }
     It 'finds nothing to do at the next start (idempotent)' {
-        (@(Get-UpgradePlan -Model $w.open.model) | Where-Object { $_.step -eq 'meeting-series' }).Count | Should Be 0
+        (@(Get-UpgradePlan -Model $w.open.model) | Where-Object { $_.step -eq 'meeting-join' }).Count | Should Be 0
+    }
+}
+
+Describe 'Upgrade: meeting pages of one series made by different versions are joined, one topic (operator, 2026-11-19)' {
+    Import-Module (Join-Path $root 'lib\Meetings.psm1') -Force -Global
+    $w = New-SyntheticVault
+    $teams = 'Garden sync | Tidal & Brook | Beds and pumps'
+    $dot = [char]0x00B7
+    $notes = @{ found = $true; date = ''; attendees = @(@{ name = 'Ada Example'; email = 'ada@example.com' }); summary = 'The beds move north.'; decisions = @('Move the beds.'); actions = @(); basedOn = 'transcript' }
+    $made = @{}
+    function Add-Meeting([string]$Key, [string]$Day, [string]$Title, [string]$Series, [string]$At, [string[]]$Topics) {
+        $text = ConvertTo-MeetingNoteText -Title $teams -Day $Day -Time '09:00' -Notes $notes
+        $id = & $w.store.NewId
+        $page = @{ id = $id; type = 'meeting'; bucket = (& $w.store.BucketForType 'meeting'); title = $Title; summary = 's'; topics = $Topics; aliases = @(); links = @(); status = ''; origin = 'meeting'
+            outlines = @(@{ role = 'body'; lines = (ConvertTo-BodyLines $text) }) }
+        if ($Series) { $page.series = $Series; $page.meetingAt = $At }
+        $cp = & $w.store.CreatePage $page
+        $page.pageId = [string]$cp['pageId']; $page.link = [string]$cp['link']; $page.section = [string]$cp['section']
+        & $w.store.IndexAddPage $page | Out-Null
+        $made[$Key] = $page
+    }
+    # 17 Nov twice, from versions before series: Copilot's titles; the 2026-11-18 step had given one of
+    # them the series of its title (another series than the meeting's own).
+    Add-Meeting 'a' '2026-11-17' '2026-11-17 Beds and pumps review' 'Beds and pumps review' '2026-11-17' @('Garden/Beds')
+    Add-Meeting 'b' '2026-11-17' '2026-11-17 Garden sync Tidal & Brook Beds' '' '' @('Projects')
+    # 18 and 19 Nov, from versions with series: the series' titles, each in the topic Copilot chose.
+    Add-Meeting 'c' '2026-11-18' "$teams $dot 2026-11-18" $teams '2026-11-18T09:00' @('Ops')
+    Add-Meeting 'd' '2026-11-19' "$teams $dot 2026-11-19" $teams '2026-11-19T09:00' @('Garden')
+    It 'plans the two old pages to be joined, and only those' {
+        (@(Get-UpgradePlan -Model $w.open.model) | Where-Object { $_.step -eq 'meeting-join' } | ForEach-Object { $_.id } | Sort-Object) -join ',' | Should Be ((@($made.a.id, $made.b.id) | Sort-Object) -join ',')
+    }
+    $r = Invoke-VaultUpgrade -Store $w.store
+    $rec = { param($k) $w.open.model.pages[$made[$k].id] }
+    It 'takes the series and the start from the page''s own text, not its title' {
+        $r.status | Should Be 'done'
+        foreach ($k in 'a', 'b') {
+            (& $rec $k).series | Should Be $teams
+            (& $rec $k).meetingAt | Should Be '2026-11-17T09:00'
+            (ConvertFrom-ObsnMeta -Meta $w.f.Nodes[$made[$k].pageId].meta).series | Should Be $teams
+        }
+    }
+    It 'gives them the series'' titles; the second copy of the day carries the time until it is merged' {
+        (@('a', 'b' | ForEach-Object { (& $rec $_).title } | Sort-Object) -join ' / ') | Should Be "$teams $dot 2026-11-17 / $teams $dot 2026-11-17 09:00"
+    }
+    It 'writes one series page that links all four, with the newest meeting''s topic' {
+        $sp = @($w.open.model.pages.Values | Where-Object { $_.kind -eq 'series' })
+        $sp.Count | Should Be 1
+        @($sp[0].links).Count | Should Be 4
+        @($sp[0].topics) -join '|' | Should Be 'Garden'
+    }
+    It 'files every meeting of the series under that topic, and says so' {
+        foreach ($k in 'a', 'b', 'c', 'd') { @((& $rec $k).topics) -join '|' | Should Be 'Garden' }
+        $r.topics | Should Be 3
+        (Format-UpgradeStatus $r).detail | Should Match '2 meeting page\(s\) joined to their series'
+        (Format-UpgradeStatus $r).detail | Should Match '3 page\(s\) of a meeting series given the series'' topic'
+    }
+    It 'finds nothing to do at the next start (idempotent)' {
+        @(Get-UpgradePlan -Model $w.open.model | Where-Object { $_.step -in 'meeting-join', 'series-topics', 'series-page' }).Count | Should Be 0
     }
 }
 

@@ -4,7 +4,7 @@
 import { useMemo } from 'react'
 import { updateLink } from '../add/api'
 import { exportSourceOf } from '../export/exportApi'
-import { addLink, editPage, fetchPageBody, retirePages, tagPages } from './graphApi'
+import { addLink, editPage, fetchPageBody, mergeSeries, retirePages, tagPages } from './graphApi'
 import { mentionBetween } from './mentions'
 import type { GraphModel } from './model'
 import type { PageActions } from './PageDialog'
@@ -77,6 +77,24 @@ function useRetire(model: GraphModel | null, refresh: () => Promise<void>, given
   }, [given, model, refresh])
 }
 
+/** "Merge duplicates" of a meeting series: after a result the map is read again in place (the copy
+ *  went to the Archive); a plan writes nothing. A failed re-read is said in the result's message. */
+function useMergeSeries(model: GraphModel | null, refresh: () => Promise<void>, given: PageActions['onMergeSeries']) {
+  return useMemo<PageActions['onMergeSeries']>(() => {
+    if (!canWrite(model)) return undefined
+    const vault = model.source.id
+    return async (series, confirm) => {
+      const a = given ? await given(series, confirm) : await mergeSeries(series, vault, confirm)
+      if (a.kind === 'result' && a.result.status !== 'nothing') {
+        await refresh().catch(() => {
+          a.result.warnings.push('The map could not be read again; reload it to see the change.')
+        })
+      }
+      return a
+    }
+  }, [given, model, refresh])
+}
+
 /** One link page's Update (the List's "Update summaries"), then the map again, so the page's date
  *  and the stale filter follow; a failed re-read is left unsaid (the next one shows it). */
 function useUpdateLink(model: GraphModel | null, refresh: () => Promise<void>, given: PageActions['onUpdateLink']) {
@@ -110,5 +128,6 @@ export function useGraphWrites(model: GraphModel | null, refresh: () => Promise<
     loadBody: useLoadBody(model, given.loadBody),
     onRetire: useRetire(model, refresh, given.onRetire),
     onUpdateLink: useUpdateLink(model, refresh, given.onUpdateLink),
+    onMergeSeries: useMergeSeries(model, refresh, given.onMergeSeries),
   }
 }

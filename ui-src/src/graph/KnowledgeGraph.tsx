@@ -14,6 +14,7 @@ import { useFindRequest, useGraphSearch, usePageDialog, usePageRetire, useSearch
 import { useGraphFilter, useMapChoices, useMapLayouts, useTagGrouping, useVisiblePages } from './useGraphView'
 import { SearchFilters } from '../search/SearchFilters'
 import type { FindRequest } from '../search/switcherModel'
+import { useMergeFlow } from './useMergeFlow'
 import './graph.css'
 
 export interface KnowledgeGraphProps extends PageActions {
@@ -89,6 +90,8 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   // the map or the List.
   const { dialog } = page
   const { retire, retirePages } = usePageRetire(actions.onRetire, page)
+  // "Merge duplicates" from a series page (2026-11-19): its outcome shows where Archive's does.
+  const merge = useMergeFlow(actions.onMergeSeries)
 
   const count = areaCount({ mode, groupBy, sources: mapLayout.areas.length, tags: tags.groupTags.length, topics: layout.areas.filter((a) => a.topic).length })
   return (
@@ -116,6 +119,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
 
       <FilterSummary index={index} filter={liveFilter} onChange={setFilter} shown={shown.size} />
       {!dialog && retire.notice}
+      {!dialog && merge.notice}
 
       {mode === 'graph' ? (
         <GraphStage
@@ -150,10 +154,17 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           }}
           {...actions}
           onRetirePages={retirePages}
-          notice={retire.notice}
+          onMergePages={actions.onMergeSeries ? (s) => void merge.start(s) : undefined}
+          notice={
+            <>
+              {retire.notice}
+              {merge.notice}
+            </>
+          }
         />
       )}
       {retire.dialog}
+      {merge.dialog}
     </div>
   )
 }

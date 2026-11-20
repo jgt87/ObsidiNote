@@ -131,38 +131,56 @@ function pageDay(p: GraphPage): { date: string; time: string } {
   return localParts(p.created || p.modified)
 }
 
-/** The journal, or everything relevant to a topic or words, grouped by day: newest day first, each
- *  day's items in the order they were written. Archived pages are left out. */
-export function buildJournal(model: GraphModel, filter: JournalFilter): JournalDay[] {
-  const words = wordsOf(filter.text)
-  const searching = Boolean(filter.topicId || words.length)
-  const items: (JournalItem & { date: string })[] = []
-  for (const p of model.pages) {
-    if (p.archived) continue
-    // A series chosen: its meeting pages only (2026-11-18).
-    if (filter.series) {
-      if (!isMeeting(p) || seriesKey(p.series ?? '') !== filter.series) continue
-      const day = pageDay(p)
-      if (day.date) items.push({ key: p.id, pageId: p.id, date: day.date, time: day.time, title: p.title, summary: p.summary, kind: 'page', type: p.kind, topicIds: p.topicIds, series: p.series ?? '' })
-      continue
-    }
-    if (isJournal(p) && p.entries?.length) {
-      for (const e of p.entries) {
-        if (!inTopic(e.topicIds, filter.topicId) || !hasWords(`${e.title} ${e.summary}`, words)) continue
-        const at = localParts(e.at)
-        items.push({ key: `${p.id}#${e.ref}`, pageId: p.id, date: at.date, time: at.time, title: e.title, summary: e.summary, kind: 'entry', type: p.kind, topicIds: e.topicIds, series: '' })
-      }
-      continue
-    }
-    if (!searching && !isJournal(p) && !isMeeting(p)) continue
-    if (!inTopic(p.topicIds, filter.topicId) || !hasWords(`${p.title} ${p.summary} ${p.aliases.join(' ')}`, words)) continue
-    const day = pageDay(p)
-    if (!day.date) continue
-    // A meeting shows its own start time; one without it (added before series) shows none, as the page
-    // only knows when it was added.
-    const time = isMeeting(p) && !(p.meetingAt ?? '').includes('T') ? '' : day.time
-    items.push({ key: p.id, pageId: p.id, date: day.date, time, title: p.title, summary: p.summary, kind: isJournal(p) ? 'journal' : 'page', type: p.kind, topicIds: p.topicIds, series: p.series ?? '' })
+/** Code-unit order of two strings ("yyyy-mm-dd" and "HH:mm" sort right this way). */
+const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+type DatedItem = JournalItem & { date: string }
+
+/** A page as one item on its own day ('' date when the page has none). */
+function pageItem(p: GraphPage, kind: JournalItem['kind'], day: { date: string; time: string }): DatedItem {
+  return { key: p.id, pageId: p.id, date: day.date, time: day.time, title: p.title, summary: p.summary, kind, type: p.kind, topicIds: p.topicIds, series: p.series ?? '' }
+}
+
+/** A series chosen (2026-11-18): the page is listed when it is one of that series' meetings. */
+function seriesItems(p: GraphPage, series: string): DatedItem[] {
+  if (!isMeeting(p) || seriesKey(p.series ?? '') !== series) return []
+  const day = pageDay(p)
+  return day.date ? [pageItem(p, 'page', day)] : []
+}
+
+/** A day page: its entries that match the topic and words, each on the day it was written. */
+function entryItems(p: GraphPage, topicId: string, words: string[]): DatedItem[] {
+  const out: DatedItem[] = []
+  for (const e of p.entries ?? []) {
+    if (!inTopic(e.topicIds, topicId) || !hasWords(`${e.title} ${e.summary}`, words)) continue
+    const at = localParts(e.at)
+    out.push({ key: `${p.id}#${e.ref}`, pageId: p.id, date: at.date, time: at.time, title: e.title, summary: e.summary, kind: 'entry', type: p.kind, topicIds: e.topicIds, series: '' })
   }
+  return out
+}
+
+/** Any other page: without a search only journal and meeting pages; with one, every page that matches. */
+function otherItems(p: GraphPage, topicId: string, words: string[], searching: boolean): DatedItem[] {
+  if (!searching && !isJournal(p) && !isMeeting(p)) return []
+  if (!inTopic(p.topicIds, topicId) || !hasWords(`${p.title} ${p.summary} ${p.aliases.join(' ')}`, words)) return []
+  const day = pageDay(p)
+  if (!day.date) return []
+  // A meeting shows its own start time; one without it (added before series) shows none, as the page
+  // only knows when it was added.
+  const time = isMeeting(p) && !(p.meetingAt ?? '').includes('T') ? '' : day.time
+  return [pageItem(p, isJournal(p) ? 'journal' : 'page', { date: day.date, time })]
+}
+
+/** The items of one page under the filter. */
+function itemsOf(p: GraphPage, filter: JournalFilter, words: string[], searching: boolean): DatedItem[] {
+  if (p.archived) return []
+  if (filter.series) return seriesItems(p, filter.series)
+  if (isJournal(p) && p.entries?.length) return entryItems(p, filter.topicId, words)
+  return otherItems(p, filter.topicId, words, searching)
+}
+
+/** Items by day: newest day first, each day's items by time (a stable sort keeps the written order). */
+function groupByDay(items: DatedItem[]): JournalDay[] {
   const byDay = new Map<string, JournalItem[]>()
   for (const { date, ...item } of items) {
     const list = byDay.get(date) ?? []
@@ -170,30 +188,45 @@ export function buildJournal(model: GraphModel, filter: JournalFilter): JournalD
     byDay.set(date, list)
   }
   return [...byDay.entries()]
-    .sort((a, b) => (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0))
-    .map(([date, list]) => ({ date, items: list.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0)) }))
+    .sort((a, b) => byText(b[0], a[0]))
+    .map(([date, list]) => ({ date, items: list.sort((a, b) => byText(a.time, b.time)) }))
+}
+
+/** The journal, or everything relevant to a topic or words, grouped by day: newest day first, each
+ *  day's items in the order they were written. Archived pages are left out. */
+export function buildJournal(model: GraphModel, filter: JournalFilter): JournalDay[] {
+  const words = wordsOf(filter.text)
+  const searching = Boolean(filter.topicId || words.length)
+  return groupByDay(model.pages.flatMap((p) => itemsOf(p, filter, words, searching)))
+}
+
+/** The ids of the pages linked to $id either way (mentions do not count), in edge order. */
+function linkedIds(model: GraphModel, id: string): Set<string> {
+  const linked = new Set<string>()
+  for (const e of model.edges) {
+    if (e.kind === 'mention') continue
+    if (e.from === id) linked.add(e.to)
+    else if (e.to === id) linked.add(e.from)
+  }
+  return linked
+}
+
+/** A decision's sources: the live pages linked to it that are not decisions themselves, oldest first. */
+function decisionSources(model: GraphModel, byId: Map<string, GraphPage>, p: GraphPage): GraphPage[] {
+  return [...linkedIds(model, p.id)]
+    .map((id) => byId.get(id))
+    .filter((s): s is GraphPage => Boolean(s && !s.archived && s.kind !== 'decision'))
+    .sort((a, b) => byText(pageDay(a).date, pageDay(b).date))
 }
 
 /** A topic's decision pages with the pages each was derived from, newest first. */
 export function decisionsFor(model: GraphModel, topicId: string): DecisionItem[] {
   if (!topicId) return []
   const byId = new Map(model.pages.map((p) => [p.id, p]))
-  const out: DecisionItem[] = []
-  for (const p of model.pages) {
-    if (p.archived || p.kind !== 'decision' || !inTopic(p.topicIds, topicId)) continue
-    const linked = new Set<string>()
-    for (const e of model.edges) {
-      if (e.kind === 'mention') continue
-      if (e.from === p.id) linked.add(e.to)
-      else if (e.to === p.id) linked.add(e.from)
-    }
-    const sources = [...linked]
-      .map((id) => byId.get(id))
-      .filter((s): s is GraphPage => Boolean(s && !s.archived && s.kind !== 'decision'))
-      .sort((a, b) => (pageDay(a).date < pageDay(b).date ? -1 : pageDay(a).date > pageDay(b).date ? 1 : 0))
-    out.push({ page: p, date: pageDay(p).date, sources })
-  }
-  return out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+  return model.pages
+    .filter((p) => !p.archived && p.kind === 'decision' && inTopic(p.topicIds, topicId))
+    .map((p) => ({ page: p, date: pageDay(p).date, sources: decisionSources(model, byId, p) }))
+    .sort((a, b) => byText(b.date, a.date))
 }
 
 /** Topics whose path holds every word typed, shortest path first, at most $max. */

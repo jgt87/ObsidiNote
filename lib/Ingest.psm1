@@ -501,8 +501,9 @@ function Update-SeriesPage {
             Invoke-Store $Store 'IndexUpdatePage' @{ Page = @{ id = (Get-LkString $sp 'id'); summary = $summary; links = $links } } | Out-Null
             $id = Get-LkString $sp 'id'; $title = Get-LkString $sp 'title'
         } else {
-            # Its topics: the three most frequent of its meetings'.
-            $topics = @($days | ForEach-Object { @($_.topics) } | Where-Object { $_ } | Group-Object | Sort-Object Count -Descending | Select-Object -First 3 | ForEach-Object { $_.Name })
+            # Its topics: the newest meeting's; they are the series' topics from now on, which every
+            # meeting of the series takes (operator, 2026-11-19: one topic per series).
+            $topics = @(@($days[0].topics) | Where-Object { $_ })
             $id = [string](Invoke-Store $Store 'NewId')
             $title = Format-SeriesPageTitle $Info.series
             $page = @{
@@ -517,6 +518,163 @@ function Update-SeriesPage {
         $Result['series'] = @{ id = $id; title = $title; meetings = $days.Count; summary = $fresh; made = (-not $sp) }
         if ($Ask -and -not $fresh) { $Result.warnings = @($Result.warnings) + "The series page was written without a new summary: Copilot did not answer ($(if ($ans.error) { $ans.error } else { 'no usable answer' }))." }
     } catch { $Result.warnings = @($Result.warnings) + "The series page could not be written: $($_.Exception.Message)" }
+}
+
+# ---------------------------------------------------------------- merge same-meeting copies (2026-11-19)
+# Operator: "I also want obsidinote to be able to merge existing items if they are from the same
+# meeting series". Two pages of one series for one occurrence (same day; same time when both have
+# one) came from versions before the occurrence check of 2026-11-18. "Merge duplicates" on the series
+# page keeps one, adds the other's notes and links to it, points links to the other at it, and
+# archives the other (restorable). Like Archive, it always asks first.
+
+function Get-MeetingMergeRank {
+    <# Which copy of a meeting is kept: one with a start time, then one with its notes as data, then
+       one with the series' title, then the newest. A sortable string, highest first. #>
+    param($Page)
+    $at = Get-LkString $Page 'meetingAt'
+    $time = if (Get-MeetingTimeOf $at) { '1' } else { '0' }
+    $data = if ((Get-LkString $Page 'meetingData') -eq '1' -or (Get-LkString $Page 'meeting')) { '1' } else { '0' }
+    $title = if (Test-MeetingPageTitle -Title (Get-LkString $Page 'title') -Series (Get-LkString $Page 'series') -MeetingAt $at) { '1' } else { '0' }
+    "$time$data$title|$(Get-LkString $Page 'created')"
+}
+
+function Get-SeriesMergePlan {
+    <# The copies of one meeting in series $Key: @{ series; groups = @(@{ keep = @{ id; title };
+       extra = @(@{ id; title }) }) }, each group the pages of one occurrence, the kept one first by
+       Get-MeetingMergeRank. Pure over the index. #>
+    param($Index, [string]$Key)
+    $pages = @(Get-MeetingPagesOf $Index $Key | Sort-Object { Get-MeetingMergeRank $_ } -Descending)
+    $used = @{}; $groups = New-Object System.Collections.Generic.List[object]
+    foreach ($k in $pages) {
+        $kid = Get-LkString $k 'id'
+        if ($used.ContainsKey($kid)) { continue }
+        $used[$kid] = $true
+        $extra = @(foreach ($o in $pages) {
+                $oid = Get-LkString $o 'id'
+                if ($used.ContainsKey($oid) -or -not (Test-MeetingSameOccurrence (Get-LkString $k 'meetingAt') (Get-LkString $o 'meetingAt'))) { continue }
+                $used[$oid] = $true
+                @{ id = $oid; title = (Get-LkString $o 'title') }
+            })
+        if ($extra.Count) { $groups.Add(@{ keep = @{ id = $kid; title = (Get-LkString $k 'title') }; extra = $extra }) }
+    }
+    $series = if ($pages.Count) { Get-LkString $pages[0] 'series' } else { '' }
+    @{ series = $series; groups = $groups.ToArray() }
+}
+
+function Join-MeetingData {
+    <# The notes of two copies of one meeting as one: the kept copy's summary (the other's when it has
+       none), and every person, decision and action of both, once each, the kept copy's first. #>
+    param($Keep, $Extra)
+    if (-not $Keep) { return $Extra }
+    if (-not $Extra) { return $Keep }
+    $people = New-Object System.Collections.Generic.List[object]; $seen = @{}
+    foreach ($p in @(@($Keep.people) + @($Extra.people))) {
+        if (-not $p) { continue }
+        $k = if ([string]$p.email) { ([string]$p.email).ToLowerInvariant() } else { ([string]$p.name).ToLowerInvariant() }
+        if ($seen.ContainsKey($k)) { continue }
+        $seen[$k] = $true; $people.Add($p)
+    }
+    $decisions = @(@(@($Keep.decisions) + @($Extra.decisions)) | Where-Object { $_ } | Select-Object -Unique)
+    $actions = New-Object System.Collections.Generic.List[object]; $seenA = @{}
+    foreach ($a in @(@($Keep.actions) + @($Extra.actions))) {
+        if (-not $a -or $seenA.ContainsKey(([string]$a.text).ToLowerInvariant())) { continue }
+        $seenA[([string]$a.text).ToLowerInvariant()] = $true; $actions.Add($a)
+    }
+    @{ summary = $(if ([string]$Keep.summary) { [string]$Keep.summary } else { [string]$Extra.summary }); decisions = $decisions; actions = $actions.ToArray(); people = $people.ToArray() }
+}
+
+function Get-PageMeetingData {
+    <# A meeting page's notes as data: from its index record, else from the page's own Meta. #>
+    param($Store, $Rec)
+    $d = ConvertFrom-MeetingDataValue (Get-LkString $Rec 'meeting')
+    if ($d) { return $d }
+    try { ConvertFrom-MeetingDataValue (Get-LkString (Get-LkProp (Invoke-Store $Store 'ReadPage' @{ PageId = (Get-LkString $Rec 'pageId') }) 'meta' $null) 'meeting') } catch { $null }
+}
+
+function Merge-MeetingCopy {
+    <# One copy merged into the kept page: notes as data (and the kept page's text written again from
+       them when they grew), the copy's links added to the kept page, links to the copy pointed at the
+       kept page, then the copy archived. Returns @{ ok; warnings }. #>
+    param($Store, [string]$KeepId, [string]$ExtraId)
+    $warn = @()
+    $map = Get-IndexPageMap (Invoke-Store $Store 'GetIndex')
+    $keep = $map[$KeepId]; $extra = $map[$ExtraId]
+    # The notes: the kept page's text is ObsidiNote's own body outline, written again in the meeting's
+    # format when the other copy added someone or something (the person's "Your notes" stay as they are).
+    $kd = Get-PageMeetingData $Store $keep; $xd = Get-PageMeetingData $Store $extra
+    $md = Join-MeetingData $kd $xd
+    $was = if ($kd) { ConvertTo-MeetingDataValue $kd } else { '' }
+    $now = if ($md) { ConvertTo-MeetingDataValue $md } else { '' }
+    if ($now -and $now -cne $was) {
+        $at = Get-LkString $keep 'meetingAt'
+        $notes = @{ date = (Get-MeetingDayOf $at); summary = $md.summary; decisions = @($md.decisions); actions = @($md.actions); attendees = @($md.people | ForEach-Object { @{ name = [string]$_.name; email = [string]$_.email } }); basedOn = '' }
+        $text = ConvertTo-MeetingNoteText -Title (Get-LkString $keep 'series') -Day (Get-MeetingDayOf $at) -Time (Get-MeetingTimeOf $at) -Notes $notes
+        Invoke-Store $Store 'UpdatePage' @{ PageId = (Get-LkString $keep 'pageId'); Meta = @{ meeting = $now }; Outlines = @(@{ role = 'body'; lines = (ConvertTo-BodyLines $text) }); Title = $null } | Out-Null
+        Invoke-Store $Store 'IndexUpdatePage' @{ Page = @{ id = $KeepId; meeting = $now; meetingData = '1' } } | Out-Null
+    }
+    # The copy's links, on the kept page (never to itself or the copy).
+    $have = @(@(Get-LkProp $keep 'links' @()) | ForEach-Object { @{ target = [string](Get-LkProp $_ 'target' (Get-LkProp $_ 't' '')); strength = (Get-LkProp $_ 'strength' (Get-LkProp $_ 's' 1)); why = [string](Get-LkProp $_ 'why' (Get-LkProp $_ 'w' '')) } })
+    $haveT = @($have | ForEach-Object { $_.target })
+    $add = @(@(Get-LkProp $extra 'links' @()) | ForEach-Object { @{ target = [string](Get-LkProp $_ 'target' (Get-LkProp $_ 't' '')); strength = (Get-LkProp $_ 'strength' (Get-LkProp $_ 's' 1)); why = [string](Get-LkProp $_ 'why' (Get-LkProp $_ 'w' '')) } } |
+            Where-Object { $_.target -and $_.target -ne $KeepId -and $_.target -ne $ExtraId -and $haveT -notcontains $_.target })
+    if ($add.Count) {
+        $e = Edit-Page -Store $Store -Id $KeepId -Changes @{ links = @($have + $add) }
+        if ($e.status -notin 'edited', 'unchanged') { $warn += "The links of the other copy were not added: $($e.message)" }
+    }
+    # Links to the copy (other meetings of the series, pages that cite it) now point at the kept page.
+    # Get-IncomingSources returns its list with ',': assigned first, @() of the call would nest it.
+    $incoming = Get-IncomingSources -Index (Invoke-Store $Store 'GetIndex') -TargetId $ExtraId
+    foreach ($src in $incoming) {
+        $sid = [string]$src.id
+        if (-not $sid -or $sid -eq $KeepId -or $sid -eq $ExtraId) { continue }
+        $rec = (Get-IndexPageMap (Invoke-Store $Store 'GetIndex'))[$sid]
+        if (-not $rec -or (Get-LkString $rec 'kind') -eq 'series') { continue }   # the series page is written again after
+        $ls = @(@(Get-LkProp $rec 'links' @()) | ForEach-Object { @{ target = [string](Get-LkProp $_ 'target' (Get-LkProp $_ 't' '')); strength = (Get-LkProp $_ 'strength' (Get-LkProp $_ 's' 1)); why = [string](Get-LkProp $_ 'why' (Get-LkProp $_ 'w' '')) } })
+        $hasKeep = @($ls | Where-Object { $_.target -eq $KeepId }).Count
+        $new = @(foreach ($l in $ls) { if ($l.target -ne $ExtraId) { $l } elseif (-not $hasKeep) { $l.target = $KeepId; $l } })
+        $e = Edit-Page -Store $Store -Id $sid -Changes @{ links = $new }
+        if ($e.status -notin 'edited', 'unchanged') { $warn += "A link to the other copy on $(Get-LkString $rec 'title') was not moved: $($e.message)" }
+    }
+    $a = Invoke-PageRetire -Store $Store -Action archive -Ids @($ExtraId)
+    $warn += @($a.warnings | Where-Object { $_ })
+    @{ ok = ($a.status -eq 'done'); warnings = $warn; message = $a.message }
+}
+
+function Invoke-SeriesMerge {
+    <# "Merge duplicates" of one meeting series, after the person confirmed: each group of copies of one
+       meeting becomes its kept page (Merge-MeetingCopy), then the series page is written again without
+       asking Copilot. Returns @{ status = merged | nothing | refused | partial | failed; message;
+       merged (copies archived); groups; warnings; ms }. Never throws. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Store, [string]$Key)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $r = [ordered]@{ status = 'failed'; message = ''; merged = 0; groups = @(); warnings = @(); ms = 0 }
+    try {
+        try { Invoke-Store $Store 'AssertWritable' | Out-Null } catch { $r.status = 'refused'; $r.message = "Nothing was merged: $($_.Exception.Message)"; return $r }
+        $plan = Get-SeriesMergePlan -Index (Invoke-Store $Store 'GetIndex') -Key $Key
+        $r.groups = @($plan.groups)
+        if (-not @($plan.groups).Count) { $r.status = 'nothing'; $r.message = 'No meeting of this series has a second copy.'; return $r }
+        $failed = 0
+        foreach ($g in @($plan.groups)) {
+            foreach ($x in @($g.extra)) {
+                try {
+                    $m = Merge-MeetingCopy -Store $Store -KeepId $g.keep.id -ExtraId $x.id
+                    $r.warnings = @($r.warnings) + @($m.warnings)
+                    if ($m.ok) { $r.merged++ } else { $failed++; $r.warnings = @($r.warnings) + "$($x.title) was not archived: $($m.message)" }
+                } catch { $failed++; $r.warnings = @($r.warnings) + "$($x.title) was not merged: $($_.Exception.Message)" }
+            }
+        }
+        $res = @{ warnings = @(); timings = @{ copilotMs = 0 } }
+        Update-SeriesPage -Store $Store -Ask $null -Info @{ key = $Key; series = $plan.series } -Result $res
+        $r.warnings = @($r.warnings) + @($res.warnings)
+        $r.status = if ($failed) { 'partial' } else { 'merged' }
+        $r.message = "Merged $($r.merged) copy(ies) of a meeting into the kept page; the copies are in the Archive (Restore brings one back)."
+    } catch { $r.status = 'failed'; $r.message = "The merge stopped: $($_.Exception.Message)" }
+    finally {
+        $r.ms = [int]$sw.ElapsedMilliseconds
+        Write-AppLog info ingest 'Series merge finished' @{ status = $r.status; merged = $r.merged; groups = @($r.groups).Count; ms = $r.ms }
+    }
+    $r
 }
 
 function Find-WaitingMeeting {
@@ -619,6 +777,11 @@ function Invoke-TextAdd {
         # A second meeting of the series on the same day (another time): its title carries the time.
         $sameDay = @(Get-MeetingPagesOf $idx $mi.key | Where-Object { (Get-MeetingDayOf (Get-LkString $_ 'meetingAt')) -eq $mi.day })
         if ($mi.day) { $val.title = Format-MeetingPageTitle -Series $mi.series -Day $mi.day -Time $(if ($sameDay.Count) { Get-MeetingTimeOf $mi.at } else { '' }) }
+        # One topic per series (operator, 2026-11-19): a series that has its page files the meeting
+        # under the series page's topics, whatever Copilot proposed for this one.
+        $sp = Find-SeriesPage -Index $idx -Key $mi.key
+        $spTopics = @(if ($sp) { @(Get-LkProp $sp 'topics' @()) | Where-Object { $_ } })
+        if ($spTopics.Count) { $val.topics = @($spTopics | ForEach-Object { @{ path = [string]$_ } }) }
         $prev = Find-MeetingPrevious -Index $idx -Key $mi.key -At $mi.at
         if ($prev -and -not @($val.links | Where-Object { $_['target'] -eq $prev.id }).Count) {
             $val.links = @($val.links) + @(@{ target = [string]$prev.id; title = [string]$prev.title; link = [string](Get-LkProp $prev 'link' ''); anchor = ''; strength = 1; why = 'The previous meeting of this series.' })
@@ -1942,4 +2105,4 @@ function Rename-Tag {
     $r
 }
 
-Export-ModuleMember -Function Update-SeriesPage, Get-RetirePlan, Invoke-PageRetire, Set-PageTags, Rename-Tag, Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle, Add-PageLink, Test-PagesLinked, Edit-Page, Test-WeakLinkIt, Update-LinkItStrength
+Export-ModuleMember -Function Update-SeriesPage, Get-SeriesMergePlan, Invoke-SeriesMerge, Join-MeetingData, Get-RetirePlan, Invoke-PageRetire, Set-PageTags, Rename-Tag, Get-IngestStoreContract, Get-MissingStoreFunctions, New-RequestRef, Invoke-AddRequest, Receive-AddAnswer, Get-ChatAnswerFor, Undo-AddRequest, Update-LinkSummary, Add-AnchorLinks, ConvertTo-BodyLines, Get-IncomingSources, Get-InboxTitle, Add-PageLink, Test-PagesLinked, Edit-Page, Test-WeakLinkIt, Update-LinkItStrength

@@ -19,9 +19,14 @@
 #     checked (store RepairBodyLinks): in its own body outline only, a link that points at no page of
 #     the vault any more and whose text is the archived page's title or alias points at it again.
 #     Pages archived and restored before stay as they are (no mark says they moved).
-#   meeting-series (2026-11-18): a meeting page from Today's meetings (origin meeting) made before
-#     series existed gets obsn.series (its title without the date Copilot put in it) and obsn.meetingAt
-#     (that date, else the day it was made; no time is known). Meta and index record only; the title stays.
+#   meeting-join (2026-11-19, replaces meeting-series of 2026-11-18): a meeting page (origin meeting,
+#     or one with a series) whose title is not "<series> . <day>" is joined to its series. Series and
+#     start come from the page's own text ("# Meeting: <Teams title>", "Teams meeting on <day> at
+#     <time>"), else from its title as the 2026-11-18 step did (that step took Copilot's title on pages
+#     of 17 Nov, which made a second series of one meeting); then it gets the series' title (Edit-Page,
+#     so "Linked from" follows). Runs first; the rest of the plan is made again after it.
+#   series-topics (2026-11-19, operator: one topic per series): every meeting of a series and its
+#     series page carry the series page's topics (no page yet: the newest meeting's), through Edit-Page.
 #   series-data (2026-11-19): a meeting page of a series imported before its notes were kept as data
 #     gets obsn.meeting, read from its own body outline (attendees, summary, decisions, actions); the
 #     index marks it read (meetingData '1', or 'none' when the text held no notes), so it is read once.
@@ -67,6 +72,11 @@ function Get-UpgradePlan {
         if (-not [string]$p['meetingData'] -and -not [string]$p['meeting'] -and $p.oneNoteId) { @{ step = 'series-data'; id = [string]$p.id; from = ''; to = ''; type = '' } }
     }
     foreach ($key in @($series.Keys | Sort-Object)) {
+        $list = [object[]]$series[$key].ToArray()
+        $sp = if ($seriesPages.ContainsKey($key)) { $seriesPages[$key] } else { $null }
+        Get-SeriesTopicSteps -Meetings $list -SeriesPage $sp
+    }
+    foreach ($key in @($series.Keys | Sort-Object)) {
         $ids = @($series[$key] | ForEach-Object { [string]$_.id })
         $sp = if ($seriesPages.ContainsKey($key)) { $seriesPages[$key] } else { $null }
         $have = @(if ($sp) { foreach ($l in @($sp.links)) { if ($l) { [string]$(if ($l -is [Collections.IDictionary]) { $l['target'] } else { $l.target }) } } })
@@ -79,13 +89,8 @@ function Get-UpgradePlan {
     foreach ($p in @($Model.pages.Values)) {
         if ($p.owner -ne 'obsn' -or $p.status -eq 'archived') { continue }
         if (Test-WeakLinkIt -Links @($p.links)) { @{ step = 'link-strength'; id = [string]$p.id; from = ''; to = ''; type = '' } }
-        if ($p.type -eq 'meeting' -and [string]$p['origin'] -eq 'meeting' -and -not [string]$p['series']) {
-            $s = Get-MeetingSeriesName ([string]$p.title)
-            if ($s) {
-                $day = if ([string]$p.title -match '\b(\d{4}-\d{2}-\d{2})\b') { $Matches[1] } elseif ([string]$p['created'] -match '^(\d{4}-\d{2}-\d{2})') { $Matches[1] } else { '' }
-                @{ step = 'meeting-series'; id = [string]$p.id; from = ''; to = $s; type = $day }
-            }
-        }
+        $join = Get-MeetingJoinStep $p
+        if ($join) { $join }
         $u = [string]$p.url
         if ($u -notmatch '^(?i)https?://') { continue }
         $have = Get-BucketOfSection ([string]$p.section)
@@ -96,6 +101,71 @@ function Get-UpgradePlan {
     }
 }
 
+function Get-MeetingJoinStep {
+    <# meeting-join: a meeting page (from Today's meetings, or with a series) whose title is not the one
+       ObsidiNote gives a meeting of its series. to = the series its title gives, type = its day: what
+       the step uses when the page's own text has no meeting line. $null when nothing is to do. #>
+    param($Page)
+    $p = $Page
+    if ($p.owner -ne 'obsn' -or $p.status -eq 'archived' -or $p.type -ne 'meeting' -or [string]$p.kind -eq 'series' -or -not $p.oneNoteId) { return $null }
+    $series = [string]$p['series']
+    if ([string]$p['origin'] -ne 'meeting' -and -not $series) { return $null }
+    if (Test-MeetingPageTitle -Title ([string]$p.title) -Series $series -MeetingAt ([string]$p['meetingAt'])) { return $null }
+    $s = if ($series) { $series } else { Get-MeetingSeriesName ([string]$p.title) }
+    $day = if (Get-MeetingDayOf ([string]$p['meetingAt'])) { [string]$p['meetingAt'] } elseif ([string]$p.title -match '\b(\d{4}-\d{2}-\d{2})\b') { $Matches[1] } elseif ([string]$p['created'] -match '^(\d{4}-\d{2}-\d{2})') { $Matches[1] } else { '' }
+    if (-not $s -or -not $day) { return $null }
+    @{ step = 'meeting-join'; id = [string]$p.id; from = ''; to = $s; type = $day }
+}
+
+function Get-SeriesTopicSteps {
+    <# series-topics (2026-11-19, operator: one topic per series): every meeting of a series, and its
+       series page, carry the series' topics: the series page's own, else (no page yet, or a page
+       without topics) the newest meeting's. Steps carry the topics wanted. #>
+    param([object[]]$Meetings, $SeriesPage)
+    $newest = @($Meetings | Sort-Object { [string]$_['meetingAt'] } -Descending)[0]
+    # @(...) around each: an if returns a list of one as its item (AGENTS.md, 2026-11-15).
+    $spTopics = @(if ($SeriesPage) { @($SeriesPage.topics) | Where-Object { $_ } })
+    $want = @(if ($spTopics.Count) { $spTopics } else { @($newest.topics) | Where-Object { $_ } })
+    if (-not $want.Count) { return }
+    $key = $want -join '|'
+    $all = @($Meetings) + @(if ($SeriesPage) { $SeriesPage })
+    foreach ($p in $all) {
+        if ((@(@($p.topics) | Where-Object { $_ }) -join '|') -ne $key) { @{ step = 'series-topics'; id = [string]$p.id; from = ''; to = $key; type = ''; topics = $want } }
+    }
+}
+
+function Invoke-MeetingJoin {
+    <# One meeting-join step: the series and start from the page's own text when it has the meeting
+       line (Today's meetings wrote it), else from the plan (its title); then the title ObsidiNote gives
+       a meeting of its series, through Edit-Page so "Linked from" follows. A second page of the same
+       series and day keeps the time in its title when known; one without stays a same-day pair for
+       "Merge duplicates". Returns $true when something changed. #>
+    param($Store, $Model, [hashtable]$Step)
+    $p = $Model.pages[$Step.id]
+    $info = Get-MeetingInfoFromText -Text ([string](& $Store.BodyMarkdown ([string]$p.oneNoteId))) -Body
+    $series = if ($info) { [string]$info.series } else { [string]$Step.to }
+    $at = if ($info -and $info.at) { [string]$info.at } else { [string]$Step.type }
+    # A page that already has a start with a time keeps it when the text gives the day only.
+    if ((Get-MeetingDayOf ([string]$p['meetingAt'])) -eq (Get-MeetingDayOf $at) -and (Get-MeetingTimeOf ([string]$p['meetingAt'])) -and -not (Get-MeetingTimeOf $at)) { $at = [string]$p['meetingAt'] }
+    $changed = $false
+    if ($series -cne [string]$p['series'] -or $at -cne [string]$p['meetingAt']) {
+        & $Store.UpdatePage ([string]$p.oneNoteId) @{ series = $series; meetingAt = $at } @() $null | Out-Null
+        & $Store.IndexUpdatePage @{ id = $Step.id; series = $series; meetingAt = $at } | Out-Null
+        $changed = $true
+    }
+    $key = Get-MeetingSeriesKey $series
+    $day = Get-MeetingDayOf $at
+    $base = Format-MeetingPageTitle -Series $series -Day $day
+    $taken = @($Model.pages.Values | Where-Object { $_.id -ne $Step.id -and $_.type -eq 'meeting' -and $_.status -ne 'archived' -and [string]$_.title -ceq $base -and (Get-MeetingSeriesKey ([string]$_['series'])) -eq $key }).Count
+    $title = if ($taken -and (Get-MeetingTimeOf $at)) { Format-MeetingPageTitle -Series $series -Day $day -Time (Get-MeetingTimeOf $at) } else { $base }
+    if ($title -cne [string]$p.title) {
+        $e = Edit-Page -Store $Store -Id $Step.id -Changes @{ title = $title }
+        if ($e.status -notin 'edited', 'unchanged') { throw "title not changed ($($e.status))" }
+        $changed = $true
+    }
+    $changed
+}
+
 function Invoke-VaultUpgrade {
     <# Runs the plan through the vault store (lib/VaultStore.psm1 New-VaultStore). Returns
        @{ status = done | none | partial | skipped; planned; moved; raised; failed; reason }. Never throws.
@@ -104,7 +174,7 @@ function Invoke-VaultUpgrade {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Store)
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    $r = [ordered]@{ status = 'none'; planned = 0; changed = 0; moved = 0; raised = 0; relinked = 0; series = 0; meetingData = 0; seriesPages = 0; failed = 0; reason = '' }
+    $r = [ordered]@{ status = 'none'; planned = 0; changed = 0; moved = 0; raised = 0; relinked = 0; series = 0; topics = 0; meetingData = 0; seriesPages = 0; failed = 0; reason = '' }
     # Made before the try: when a later step stops the upgrade, the pages already changed and the
     # failures already collected are still reported (code review 2026-11-15).
     $failedIds = @{}; $changedIds = @{}
@@ -118,6 +188,18 @@ function Invoke-VaultUpgrade {
         if (-not $plan.Count) { return $r }
         # Read only: say so only when a page is known to differ (body-links pages are only checks).
         try { & $Store.AssertWritable | Out-Null } catch { if ($r.planned) { $r.status = 'skipped'; $r.reason = $_.Exception.Message }; return $r }
+        # meeting-join first: a page joined to its series changes which series the other steps see,
+        # so the rest of the plan is made again from the updated model (2026-11-19).
+        $joins = @($plan | Where-Object { $_.step -eq 'meeting-join' })
+        if ($joins.Count) {
+            foreach ($s in $joins) {
+                try { if (Invoke-MeetingJoin -Store $Store -Model $model -Step $s) { $r.series++; $changedIds[$s.id] = $true } }
+                catch { $failedIds[$s.id] = $true; Write-AppLog info upgrade 'Meeting join failed' @{ step = $s.step; id = $s.id; error = $_.Exception.GetType().Name } }
+            }
+            $model = & $Store.Model
+            $plan = @(Get-UpgradePlan -Model $model -InternalHosts @($rules.InternalHosts) -CompanyNames @($rules.CompanyNames) | Where-Object { $_.step -ne 'meeting-join' })
+            $r.planned = @(@($joins) + @($plan | Where-Object { $_.step -ne 'body-links' -and $_.step -ne 'series-page' }) | ForEach-Object { $_.id } | Select-Object -Unique).Count
+        }
         $targets = New-Object System.Collections.Generic.List[string]
         foreach ($s in $plan) {
             if ($s.step -eq 'body-links') {
@@ -143,13 +225,12 @@ function Invoke-VaultUpgrade {
                 else { $failedIds["series:$($s.from)"] = $true; $r.planned++; Write-AppLog info upgrade 'Series page failed' @{ step = $s.step; id = $s.id; warnings = @($res.warnings).Count } }
                 continue
             }
-            if ($s.step -eq 'meeting-series') {
+            if ($s.step -eq 'series-topics') {
                 try {
-                    $p = $model.pages[$s.id]
-                    & $Store.UpdatePage ([string]$p.oneNoteId) @{ series = $s.to; meetingAt = $s.type } @() $null | Out-Null
-                    & $Store.IndexUpdatePage @{ id = $s.id; series = $s.to; meetingAt = $s.type } | Out-Null
-                    $r.series++; $changedIds[$s.id] = $true
-                } catch { $failedIds[$s.id] = $true; Write-AppLog info upgrade 'Meeting series failed' @{ step = $s.step; id = $s.id; error = $_.Exception.GetType().Name } }
+                    $e = Edit-Page -Store $Store -Id $s.id -Changes @{ topics = @($s.topics) }
+                    if ($e.status -eq 'edited') { $r.topics++; $changedIds[$s.id] = $true }
+                    elseif ($e.status -ne 'unchanged') { throw "topics not changed ($($e.status))" }
+                } catch { $failedIds[$s.id] = $true; Write-AppLog info upgrade 'Series topics failed' @{ step = $s.step; id = $s.id; error = $_.Exception.GetType().Name } }
                 continue
             }
             if ($s.step -eq 'link-strength') {
@@ -195,7 +276,8 @@ function Format-UpgradeStatus {
     if ($Result.moved) { $done += "$($Result.moved) link page(s) moved to the section the current link rule asks for" }
     if ($Result.raised) { $done += "your own links on $($Result.raised) page(s) set to related" }
     if ($Result -is [Collections.IDictionary] -and $Result['relinked']) { $done += "links in the text of $($Result.relinked) page(s) point at the archived pages again" }
-    if ($Result -is [Collections.IDictionary] -and $Result['series']) { $done += "$($Result.series) meeting page(s) given their series" }
+    if ($Result -is [Collections.IDictionary] -and $Result['series']) { $done += "$($Result.series) meeting page(s) joined to their series" }
+    if ($Result -is [Collections.IDictionary] -and $Result['topics']) { $done += "$($Result.topics) page(s) of a meeting series given the series' topic" }
     if ($Result -is [Collections.IDictionary] -and $Result['meetingData']) { $done += "the notes of $($Result.meetingData) meeting page(s) kept for their series page" }
     if ($Result -is [Collections.IDictionary] -and $Result['seriesPages']) { $done += "$($Result.seriesPages) series page(s) written (summary at the next import of each series)" }
     if ($Result.status -eq 'done' -and -not $done.Count) { return $null }

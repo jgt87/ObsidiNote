@@ -4,6 +4,7 @@
 // X-ObsidiNote: 1, which the server requires.
 
 import type { PageEditRequest } from './editModel'
+import { parseMergePlan, parseMergeResult, type MergeAnswer } from './mergeModel'
 import { normalizeGraph, type GraphModel } from './model'
 import { parsePlan, parseResult, type RetireAction, type RetirePlan, type RetireResult } from './retireModel'
 
@@ -134,6 +135,21 @@ export async function retirePages(action: RetireAction, ids: string[], vault: st
   if (res.status === 409 && b.needsConfirm === true) return { kind: 'plan', plan: parsePlan(b.plan) }
   if (res.status !== 200) throw refusal(res, b)
   return { kind: 'result', result: parseResult(b, action) }
+}
+
+export const SERIES_MERGE_ROUTE = '/api/series/merge'
+
+/**
+ * "Merge duplicates" of a meeting series: POST /api/series/merge {series, vault, confirm}. Without
+ * confirm the server answers 409 needsConfirm with the plan the confirm shows (nothing written);
+ * that comes back as kind 'plan'. Throws GraphLoadError with the server's message otherwise.
+ */
+export async function mergeSeries(series: string, vault: string, confirm: boolean, fetcher: typeof fetch = fetch): Promise<MergeAnswer> {
+  const res = await send(SERIES_MERGE_ROUTE, { ...POST_JSON, body: JSON.stringify({ series, ...(vault ? { vault } : {}), ...(confirm ? { confirm: true } : {}) }) }, fetcher)
+  const b = await answerOf(res)
+  if (res.status === 409 && b.needsConfirm === true) return { kind: 'plan', plan: parseMergePlan(b.plan) }
+  if (res.status !== 200) throw refusal(res, b)
+  return { kind: 'result', result: parseMergeResult(b) }
 }
 
 export const LINK_ADD_ROUTE = '/api/link/add'

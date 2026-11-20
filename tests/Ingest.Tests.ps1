@@ -321,6 +321,28 @@ Describe 'A SharePoint link with your own words becomes its link page, the words
     }
 }
 
+Describe 'A meeting of a series takes the series'' topic (operator, 2026-11-19: one topic per series)' {
+    Import-Module (Join-Path $root 'lib\Meetings.psm1') -Global
+    $notes = @{ found = $true; date = ''; attendees = @('Ada Example'); summary = 'The beds move north.'; decisions = @(); actions = @(); basedOn = 'transcript' }
+    $day = { param($d) ConvertTo-MeetingNoteText -Title 'Garden sync | Tidal beds' -Day $d -Time '10:00' -Notes $notes }
+    $v = New-FakeVault
+    $c = New-FakeCopilot @((Get-GoodReply), (Get-GoodReply), (Get-GoodReply), (Get-GoodReply))
+    $r1 = Invoke-AddRequest -Request @{ text = (& $day '2031-04-08'); mode = 'add'; origin = 'meeting' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+    $sp = @($v.st.created.Values | Where-Object { $_['kind'] -eq 'series' })[0]
+    It 'gives a new series page the topics of its newest meeting' {
+        $r1.status | Should Be 'added'
+        $first = @($v.st.created.Values | Where-Object { $_['kind'] -ne 'series' })[0]
+        (@($sp['topics']) -join '|') | Should Be (@($first['topics']) -join '|')
+    }
+    It 'files the next meeting under the series page''s topics, not the ones Copilot proposed' {
+        $sp['topics'] = @('Garden/Beds')
+        $r2 = Invoke-AddRequest -Request @{ text = (& $day '2031-04-09'); mode = 'add'; origin = 'meeting' } -Store $v.store -Ask $c.ask -Options @{ Now = $script:Now }
+        $r2.status | Should Be 'added'
+        $second = @($v.st.created.Values | Where-Object { $_['kind'] -ne 'series' -and $_['title'] -like '*04-09' })[0]
+        (@($second['topics']) -join '|') | Should Be 'Garden/Beds'
+    }
+}
+
 Describe 'A daily meeting is one series of pages (operator, 2026-11-18)' {
     Import-Module (Join-Path $root 'lib\Meetings.psm1') -Global
     $notes = @{ found = $true; date = ''; attendees = @('Ada Example'); summary = 'The beds move north.'; decisions = @('Move them.'); actions = @(); basedOn = 'transcript' }
@@ -730,9 +752,9 @@ Describe 'Add writes no files' {
     It 'logs only ids, counts, states and timings' {
         $lines = @(Select-String -Path (Join-Path $here '..\lib\Ingest.psm1') -Pattern 'Write-AppLog' | ForEach-Object { $_.Line })
         # Add finished, Undo finished, Link it finished, Page edit finished, Tagging finished, Tag rename
-        # finished, Retire finished (archive/restore/delete: the action, status and counts) (ids, field
-        # names and counts only; never a tag's text or a page title).
-        $lines.Count | Should Be 8
+        # finished, Retire finished (archive/restore/delete: the action, status and counts), Series merge
+        # finished (status and counts) (ids, field names and counts only; never a tag's text or a page title).
+        $lines.Count | Should Be 9
         foreach ($l in $lines) { $l | Should Not Match '(?i)\$(text|title|message|prompt|reply|url|anchor|summary)\b|\.(text|title|message|url)\b' }
     }
 }

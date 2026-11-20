@@ -20,7 +20,8 @@ import { dialogKeysHint, pageLinks, type DialogTab } from './pageDialogModel'
 import { DialogFooter, DialogHeader, DialogTabs, NeighbourhoodTab, PageTab, rowNav, TopicTab, type Linking } from './PageDialogParts'
 import { PageEditForm } from './PageEditForm'
 import { pageReadOnlyWhy } from './readOnly'
-import { seriesCount } from '../model/series'
+import { seriesCopies, seriesCount } from '../model/series'
+import type { MergeAnswer } from './mergeModel'
 import { useDialogKeys, useModalDialog } from './usePageDialogKeys'
 import { usePageHistory } from './usePageHistory'
 
@@ -45,6 +46,9 @@ export interface PageActions {
   onRetire?: (action: RetireAction, ids: string[], confirm: boolean) => Promise<RetireAnswer>
   /** Update of one link page's summary (POST /api/link/update): the List's "Update summaries". */
   onUpdateLink?: (id: string) => Promise<AddStatus>
+  /** "Merge duplicates" of a meeting series (POST /api/series/merge). Without confirm it answers with
+   *  the plan the confirm shows (useMergeFlow). Read-only sources get none. */
+  onMergeSeries?: (series: string, confirm: boolean) => Promise<MergeAnswer>
 }
 
 interface Props extends PageActions {
@@ -60,11 +64,13 @@ interface Props extends PageActions {
   onPickTag?: (tag: string) => void
   /** Archive / Restore / Delete pressed (the graph asks first, useRetireFlow). */
   onRetirePages?: (action: RetireAction, ids: string[]) => void
+  /** "Merge duplicates" pressed on a series page (the graph asks first, useMergeFlow). */
+  onMergePages?: (series: string) => void
   /** What the last Archive / Restore / Delete did, shown at the top of the window. */
   notice?: ReactNode
 }
 
-export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFocusPage, onPickTag, onAsk, onEditPage, onLinkMention, onTagPages, loadBody, onRetirePages, notice }: Props) {
+export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFocusPage, onPickTag, onAsk, onEditPage, onLinkMention, onTagPages, loadBody, onRetirePages, onMergePages, notice }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [tab, setTab] = useState<DialogTab>('page')
   // Edit form open for this page (closes when another page is shown).
@@ -170,6 +176,8 @@ export function PageDialog({ index, pageId, anchorId, onNavigate, onClose, onFoc
           setEditing((e) => !e)
         }}
         onRetirePages={onRetirePages}
+        onMergePages={onMergePages}
+        copies={page.seriesPage && page.series ? seriesCopies(index.model.pages, page.series) : 0}
         onFocusPage={focusAndClose(onFocusPage, page.id, close)}
         keys={<span className="kg-dlg__keys">{dialogKeysHint((index.neighbours.get(anchorId) ?? []).length, history.canBack || history.canForward)}</span>}
       />

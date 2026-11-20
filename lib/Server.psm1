@@ -1309,6 +1309,32 @@ function Invoke-PagesRetireRoute($State, [string]$Body, [string]$Action) {
     @{ status = 200; body = [ordered]@{ status = $r.status; message = $r.message; action = $Action; done = [object[]]@($r.done); refused = [object[]]@($r.refused); failed = [object[]]@($r.failed); warnings = [object[]]@($r.warnings) } }
 }
 
+function Invoke-SeriesMergeRoute($State, [string]$Body) {
+    <# POST /api/series/merge {series, confirm[, vault]} (lib/Ingest.psm1 Get-SeriesMergePlan /
+       Invoke-SeriesMerge; no Copilot; operator, 2026-11-19): the copies of one meeting of a series
+       become one page, the other copies go to the Archive. Like Archive it always asks first: without
+       confirm = true it answers 409 {needsConfirm, plan: {series, groups: [{keep: {id, title}, extra:
+       [{id, title}]}]}} and writes nothing. 200 {status merged|partial|nothing, message, merged,
+       warnings}; 400 no series; 409 another vault's item or no writer lease. #>
+    try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
+    $s = Get-BodyValue $b 'series' ''
+    if ($s -isnot [string] -or -not (Get-MeetingSeriesKey $s) -or $s.Length -gt 400) { return @{ status = 400; body = @{ error = 'Which meeting series?' } } }
+    $key = Get-MeetingSeriesKey $s
+    if (Test-OtherVault $State $b) { return (Get-OtherVaultAnswer) }
+    $u = Use-ActiveVault $State
+    if (-not $u.ok) { return @{ status = $u.status; body = @{ error = $u.error } } }
+    $store = New-ServerStore $State $u
+    $c = Get-BodyValue $b 'confirm' $false
+    if (-not ($c -is [bool] -and $c)) {
+        $plan = Get-SeriesMergePlan -Index (& $store.GetIndex) -Key $key
+        return @{ status = 409; body = [ordered]@{ needsConfirm = $true; error = 'Merging asks first: confirm to go ahead.'; plan = [ordered]@{ series = [string]$plan.series; groups = [object[]]@($plan.groups) } } }
+    }
+    $r = Invoke-SeriesMerge -Store $store -Key $key
+    $code = switch ($r.status) { 'refused' { 409 } 'failed' { 500 } default { 200 } }
+    if ($code -ne 200) { return @{ status = $code; body = @{ error = $r.message; status = $r.status } } }
+    @{ status = 200; body = [ordered]@{ status = $r.status; message = $r.message; merged = [int]$r.merged; warnings = [object[]]@($r.warnings) } }
+}
+
 function Invoke-TagRenameRoute($State, [string]$Body) {
     <# POST /api/tags/rename {from, to[, vault]}: every page of the active vault that has the tag
        `from` gets `to` in its place (no duplicate); to = '' removes it (lib/Ingest.psm1 Rename-Tag).
@@ -1450,6 +1476,7 @@ function Invoke-ApiRoute {
         'POST /api/pages/tag' { return (Invoke-PagesTagRoute $State $Body) }
         'POST /api/tags/rename' { return (Invoke-TagRenameRoute $State $Body) }
         'POST /api/pages/archive' { return (Invoke-PagesRetireRoute $State $Body 'archive') }
+        'POST /api/series/merge' { return (Invoke-SeriesMergeRoute $State $Body) }
         'POST /api/pages/restore' { return (Invoke-PagesRetireRoute $State $Body 'restore') }
         'POST /api/pages/delete' { return (Invoke-PagesRetireRoute $State $Body 'delete') }
         # A new start on this PC asks this one to end (lib/Startup.psm1 Invoke-ReplaceRunning). The
