@@ -221,14 +221,19 @@ function Get-MeetingSeriesCounts($State) {
 }
 
 function Invoke-MeetingsDayRoute($State, [string]$Body) {
-    <# POST /api/meetings/day {day?}: the Teams meetings of one day (today when no day is sent), as
-       Copilot lists them with the person's own access (lib/Meetings.psm1). Read only: nothing is
-       written. 200 {day, meetings:[{title, start, time, attendees, hasTranscript, hasRecap,
-       hasNotes, readable}]}; 400 for a day that is no date; 503 without Copilot; 502 when Copilot's
+    <# POST /api/meetings/day {day?, series?}: the Teams meetings of one day (today when no day is
+       sent), as Copilot lists them with the person's own access (lib/Meetings.psm1); with series only
+       that series' meetings. Read only: nothing is written. 200 {day, meetings:[{title, start, time,
+       attendees, hasTranscript, hasRecap, hasNotes, readable}], total (before the series filter),
+       series}; 400 for a day that is no date; 503 without Copilot; 502 when Copilot's
        answer cannot be used. The log gets counts only, never a title. #>
     try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
     $day = Get-MeetingDayValue $b
     if (-not $day) { return @{ status = 400; body = @{ error = 'day must be a date written yyyy-mm-dd.' } } }
+    # series: only the meetings of that series (typed in the box, "Daily Standup meetings this week";
+    # 2026-11-20). Copilot still lists the whole day, which is the question kit P10 found to work.
+    $series = "$(Get-BodyValue $b 'series' '')".Trim()
+    if ($series.Length -gt 200) { return @{ status = 400; body = @{ error = 'series must be at most 200 characters.' } } }
     if (-not (Test-CopilotReady $State)) { return (Get-CopilotMissing 'meetings') }
     $ref = New-RequestRef
     $a = Send-MeetingQuestion $State (New-MeetingDayPrompt -Day $day -Ref $ref)
@@ -238,7 +243,9 @@ function Invoke-MeetingsDayRoute($State, [string]$Body) {
     # How Copilot wrote the transcript/recap/notes yes-no fields, as counts (2026-11-18): tells a list
     # that said no from one that said yes as text. Never a title.
     $ff = $x.flagForms
-    Write-AppLog info server 'Meetings of a day listed' @{ meetings = @($x.meetings).Count; readable = @($x.meetings | Where-Object { $_.readable }).Count; flagsJsonTrue = $ff.jsonTrue; flagsTextYes = $ff.textYes; flagsNo = $ff.no; flagsMissing = $ff.missing }
+    Write-AppLog info server 'Meetings of a day listed' @{ meetings = @($x.meetings).Count; readable = @($x.meetings | Where-Object { $_.readable }).Count; flagsJsonTrue = $ff.jsonTrue; flagsTextYes = $ff.textYes; flagsNo = $ff.no; flagsMissing = $ff.missing; seriesFilter = [bool]$series }
+    $total = @($x.meetings).Count
+    if ($series) { $x.meetings = @(@($x.meetings) | Where-Object { Test-MeetingInSeries -Title $_.title -Filter $series }) }
     # Each meeting's series and how many of its meetings are in the wiki already (another day), so the
     # window can say "part of a series" (operator, 2026-11-18). 0 when no vault is open.
     # inWiki / waiting (2026-11-18: fetched several times a day): this meeting has its page already, or
@@ -253,7 +260,7 @@ function Invoke-MeetingsDayRoute($State, [string]$Body) {
         $m.inWiki = [bool]@($starts | Where-Object { Test-MeetingSameOccurrence $_ $at }).Count
         $m.waiting = [bool]@($counts.waiting | Where-Object { $_.key -eq $k -and (Test-MeetingSameOccurrence $_.at $at) }).Count
     }
-    @{ status = 200; body = @{ day = $day; meetings = @($x.meetings) } }
+    @{ status = 200; body = @{ day = $day; meetings = @($x.meetings); total = $total; series = $series } }
 }
 
 function Invoke-MeetingsNotesRoute($State, [string]$Body) {
@@ -790,7 +797,8 @@ function Read-IntentRequest([string]$Body) {
 }
 
 function Get-SubmitRoute {
-    <# Where a submit goes (pure): @{ intent (add|ask); ingestMode (add|auto) } or @{ error }.
+    <# Where a submit goes (pure): @{ intent (add|ask|meetings); ingestMode (add|auto); meetings (a
+       meetings request: the days and series the window lists) } or @{ error }.
        Explicit mode wins; auto follows the intent rules; unclear goes to Add in auto mode, where
        Copilot's reply says add or ask (FEASIBILITY.md, Add or Ask from one input, rule 4). An Ask
        action (follow-up, save) is always Ask. #>
@@ -798,7 +806,12 @@ function Get-SubmitRoute {
     if ($Action -and $Action -ne 'ask') { return @{ intent = 'ask'; ingestMode = '' } }
     if ($Mode -eq 'add') { return @{ intent = 'add'; ingestMode = 'add' } }
     if ($Mode -eq 'ask') { return @{ intent = 'ask'; ingestMode = '' } }
-    $i = (Get-Intent -Text $Text -Mode 'auto').intent
+    $x = Get-Intent -Text $Text -Mode 'auto'
+    $i = $x.intent
+    if ($i -eq 'meetings') {
+        if ($x.meetings.error) { return @{ error = $x.meetings.error } }
+        return @{ intent = 'meetings'; ingestMode = ''; meetings = $x.meetings }
+    }
     switch ($i) {
         'ask' { return @{ intent = 'ask'; ingestMode = '' } }
         'add' { return @{ intent = 'add'; ingestMode = 'add' } }
@@ -1072,6 +1085,12 @@ function Invoke-SubmitRoute($State, [string]$Body) {
     $action = "$(Get-BodyValue $b 'action' '')"
     $route = Get-SubmitRoute -Text $text -Mode $mode -Action $action
     if ($route.ContainsKey('error')) { return @{ status = 400; body = @{ error = $route.error } } }
+    # A meetings request (2026-11-20): nothing is asked or written here; the window's Meetings panel
+    # lists those days, one POST /api/meetings/day each. No Copilot needed for this answer.
+    if ($route.intent -eq 'meetings') {
+        $m = $route.meetings
+        return @{ status = 200; body = @{ intent = 'meetings'; days = @($m.days); series = $m.series; when = $m.when } }
+    }
     # origin: where an added text came from. One check for Add, Ingest and Edit (Resolve-OriginId in
     # lib/NotebookStructure.psm1: null = typed, text must be a known id). An Ask has no origin: it
     # ignores the field and is never refused for it.

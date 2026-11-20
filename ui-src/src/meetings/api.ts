@@ -1,5 +1,5 @@
 // Calls of the Meetings panel (lib/Server.psm1; both read only, both ask Copilot):
-//   POST /api/meetings/day   { day? }                          -> { day, meetings }
+//   POST /api/meetings/day   { day?, series? }                 -> { day, meetings, total, series }
 //   POST /api/meetings/notes { title, start, time, day }       -> { found, text, ... } | { found: false, message }
 // A meeting's notes are then filed through the normal Add (api.ts submit, origin "meeting").
 import { ApiError, asList, request } from '../api'
@@ -19,10 +19,14 @@ async function post(path: string, body: unknown, signal?: AbortSignal): Promise<
 
 const text = (v: unknown): string => (typeof v === 'string' ? v : '')
 
-/** The Teams meetings of one day (today when day is ''), as Copilot lists them. */
-export async function getMeetingsOfDay(day: string, signal?: AbortSignal): Promise<{ day: string; meetings: Meeting[] }> {
-  const r = await post('/api/meetings/day', day ? { day } : {}, signal)
-  const meetings = asList(r.meetings as Meeting[] | Meeting | null).map((m) => ({
+/** The Teams meetings of one day (today when day is ''), as Copilot lists them; with a series only
+ *  that series' meetings (the server filters, 2026-11-20). */
+export async function getMeetingsOfDay(day: string, series = '', signal?: AbortSignal): Promise<{ day: string; meetings: Meeting[] }> {
+  const r = await post('/api/meetings/day', { ...(day ? { day } : {}), ...(series ? { series } : {}) }, signal)
+  const listed = text(r.day) || day
+  const meetings = asList(r.meetings as Meeting[] | Meeting | null).map((m, i) => ({
+    key: `${listed}#${i}`,
+    day: listed,
     title: text(m.title),
     start: text(m.start),
     time: text(m.time),
@@ -36,11 +40,11 @@ export async function getMeetingsOfDay(day: string, signal?: AbortSignal): Promi
     inWiki: m.inWiki === true,
     waiting: m.waiting === true,
   }))
-  return { day: text(r.day) || day, meetings }
+  return { day: listed, meetings }
 }
 
-/** One meeting's notes as the text an Add files. */
-export async function getMeetingNotes(m: Meeting, day: string, signal?: AbortSignal): Promise<MeetingNotes> {
-  const r = await post('/api/meetings/notes', { title: m.title, start: m.start, time: m.time, day }, signal)
+/** One meeting's notes as the text an Add files (asked for the day it was listed on). */
+export async function getMeetingNotes(m: Meeting, signal?: AbortSignal): Promise<MeetingNotes> {
+  const r = await post('/api/meetings/notes', { title: m.title, start: m.start, time: m.time, day: m.day }, signal)
   return r.found === true ? { found: true, text: text(r.text) } : { found: false, message: text(r.message) || 'Copilot could not read this meeting.' }
 }

@@ -1,5 +1,5 @@
 {
-  "about": "What Auto should make of a text typed or pasted in the box (lib/Intent.psm1 Get-Intent, mode auto). Invented texts, English and Dutch. want: ask | add | unclear. tests/Intent.Tests.ps1 runs every one; a wrong call the operator reports becomes a new line here (2026-11-18).",
+  "about": "What Auto should make of a text typed or pasted in the box (lib/Intent.psm1 Get-Intent, mode auto). Invented texts, English and Dutch. want: ask | add | unclear | meetings (a request for the Teams meetings of some days, 2026-11-20). tests/Intent.Tests.ps1 runs every one; a wrong call the operator reports becomes a new line here (2026-11-18).",
   "samples": [
     { "text": "What did we decide about the partner portal?", "want": "ask" },
     { "text": "what's the status of wave 2", "want": "ask" },
@@ -73,6 +73,16 @@
     { "text": "Gebeld met de leverancier, de pompen komen in april.", "want": "add" },
     { "text": "Afgesproken dat partners eerst gaan.", "want": "add" },
     { "text": "Gisteren overleg met het team over de verhuizing.", "want": "add" },
+    { "text": "meetings yesterday", "want": "meetings" },
+    { "text": "Daily Standup meetings this week", "want": "meetings" },
+    { "text": "fetch meetings of \"Garden sync\" last week", "want": "meetings" },
+    { "text": "vergaderingen gisteren", "want": "meetings" },
+    { "text": "Fetch yesterday", "want": "meetings" },
+    { "text": "Get Daily Standup this week", "want": "meetings" },
+    { "text": "Import last week", "want": "meetings" },
+    { "text": "Import the budget file", "want": "unclear" },
+    { "text": "What did we decide in the meetings last week?", "want": "ask" },
+    { "text": "meeting with Ada yesterday", "want": "add" },
     { "text": "Action items:\n- Ada orders laptops\n- Sam books the movers", "want": "add" },
     { "text": "Meeting notes\nAttendees: Ada, Sam\nWe went through the wave 2 plan.", "want": "add" },
     { "text": "Actiepunten:\n- Ada bestelt laptops\n- Sam boekt de verhuizers", "want": "add" },

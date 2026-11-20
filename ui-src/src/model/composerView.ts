@@ -38,7 +38,8 @@ export interface ComposerView {
 
 export function composerView(i: ComposerViewInput): ComposerView {
   const empty = !i.text.trim()
-  const showFrom = !empty && !i.onlyLink && i.mode !== 'ask' && i.intent !== 'ask'
+  // A meetings request files nothing itself either (2026-11-20).
+  const showFrom = !empty && !i.onlyLink && i.mode !== 'ask' && i.intent !== 'ask' && !(i.mode === 'auto' && i.intent === 'meetings')
   const liveFileUrl = i.fileLink && i.origin === 'file' && !empty ? i.fileLink.url : ''
   return {
     empty,

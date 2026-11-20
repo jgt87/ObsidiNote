@@ -28,3 +28,6 @@
   /* Lined up with the meeting's title: the tick (16px) and its gap to the left. */
   .mt__state { text-align: left; max-width: none; padding-left: calc(16px + var(--space-3)); }
 }
+/* Several days (2026-11-20): one quiet label per day above its rows, a divider above it. */
+.mt__day { margin: 0; padding: var(--space-3) var(--space-5) var(--space-1); font-size: var(--text-meta); font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mt__group + .mt__group { border-top: 1px solid var(--border); }

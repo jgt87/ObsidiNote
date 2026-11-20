@@ -26,6 +26,9 @@ export function intentLine(result: IntentResult | null, target: AddTarget | null
       return { lead: 'Will ask your wiki', text: `${result.reason}.`, choices: [{ label: 'Add it instead', mode: 'add' }] }
     case 'add':
       return { lead: 'Will add to your wiki', text: `${result.reason}.${addTargetNote(target)}`, choices: [{ label: 'Ask instead', mode: 'ask' }] }
+    case 'meetings':
+      // A command for the Meetings panel (2026-11-20): nothing is added or asked by sending it.
+      return { lead: 'Will fetch your meetings', text: `${result.reason}.`, choices: [{ label: 'Add it instead', mode: 'add' }, { label: 'Ask instead', mode: 'ask' }] }
     case 'unclear':
       // Both ways side by side: sent as it is, it is added and Copilot may still say it is a question.
       return {
@@ -43,5 +46,6 @@ export function intentLine(result: IntentResult | null, target: AddTarget | null
 export function primaryLabel(result: IntentResult | null): string {
   if (result?.intent === 'ask') return 'Ask'
   if (result?.intent === 'add') return 'Add'
+  if (result?.intent === 'meetings') return 'Fetch meetings'
   return 'Send'
 }

@@ -64,7 +64,7 @@ export function HomeView({ home, addTarget, notebook, choices, onChoices, source
       {/* design (round 2, 2026-11-15): after a send the result stands alone; what still waits for
           Copilot and what changed lately show while nothing was sent (and in History). */}
       {/* Today's meetings stays mounted while a send's result shows, so a run of Adds is not lost. */}
-      <MeetingsPanel onAdded={home.refreshActivity} />
+      <MeetingsPanel onAdded={home.refreshActivity} request={home.meetingsRequest} />
       {flow.kind === 'idle' && <WaitingList refreshKey={activityKey} onOpen={onOpenActive} />}
       {flow.kind === 'idle' && <RecentList notebook={notebook} onOpen={onOpenRecent} />}
     </div>

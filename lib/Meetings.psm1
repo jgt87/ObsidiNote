@@ -245,6 +245,16 @@ function Get-MeetingSeriesKey {
     ([regex]::Replace((Get-MeetingSeriesName $Series), '[^\p{L}\p{Nd}]+', ' ')).Trim().ToLowerInvariant()
 }
 
+function Test-MeetingInSeries {
+    <# Whether a meeting titled $Title belongs to the series $Filter typed in the box ("Daily Standup
+       meetings this week", 2026-11-20): the filter's words, in that order, inside the meeting's
+       series key ("standup" finds "Daily Standup | Team A"). Every meeting for an empty filter. Pure. #>
+    param([AllowEmptyString()][string]$Title, [AllowEmptyString()][string]$Filter)
+    $f = Get-MeetingSeriesKey $Filter
+    if (-not $f) { return $true }
+    (' ' + (Get-MeetingSeriesKey $Title) + ' ').Contains(' ' + $f + ' ')
+}
+
 function Format-MeetingPageTitle {
     <# "<series> . <day>": the title of one occurrence's page; "<series> . <day> <time>" for a second
        meeting of the same series on the same day (2026-11-18). #>
@@ -460,4 +470,4 @@ function ConvertTo-SeriesPageText {
 
 function Get-MeetingDayOf([AllowEmptyString()][string]$MeetingAt) { if ($MeetingAt -match '^(\d{4}-\d{2}-\d{2})') { $Matches[1] } else { '' } }
 
-Export-ModuleMember -Function Get-MeetingDataFromText, ConvertTo-MeetingDataValue, ConvertFrom-MeetingDataValue, Format-SeriesPageTitle, New-SeriesSummaryPrompt, ConvertFrom-SeriesSummaryReply, ConvertTo-SeriesPageText, Get-MeetingSeriesName, Get-MeetingSeriesKey, Format-MeetingPageTitle, Test-MeetingPageTitle, Format-MeetingAt, Get-MeetingDayOf, Get-MeetingTimeOf, Test-MeetingSameOccurrence, Get-MeetingInfoFromText, Test-MeetingDay, New-MeetingDayPrompt, ConvertFrom-MeetingDayReply, New-MeetingNotesPrompt, ConvertFrom-MeetingNotesReply, ConvertTo-MeetingNoteText
+Export-ModuleMember -Function Get-MeetingDataFromText, ConvertTo-MeetingDataValue, ConvertFrom-MeetingDataValue, Format-SeriesPageTitle, New-SeriesSummaryPrompt, ConvertFrom-SeriesSummaryReply, ConvertTo-SeriesPageText, Get-MeetingSeriesName, Get-MeetingSeriesKey, Test-MeetingInSeries, Format-MeetingPageTitle, Test-MeetingPageTitle, Format-MeetingAt, Get-MeetingDayOf, Get-MeetingTimeOf, Test-MeetingSameOccurrence, Get-MeetingInfoFromText, Test-MeetingDay, New-MeetingDayPrompt, ConvertFrom-MeetingDayReply, New-MeetingNotesPrompt, ConvertFrom-MeetingNotesReply, ConvertTo-MeetingNoteText

@@ -10,6 +10,7 @@ import type { AskChoices } from '../components/AskOptions'
 import type { Prefill } from '../components/Composer'
 import { pageSpecToText } from '../model/handoff'
 import { lastRun } from '../model/lastRun'
+import type { MeetingsRequest } from '../meetings/meetingsModel'
 
 /** What the home view shows under the box. Session state in memory only (it is content). */
 export type Flow =
@@ -43,6 +44,8 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
   // pages. Shown above the box with Remove; it stays for the next questions until removed.
   const [scope, setScope] = useState<SeriesScope | null>(null)
   const [clearKey, setClearKey] = useState(0)
+  // "meetings yesterday" sent from the box (2026-11-20): the Meetings panel lists these days.
+  const [meetingsRequest, setMeetingsRequest] = useState<MeetingsRequest | null>(null)
   const n = useRef(0)
   // The Ask that ran last, as it was sent: "Try again" repeats exactly this (the same conversation
   // for a follow-up, the same sources), never a similar call (code review 2026-11-15).
@@ -86,9 +89,17 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
     }
     const asking = willAsk(mode, intent)
     const run = () => {
-      setFlow(asking ? { kind: 'ask', view: { kind: 'progress', question: text, step: 1 } } : { kind: 'adding', text })
+      // A meetings request is answered at once, without Copilot: no "Adding" in between (2026-11-20).
+      if (!(mode === 'auto' && intent === 'meetings')) setFlow(asking ? { kind: 'ask', view: { kind: 'progress', question: text, step: 1 } } : { kind: 'adding', text })
       submit({ text, mode, sources: choices.sources, includeArchived: choices.includeArchived, ...(origin ? { origin } : {}), ...(fileUrl && !asking ? { fileUrl } : {}), ...(scope && asking ? { series: scope.series } : {}) }).then(
-        (r) => { if (r.intent === 'ask') showAsk(r); else showAdd(r); cleared() },
+        (r) => {
+          if (r.intent === 'ask') showAsk(r)
+          else if (r.intent === 'meetings') {
+            setFlow({ kind: 'idle' })
+            setMeetingsRequest({ days: r.days, series: r.series, when: r.when, key: ++n.current })
+          } else showAdd(r)
+          cleared()
+        },
         (e: unknown) => fail(text, e, asking),
       )
     }
@@ -143,7 +154,7 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
 
   // Today's meetings adds pages outside this flow: the waiting list and History read again after it.
   const refreshActivity = () => setChanges((c) => c + 1)
-  return { flow, busy, send, retryAsk: lastAsk.again, changes, refreshActivity, prefill, followUp, cancelFollowUp: () => setFollowUp(null), clearKey, add, askActions, askAbout, scope, askWithin, clearScope: () => setScope(null) }
+  return { flow, busy, send, retryAsk: lastAsk.again, changes, refreshActivity, meetingsRequest, prefill, followUp, cancelFollowUp: () => setFollowUp(null), clearKey, add, askActions, askAbout, scope, askWithin, clearScope: () => setScope(null) }
 }
 
 /** A meeting series to ask within: its name (sent as the series) and how many meetings it has. */

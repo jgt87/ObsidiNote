@@ -15,6 +15,11 @@ describe('composerView', () => {
     }
   })
 
+  it('no "From" and no Ask options for a meetings request in Auto; Add mode keeps "From" (2026-11-20)', () => {
+    expect(view({ intent: 'meetings' })).toMatchObject({ showFrom: false, sendOrigin: '', asking: false })
+    expect(view({ mode: 'add', intent: 'meetings' }).showFrom).toBe(true)
+  })
+
   it('Ask options show in Ask mode, or in Auto when the text reads as a question; not in Add mode', () => {
     expect(view({ mode: 'ask' }).asking).toBe(true)
     expect(view({ mode: 'auto', intent: 'ask' }).asking).toBe(true)

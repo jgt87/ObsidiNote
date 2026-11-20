@@ -1,8 +1,14 @@
 // The Meetings panel's words and choices (operator, 2026-11-17: "build as suggested"): today's Teams
 // meetings as Copilot lists them, a tick per meeting, then one Add per ticked meeting. Pure.
-import type { SubmitResult } from '../api'
+// Other days and several days (operator, 2026-11-20): typed in the box ("meetings yesterday", "Daily
+// Standup meetings this week"); the panel asks one day at a time and lists them by day.
+import type { MeetingRequest, SubmitResult } from '../api'
 
 export interface Meeting {
+  /** Unique in one list: "<day>#<place in that day's list>" (ticks and row states use it). */
+  key: string
+  /** The day it was listed for, yyyy-mm-dd (its notes are asked for that day). */
+  day: string
   title: string
   /** As Copilot wrote it ("2031-04-09 10:00"), sent back with the notes question. */
   start: string
@@ -64,10 +70,10 @@ export function meetingSubline(m: Meeting): string {
 }
 
 /** The meetings ticked when the list comes: every one Copilot can read something of. */
-export function defaultPicks(meetings: Meeting[]): Set<number> {
+export function defaultPicks(meetings: Meeting[]): Set<string> {
   // Not a meeting already in the wiki or still waiting: fetched again later that day, the list does
   // not offer them again by default (2026-11-18). Ticked by hand, they are read again, never doubled.
-  return new Set(meetings.flatMap((m, i) => (m.readable && !m.inWiki && !m.waiting ? [i] : [])))
+  return new Set(meetings.flatMap((m) => (m.readable && !m.inWiki && !m.waiting ? [m.key] : [])))
 }
 
 export function addLabel(count: number): string {
@@ -124,4 +130,68 @@ export function runSummary(states: RowState[]): string {
 export function todayIso(now: Date = new Date()): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`
+}
+
+/** What the panel lists: the days and series of a request, and a number that changes per send (the
+ *  same words sent twice fetch twice). */
+export interface MeetingsRequest extends MeetingRequest {
+  key: number
+}
+
+/** The request of the "Fetch today’s meetings" button. */
+export function todayRequest(now: Date = new Date()): MeetingsRequest {
+  return { days: [todayIso(now)], series: '', when: 'today', key: 0 }
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** "Tue 17 Nov" for 2026-11-17 (the year too when it is not this year's); the text as it came
+ *  when it is no date. */
+export function formatDay(iso: string, now: Date = new Date()): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!m) return iso
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  const s = `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`
+  return d.getFullYear() === now.getFullYear() ? s : `${s} ${d.getFullYear()}`
+}
+
+/** The panel's heading for a request: "Today’s meetings", "Meetings of Tue 17 Nov",
+ *  "Meetings of Mon 16 Nov to Fri 20 Nov", with "· Daily Standup" for a series. */
+export function requestHeading(r: MeetingRequest | null, now: Date = new Date()): string {
+  const series = r?.series ? ` · ${r.series}` : ''
+  if (!r || !r.days.length || (r.days.length === 1 && r.days[0] === todayIso(now))) return `Today’s meetings${series}`
+  const first = formatDay(r.days[0], now)
+  if (r.days.length === 1) return `Meetings of ${first}${series}`
+  return `Meetings of ${first} to ${formatDay(r.days[r.days.length - 1], now)}${series}`
+}
+
+/** While the panel asks Copilot, one day at a time. */
+export function loadingText(day: string, done: number, total: number, now: Date = new Date()): string {
+  if (total <= 1) return day === todayIso(now) ? 'Copilot is listing today’s meetings. This can take a minute.' : `Copilot is listing your meetings of ${formatDay(day, now)}. This can take a minute.`
+  return `Copilot is listing your meetings of ${formatDay(day, now)} (day ${done + 1} of ${total}). Each day takes about a minute.`
+}
+
+/** The line for a list without meetings. */
+export function emptyText(r: MeetingRequest, now: Date = new Date()): string {
+  const when = r.days.length === 1 && r.days[0] === todayIso(now) ? 'today' : r.days.length === 1 ? `on ${formatDay(r.days[0], now)}` : 'on those days'
+  return r.series ? `Copilot found no meetings of “${r.series}” ${when} that it can see.` : `Copilot found no Teams meetings ${when} that it can see.`
+}
+
+/** The meetings by day, in the order of the list. */
+export function groupByDay(meetings: Meeting[]): { day: string; meetings: Meeting[] }[] {
+  const out: { day: string; meetings: Meeting[] }[] = []
+  for (const m of meetings) {
+    const last = out[out.length - 1]
+    if (last && last.day === m.day) last.meetings.push(m)
+    else out.push({ day: m.day, meetings: [m] })
+  }
+  return out
+}
+
+/** The days that could not be listed, in words. */
+export function failedDaysText(failed: { day: string; message: string }[], now: Date = new Date()): string {
+  if (!failed.length) return ''
+  const days = failed.map((f) => formatDay(f.day, now)).join(', ')
+  return failed.length === 1 ? `${days} could not be listed: ${failed[0].message}` : `${failed.length} days could not be listed (${days}): ${failed[0].message}`
 }

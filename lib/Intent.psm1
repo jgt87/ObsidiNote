@@ -15,6 +15,7 @@ Set-StrictMode -Version 2.0
 
 Import-Module (Join-Path $PSScriptRoot 'LinkCapture.psm1')        # Get-LinkWithNotes
 Import-Module (Join-Path $PSScriptRoot 'NotebookStructure.psm1')  # Get-LinkBucket, ConvertTo-NormalizedUrl
+Import-Module (Join-Path $PSScriptRoot 'MeetingRequest.psm1')     # Get-MeetingRequest
 
 $script:ShortLimit = 300
 $script:LongLimit = 1000
@@ -172,12 +173,15 @@ function Format-IntentWhy([object[]]$Signals, [string]$Side, [int]$Max = 2) {
 }
 
 function Get-Intent {
-    <# Whether the input is an Add or an Ask: @{ intent = add|ask|unclear|empty; reason; rule;
-       askScore; addScore }. $Mode: auto (default), add or ask; an explicit add/ask always wins. reason
+    <# Whether the input is an Add or an Ask: @{ intent = add|ask|unclear|empty|meetings; reason; rule;
+       askScore; addScore }; a meetings request (rule 5, auto only: "meetings yesterday", "Daily
+       Standup meetings this week") also carries meetings = Get-MeetingRequest's answer and is listed
+       by the Meetings panel, never added or asked (operator, 2026-11-20). $Today: the day words
+       count from (tests). $Mode: auto (default), add or ask; an explicit add/ask always wins. reason
        is a short phrase for "Will ask your wiki: <reason>". $InternalHosts / $CompanyNames: the
        vault's link rules, so a company link with words is named as the Add it will be (optional). #>
     [CmdletBinding()]
-    param([AllowEmptyString()][string]$Text = '', [string]$Mode = 'auto', [string[]]$InternalHosts = @(), [string[]]$CompanyNames = @())
+    param([AllowEmptyString()][string]$Text = '', [string]$Mode = 'auto', [string[]]$InternalHosts = @(), [string[]]$CompanyNames = @(), [datetime]$Today = (Get-Date).Date)
     $m = "$Mode".Trim().ToLowerInvariant()
     if (-not $m) { $m = 'auto' }
     if ((Get-IntentModes) -notcontains $m) { throw "Unknown mode '$Mode' (auto, add or ask)." }
@@ -193,6 +197,14 @@ function Get-Intent {
     $ln = Get-LinkWithNotes $t
     if ($ln -and (Get-LinkBucket -Url (ConvertTo-NormalizedUrl -Url $ln.url) -InternalHosts $InternalHosts -CompanyNames $CompanyNames) -eq 'Internal links') {
         return New-IntentResult 'add' 'a company link with your words: its page is summarized and your words become your notes' 1
+    }
+
+    # 5. A short command for the Teams meetings of some days (operator, 2026-11-20).
+    $mr = Get-MeetingRequest -Text $t -Today $Today
+    if ($mr) {
+        $r = New-IntentResult 'meetings' (Format-MeetingRequestReason $mr) 5
+        $r | Add-Member -NotePropertyName meetings -NotePropertyValue $mr
+        return $r
     }
 
     # 2. Scores.

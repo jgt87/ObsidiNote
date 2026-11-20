@@ -7,7 +7,15 @@ import type { AskResult } from './ask/types'
 import { normalizeSettings, type VaultSettings } from './model/vaultSettings'
 
 export type Mode = 'auto' | 'add' | 'ask'
-export type Intent = 'add' | 'ask' | 'unclear' | 'empty'
+export type Intent = 'add' | 'ask' | 'unclear' | 'empty' | 'meetings'
+
+/** "meetings yesterday", "Daily Standup meetings this week" (2026-11-20): the days the Meetings panel
+ *  lists (yyyy-mm-dd, oldest first), the series to keep ('' = all), the time words as typed. */
+export interface MeetingRequest {
+  days: string[]
+  series: string
+  when: string
+}
 
 export interface IntentResult {
   intent: Intent
@@ -86,8 +94,9 @@ export interface AppStatus {
   vault?: VaultState
 }
 
-/** What POST /api/submit answers: an Add result or an Ask result, told apart by intent. */
-export type SubmitResult = ({ intent: 'add' } & AddResult) | ({ intent: 'ask' } & AskResult)
+/** What POST /api/submit answers: an Add result, an Ask result or a meetings request (nothing sent
+ *  to Copilot: the Meetings panel lists those days), told apart by intent. */
+export type SubmitResult = ({ intent: 'add' } & AddResult) | ({ intent: 'ask' } & AskResult) | ({ intent: 'meetings' } & MeetingRequest)
 
 /** The body of a submit: text and mode, plus Ask's choices (read-only sources, archived pages). */
 export interface SubmitRequest {
@@ -282,6 +291,10 @@ export async function submit(req: SubmitRequest, signal?: AbortSignal): Promise<
 
 /** Tells an Add answer from an Ask answer and repairs the lists either one holds. */
 export function normalizeSubmitResult(raw: Record<string, unknown>): SubmitResult {
+  if (raw.intent === 'meetings') {
+    const days = asList(raw.days as string[] | string | null).filter((d): d is string => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d))
+    return { intent: 'meetings', days, series: typeof raw.series === 'string' ? raw.series : '', when: typeof raw.when === 'string' ? raw.when : '' }
+  }
   if (raw.intent === 'ask') {
     if (raw.ok === false) throw new ApiError(String(raw.error ?? 'Ask did not work.'), 200)
     return { ...normalizeAskResult(raw as unknown as AskResult), intent: 'ask' }
