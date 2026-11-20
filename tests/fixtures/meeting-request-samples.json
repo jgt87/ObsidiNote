@@ -1,0 +1,1193 @@
+{
+  "_about": "Ways to ask for Teams meetings from the box, and what each should read as (lib/MeetingRequest.psm1). Today is Friday 2031-04-11. want: meetings (first/last day, count, series), error (part of the reason), none (not a meetings request: a note or a question). Invented names only.",
+  "today": "2031-04-11",
+  "samples": [
+    {
+      "text": "Fetch meetings",
+      "want": "meetings",
+      "first": "2031-04-11",
+      "last": "2031-04-11",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch my meetings",
+      "want": "meetings",
+      "first": "2031-04-11",
+      "last": "2031-04-11",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch my meetings today",
+      "want": "meetings",
+      "first": "2031-04-11",
+      "last": "2031-04-11",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch today's meetings",
+      "want": "meetings",
+      "first": "2031-04-11",
+      "last": "2031-04-11",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch todays meetings",
+      "want": "meetings",
+      "first": "2031-04-11",
+      "last": "2031-04-11",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Get my Teams meetings from yesterday",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Get yesterdays meetings",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Import the meetings of yesterday",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch all meetings of last week",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-04",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Fetch all my meetings from last week",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-04",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Get last weeks meetings",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-04",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings from the last 3 days",
+      "want": "meetings",
+      "first": "2031-04-09",
+      "last": "2031-04-11",
+      "count": 3,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings of the past 5 workdays",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings past 3 days",
+      "want": "meetings",
+      "first": "2031-04-09",
+      "last": "2031-04-11",
+      "count": 3,
+      "series": ""
+    },
+    {
+      "text": "Fetch the last 2 weeks of meetings",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-11",
+      "count": 10,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings last two weeks",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-11",
+      "count": 10,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings of the last two days",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-11",
+      "count": 2,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings since monday",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings from monday until today",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings between monday and wednesday",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-09",
+      "count": 3,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings from 7-4 till 9-4",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-09",
+      "count": 3,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings from 7 april to 9 april",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-09",
+      "count": 3,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings of 8 april",
+      "want": "meetings",
+      "first": "2031-04-08",
+      "last": "2031-04-08",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings on April 8",
+      "want": "meetings",
+      "first": "2031-04-08",
+      "last": "2031-04-08",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings of 8 apr",
+      "want": "meetings",
+      "first": "2031-04-08",
+      "last": "2031-04-08",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings this week so far",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings of this working week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings of the current week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings of the previous week",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-04",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings earlier this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Fetch monday's meetings",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-07",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings for Tuesday and Wednesday",
+      "want": "meetings",
+      "first": "2031-04-08",
+      "last": "2031-04-09",
+      "count": 2,
+      "series": ""
+    },
+    {
+      "text": "Fetch Daily Standup",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch Daily Standup this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch the Daily Standup of this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch all Daily Standup meetings of this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch all occurrences of Daily Standup this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch every Daily Standup meeting this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch the Daily Standup series this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch the series Daily Standup for last week",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-04",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch Daily Standup from last week",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-04",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch Daily Standup yesterday",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch yesterday's Daily Standup",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch this week's Daily Standup",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch last week's Daily Standup meetings",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-04",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Get the Daily Standup meeting of yesterday",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Get the Daily Standup meeting",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Import Daily Standup of monday",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-07",
+      "count": 1,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Import all Daily Standup meetings",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch meetings named Daily Standup",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch the meetings called \"Daily Standup\" for last week",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-04",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch meetings with title Daily Standup this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch meetings with subject Daily Standup from monday to wednesday",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-09",
+      "count": 3,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch meetings about Daily Standup this week",
+      "want": "none"
+    },
+    {
+      "text": "Pull this week's meetings",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Grab yesterday's meetings",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Load meetings from last week",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-04",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Show meetings of yesterday",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "List my meetings this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Please fetch my meetings of yesterday",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Can you fetch my meetings of yesterday",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Could you get the Daily Standup meetings of this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch meetings yesterday.",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "fetch MEETINGS YESTERDAY",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch Teams meetings yesterday",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch the Teams meetings of Daily Standup this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch meeting yesterday",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch the meeting Daily Standup yesterday",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch the recap of yesterday's meetings",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch transcripts of this week's meetings",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Haal vergaderingen van gisteren op",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Haal de vergaderingen van deze week op",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Haal mijn vergaderingen van vorige week op",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-04",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Haal de Daily Standup van deze week op",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Importeer vergaderingen van gisteren",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Ophalen vergaderingen deze week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Haal alle vergaderingen van Daily Standup deze week op",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Toon vergaderingen van maandag",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-07",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Haal vergaderingen op van afgelopen 3 dagen",
+      "want": "meetings",
+      "first": "2031-04-09",
+      "last": "2031-04-11",
+      "count": 3,
+      "series": ""
+    },
+    {
+      "text": "Vergaderingen van gisteren",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "meetings yesterday",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "yesterday's meetings",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Daily Standup meetings last week",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-04",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Get milk tomorrow",
+      "want": "none"
+    },
+    {
+      "text": "Get the budget done this week and send it",
+      "want": "none"
+    },
+    {
+      "text": "Import the budget file",
+      "want": "none"
+    },
+    {
+      "text": "Fetch the report from Ada yesterday",
+      "want": "none"
+    },
+    {
+      "text": "Fetch the kids from school today",
+      "want": "none"
+    },
+    {
+      "text": "Get groceries this week",
+      "want": "none"
+    },
+    {
+      "text": "Get the slides ready for the review this week",
+      "want": "none"
+    },
+    {
+      "text": "Pull the latest changes from main yesterday",
+      "want": "none"
+    },
+    {
+      "text": "Yesterday meetings ran late",
+      "want": "none"
+    },
+    {
+      "text": "Board meetings this week went well",
+      "want": "none"
+    },
+    {
+      "text": "What meetings did I have yesterday",
+      "want": "none"
+    },
+    {
+      "text": "Which meetings last week were about pumps",
+      "want": "none"
+    },
+    {
+      "text": "Summarize my meetings of yesterday",
+      "want": "none"
+    },
+    {
+      "text": "meeting with Ada yesterday",
+      "want": "none"
+    },
+    {
+      "text": "Fetch meetings tomorrow",
+      "want": "error",
+      "error": "Those days are still to come"
+    },
+    {
+      "text": "Fetch next week's meetings",
+      "want": "error",
+      "error": "Those days are still to come"
+    },
+    {
+      "text": "Fetch meetings of last month",
+      "want": "error",
+      "error": "That is 21 days"
+    },
+    {
+      "text": "Fetch the meetings for this week with the topic of Daily Fernbrook & Tidal",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Fernbrook & Tidal"
+    },
+    {
+      "text": "Fetch for this week meetings Daily Sync | Fernbrook & Tidal | Garden Platform & Pump Studio Governance",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Sync | Fernbrook & Tidal | Garden Platform & Pump Studio Governance"
+    },
+    {
+      "text": "Fetch Daily Sync | Fernbrook & Tidal | Garden Platform & Pump Studio Governance",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Sync | Fernbrook & Tidal | Garden Platform & Pump Studio Governance"
+    },
+    {
+      "text": "Fetch Daily Sync | Fernbrook & Tidal | Garden Platform & Pump Studio Governance meetings this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Sync | Fernbrook & Tidal | Garden Platform & Pump Studio Governance"
+    },
+    {
+      "text": "Fetch all Daily Sync | Fernbrook & Tidal meetings since monday",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Sync | Fernbrook & Tidal"
+    },
+    {
+      "text": "fetch daily standup meetings this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "daily standup"
+    },
+    {
+      "text": "Fetch meetings this week of Daily Standup",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Get me my meetings of yesterday",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings from yesterday and today",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-11",
+      "count": 2,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings 2031-04-08",
+      "want": "meetings",
+      "first": "2031-04-08",
+      "last": "2031-04-08",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings of last friday",
+      "want": "meetings",
+      "first": "2031-04-04",
+      "last": "2031-04-04",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch Friday's Daily Standup",
+      "want": "meetings",
+      "first": "2031-04-11",
+      "last": "2031-04-11",
+      "count": 1,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Import the Daily Standup recaps of this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch Weekly 1:1 Ada / Ben last week",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-04",
+      "count": 5,
+      "series": "Weekly 1:1 Ada / Ben"
+    },
+    {
+      "text": "Fetch meetings in the last 3 days",
+      "want": "meetings",
+      "first": "2031-04-09",
+      "last": "2031-04-11",
+      "count": 3,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings for the past 3 workdays",
+      "want": "meetings",
+      "first": "2031-04-09",
+      "last": "2031-04-11",
+      "count": 3,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings 7/4 - 9/4",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-09",
+      "count": 3,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings, this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings for this week, Daily Standup",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch this week: Daily Standup",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch Daily Standup, this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch the Daily Standup notes from this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Get todays meetings please",
+      "want": "meetings",
+      "first": "2031-04-11",
+      "last": "2031-04-11",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Get the meetings from today",
+      "want": "meetings",
+      "first": "2031-04-11",
+      "last": "2031-04-11",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings of the day before yesterday",
+      "want": "meetings",
+      "first": "2031-04-09",
+      "last": "2031-04-09",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings from 3 days ago",
+      "want": "meetings",
+      "first": "2031-04-08",
+      "last": "2031-04-08",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings of 2 days ago",
+      "want": "meetings",
+      "first": "2031-04-09",
+      "last": "2031-04-09",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings from monday through thursday",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-10",
+      "count": 4,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings mon-wed",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-09",
+      "count": 3,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings mon to wed",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-09",
+      "count": 3,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings on wed",
+      "want": "meetings",
+      "first": "2031-04-09",
+      "last": "2031-04-09",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch the meetings from last tuesday",
+      "want": "meetings",
+      "first": "2031-04-08",
+      "last": "2031-04-08",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch meetings this morning",
+      "want": "meetings",
+      "first": "2031-04-11",
+      "last": "2031-04-11",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch my latest meetings",
+      "want": "meetings",
+      "first": "2031-04-11",
+      "last": "2031-04-11",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Fetch the last Daily Standup",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch the latest Daily Standup meeting",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Fetch all my Teams meetings for the whole week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Fetch the full week of meetings",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "haal gisteren op",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Haal de vergaderingen van eergisteren op",
+      "want": "meetings",
+      "first": "2031-04-09",
+      "last": "2031-04-09",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Haal de vergaderingen van de afgelopen twee weken op",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-11",
+      "count": 10,
+      "series": ""
+    },
+    {
+      "text": "haal vergaderingen sinds maandag op",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Haal de vergaderingen van dinsdag en woensdag op",
+      "want": "meetings",
+      "first": "2031-04-08",
+      "last": "2031-04-09",
+      "count": 2,
+      "series": ""
+    },
+    {
+      "text": "haal de vergaderingen van 8 april op",
+      "want": "meetings",
+      "first": "2031-04-08",
+      "last": "2031-04-08",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Haal de Daily Standup op",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Haal de Daily Standup van gisteren op",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Importeer de Daily Standup van vorige week",
+      "want": "meetings",
+      "first": "2031-03-31",
+      "last": "2031-04-04",
+      "count": 5,
+      "series": "Daily Standup"
+    },
+    {
+      "text": "Haal de vergaderingen van deze werkweek op",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Haal vergaderingen op met het onderwerp Tuinoverleg",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": "Tuinoverleg"
+    },
+    {
+      "text": "Haal vandaag op",
+      "want": "meetings",
+      "first": "2031-04-11",
+      "last": "2031-04-11",
+      "count": 1,
+      "series": ""
+    },
+    {
+      "text": "Get me the kids from school",
+      "want": "none"
+    },
+    {
+      "text": "Fetch The Budget",
+      "want": "none"
+    },
+    {
+      "text": "Import Budget Report.xlsx",
+      "want": "none"
+    },
+    {
+      "text": "Get Milk",
+      "want": "none"
+    },
+    {
+      "text": "Fetch coffee",
+      "want": "none"
+    },
+    {
+      "text": "Fetch coffee yesterday",
+      "want": "none"
+    },
+    {
+      "text": "List my tasks for this week",
+      "want": "none"
+    },
+    {
+      "text": "Show me last week",
+      "want": "none"
+    },
+    {
+      "text": "Get this done this week",
+      "want": "none"
+    },
+    {
+      "text": "Pull request review yesterday",
+      "want": "none"
+    },
+    {
+      "text": "Fetch the meetings I missed this week",
+      "want": "meetings",
+      "first": "2031-04-07",
+      "last": "2031-04-11",
+      "count": 5,
+      "series": ""
+    },
+    {
+      "text": "Fetch the meetings I did not join yesterday",
+      "want": "meetings",
+      "first": "2031-04-10",
+      "last": "2031-04-10",
+      "count": 1,
+      "series": ""
+    }
+  ]
+}

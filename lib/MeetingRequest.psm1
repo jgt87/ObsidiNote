@@ -15,15 +15,29 @@ $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 
 # The word that makes it a meetings command (plural only: "meeting with Ada yesterday" is a note).
 $script:MeetWord = '(?:teams[\s-]+)?(?:meetings|vergaderingen)'
+# After Fetch, Get or Import the singular counts too ("Fetch the Daily Standup meeting of yesterday"),
+# when the rest reads as a meeting title (Test-TitleLike).
+$script:MeetWordOne = '(?:teams[\s-]+)?(?:meetings?|vergaderingen|vergadering)'
 # A verb in front: "fetch meetings ...", "haal vergaderingen van gisteren op".
 $script:Verb = '^(?:please\s+)?(?:fetch|get|import|load|pull|grab|list|show|haal|ophalen|toon|importeer)\b\s*'
 # Words around the series that are not part of it.
-$script:Filler = @('all', 'my', 'the', 'of', 'from', 'for', 'on', 'in', 'occurrences', 'series', 'alle', 'mijn', 'de', 'het', 'van', 'voor', 'op', 'uit', 'reeks', 'and', 'en')
+$script:Filler = @('all', 'my', 'the', 'of', 'from', 'for', 'on', 'in', 'occurrences', 'occurrence', 'instances', 'series', 'alle', 'mijn', 'de', 'het', 'van', 'voor', 'op', 'uit', 'reeks', 'and', 'en',
+    'every', 'each', 'elke', 'iedere', 'me', 'us', 'mij', 'ons', 'last', 'latest', 'recent', 'laatste', 'recente', 'meeting', 'vergadering', 'teams', 'recap', 'recaps', 'transcript', 'transcripts', 'notes', 'summary', 'summaries', 'notulen', 'samenvatting', 'samenvattingen')
+# Small words a meeting title may hold in lower case ("Review of Pumps", "Sync met Tuin").
+$script:TitleSmall = @('of', 'and', 'the', 'for', 'to', 'in', 'on', 'a', 'an', 'with', 'vs', 'x', 'en', 'van', 'de', 'het', 'voor', 'met', 'op')
+# "Can you fetch ...", "could you please get ...": a command asked politely, not a question.
+$script:Polite = '(?i)^(?:can|could|would|will)\s+you\s+(?:please\s+)?(?=(?:fetch|get|import|load|pull|grab|list|haal|importeer)\b)'
+# Openings that ask Copilot to do something with meetings: Ask's ("Summarize my meetings of yesterday").
+$script:AskVerb = '(?i)^(?:please\s+)?(?:summari[sz]e|recap|explain|compare|analy[sz]e|review|describe|samenvatten|vat)\b'
+$script:Months = @{ jan = 1; feb = 2; mar = 3; maa = 3; apr = 4; may = 5; mei = 5; jun = 6; jul = 7; aug = 8; sep = 9; oct = 10; okt = 10; nov = 11; dec = 12 }
+$script:MonthWord = '(jan(?:uary|uari)?|feb(?:ruary|ruari)?|mar(?:ch)?|maart|apr(?:il)?|may|mei|june?|juni|july?|juli|aug(?:ust|ustus)?|sept?(?:ember)?|oct(?:ober)?|okt(?:ober)?|nov(?:ember)?|dec(?:ember)?)'
+$script:NumberWords = @{ one = 1; two = 2; three = 3; four = 4; five = 5; six = 6; seven = 7; eight = 8; nine = 9; ten = 10; eleven = 11; twelve = 12; thirteen = 13; fourteen = 14
+    een = 1; twee = 2; drie = 3; vier = 4; vijf = 5; zes = 6; zeven = 7; acht = 8; negen = 9; tien = 10; elf = 11; twaalf = 12; dertien = 13; veertien = 14 }
 # Words that introduce the series ("with the topic of Daily Standup", "called Daily Standup", "met
 # het onderwerp ..."; operator, 2026-11-20): everything after them, up to a time, is the series.
 $script:SeriesMarker = '(?i)(?:^|\s)(?:(?:(?:with|having|for|on|of|met|van|voor)\s+)?(?:the\s+|a\s+|het\s+|de\s+)?(?:topic|title|subject|name|series|onderwerp|titel|naam|reeks)(?:\s+(?:of|is|van))?\s*:?|called|named|titled|genaamd|getiteld)(?=\s)'
 # Openings of a question about meetings ("which meetings last week", "what meetings ..."): Ask's.
-$script:QuestionStart = '^(?:(?:show|tell|give|toon|geef)\s+(?:me|us|mij)|what|which|how|who|whom|why|when|where|did|do|does|were|was|are|is|can|could|wat|welke|welk|hoe|wie|waarom|wanneer|waar|hadden|had|zijn|waren|kan|heb|hebben)\b'
+$script:QuestionStart = '^(?:(?:show|tell|give|toon|geef)\s+(?:me|us|mij)\b|what|which|how|who|whom|why|when|where|did|do|does|were|was|are|is|can|could|wat|welke|welk|hoe|wie|waarom|wanneer|waar|hadden|had|zijn|waren|kan|heb|hebben)\b'
 
 $script:Weekdays = @{
     monday = 1; tuesday = 2; wednesday = 3; thursday = 4; friday = 5; saturday = 6; sunday = 0
@@ -31,7 +45,7 @@ $script:Weekdays = @{
 }
 $script:WeekdayWord = '(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag)'
 $script:DateWord = '(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[-/.]\d{1,2}(?:[-/.]\d{2,4})?)'
-$script:DayWord = "(?:$script:DateWord|$script:WeekdayWord|today|yesterday|tomorrow|vandaag|gisteren|eergisteren|morgen)"
+$script:DayWord = "(?:$script:DateWord|$script:WeekdayWord|today|yesterday|tomorrow|now|vandaag|gisteren|eergisteren|morgen|nu)"
 $script:RangeSep = '(?:to|until|till|through|thru|tot\s+en\s+met|tot|t/m|tm|-)'
 
 function ConvertTo-IsoDay([datetime]$Date) { $Date.ToString('yyyy-MM-dd', $script:Inv) }
@@ -50,7 +64,7 @@ function Resolve-RequestDay {
     $w = $Word.Trim().ToLowerInvariant()
     $t = $Today.Date
     switch -Regex ($w) {
-        '^(today|vandaag)$' { return $t }
+        '^(today|vandaag|now|nu)$' { return $t }
         '^(yesterday|gisteren)$' { return $t.AddDays(-1) }
         '^eergisteren$' { return $t.AddDays(-2) }
         '^(tomorrow|morgen)$' { return $t.AddDays(1) }
@@ -86,6 +100,45 @@ function Get-WorkDays([datetime]$From, [datetime]$To) {
     , $out.ToArray()
 }
 
+function Convert-RequestText {
+    <# The time words in one spelling, so the rules below stay few: "todays", "monday's" -> "today",
+       "monday"; "this weeks" -> "this week"; "two weeks" -> "2 weeks"; "8 april", "April 8th" ->
+       "8-4"; "so far", "earlier", "tot nu toe" dropped. #>
+    param([string]$Text)
+    $ap = "(?:'|" + [char]0x2019 + ")"
+    # Commas, semicolons and a colon before a space are no part of a time or a title filter.
+    $t = [regex]::Replace($Text, '[,;]+(?=\s|$)|:(?=\s)', ' ')
+    # "the meetings I missed", "that I did not join": every listed meeting says whether it was joined.
+    $t = [regex]::Replace($t, "(?i)\s(?:that\s+|which\s+)?I\s+(?:missed|skipped|did\s*n(?:o|$ap)t\s+(?:join|attend)|was\s+invited\s+to|was\s+not\s+(?:in|at))(?=\s|$)", ' ')
+    $t = [regex]::Replace($t, '(?i)\b(?:the\s+)?day\s+before\s+yesterday\b', 'eergisteren')
+    $t = [regex]::Replace($t, '(?i)\b(?:this\s+(?:morning|afternoon|evening)|tonight|vanochtend|vanmorgen|vanmiddag|vanavond)\b', 'today')
+    $t = [regex]::Replace($t, '(?i)\b(?:whole|full|entire|complete|hele|gehele|volledige)\s+(?=(?:work(?:ing)?\s*|werk)?week\b)', '')
+    # Short weekdays: "mon-wed", "on tue" (not sat/sun: English words of their own).
+    $t = [regex]::Replace($t, '(?i)\b(mon|tues?|wed|thu(?:rs?)?|fri)\b\.?', { param($m) @{ mon = 'monday'; tue = 'tuesday'; wed = 'wednesday'; thu = 'thursday'; fri = 'friday' }[$m.Groups[1].Value.Substring(0, 3).ToLowerInvariant()] })
+    $t = [regex]::Replace($t, "(?i)\b(today|yesterday|tomorrow|$script:WeekdayWord)(?:$ap" + "s|s)\b", '$1')
+    $t = [regex]::Replace($t, "(?i)\b((?:this|last|past|previous|next|coming|the|current)\s+(?:work(?:ing)?\s*)?week)(?:$ap" + "s|s)(?=\s|$)", '$1')
+    $t = [regex]::Replace($t, '(?i)\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|een|twee|drie|vier|vijf|zes|zeven|acht|negen|tien|elf|twaalf|dertien|veertien)(?=\s+(?:work\s*)?(?:days?|workdays?|weeks?|dagen|werkdagen|weken)\b)', { param($m) [string]$script:NumberWords[$m.Groups[1].Value.ToLowerInvariant()] })
+    $t = [regex]::Replace($t, "(?i)\b(\d{1,2})(?:st|nd|rd|th|e)?\s+$script:MonthWord\b(?:\s+(\d{4})\b)?", { param($m) "$($m.Groups[1].Value)-$($script:Months[$m.Groups[2].Value.Substring(0, 3).ToLowerInvariant()])" + $(if ($m.Groups[3].Success) { "-$($m.Groups[3].Value)" } else { '' }) })
+    $t = [regex]::Replace($t, "(?i)\b$script:MonthWord\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{4})\b)?", { param($m) "$($m.Groups[2].Value)-$($script:Months[$m.Groups[1].Value.Substring(0, 3).ToLowerInvariant()])" + $(if ($m.Groups[3].Success) { "-$($m.Groups[3].Value)" } else { '' }) })
+    $t = [regex]::Replace($t, '(?i)\s+(?:so\s+far|tot\s+nu\s+toe|up\s+to\s+now|until\s+now|till\s+now)\b', '')
+    $t = [regex]::Replace($t, '(?i)\b(?:earlier|eerder)\s+(?=(?:this|deze)\s+week\b)', '')
+    ([regex]::Replace($t, '\s+', ' ')).Trim()
+}
+
+function Test-TitleLike {
+    <# Whether words read as a meeting title rather than a sentence: a "|" in them, or the first word
+       and every other word but small ones capitalised ("Daily Standup", "Review of Pumps"); a file
+       name ("Budget.xlsx") is not one. Empty is title-like (no series). #>
+    param([string]$Text)
+    $x = "$Text".Trim()
+    if (-not $x) { return $true }
+    if ($x.Contains('|')) { return $true }
+    if ($x -match '\.\w{2,4}$') { return $false }
+    $words = @($x -split '\s+' | Where-Object { $_ -match '^\p{L}' })
+    if (-not $words.Count -or $words[0] -cnotmatch '^\p{Lu}') { return $false }
+    -not @($words | Where-Object { $_ -cmatch '^\p{Ll}' -and $script:TitleSmall -notcontains $_ }).Count
+}
+
 function Get-AllDays([datetime]$From, [datetime]$To) {
     $out = New-Object System.Collections.Generic.List[datetime]
     for ($x = $From.Date; $x -le $To.Date; $x = $x.AddDays(1)) { $out.Add($x) }
@@ -98,6 +151,37 @@ function Find-WhenPhrase {
     $t = $Today.Date
     $lead = '(?:^|\s)(?:(?:on|op|of|from|for|in|van|voor|uit|during|tijdens)\s+)?'
     $rules = @(
+        # "between monday and wednesday": the range.
+        @{ re = "$lead(?:between|tussen)\s+($script:DayWord)\s+(?:and|en|&)\s+($script:DayWord)\s*$"; get = {
+                param($m)
+                $a = Resolve-RequestDay $m.Groups[1].Value $t
+                $b = Resolve-RequestDay $m.Groups[2].Value $t
+                if ($null -eq $a -or $null -eq $b) { return $null }
+                if ($b -lt $a -and $m.Groups[2].Value -match "^$script:WeekdayWord$") { $b = $b.AddDays(7) }
+                if ($b -lt $a) { $x = $a; $a = $b; $b = $x }
+                Get-AllDays $a $b
+            }
+        }
+        # "since monday", "sinds 3-11", "vanaf maandag": that day up to today.
+        @{ re = "(?:^|\s)(?:since|sinds|vanaf)\s+($script:DayWord)\s*$"; get = {
+                param($m)
+                $a = Resolve-RequestDay $m.Groups[1].Value $t
+                if ($null -eq $a) { return $null }
+                if ($a -gt $t) { return , @($a) }
+                Get-AllDays $a $t
+            }
+        }
+        # "3 days ago", "2 dagen geleden": that one day.
+        @{ re = "$lead(\d{1,2})\s+(?:days?|dagen|dag)\s+(?:ago|geleden)\s*$"; get = { param($m) , @($t.AddDays(-[int]$m.Groups[1].Value)) } }
+        # "tuesday and wednesday": those two days.
+        @{ re = "$lead($script:DayWord)\s+(?:and|en|&)\s+($script:DayWord)\s*$"; get = {
+                param($m)
+                $a = Resolve-RequestDay $m.Groups[1].Value $t
+                $b = Resolve-RequestDay $m.Groups[2].Value $t
+                if ($null -eq $a -or $null -eq $b) { return $null }
+                , @(@($a, $b) | Sort-Object -Unique)
+            }
+        }
         # A range of two days: "17-11 to 19-11", "from monday to wednesday", "van maandag tot woensdag".
         @{ re = "$lead(?:from\s+|van(?:af)?\s+)?($script:DayWord)\s*$script:RangeSep\s*($script:DayWord)\s*$"; get = {
                 param($m)
@@ -111,8 +195,13 @@ function Find-WhenPhrase {
             }
         }
         # "this week", "the week", "this weeks" / "this week's" (the possessive typed without the word after it).
-        @{ re = "$lead(this|the|deze|current|huidige)\s+(work\s*)?week(?:s|'s|$([char]0x2019)s)?\s*$"; get = { param($m) $mo = Get-MondayOf $t; Get-WorkDays $mo $mo.AddDays(4) } }
-        @{ re = "$lead(last|previous|past|vorige|afgelopen)\s+(work\s*)?week(?:s|'s|$([char]0x2019)s)?\s*$"; get = { param($m) $mo = (Get-MondayOf $t).AddDays(-7); Get-WorkDays $mo $mo.AddDays(4) } }
+        @{ re = "$lead(this|the|deze|current|huidige)\s+(work(?:ing)?\s*|werk)?week(?:s|'s|$([char]0x2019)s)?\s*$"; get = { param($m) $mo = Get-MondayOf $t; Get-WorkDays $mo $mo.AddDays(4) } }
+        @{ re = "$lead(next|coming|volgende|komende)\s+(work(?:ing)?\s*|werk)?week\s*$"; get = { param($m) $mo = (Get-MondayOf $t).AddDays(7); Get-WorkDays $mo $mo.AddDays(4) } }
+        @{ re = "$lead(this|deze|current|huidige)\s+(month|maand)\s*$"; get = { param($m) Get-WorkDays (New-Object datetime $t.Year, $t.Month, 1) $t } }
+        @{ re = "$lead(last|previous|past|vorige|afgelopen)\s+(month|maand)\s*$"; get = { param($m) $first = (New-Object datetime $t.Year, $t.Month, 1).AddMonths(-1); Get-WorkDays $first $first.AddMonths(1).AddDays(-1) } }
+        # "the last 2 weeks": the workdays of the past 14 days.
+        @{ re = "$lead(?:the\s+)?(?:last|past|previous|afgelopen|laatste)\s+(\d{1,2})\s+(weeks|weken|week)\s*$"; get = { param($m) $n = [int]$m.Groups[1].Value; if ($n -lt 1) { return $null }; Get-WorkDays $t.AddDays(1 - 7 * $n) $t } }
+        @{ re = "$lead(last|previous|past|vorige|afgelopen)\s+(work(?:ing)?\s*|werk)?week(?:s|'s|$([char]0x2019)s)?\s*$"; get = { param($m) $mo = (Get-MondayOf $t).AddDays(-7); Get-WorkDays $mo $mo.AddDays(4) } }
         @{ re = "$lead(?:the\s+)?(?:last|past|previous|afgelopen|laatste|vorige)\s+(\d{1,2})\s+(work\s*days|workdays|werkdagen|days|dagen)\s*$"; get = {
                 param($m)
                 $n = [int]$m.Groups[1].Value
@@ -153,13 +242,22 @@ function Get-MeetingRequest {
        request. Days after $Today are left out (no notes yet); at most 14 days. Pure. #>
     param([AllowEmptyString()][string]$Text = '', [datetime]$Today = (Get-Date).Date)
     $t = ([regex]::Replace("$Text", '\s+', ' ')).Trim().TrimEnd('.', '!')
-    if (-not $t -or $t.Length -gt $script:MaxLength -or "$Text".Trim() -match '\r|\n' -or $t.Contains('?')) { return $null }
-    if ($t -match $script:QuestionStart) { return $null }
+    if (-not $t -or $t.Length -gt $script:MaxLength -or "$Text".Trim() -match '\r|\n') { return $null }
+    # "Can you fetch my meetings of yesterday?": a command asked politely; "..., please" too.
+    $pm = [regex]::Match($t, $script:Polite)
+    if ($pm.Success) { $t = $t.Substring($pm.Length).TrimEnd('?', ' ', '.') }
+    $t = [regex]::Replace($t, '(?i),?\s+please$', '')
+    if ($t.Contains('?')) { return $null }
+    if ($t -match $script:QuestionStart -or $t -match $script:AskVerb) { return $null }
     # A quoted series: "Daily Standup" or 'Daily Standup' (straight or typographic quotes).
     $quoted = ''
     $qm = [regex]::Match($t, ('["' + [char]0x201C + [char]0x201D + ']([^"' + [char]0x201C + [char]0x201D + ']{1,100})["' + [char]0x201C + [char]0x201D + ']'))
     if (-not $qm.Success) { $qm = [regex]::Match($t, "(?:^|\s)'([^']{1,100})'(?:\s|$)") }
     if ($qm.Success) { $quoted = $qm.Groups[1].Value.Trim(); $t = ($t.Remove($qm.Index, $qm.Length).Insert($qm.Index, ' ')).Trim() -replace '\s+', ' ' }
+    # "yesterday's meetings", "monday's meetings", "last week's meetings": the time goes after the word.
+    $t = [regex]::Replace($t, ("(?i)\b(today|yesterday|this week|last week|$script:WeekdayWord)(?:['" + [char]0x2019 + "]s|s)\s+($script:MeetWord)\b"), '$2 $1')
+    # One spelling for the time words (outside a quoted series: a title keeps its own words).
+    $t = Convert-RequestText $t
     # A series named after a marker word, as typed: "... this week with the topic of Daily Standup".
     if (-not $quoted) {
         $sm = [regex]::Match($t, $script:SeriesMarker)
@@ -169,39 +267,40 @@ function Get-MeetingRequest {
             # A time after the series goes back to the command: "called Daily Standup this week".
             $w = Find-WhenPhrase -Text $tail -Today $Today
             if ($w -and $w.index -gt 0) { $head = "$head $($tail.Substring($w.index).Trim())"; $tail = $tail.Substring(0, $w.index).Trim() }
-            $quoted = $tail.Trim(' ', ':', '"', "'")
-            $t = $head.Trim()
+            if ($w -and $w.index -eq 0) {
+                # Only a time after the marker ("the Daily Standup series this week"): the series is
+                # before it, the marker word is no part of it.
+                $t = "$head $tail".Trim()
+            } else {
+                $quoted = $tail.Trim(' ', ':', '"', "'")
+                $t = $head.Trim()
+            }
         }
     }
     # About a subject or with someone: a question for Ask or a note, not a list of days. A quoted
     # series name may hold these words; it is out of $t by now.
     if ($t -match '(?i)\b(about|regarding|with|over|met|waarin|where)\b') { return $null }
-    # "yesterday's meetings", "last week's meetings": the time goes after the word.
-    $t = [regex]::Replace($t, ("(?i)\b(today|yesterday|this week|last week)['" + [char]0x2019 + "]s\s+($script:MeetWord)\b"), '$2 $1')
     $verb = [regex]::Match($t, $script:Verb, 'IgnoreCase')
     $rest = if ($verb.Success) { $t.Substring($verb.Length) } else { $t }
     $rest = [regex]::Replace($rest, '\s+op$', '', 'IgnoreCase')   # "haal ... op"
     if (-not $rest.Trim()) { return $null }   # "Fetch" alone
-    $mw = [regex]::Match($rest, "(?:^|\s)$script:MeetWord(?=\s|$)", 'IgnoreCase')
+    # After a verb the singular counts too; the rest must then read as a meeting title (below).
+    $mw = [regex]::Match($rest, "(?:^|\s)$(if ($verb.Success) { $script:MeetWordOne } else { $script:MeetWord })(?=\s|$)", 'IgnoreCase')
+    $single = $mw.Success -and $mw.Value.Trim() -match '(?i)(?:meeting|vergadering)$'
+    $bare = $false
     $when = Find-WhenPhrase -Text $rest -Today $Today
     # A time in the middle or first ("meetings this week Daily Standup", "Fetch for this week meetings
     # Daily Standup", operator 2026-11-20): only after Fetch/Get/Import, so "Board meetings this
     # week went well" stays a note.
     if (-not $when -and $verb.Success) { $when = Find-WhenPhrase -Text $rest -Today $Today -Anywhere }
     if (-not $mw.Success) {
-        # A verb and a time without the word (operator, 2026-11-20: "also on Fetch, Get or Import"):
-        # "Fetch yesterday", "Get Daily Standup this week", "Import last week". Without a time it is
-        # not a request ("Import the budget file"); the words before the time are the series.
-        # Only a time that names past days: "Get milk tomorrow" stays a note.
-        if (-not $verb.Success -or -not $when -or $when.error -or -not @($when.dates | Where-Object { $_ -le $Today.Date }).Count) { return $null }
-        # A time right after the verb takes a series of any length ("Fetch this week Daily Sync | A & B");
-        # else at most 5 words, so "Get the budget done this week and send it" stays a note.
-        # A longer series before the time must look like a meeting title: a "|" in it, or every word
-        # capitalised ("Fetch Daily Sync | A & B this week", "Get Weekly Garden Review last week").
-        $named = ($rest.Remove($when.index, $when.length)).Trim()
-        $nw = @($named -split '\s+' | Where-Object { $_ })
-        $titleLike = $named.Contains('|') -or -not @($nw | Where-Object { $_ -cmatch '^\p{Ll}' }).Count
-        if ($rest.Substring(0, $when.index).Trim() -and $nw.Count -gt 5 -and -not $titleLike) { return $null }
+        # A verb without the word (operator, 2026-11-20: "also on Fetch, Get or Import"): "Fetch
+        # yesterday", "Get Daily Standup this week", "Fetch Daily Sync | A & B". The rest must read as
+        # a meeting title (checked below), so "Import the budget file" and "Get groceries this week"
+        # stay notes. A time must name past days: "Get milk tomorrow" stays a note.
+        if (-not $verb.Success) { return $null }
+        if ($when -and ($when.error -or -not @($when.dates | Where-Object { $_ -le $Today.Date }).Count)) { return $null }
+        $bare = $true
         $mw = [regex]::Match($rest, '^')   # empty, at the start: everything before the time is "before"
     }
     # Without a verb the time comes after the word ("meetings yesterday"); after a verb it may also
@@ -221,6 +320,11 @@ function Get-MeetingRequest {
     $series = if ($quoted) { $quoted } else { ($words -join ' ').Trim() }
     # A sentence, not a series name: more than 8 words without a verb, 20 with one (Teams titles are long).
     if (-not $quoted -and $words.Count -gt $(if ($verb.Success) { 20 } else { 8 })) { return $null }
+    # Without the plural word, what is left must read as a meeting title ("Fetch the kids from
+    # school today", "Get the meeting room ready" stay notes); with neither the word nor a time, a
+    # title of two words or more, or one with "|" ("Fetch Daily Sync | A & B"; "Get Milk" stays a note).
+    if (($bare -or $single) -and -not $quoted -and -not (Test-TitleLike $series)) { return $null }
+    if ($bare -and -not $when -and -not $quoted -and -not ($series.Contains('|') -or $words.Count -ge 2)) { return $null }
     $r = [ordered]@{ days = @(); series = $series; when = 'today'; error = '' }
     # No time: today; a named series without a time takes its meetings of the past 7 days (operator,
     # 2026-11-20: a series fetched on a day it does not meet came back empty).

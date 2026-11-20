@@ -5,6 +5,18 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- Many more ways to ask for meetings from the box, checked against 162 sample phrasings in English and Dutch (`tests/fixtures/meeting-request-samples.json`):
+  - Times: `todays`, `monday's`, `since monday`, `between monday and wednesday`, `tuesday and wednesday`, `3 days ago`, `the day before yesterday`, `8 april`, `April 8`, `mon-wed`, `this morning`, `the whole week`, `this week so far`, `earlier this week`, `this working week`, `the last two weeks`, `this month`; in Dutch also `sinds maandag`, `de afgelopen twee weken`, `deze werkweek`.
+  - Series: just the title after Fetch, Get or Import (`Fetch Daily Sync | A & B`, `Get the Daily Standup meeting`, `Haal de Daily Standup op`), with `every`, `latest`, `recaps`, `notes`, `the meetings I missed` and commas or colons left out of the name.
+  - Polite forms: `Can you fetch my meetings of yesterday?`, `..., please`.
+  - `next week` and `last month` say why they cannot be fetched (still to come, more than 14 days).
+  - Notes and questions stay what they are: `Get groceries this week`, `Fetch the kids from school today`, `Summarize my meetings of yesterday`. Without the word "meetings", the rest must read as a meeting title, with capitals or a `|`.
+  No upgrade step: nothing stored changes.
+
+### Fixed
+- "Show me ...", "Tell me ..." and "Give me ..." with a time ("Show me last week") were taken as a meetings request instead of a question: a pattern held a stray control character. A test now keeps control characters out of the code.
+
 ## [v0.12.20] - 2026-11-20
 
 ### Fixed

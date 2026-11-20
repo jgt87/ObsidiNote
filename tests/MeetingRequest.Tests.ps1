@@ -203,6 +203,39 @@ Describe 'Get-Intent: rule 5, a meetings request (auto only)' {
     }
 }
 
+Describe 'Get-MeetingRequest: the many ways to ask (fixtures/meeting-request-samples.json; operator, 2026-11-20)' {
+    # Phrasings in English and Dutch: verbs, polite forms, possessives, number and month words,
+    # ranges, "since", "ago", short weekdays, series before or after, and notes and questions that
+    # must stay what they are. A sample that fails names its text.
+    $fx = Get-Content (Join-Path $here 'fixtures\meeting-request-samples.json') -Raw | ConvertFrom-Json
+    $day = [datetime]$fx.today
+    foreach ($s in @($fx.samples)) {
+        It "reads: $($s.text)" {
+            $r = Get-MeetingRequest -Text $s.text -Today $day
+            if ($s.want -eq 'none') { $r | Should Be $null; return }
+            $r | Should Not Be $null
+            if ($s.want -eq 'error') { $r.error | Should Match ([regex]::Escape($s.error)); return }
+            $r.error | Should Be ''
+            $d = @($r.days)
+            "$($d[0])..$($d[$d.Count - 1]) ($($d.Count))" | Should Be "$($s.first)..$($s.last) ($($s.count))"
+            $r.series | Should Be $s.series
+        }
+    }
+    It 'has a good spread of samples' {
+        @($fx.samples).Count | Should BeGreaterThan 150
+        @($fx.samples | Where-Object { $_.want -eq 'none' }).Count | Should BeGreaterThan 20
+    }
+}
+
+Describe 'Code files hold no control characters' {
+    # A "\b" once became a backspace in a pattern and silently stopped "Show me ..." being a question.
+    It 'finds none in lib, tools, tests and the UI source' {
+        $bad = @(Get-ChildItem (Join-Path $root 'lib'), (Join-Path $root 'tools'), $here, (Join-Path $root 'ui-src\src') -Recurse -File -Include *.ps1, *.psm1, *.ts, *.tsx, *.json, *.css |
+                Where-Object { [IO.File]::ReadAllText($_.FullName) -match '[\x00-\x08\x0B\x0C\x0E-\x1F]' } | ForEach-Object { $_.Name })
+        $bad -join ', ' | Should Be ''
+    }
+}
+
 Describe 'Test-MeetingInSeries' {
     It 'finds the filter''s words in the meeting''s series, punctuation and case aside' {
         Test-MeetingInSeries -Title 'Daily Standup | Team A' -Filter 'daily standup' | Should Be $true
