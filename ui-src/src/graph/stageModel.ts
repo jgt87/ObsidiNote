@@ -7,6 +7,7 @@ import { groupLabelSize } from './labelSize'
 import { edgePath, onePerPair, type AreaLayout, type DotLayout, type EdgeLayout, type GraphLayout } from './layout'
 import type { GraphEdge } from './model'
 import { labelMode, labelRect, nextInDirection, placeAreaLabels, placeLabels, toScreen, type Direction, type LabelBox, type Rect, type Viewport } from './view'
+import { pageMapLabel } from './pageLabel'
 
 /** The class of a page-to-page line: dashed for a mention, else by link strength. */
 export function edgeClass(e: GraphEdge): string {
@@ -115,7 +116,7 @@ function pageLabelCandidates(i: StageLabelInput): LabelBox[] {
     const [x, y] = toScreen(v, d.x, d.y)
     if (x < -200 || y < -40 || x > size.w + 200 || y > size.h + 40) return
     const px = cls.includes('--on') ? 13 : cls.includes('--hub') ? 12 : 11
-    candidates.push({ id: d.id, text: index.pageById.get(d.id)!.title, x, y: y - d.r * v.k - 4, px, cls })
+    candidates.push({ id: d.id, text: pageMapLabel(index.pageById.get(d.id)!), x, y: y - d.r * v.k - 4, px, cls })
   }
   const near = (d: DotLayout) => add(d, d.hub ? 'kg-plabel kg-plabel--hub' : 'kg-plabel')
   if (activeDot) {
