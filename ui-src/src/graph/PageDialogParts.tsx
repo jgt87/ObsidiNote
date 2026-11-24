@@ -1,5 +1,7 @@
 // The parts of the page window (PageDialog.tsx): its header, the three tab panels and the footer.
 // Render only; the window holds the state.
+import { BusyLabel } from '../components/BusyLabel'
+import { unavailable } from '../components/disabledGuard'
 import type { ReactNode } from 'react'
 import { WebLink } from '../components/WebLink'
 import { ExportButton } from '../export/ExportButton'
@@ -14,6 +16,7 @@ import { openButtons, pageMetaLine, tabLabel, twoStepsAway, DIALOG_TABS, type Di
 import type { RetireAction } from './retireModel'
 import { tagCounts } from './tags'
 import { TagsRow } from './TagsRow'
+import { Icon } from '../components/icons'
 
 /** Which source an export reads (export/exportApi.ts exportSourceOf). */
 type ExportSource = Pick<ExportRequest, 'vault' | 'notebook'>
@@ -98,21 +101,15 @@ export function DialogHeader({ index, page, inPlace, linksOut, linkedFrom, canBa
         </div>
       </div>
       <nav className="kg-dlg__hist" aria-label="Pages visited">
-        <button type="button" className="btn btn--icon btn--ghost" aria-label="Back" title="Back (Alt+←)" disabled={!canBack} onClick={onBack}>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-            <path d="M10 3L5 8l5 5" />
-          </svg>
+        <button type="button" className="btn btn--icon btn--ghost" aria-label="Back" title="Back (Alt+←)" {...unavailable(!canBack)} onClick={onBack}>
+          <Icon name="back" />
         </button>
-        <button type="button" className="btn btn--icon btn--ghost" aria-label="Forward" title="Forward (Alt+→)" disabled={!canForward} onClick={onForward}>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-            <path d="M6 3l5 5-5 5" />
-          </svg>
+        <button type="button" className="btn btn--icon btn--ghost" aria-label="Forward" title="Forward (Alt+→)" {...unavailable(!canForward)} onClick={onForward}>
+          <Icon name="forward" />
         </button>
       </nav>
       <button type="button" className="btn btn--icon" aria-label="Close" onClick={onClose}>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-          <path d="M4 4l8 8M12 4l-8 8" />
-        </svg>
+        <Icon name="close" />
       </button>
     </header>
   )
@@ -245,8 +242,8 @@ function MentionRow({ index, page, nav, e, readOnly, onLinkMention, linking, set
       <div className="kg-row__sub" aria-hidden="true">—</div>
       <RowMain nav={nav} id={other} sub={nav.where(other)} />
       {readOnly || !onLinkMention ? null : (
-        <button type="button" className="kg-linkbtn kg-row__sub" aria-label={`Link it: ${nav.title(page.id)} and ${nav.title(other)}`} aria-busy={busy} disabled={!!linking && !linking.error} onClick={link}>
-          {busy ? 'linking…' : 'link it'}
+        <button type="button" className="kg-linkbtn kg-row__sub" aria-label={`Link it: ${nav.title(page.id)} and ${nav.title(other)}`} aria-busy={busy} {...unavailable(!!linking && !linking.error)} onClick={link}>
+          <BusyLabel label="link it" busyText="linking…" />
         </button>
       )}
     </li>
@@ -364,11 +361,11 @@ export function DialogFooter({ page, editing, readOnly, why, src, onAsk, seriesC
             Open in OneNote
           </a>
         ) : (
-          <button type="button" className={open.onenote.primary ? 'btn btn--primary' : 'btn'} disabled>
+          <button type="button" className={open.onenote.primary ? 'btn btn--primary' : 'btn'} aria-disabled="true" title="This page has no OneNote link">
             Open in OneNote
           </button>
         ))}
-      <button type="button" className="btn" onClick={() => onAsk?.(page)} disabled={!onAsk}>
+      <button type="button" className="btn" onClick={() => onAsk?.(page)} {...unavailable(!onAsk)}>
         Ask about this
       </button>
       {onAsk && page.series && seriesCount > 1 && (

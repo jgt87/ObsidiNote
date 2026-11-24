@@ -1,5 +1,6 @@
 // The map's fixed chrome: the zoom toolbar with its hint, and the legend. Render only.
 import type { RefObject } from 'react'
+import { Icon } from '../components/icons'
 
 export function StageToolbar({ firstRef, onZoom, onFit }: { firstRef: RefObject<HTMLButtonElement | null>; onZoom: (factor: number) => void; onFit: () => void }) {
   return (
@@ -11,9 +12,7 @@ export function StageToolbar({ firstRef, onZoom, onFit }: { firstRef: RefObject<
         −
       </button>
       <button type="button" className="btn btn--ghost" aria-label="Fit to screen" title="Fit to screen (0)" onClick={onFit}>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-          <path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" />
-        </svg>
+        <Icon name="fit" />
       </button>
       {/* design (operator, 2026-11-16): no guiding text beside the zoom buttons. The map's help stays
           for screen readers (the stage's aria-describedby). */}

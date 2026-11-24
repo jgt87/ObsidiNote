@@ -1,13 +1,16 @@
+import { BusyLabel } from './BusyLabel'
 import { useState } from 'react'
+import { unavailable } from './disabledGuard'
 import { AddResult } from '../add/AddResult'
 import { AskView } from '../ask/AskStates'
 import type { NotebookState } from '../hooks/useServerData'
 import type { useHomeFlow } from '../hooks/useHomeFlow'
+import { flowSay } from '../model/flowSay'
 import type { AddTarget } from '../model/notebooks'
 import { AskOptions, type AskChoices } from './AskOptions'
 import type { SendBlock } from '../model/attention'
 import { Composer } from './Composer'
-import { Notice } from './Notice'
+import { Notice, NoticeIsLive } from './Notice'
 import { RecentList } from './RecentList'
 import { WhatsNew } from './WhatsNew'
 import { WaitingList } from '../activity/WaitingList'
@@ -36,31 +39,43 @@ export function HomeView({ home, addTarget, notebook, choices, onChoices, source
   onRetryCopilot?: () => Promise<string>
 }) {
   const { flow } = home
-  const note = home.followUp ? (
-    <p className="home-note" role="status">
-      Follow-up to <b>{home.followUp.question}</b>, from the same pages.{' '}
-      <button type="button" className="link-btn" onClick={home.cancelFollowUp}>
-        Ask a new question instead
-      </button>
-    </p>
-  ) : home.scope ? (
-    <p className="home-note" role="status">
-      Asking within the meetings of <b>{home.scope.series}</b> ({seriesCount(home.scope.count)}): only these are read, nothing else.{' '}
-      <button type="button" className="link-btn" onClick={home.clearScope}>
-        Remove
-      </button>
-    </p>
-  ) : null
-  const connect =onRetryCopilot ? <ConnectCopilot onRetry={onRetryCopilot} /> : null
+  // The line above the buttons: one region, mounted empty and kept, so a new note is announced.
+  const note = (
+    <div className="live" role="status">
+      {home.followUp ? (
+        <p className="home-note">
+          Follow-up to <b>{home.followUp.question}</b>, from the same pages.{' '}
+          <button type="button" className="link-btn" onClick={home.cancelFollowUp}>
+            Ask a new question instead
+          </button>
+        </p>
+      ) : home.scope ? (
+        <p className="home-note">
+          Asking within the meetings of <b>{home.scope.series}</b> ({seriesCount(home.scope.count)}): only these are read, nothing else.{' '}
+          <button type="button" className="link-btn" onClick={home.clearScope}>
+            Remove
+          </button>
+        </p>
+      ) : null}
+    </div>
+  )
+  const connect = onRetryCopilot ? <ConnectCopilot onRetry={onRetryCopilot} /> : null
+  const say = flowSay(flow)
   return (
     <div className="page">
-      <h1 className="page__title">Add something, or ask your wiki</h1>
+      <h1 id="home-title" className="page__title">Add something, or ask your wiki</h1>
       <WhatsNew />
-      <Composer addTarget={addTarget} onSend={home.send} busy={home.busy} prefill={home.prefill} note={note} clearKey={home.clearKey} block={block} connect={block?.retry ? connect : null}>
+      <Composer addTarget={addTarget} onSend={home.send} busy={home.busy} prefill={home.prefill} note={note} clearKey={home.clearKey} block={block} connect={block?.retry ? connect : null} draft={home.draft} onDraft={home.keepDraft} labelledBy="home-title">
         {/* Within a meeting series Ask reads that series only: the source choice would do nothing. */}
         {!home.scope && <AskOptions choices={choices} options={sourceOptions} onChange={onChoices} />}
       </Composer>
-      <FlowArea home={home} connect={connect} onOpenPage={onOpenActive} />
+      {/* The result area's one voice: two regions kept for the life of the view (model/flowSay.ts);
+          the notices in it are plain boxes. */}
+      <div className="visually-hidden" role="status">{say.status}</div>
+      <div className="visually-hidden" role="alert">{say.alert}</div>
+      <NoticeIsLive.Provider value={false}>
+        <FlowArea home={home} connect={connect} onOpenPage={onOpenActive} />
+      </NoticeIsLive.Provider>
       {/* design (round 2, 2026-11-15): after a send the result stands alone; what still waits for
           Copilot and what changed lately show while nothing was sent (and in History). */}
       {/* Today's meetings stays mounted while a send's result shows, so a run of Adds is not lost. */}
@@ -88,10 +103,11 @@ function ConnectCopilot({ onRetry }: { onRetry: () => Promise<string> }) {
   }
   return (
     <>
-      <button type="button" className="btn btn--sm" disabled={busy} aria-busy={busy} onClick={() => void run()}>
-        {busy ? 'Connecting…' : 'Connect Copilot again'}
+      <button type="button" className="btn btn--sm" {...unavailable(busy)} aria-busy={busy} onClick={() => void run()}>
+        <BusyLabel label="Connect Copilot again" busyText="Connecting…" />
       </button>
-      {msg && <span role="status">{msg}</span>}
+      {/* Mounted empty and kept, so what came of the try is announced. */}
+      <span className="live" role="status">{msg}</span>
     </>
   )
 }

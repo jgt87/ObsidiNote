@@ -1,3 +1,5 @@
+import { BusyLabel } from '../components/BusyLabel'
+import { unavailable } from '../components/disabledGuard'
 import { useEffect, useRef } from 'react'
 import {
   addLabel,
@@ -73,7 +75,7 @@ export function MeetingsPanel({ onAdded, request }: { onAdded: () => void; reque
 function MeetingList({ req, meetings, failed, m }: { req: MeetingsRequest; meetings: Meeting[]; failed: { day: string; message: string }[]; m: ReturnType<typeof useMeetings> }) {
   const failedLine = failedDaysText(failed)
   const retry = failed.length ? (
-    <button type="button" className="btn btn--ghost" disabled={m.running} onClick={m.retryFailed}>
+    <button type="button" className="btn btn--ghost" {...unavailable(m.running)} onClick={m.retryFailed}>
       {failed.length === 1 ? 'Try that day again' : `Try those ${failed.length} days again`}
     </button>
   ) : null
@@ -105,10 +107,10 @@ function MeetingList({ req, meetings, failed, m }: { req: MeetingsRequest; meeti
         </div>
       ))}
       <div className="mt__bar mt__foot">
-        <button type="button" className="btn" disabled={m.running || !m.picks.size} aria-busy={m.running} onClick={() => void m.addPicked()}>
-          {m.running ? 'Adding…' : addLabel(m.picks.size)}
+        <button type="button" className="btn" {...unavailable(m.running || !m.picks.size)} aria-busy={m.running} onClick={() => void m.addPicked()}>
+          <BusyLabel label={addLabel(m.picks.size)} busyText="Adding…" />
         </button>
-        <button type="button" className="btn btn--ghost" disabled={m.running} onClick={() => void m.again()}>
+        <button type="button" className="btn btn--ghost" {...unavailable(m.running)} onClick={() => void m.again()}>
           Fetch again
         </button>
         {retry}
@@ -128,7 +130,7 @@ function MeetingRow({ meeting, checked, disabled, state, onToggle }: { meeting: 
   return (
     <li className="mt__row">
       <label className="mt__pick">
-        <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />
+        <input type="checkbox" checked={checked} {...unavailable(disabled)} onChange={onToggle} />
         <span className="mt__main">
           <span className="mt__title" title={meeting.title}>
             {meeting.title}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { editProblem, editRequest, formFor, linkChoices, moveNote, parseAliases, parseTopics, typeChoices } from './editModel'
+import { editProblem, editProblemAt, editRequest, formFor, linkChoices, moveNote, parseAliases, parseTopics, typeChoices } from './editModel'
 import { buildIndex } from './graphIndex'
 import type { GraphModel, GraphPage } from './model'
 
@@ -81,5 +81,16 @@ describe('the edit request', () => {
     expect(editProblem({ ...f, title: '  ' }, false)).toMatch(/empty/)
     expect(editProblem({ ...f, url: 'javascript:x' }, true)).toMatch(/http/)
     expect(editProblem({ ...f, summary: 'x'.repeat(2001) }, false)).toMatch(/2,000/)
+  })
+  it('names the field a problem is about, the first in the form order, so the form marks and focuses it', () => {
+    const f = formFor(index, p1)
+    expect(editProblemAt(f, false)).toBeNull()
+    expect(editProblemAt({ ...f, title: '', summary: 'x'.repeat(2001) }, false)?.field).toEqual({ name: 'title' })
+    expect(editProblemAt({ ...f, url: 'ftp://x' }, true)?.field).toEqual({ name: 'url' })
+    expect(editProblemAt({ ...f, summary: 'x'.repeat(2001) }, false)?.field).toEqual({ name: 'summary' })
+    const links = [{ target: 'a', strength: 2 as const, why: 'ok' }, { target: 'b', strength: 2 as const, why: 'y'.repeat(301) }]
+    expect(editProblemAt({ ...f, links }, false)?.field).toEqual({ name: 'why', link: 1 })
+    // A long title is refused on Save, not cut off by the field (no maxLength on it any more).
+    expect(editProblemAt({ ...f, title: 't'.repeat(201) }, false)?.text).toMatch(/200 characters/)
   })
 })

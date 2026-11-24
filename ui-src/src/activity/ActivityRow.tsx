@@ -1,8 +1,10 @@
+import { unavailable } from '../components/disabledGuard'
 import { useState } from 'react'
 import { checkAnswer, undoAdd } from '../add/api'
 import { formatModified } from '../model/format'
 import { removeIntakeItem } from './api'
 import { STATE_LABEL, stateLine, waitedFor, type ActivityItem } from './activityModel'
+import { BusyLabel } from '../components/BusyLabel'
 
 type Ask = 'undo' | 'remove' | null
 
@@ -52,30 +54,29 @@ export function ActivityRow({ item, canChange, vaultId, onChanged, onOpen }: { i
         <span className="act__sub">
           <b className="act__state">{STATE_LABEL[item.state]}.</b> {stateLine(item)}
         </span>
-        {note && (
-          <span className="act__note" role="status">
-            {note}
-          </span>
-        )}
+        {/* Kept with the row, empty until an action says how it went, so that is announced. */}
+        <span className="act__note live" role="status">
+          {note}
+        </span>
       </div>
       <span className="act__when">{when}</span>
       <div className="act__actions">
         {ask ? (
           <>
             <span className="act__confirm">{ask === 'undo' ? 'Undo this page?' : 'Remove this item?'} It goes to OneNote’s Deleted Pages.</span>
-            <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setAsk(null)}>
+            <button type="button" className="btn btn--sm" {...unavailable(busy)} onClick={() => setAsk(null)}>
               Keep
             </button>
-            <button type="button" className="btn btn--sm btn--danger" disabled={busy} aria-busy={busy} onClick={ask === 'undo' ? undo : remove}>
-              {ask === 'undo' ? 'Undo' : 'Remove'}
+            <button type="button" className="btn btn--sm btn--danger" {...unavailable(busy)} aria-busy={busy} onClick={ask === 'undo' ? undo : remove}>
+              <BusyLabel label={ask === 'undo' ? 'Undo' : 'Remove'} />
             </button>
           </>
         ) : (
           <>
             {item.canCheck && canChange && (
               // design: a row's button is never the primary; a list of waiting items would show a row of them.
-              <button type="button" className="btn btn--sm" disabled={busy} aria-busy={busy} onClick={check}>
-                {busy ? 'Checking…' : 'Check for the answer'}
+              <button type="button" className="btn btn--sm" {...unavailable(busy)} aria-busy={busy} onClick={check}>
+                <BusyLabel label="Check for the answer" busyText="Checking…" />
               </button>
             )}
             {item.filedAs && item.state !== 'gone' && onOpen && (
@@ -84,12 +85,12 @@ export function ActivityRow({ item, canChange, vaultId, onChanged, onOpen }: { i
               </button>
             )}
             {item.canUndo && canChange && (
-              <button type="button" className="btn btn--sm btn--ghost" disabled={busy} onClick={() => setAsk('undo')}>
+              <button type="button" className="btn btn--sm btn--ghost" {...unavailable(busy)} onClick={() => setAsk('undo')}>
                 Undo
               </button>
             )}
             {item.canRemove && canChange && (
-              <button type="button" className="btn btn--sm btn--ghost" disabled={busy} onClick={() => setAsk('remove')}>
+              <button type="button" className="btn btn--sm btn--ghost" {...unavailable(busy)} onClick={() => setAsk('remove')}>
                 Remove
               </button>
             )}

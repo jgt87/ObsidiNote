@@ -1,0 +1,129 @@
+{
+  "lib/Activity.psm1": {
+    "complexity": 1
+  },
+  "lib/Ask.psm1": {
+    "max-lines-per-function": 1,
+    "complexity": 6
+  },
+  "lib/AskSources.psm1": {
+    "complexity": 1
+  },
+  "lib/Cdp.psm1": {
+    "complexity": 2
+  },
+  "lib/CopilotBridge.psm1": {
+    "max-lines-per-function": 2,
+    "complexity": 19
+  },
+  "lib/GraphModel.psm1": {
+    "complexity": 2
+  },
+  "lib/Index.psm1": {
+    "max-lines-per-function": 1,
+    "complexity": 8
+  },
+  "lib/Ingest.psm1": {
+    "max-lines-per-function": 4,
+    "complexity": 16
+  },
+  "lib/Intent.psm1": {
+    "complexity": 2
+  },
+  "lib/LinkCapture.psm1": {
+    "complexity": 1
+  },
+  "lib/Linker.psm1": {
+    "max-lines-per-function": 1,
+    "complexity": 4
+  },
+  "lib/MarkdownExport.psm1": {
+    "complexity": 4
+  },
+  "lib/MarkdownLines.psm1": {
+    "complexity": 2
+  },
+  "lib/MeetingRequest.psm1": {
+    "complexity": 2
+  },
+  "lib/Meetings.psm1": {
+    "complexity": 6
+  },
+  "lib/NotebookStructure.psm1": {
+    "complexity": 3
+  },
+  "lib/NotebookView.psm1": {
+    "complexity": 2
+  },
+  "lib/OneNote.psm1": {
+    "max-lines-per-function": 1
+  },
+  "lib/OneNoteHost.psm1": {
+    "complexity": 1
+  },
+  "lib/PageMeta.psm1": {
+    "complexity": 3
+  },
+  "lib/Server.psm1": {
+    "complexity": 19
+  },
+  "lib/Sso.psm1": {
+    "complexity": 2
+  },
+  "lib/StartChecks.psm1": {
+    "complexity": 1
+  },
+  "lib/Startup.psm1": {
+    "complexity": 1
+  },
+  "lib/Status.psm1": {
+    "complexity": 1
+  },
+  "lib/SyncedFiles.psm1": {
+    "complexity": 2
+  },
+  "lib/Upgrade.psm1": {
+    "max-lines-per-function": 1,
+    "complexity": 5
+  },
+  "lib/VaultSession.psm1": {
+    "complexity": 1
+  },
+  "lib/VaultSettings.psm1": {
+    "complexity": 1
+  },
+  "lib/VaultStore.psm1": {
+    "complexity": 7
+  },
+  "lib/WhatsNew.psm1": {
+    "complexity": 1
+  },
+  "lib/WriterLease.psm1": {
+    "complexity": 1
+  },
+  "tools/code-size.ps1": {
+    "complexity": 1
+  },
+  "tools/update.ps1": {
+    "max-lines-per-function": 1,
+    "complexity": 2
+  },
+  "validation/lib/StageCopilot.psm1": {
+    "complexity": 1
+  },
+  "validation/lib/StageGrounding.psm1": {
+    "complexity": 3
+  },
+  "validation/lib/StageOneNote.psm1": {
+    "complexity": 1
+  },
+  "validation/lib/StageVault.psm1": {
+    "complexity": 11
+  },
+  "validation/lib/StageWindow.psm1": {
+    "complexity": 1
+  },
+  "validation/lib/WriteProbes.psm1": {
+    "complexity": 1
+  }
+}

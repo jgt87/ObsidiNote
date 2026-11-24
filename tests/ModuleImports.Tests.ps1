@@ -6,6 +6,7 @@
 # have failed in the real window. Each module is checked in a fresh runspace.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $here
+. (Join-Path $here 'AstParse.ps1')
 $lib = Join-Path $root 'lib'
 # The validation kit's modules too: on 2026-11-14 its V6 Add step looked up Send-CopilotPrompt with
 # Get-Command, but only StageCopilot.psm1 imported the bridge (a nested import StageVault cannot see).
@@ -16,7 +17,7 @@ function Get-ModuleFiles { foreach ($d in $script:ModuleDirs) { [IO.Directory]::
 function Get-LibFunctionNames {
     $names = @{}
     foreach ($f in Get-ModuleFiles) {
-        $ast = [Management.Automation.Language.Parser]::ParseFile($f, [ref]$null, [ref]$null)
+        $ast = Read-ScriptAst -Path $f
         foreach ($d in $ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] }, $true)) { $names[$d.Name] = $true }
     }
     $names
@@ -44,7 +45,7 @@ function Get-LookedUpName($Command) {
 }
 
 function Get-CalledLibFunctions([string]$File, [hashtable]$LibNames) {
-    $ast = [Management.Automation.Language.Parser]::ParseFile($File, [ref]$null, [ref]$null)
+    $ast = Read-ScriptAst -Path $File
     $called = @{}
     foreach ($c in $ast.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] }, $true)) {
         foreach ($n in @($c.GetCommandName(), (Get-LookedUpName $c))) {

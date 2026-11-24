@@ -4,6 +4,9 @@
 import { StrictMode, useCallback, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../../../src/styles/tokens.css'
+// The shared helpers the app's components rely on: .icon sizes, .live regions, .visually-hidden.
+import '../../styles/app.css'
+import { installDisabledGuard } from '../../components/disabledGuard'
 import { GraphView } from '../GraphView'
 import { layoutGraph } from '../layout'
 import type { GraphModel } from '../model'
@@ -69,6 +72,7 @@ function Demo() {
 }
 
 const t0 = performance.now()
+installDisabledGuard(window)
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <Demo />

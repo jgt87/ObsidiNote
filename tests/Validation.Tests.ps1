@@ -11,6 +11,7 @@ foreach ($m in 'ValidationCore', 'ProbeNotebook', 'WriteProbes', 'StageOneNote',
     Import-Module (Join-Path $kit "lib\$m.psm1") -Force
 }
 . (Join-Path $here 'FakeOneNote.ps1')
+. (Join-Path $here 'AstParse.ps1')
 
 function New-TestDir {
     $d = Join-Path $env:TEMP ('obsn-val-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -998,8 +999,7 @@ Describe 'The kit on disk' {
     }
     # Docs in step (code review 2026-11-15: -Probe and Run Meeting Probe.cmd shipped without a word
     # in AGENTS.md, the README or RB-03). What the kit offers is read from the kit itself.
-    $tokens = $null; $errs = $null
-    $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $kit 'Run-Validation.ps1'), [ref]$tokens, [ref]$errs)
+    $ast = Read-ScriptAst -Path (Join-Path $kit 'Run-Validation.ps1')
     $params = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
     $cmdNames = @(Get-ChildItem -LiteralPath $kit -Filter *.cmd -File | ForEach-Object { $_.Name })
     $agents = [IO.File]::ReadAllText((Join-Path $root 'AGENTS.md'))

@@ -6,12 +6,13 @@
 # module and fails on @( <call of such a function> ). Assign the call as is instead.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $here
+. (Join-Path $here 'AstParse.ps1')
 
 function Get-CommaReturnFunctions([string[]]$Files) {
     <# Names of functions whose own body has a statement that is a unary comma (", $x"). #>
     $names = New-Object System.Collections.Generic.HashSet[string]
     foreach ($f in $Files) {
-        $ast = [System.Management.Automation.Language.Parser]::ParseFile($f, [ref]$null, [ref]$null)
+        $ast = Read-ScriptAst -Path $f
         foreach ($fn in $ast.FindAll({ param($a) $a -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
             # ", $x" parses as an array literal of one element whose text starts with the comma.
             $commas = $fn.Body.FindAll({ param($a)
@@ -43,7 +44,7 @@ Describe 'No @(...) around a call of a function that returns its list with a com
     It 'finds no call of one of them wrapped in @()' {
         $bad = @()
         foreach ($f in $files) {
-            $ast = [System.Management.Automation.Language.Parser]::ParseFile($f, [ref]$null, [ref]$null)
+            $ast = Read-ScriptAst -Path $f
             foreach ($a in $ast.FindAll({ param($x) $x -is [System.Management.Automation.Language.ArrayExpressionAst] }, $true)) {
                 $st = @($a.SubExpression.Statements)
                 if ($st.Count -ne 1 -or -not ($st[0] -is [System.Management.Automation.Language.PipelineAst])) { continue }

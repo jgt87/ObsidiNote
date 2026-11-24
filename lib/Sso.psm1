@@ -12,9 +12,11 @@
 # Get-ProfileSsoState for the start's status line (from Edge's files, without opening Edge).
 # Read only from Edge's files: the account type (Local State) and named switch values
 # (Preferences). Never cookies, tokens, account names or ids.
-# Strict mode stays off here: Edge's JSON files are read with optional fields.
+# Strict mode is on (rule audit, 2026-11-24): an optional field of Edge's JSON files, of a debug-list
+# entry or of a switch is read through Get-SsoField, never directly.
 # Keep this file ASCII: PS 5.1 reads BOM-less files as ANSI.
 
+Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 foreach ($m in 'Log', 'AppConfig', 'Cdp', 'CopilotBridge') { Import-Module (Join-Path $PSScriptRoot "$m.psm1") }
 
@@ -41,6 +43,20 @@ $script:FindJs = @'
     disabled: e.disabled === true || e.getAttribute('aria-disabled') === 'true' })));
 })()
 '@
+
+function Get-SsoField {
+    <# The value at a dotted path ('edge.profile_sso_info.x') of a ConvertFrom-Json object or a
+       hashtable, or $null when a step is missing (strict-mode safe). #>
+    param($Object, [string]$Path)
+    $o = $Object
+    foreach ($k in $Path.Split('.')) {
+        if ($null -eq $o) { return $null }
+        if ($o -is [Collections.IDictionary]) { $o = if ($o.Contains($k)) { $o[$k] } else { $null }; continue }
+        $p = $o.PSObject.Properties[$k]
+        $o = if ($p) { $p.Value } else { $null }
+    }
+    $o
+}
 
 function Get-OwnSession {
     # ObsidiNote's own Edge session: @{ cdpPort; profileDir } (lib/AppConfig.psm1).
@@ -118,7 +134,7 @@ function Test-ProfileSsoAuto {
     param([string]$ProfileDir = '')
     if (-not $ProfileDir) { $ProfileDir = (Get-OwnSession).profileDir }
     try { $p = [IO.File]::ReadAllText((Join-Path $ProfileDir 'Default\Preferences')) | ConvertFrom-Json } catch { return $false }
-    "$($p.edge.profile_sso_info.aad_sso_algo_state)" -eq '2'
+    "$(Get-SsoField $p 'edge.profile_sso_info.aad_sso_algo_state')" -eq '2'
 }
 
 function Get-ProfileAccount {

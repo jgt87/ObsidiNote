@@ -1,3 +1,5 @@
+import { BusyLabel } from './BusyLabel'
+import { unavailable } from './disabledGuard'
 import { useEffect, useRef, useState } from 'react'
 import { setUpVault, type NewVaultResult } from '../api'
 import './NewVaultDialog.css'
@@ -46,11 +48,11 @@ export function SetUpVaultDialog({ id, name, onClose, onDone }: { id: string; na
         )}
       </div>
       <div className="nv__actions">
-        <button type="button" className="btn btn--ghost" onClick={() => close.current()} disabled={busy}>
+        <button type="button" className="btn btn--ghost" onClick={() => close.current()} {...unavailable(busy)}>
           Cancel
         </button>
-        <button type="button" className="btn btn--primary" onClick={() => void go()} disabled={busy} aria-busy={busy} autoFocus>
-          {busy ? 'Setting it up…' : 'Set it up'}
+        <button type="button" className="btn btn--primary" onClick={() => void go()} {...unavailable(busy)} aria-busy={busy} autoFocus>
+          <BusyLabel label="Set it up" busyText="Setting it up…" />
         </button>
       </div>
     </dialog>

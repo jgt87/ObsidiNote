@@ -2,6 +2,7 @@
 // which "Open" buttons show and which is the primary, the tab names, and the pages two steps away.
 // Pure (tests: pageDialogModel.test.ts).
 import { pageTypeLabel } from '../model/format'
+import { webUrl } from '../model/links'
 import { formatDate, plural } from './format'
 import type { GraphIndex } from './graphIndex'
 import type { GraphPage } from './model'
@@ -66,10 +67,14 @@ export interface OpenButtons {
  * (operator, 2026-11-13: use OneNote as little as possible as the interface); any other page opens
  * in OneNote, shown disabled when there is no OneNote link. One primary per view: while the Edit
  * form is open its Save is the primary, so these go quiet.
+ * Only an http(s) address is a link and only an onenote: address opens OneNote: a page's fields
+ * are data, and a javascript: or file: address there must never become a button (injection test).
  */
 export function openButtons(page: Pick<GraphPage, 'url' | 'onenoteUrl'>, editing: boolean): OpenButtons {
-  if (page.url) return { link: { href: page.url, primary: !editing }, onenote: page.onenoteUrl ? { href: page.onenoteUrl, primary: false } : null }
-  return { link: null, onenote: { href: page.onenoteUrl || '', primary: !editing } }
+  const web = webUrl(page.url)
+  const onenote = /^onenote:/i.test(page.onenoteUrl ?? '') ? page.onenoteUrl : ''
+  if (web) return { link: { href: web, primary: !editing }, onenote: onenote ? { href: onenote, primary: false } : null }
+  return { link: null, onenote: { href: onenote, primary: !editing } }
 }
 
 /** A page's links: those it makes, those made to it, and the mentions it is part of. */

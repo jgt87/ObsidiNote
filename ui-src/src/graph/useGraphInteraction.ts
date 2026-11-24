@@ -103,6 +103,8 @@ export interface SearchKeysInput {
 export function useSearchKeys({ query, matches, pick, setPick, active, setActive, open, onQuery }: SearchKeysInput) {
   const onStageActive = useCallback((next: Active | null) => setActive(focusAfter(next, query.trim() ? matches : null, pick)), [query, matches, pick]) // eslint-disable-line react-hooks/exhaustive-deps
   const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    // While an input method is composing, every key (Enter picks the word) belongs to it.
+    if (e.nativeEvent.isComposing) return
     const a = searchKeyAction(e.key, matches, active?.id ?? null, query)
     if (!a) return
     e.preventDefault()

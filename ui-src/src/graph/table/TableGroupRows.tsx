@@ -5,6 +5,7 @@ import { ExportButton } from '../../export/ExportButton'
 import type { ExportRequest } from '../../export/exportApi'
 import { formatDate, plural } from '../format'
 import { ROW_BUDGET, type TableGroup, type TableRow } from './tableModel'
+import { Icon } from '../../components/icons'
 
 export const COLUMN_COUNT = 7
 
@@ -26,9 +27,7 @@ interface Props {
 
 function Chevron({ open }: { open: boolean }) {
   return (
-    <svg className={`kg-tbl__chev${open ? ' is-open' : ''}`} viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <Icon name="chevron" className={`kg-tbl__chev${open ? ' is-open' : ''}`} />
   )
 }
 

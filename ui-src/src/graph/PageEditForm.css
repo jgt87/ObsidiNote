@@ -18,9 +18,12 @@
 .kg-edit__add .field { flex: 1 1 auto; min-width: 0; }
 .kg-edit__add .btn, .kg-edit__link .btn { white-space: nowrap; flex: none; }
 .kg-edit__error {
+  display: flex; align-items: flex-start; gap: var(--space-3);
   margin: 0; padding: var(--space-3) var(--space-4); border-radius: var(--radius); background: var(--danger-soft); color: var(--danger);
   font-size: var(--text-meta);
 }
+/* The warning icon: an error reads as an error, never by its fill alone (DESIGN.md "Errors Read As Errors"). */
+.kg-edit__error > svg { width: 14px; height: 14px; flex: none; margin-top: 1px; }
 .kg-edit__actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; justify-content: flex-end; }
 .kg-edit__actions .kg-edit__hint { margin: 0 auto 0 0; }
 

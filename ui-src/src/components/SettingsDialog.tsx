@@ -1,7 +1,9 @@
+import { BusyLabel } from './BusyLabel'
+import { unavailable } from './disabledGuard'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { getSettings, saveSetting } from '../api'
 import { changedKeys, NUMBER_RANGES, parseHosts, parseNumber, SETTING_DEFAULTS, settleNumber, type NumberKey, type VaultSettings } from '../model/vaultSettings'
-import { WarnIcon } from './icons'
+import { Icon } from './icons'
 import { TagsSettings } from './TagsSettings'
 import './NewVaultDialog.css'
 import './SettingsDialog.css'
@@ -80,7 +82,7 @@ export function SettingsDialog({ onClose, onSaved, onTagsChanged, version = '' }
 
   const check = (key: 'labelsHubsOnly' | 'askIncludeArchived' | 'graphShowArchived', label: string) => (
     <label className="nv__check">
-      <input type="checkbox" checked={s[key]} disabled={off} onChange={(e) => setS({ ...s, [key]: e.target.checked })} />
+      <input type="checkbox" checked={s[key]} {...unavailable(off)} onChange={(e) => setS({ ...s, [key]: e.target.checked })} />
       {label}
     </label>
   )
@@ -101,7 +103,7 @@ export function SettingsDialog({ onClose, onSaved, onTagsChanged, version = '' }
           max={r.max}
           step={1}
           value={nums[key]}
-          disabled={off}
+          {...unavailable(off)} readOnly={off}
           aria-invalid={bad || undefined}
           aria-describedby={`st-${key}-hint${bad ? ` st-${key}-error` : ''}`}
           onChange={(e) => setNums({ ...nums, [key]: e.target.value })}
@@ -113,7 +115,7 @@ export function SettingsDialog({ onClose, onSaved, onTagsChanged, version = '' }
         </span>
         {bad && (
           <span id={`st-${key}-error`} className="st__num-error" role="alert">
-            <WarnIcon />
+            <Icon name="warn" />
             {r.min} to {r.max} only; it becomes {settleNumber(nums[key], key, s[key])} when you leave the field.
           </span>
         )}
@@ -151,7 +153,7 @@ export function SettingsDialog({ onClose, onSaved, onTagsChanged, version = '' }
               className="field nv__field nv__area"
               rows={4}
               value={hostText}
-              disabled={off}
+              {...unavailable(off)} readOnly={off}
               onChange={(e) => setHostText(e.target.value)}
               placeholder="intranet.example.com&#10;*.corp.example.com"
               aria-describedby="st-hosts-hint"
@@ -176,8 +178,8 @@ export function SettingsDialog({ onClose, onSaved, onTagsChanged, version = '' }
                 id="st-relatedCount"
                 className="field st__select"
                 value={nums.relatedCount}
-                disabled={off}
-                onChange={(e) => setNums({ ...nums, relatedCount: e.target.value })}
+                {...unavailable(off)}
+                onChange={(e) => !off && setNums({ ...nums, relatedCount: e.target.value })}
               >
                 {Array.from({ length: NUMBER_RANGES.relatedCount.max - NUMBER_RANGES.relatedCount.min + 1 }, (_, i) => String(NUMBER_RANGES.relatedCount.min + i)).map((v) => (
                   <option key={v} value={v}>
@@ -197,7 +199,7 @@ export function SettingsDialog({ onClose, onSaved, onTagsChanged, version = '' }
               <label htmlFor="st-view" className="st__num-label">
                 Opens on
               </label>
-              <select id="st-view" className="field st__select" value={s.graphView} disabled={off} onChange={(e) => setS({ ...s, graphView: e.target.value === 'sources' ? 'sources' : 'topics' })}>
+              <select id="st-view" className="field st__select" value={s.graphView} {...unavailable(off)} onChange={(e) => !off && setS({ ...s, graphView: e.target.value === 'sources' ? 'sources' : 'topics' })}>
                 <option value="topics">Topics</option>
                 <option value="sources">Sources</option>
               </select>
@@ -215,12 +217,12 @@ export function SettingsDialog({ onClose, onSaved, onTagsChanged, version = '' }
           )}
         </div>
         <div className="nv__actions">
-          <button type="button" className="btn btn--ghost" onClick={() => close.current()} disabled={busy}>
+          <button type="button" className="btn btn--ghost" onClick={() => close.current()} {...unavailable(busy)}>
             {canChange ? 'Cancel' : 'Close'}
           </button>
           {canChange && (
-            <button type="submit" className="btn btn--primary" disabled={off || invalid || !changed.length} aria-busy={busy}>
-              {busy ? 'Saving…' : 'Save'}
+            <button type="submit" className="btn btn--primary" {...unavailable(off || invalid || !changed.length)} aria-busy={busy}>
+              <BusyLabel label="Save" busyText="Saving…" />
             </button>
           )}
         </div>

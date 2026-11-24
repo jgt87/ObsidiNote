@@ -8,6 +8,7 @@
 # 36 parameters and a launcher no doc named on the first run, 16 Nov 2026).
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $here
+. (Join-Path $here 'AstParse.ps1')
 
 # The app and its launchers (root) and the tools people run by hand (update, sso-setup, release,
 # tests). The validation kit has its own, stricter check: tests/Validation.Tests.ps1 "The kit on disk".
@@ -23,8 +24,7 @@ foreach ($name in 'README.md', 'AGENTS.md', 'CLAUDE.md', 'docs\architecture.md')
 
 function Get-ScriptParameterNames {
     param([Parameter(Mandatory)][string]$Path)
-    $tokens = $null; $errors = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors)
+    $ast = Read-ScriptAst -Path $Path
     if (-not $ast.ParamBlock) { return @() }
     return @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
 }

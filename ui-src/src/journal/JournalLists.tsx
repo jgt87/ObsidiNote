@@ -1,4 +1,4 @@
-import { MeetingIcon } from '../components/icons'
+import { Icon } from '../components/icons'
 import { decisionsAskText } from '../model/handoff'
 import { shortDate, type DecisionItem, type JournalDay, type JournalItem } from './journalModel'
 
@@ -10,7 +10,7 @@ function TypeCell({ item, searching }: { item: JournalItem; searching: boolean }
   if (item.type === 'meeting') {
     return (
       <span className="jr__type jr__type--meeting">
-        <MeetingIcon />
+        <Icon name="meeting" />
         Meeting
       </span>
     )

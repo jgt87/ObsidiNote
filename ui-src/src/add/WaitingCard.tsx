@@ -1,6 +1,8 @@
+import { unavailable } from '../components/disabledGuard'
 import { Notice } from '../components/Notice'
 import type { WaitingStatus } from './waiting'
 import { waitingLabel, waitingNote } from './waiting'
+import { BusyLabel } from '../components/BusyLabel'
 
 /** An Add that waits for Copilot: what happened, what it means for the item, and "Check for the
  *  answer" (POST /api/add/fetch). The server's message says why for the check's outcomes. */
@@ -15,11 +17,11 @@ export function WaitingCard({ status, message, busy, onCheck, onDone }: { status
       actions={
         <>
           {onCheck && (
-            <button type="button" className="btn add-waiting__check" onClick={onCheck} disabled={busy} aria-busy={busy}>
-              {busy ? 'Checking…' : 'Check for the answer'}
+            <button type="button" className="btn add-waiting__check" onClick={onCheck} {...unavailable(busy)} aria-busy={busy}>
+              <BusyLabel label="Check for the answer" busyText="Checking…" />
             </button>
           )}
-          <button type="button" className="btn" onClick={onDone} disabled={busy}>
+          <button type="button" className="btn" onClick={onDone} {...unavailable(busy)}>
             Done
           </button>
         </>

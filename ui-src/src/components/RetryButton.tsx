@@ -1,8 +1,9 @@
 // The side bar's "Copilot is not connected" note with its refresh button (user, 2026-11-14): one try
 // to connect Copilot again (POST /api/copilot/reconnect). While it runs the icon turns and the button
 // is locked; a sign-in or failure message shows under the note's text.
+import { unavailable } from './disabledGuard'
 import { useState } from 'react'
-import { RefreshIcon } from './icons'
+import { Icon } from './icons'
 
 interface Props {
   text: string
@@ -35,10 +36,10 @@ export function RetryButton({ text, onRetry }: Props) {
         aria-label="Connect Copilot again"
         title="Connect Copilot again"
         aria-busy={busy}
-        disabled={busy}
+        {...unavailable(busy)}
         onClick={() => void run()}
       >
-        <RefreshIcon />
+        <Icon name="refresh" />
       </button>
     </>
   )

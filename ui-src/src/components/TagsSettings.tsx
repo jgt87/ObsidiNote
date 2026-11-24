@@ -2,6 +2,8 @@
 // that exists merges the two) or take one off every page. Each change is written at once (it is
 // not part of the form's Save) and asks first when it removes.
 
+import { BusyLabel } from './BusyLabel'
+import { unavailable } from './disabledGuard'
 import { useCallback, useEffect, useState } from 'react'
 import { fetchGraph, renameTag } from '../graph/graphApi'
 import { normalizeTag, tagCounts, type TagCount } from '../graph/tags'
@@ -71,10 +73,11 @@ export function TagsSettings({ canChange, onChanged }: { canChange: boolean; /**
                     aria-label={`New name for the tag ${t.name}`}
                     value={edit.to}
                     autoFocus
-                    disabled={busy}
+                    {...unavailable(busy)} readOnly={busy}
                     onChange={(e) => setEdit({ ...edit, to: e.target.value })}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
+                      // Not while an input method is composing: there Enter picks the word.
+                      if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                         e.preventDefault() // never the Settings form's Save
                         rename()
                       } else if (e.key === 'Escape') {
@@ -83,10 +86,10 @@ export function TagsSettings({ canChange, onChanged }: { canChange: boolean; /**
                       }
                     }}
                   />
-                  <button type="button" className="btn btn--sm" disabled={busy} aria-busy={busy} onClick={rename}>
-                    Rename
+                  <button type="button" className="btn btn--sm" {...unavailable(busy)} aria-busy={busy} onClick={rename}>
+                    <BusyLabel label="Rename" />
                   </button>
-                  <button type="button" className="btn btn--sm btn--ghost" disabled={busy} onClick={() => setEdit(null)}>
+                  <button type="button" className="btn btn--sm btn--ghost" {...unavailable(busy)} onClick={() => setEdit(null)}>
                     Cancel
                   </button>
                 </>
@@ -95,11 +98,11 @@ export function TagsSettings({ canChange, onChanged }: { canChange: boolean; /**
                   <span className="st__tag-name">
                     Take <b>{t.name}</b> off {plural(t.count, 'page')}? The pages stay.
                   </span>
-                  <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setEdit(null)}>
+                  <button type="button" className="btn btn--sm" {...unavailable(busy)} onClick={() => setEdit(null)}>
                     Keep
                   </button>
-                  <button type="button" className="btn btn--sm btn--danger" disabled={busy} aria-busy={busy} onClick={() => void apply(t.name, '')}>
-                    Remove tag
+                  <button type="button" className="btn btn--sm btn--danger" {...unavailable(busy)} aria-busy={busy} onClick={() => void apply(t.name, '')}>
+                    <BusyLabel label="Remove tag" />
                   </button>
                 </>
               ) : (

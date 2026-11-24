@@ -1,3 +1,4 @@
+import { oneNoteHref } from '../model/links'
 import { changedFields } from './format'
 import type { LinkUpdate } from './types'
 
@@ -84,8 +85,8 @@ export function LinkUpdateView({ update, status }: { update: LinkUpdate; status:
           <ul className="add-facts__list">
             {update.review.map((r) => (
               <li key={r.target}>
-                {r.link ? (
-                  <a className="add-a" href={r.link}>
+                {oneNoteHref(r.link) ? (
+                  <a className="add-a" href={oneNoteHref(r.link)}>
                     {r.title || r.target}
                   </a>
                 ) : (

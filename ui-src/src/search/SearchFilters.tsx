@@ -3,6 +3,7 @@
 
 import { describeFilter, parseQuery, withoutFilter, withoutFilters } from './query'
 import './SearchFilters.css'
+import { Icon } from '../components/icons'
 
 export function SearchFilters({ query, onQuery }: { query: string; onQuery: (q: string) => void }) {
   const filters = parseQuery(query).filters
@@ -20,9 +21,7 @@ export function SearchFilters({ query, onQuery }: { query: string; onQuery: (q: 
           onClick={() => onQuery(withoutFilter(query, f))}
         >
           <span className="sf__key">{f.key}:</span> {f.label}
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
-          </svg>
+          <Icon name="close" />
         </button>
       ))}
       <button type="button" className="sf__clear" onClick={() => onQuery(withoutFilters(query))}>

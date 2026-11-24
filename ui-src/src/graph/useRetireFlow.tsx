@@ -2,6 +2,8 @@
 // the confirm (RetireDialog), run it, then show what came of it (with Undo after an archive).
 // Restore asks nothing: it is the undo of an archive.
 
+import { BusyLabel } from '../components/BusyLabel'
+import { unavailable } from '../components/disabledGuard'
 import { useCallback, useRef, useState, type ReactNode } from 'react'
 import type { RetireAnswer } from './graphApi'
 import { RetireDialog } from './RetireDialog'
@@ -83,17 +85,22 @@ export function useRetireFlow(run: Run | undefined, onDone?: (r: RetireResult) =
   const dialog: ReactNode = pending && (
     <RetireDialog action={pending.action} plan={pending.plan} busy={pending.busy} error={pending.error} onConfirm={() => void confirm()} onCancel={() => setPending(null)} />
   )
-  const notice: ReactNode = note && (
-    <div className="kg-retire-note" role="status">
-      <p>{note.lines.join(' ')}</p>
-      {note.undo.length > 0 && (
-        <button type="button" className="btn btn--sm" onClick={() => void undo()} disabled={note.busy} aria-busy={note.busy}>
-          Undo
-        </button>
+  // The region is there empty too, so the result put in it is announced.
+  const notice: ReactNode = (
+    <div className="live" role="status">
+      {note && (
+        <div className="kg-retire-note">
+          <p>{note.lines.join(' ')}</p>
+          {note.undo.length > 0 && (
+            <button type="button" className="btn btn--sm" onClick={() => void undo()} {...unavailable(note.busy)} aria-busy={note.busy}>
+              <BusyLabel label="Undo" />
+            </button>
+          )}
+          <button type="button" className="btn btn--sm btn--ghost" onClick={() => setNote(null)}>
+            Dismiss
+          </button>
+        </div>
       )}
-      <button type="button" className="btn btn--sm btn--ghost" onClick={() => setNote(null)}>
-        Dismiss
-      </button>
     </div>
   )
 

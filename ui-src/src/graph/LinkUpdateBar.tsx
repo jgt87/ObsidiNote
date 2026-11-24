@@ -2,6 +2,7 @@
 // the steps and the wording). Copilot gets one request at a time; Stop ends after the page being
 // read. A page that needs a decision or waits for Copilot is counted and named in the summary.
 
+import { unavailable } from '../components/disabledGuard'
 import { useEffect, useRef, useState } from 'react'
 import type { AddStatus } from '../add/types'
 import { advance, outcomeOf, runLine, startRun } from './linkUpdateRun'
@@ -34,7 +35,7 @@ export function LinkUpdateBar({ ids, title, update, onClose }: Props) {
     <div className="kg-tbl__run" role="status">
       <span className="kg-tbl__run-line">{runLine(s, title)}</span>
       {s.current ? (
-        <button type="button" className="btn btn--sm" disabled={s.stopped} onClick={() => setS((x) => ({ ...x, stopped: true }))}>
+        <button type="button" className="btn btn--sm" {...unavailable(s.stopped)} onClick={() => setS((x) => ({ ...x, stopped: true }))}>
           Stop
         </button>
       ) : (

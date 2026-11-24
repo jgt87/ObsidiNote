@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { archivedHidden, emptyFilter, filterOptions, filterParts, focusNeighbourhood, isFilterActive, pruneFilter, topicDescendants, typeOf, visiblePageIds, type GraphFilter } from './filters'
+import { archivedHidden, emptyFilter, filterOptions, filterParts, focusNeighbourhood, isFilterActive, narrowingParts, pruneFilter, topicDescendants, typeOf, visiblePageIds, type GraphFilter } from './filters'
 import { buildIndex } from './graphIndex'
 import { normalizeGraph, UNFILED_ID, type GraphPage } from './model'
 
@@ -8,6 +8,15 @@ describe('filterParts', () => {
     expect(filterParts(emptyFilter(), (id) => id)).toEqual([])
     const all: GraphFilter = { types: new Set(['note']), topics: new Set(['t1', 't2']), tags: new Set(['a', 'b']), unlinkedOnly: true, duplicatesOnly: true, showArchived: true, staleBefore: '2026-01-01', focus: { id: 'p1', depth: 1 } }
     expect(filterParts(all, (id) => `T${id}`)).toEqual(['type: note', 'topic: Tt1, Tt2', 'tag: a, b', 'without links', 'possible duplicates (open one to link, edit or archive it)', 'old link summaries (select them in the List to update)', 'archived shown'])
+  })
+})
+
+describe('narrowingParts (the empty List names what narrows it)', () => {
+  it('names the search, the focus and the choices; nothing for the default or archived shown', () => {
+    const none = narrowingParts({ ...emptyFilter(), showArchived: true }, '  ', (id) => id, (id) => id)
+    expect(none).toEqual([])
+    const f: GraphFilter = { ...emptyFilter(), types: new Set(['note']), focus: { id: 'p1', depth: 1 } }
+    expect(narrowingParts(f, ' zero ', (id) => id, (id) => `Page ${id}`)).toEqual(['search “zero”', 'around Page p1', 'type: note'])
   })
 })
 

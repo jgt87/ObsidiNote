@@ -7,6 +7,7 @@ import { readOnlyBanner } from './graphViewModel'
 import type { GraphSource } from './model'
 import { readOnlyWhy } from './readOnly'
 import type { GroupBy } from './sourceView'
+import { Icon } from '../components/icons'
 
 /** The heading: the view's title (none when the app shell shows one) and one line of counts. */
 export function GraphHeading({ title, source, pages, areas, links, hiddenArchived }: { title: string; source: string; pages: number; areas: { joiner: string; areas: string }; links: number; hiddenArchived: number }) {
@@ -94,9 +95,7 @@ export function GraphTools({ mode, onMode, groupBy, onGroup, filter, query, onQu
               searchRef.current?.focus()
             }}
           >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
-              <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
-            </svg>
+            <Icon name="close" />
           </button>
         )}
       </span>
@@ -139,10 +138,7 @@ export function TagBar({ tags, choice, onToggle, onAll, shownPages, allPages }: 
           <span className="kg-meta">Areas:</span>
           {tags.map((t) => (
             <button key={t.name} type="button" className="btn btn--sm" aria-pressed={on(t.name)} onClick={() => onToggle(t.name)}>
-              <svg className="toggle-mark" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="1" y="1" width="10" height="10" rx="2" />
-                {on(t.name) && <path d="m3.4 6.2 1.9 1.9 3.3-3.8" />}
-              </svg>
+              <Icon name={on(t.name) ? 'toggle-on' : 'toggle-off'} className="toggle-mark" />
               {t.name} <span className="kg-meta num">{t.count}</span>
             </button>
           ))}

@@ -7,7 +7,7 @@ import { answerPageSpec, askFollowUp, openQuestionSpec, ask } from '../ask/askAp
 import type { AskViewState } from '../ask/AskStates'
 import type { AskResult } from '../ask/types'
 import type { AskChoices } from '../components/AskOptions'
-import type { Prefill } from '../components/Composer'
+import type { ComposerDraft, Prefill } from '../components/Composer'
 import { pageSpecToText } from '../model/handoff'
 import { lastRun } from '../model/lastRun'
 import type { MeetingsRequest } from '../meetings/meetingsModel'
@@ -46,6 +46,12 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
   const [clearKey, setClearKey] = useState(0)
   // "meetings yesterday" sent from the box (2026-11-20): the Meetings panel lists these days.
   const [meetingsRequest, setMeetingsRequest] = useState<MeetingsRequest | null>(null)
+  // The box's unsent text and mode while the home view is not shown (memory only, never storage).
+  // A ref: keeping it needs no new render; the box reads it when it appears again.
+  const draft = useRef<ComposerDraft>({ text: '', mode: 'auto', prefillKey: -1, clearKey: 0 })
+  const keepDraft = useCallback((d: ComposerDraft) => {
+    draft.current = d
+  }, [])
   const n = useRef(0)
   // The Ask that ran last, as it was sent: "Try again" repeats exactly this (the same conversation
   // for a follow-up, the same sources), never a similar call (code review 2026-11-15).
@@ -154,7 +160,7 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
 
   // Today's meetings adds pages outside this flow: the waiting list and History read again after it.
   const refreshActivity = () => setChanges((c) => c + 1)
-  return { flow, busy, send, retryAsk: lastAsk.again, changes, refreshActivity, meetingsRequest, prefill, followUp, cancelFollowUp: () => setFollowUp(null), clearKey, add, askActions, askAbout, scope, askWithin, clearScope: () => setScope(null) }
+  return { flow, busy, send, retryAsk: lastAsk.again, draft: draft.current, keepDraft, changes, refreshActivity, meetingsRequest, prefill, followUp, cancelFollowUp: () => setFollowUp(null), clearKey, add, askActions, askAbout, scope, askWithin, clearScope: () => setScope(null) }
 }
 
 /** A meeting series to ask within: its name (sent as the series) and how many meetings it has. */

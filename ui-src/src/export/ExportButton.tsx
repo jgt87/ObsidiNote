@@ -1,3 +1,5 @@
+import { BusyLabel } from '../components/BusyLabel'
+import { unavailable } from '../components/disabledGuard'
 import { useEffect, useRef, useState } from 'react'
 import { exportDoneText, exportMarkdown, type ExportRequest } from './exportApi'
 import './ExportButton.css'
@@ -22,15 +24,21 @@ export function ExportButton({ request, label, className = 'btn', disabled = fal
       .catch((e: unknown) => setState({ kind: 'error', text: e instanceof Error ? e.message : 'The export did not work.' }))
   }
   const busy = state.kind === 'busy'
-  const text = busy ? 'Exporting…' : state.kind === 'done' ? 'Exported' : label
+  const text = state.kind === 'done' ? 'Exported' : label
   return (
     <span className="export">
-      <button type="button" className={className} onClick={run} disabled={disabled || busy} aria-busy={busy} title={state.kind === 'done' ? state.text : undefined}>
-        {/* The longest label sits invisibly under the shown one, so the width never changes. */}
-        <span className="export__w">
-          <span>{text}</span>
-          <span aria-hidden="true">{label.length >= 'Exporting…'.length ? label : 'Exporting…'}</span>
-        </span>
+      <button type="button" className={className} onClick={run} {...unavailable(disabled || busy)} aria-busy={busy} title={state.kind === 'done' ? state.text : undefined}>
+        {/* The longer of the label and "Exported" sits invisibly under the shown one, and BusyLabel
+            keeps "Exporting…" with its ring in the same cell, so the width never changes. */}
+        <BusyLabel
+          busyText="Exporting…"
+          label={
+            <span className="export__w">
+              <span>{text}</span>
+              <span aria-hidden="true">{label.length >= 'Exported'.length ? label : 'Exported'}</span>
+            </span>
+          }
+        />
       </button>
       <span className="visually-hidden" role="status">
         {state.kind === 'done' ? state.text : ''}

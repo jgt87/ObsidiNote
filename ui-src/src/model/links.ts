@@ -21,6 +21,14 @@ export function webUrl(value: string | null | undefined): string {
   return /^https?:\/\/[^\s/?#]+/i.test(v) ? v : ''
 }
 
+/** A page's OneNote link for an href: only an onenote: address, else undefined (no link). The server
+ *  sends only those; this keeps a javascript: or file: value from ever becoming a link (audit
+ *  2026-11-24, defence in depth next to webUrl). */
+export function oneNoteHref(value: string | null | undefined): string | undefined {
+  const v = (value ?? '').trim()
+  return /^onenote:/i.test(v) ? v : undefined
+}
+
 export interface TextPart {
   text: string
   /** Set when this part is a web address. */

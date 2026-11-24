@@ -24,8 +24,8 @@ describe('PageDialog: the first render', () => {
     expect(html).toMatch(/<a class="btn btn--primary" href="https:\/\/fernbrook.example\/x"[^>]*>Open link<\/a><a class="btn" href="onenote:x">Open in OneNote<\/a>/)
   })
 
-  it('a page without a OneNote link: "Open in OneNote" shows, disabled', () => {
-    expect(render(1)).toContain('<button type="button" class="btn btn--primary" disabled="">Open in OneNote</button>')
+  it('a page without a OneNote link: "Open in OneNote" shows, unavailable but focusable, with why', () => {
+    expect(render(1)).toContain('<button type="button" class="btn btn--primary" aria-disabled="true" title="This page has no OneNote link">Open in OneNote</button>')
   })
 
   it('an archived page offers Restore; Archive and Delete only with the action, never read only', () => {

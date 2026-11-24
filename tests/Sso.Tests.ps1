@@ -51,6 +51,12 @@ Describe 'Single sign-on that Edge turned on itself, the profile account and the
         Test-ProfileSsoAuto (Join-Path $dir 'missing') | Should Be $false
         Get-ProfileSsoState -ProfileDir $dir -Join $yes -Account 'none' | Should Be 'off'
     }
+    It 'reads a Preferences file without the field as off (strict mode, 2026-11-24)' {
+        foreach ($json in '{ "edge": { "profile_sso_info": {} } }', '{ "edge": {} }', '{}') {
+            [IO.File]::WriteAllText((Join-Path $dir 'Default\Preferences'), $json)
+            Test-ProfileSsoAuto $dir | Should Be $false
+        }
+    }
     It 'is on with a work account, and unavailable without a work account token on this PC' {
         Get-ProfileSsoState -ProfileDir $dir -Join $yes -Account 'work' | Should Be 'on'
         Get-ProfileSsoState -ProfileDir $dir -Join $no -Account 'work' | Should Be 'unavailable'

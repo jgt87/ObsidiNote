@@ -206,15 +206,15 @@ function Get-AskSources {
        the first) always, plus the read-only vaults and connected notebooks the request names.
        Each gets a tag: '' for the active vault, 's2', 's3'... for the others, so keys never clash. #>
     param([object[]]$All, [string[]]$Wanted)
-    $all = @($All | Where-Object { $null -ne $_ })
-    if (-not $all.Count) { throw 'Ask has no source: no vault is open.' }
-    $active = @($all | Where-Object { -not (Get-AskProp $_ 'ReadOnly' $false) }) | Select-Object -First 1
-    if (-not $active) { $active = $all[0] }
+    $given = @($All | Where-Object { $null -ne $_ })
+    if (-not $given.Count) { throw 'Ask has no source: no vault is open.' }
+    $active = @($given | Where-Object { -not (Get-AskProp $_ 'ReadOnly' $false) }) | Select-Object -First 1
+    if (-not $active) { $active = $given[0] }
     $list = New-Object System.Collections.Generic.List[object]
     $list.Add(@{ tag = ''; adapter = $active; id = [string](Get-AskProp $active 'Id' 'active'); name = [string](Get-AskProp $active 'Name' '')
         kind = [string](Get-AskProp $active 'Kind' 'vault'); readOnly = $false })
     $n = 1
-    foreach ($s in $all) {
+    foreach ($s in $given) {
         if ([object]::ReferenceEquals($s, $active)) { continue }
         $id = [string](Get-AskProp $s 'Id' '')
         if (-not $Wanted -or ($Wanted -notcontains $id)) { continue }

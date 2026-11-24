@@ -360,12 +360,12 @@ function Get-MeetingDataFromText {
         })
     $actions = @(foreach ($a in (& $items 'actions')) {
             $m = [regex]::Match($a, '^(.*?)\s*\(([^()]*)\)\s*$')
-            $text = $a; $owner = ''; $due = ''
+            $what = $a; $owner = ''; $due = ''
             if ($m.Success) {
-                $text = $m.Groups[1].Value.Trim()
+                $what = $m.Groups[1].Value.Trim()
                 foreach ($part in ($m.Groups[2].Value -split ',\s*')) { if ($part -match '^due (\d{4}-\d{2}-\d{2})$') { $due = $Matches[1] } elseif ($part) { $owner = $part } }
             }
-            @{ text = $text; owner = $owner; due = $due }
+            @{ text = $what; owner = $owner; due = $due }
         })
     @{
         summary = $(if ($sections.ContainsKey('summary')) { ($sections['summary'] -join ' ').Trim() } else { '' })

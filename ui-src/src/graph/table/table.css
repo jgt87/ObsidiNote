@@ -85,7 +85,7 @@
 .kg-tbl__sort:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 @media (hover: hover) { .kg-tbl__sort:hover { color: var(--ink); } }
 .kg-tbl__table th[aria-sort] { color: var(--ink); }
-.kg-tbl__arrow { width: 12px; height: 12px; flex: none; }
+.icon.kg-tbl__arrow { width: 12px; height: 12px; flex: none; }
 
 /* group heading rows: sticky under the header */
 .kg-tbl__group th {
@@ -113,7 +113,7 @@
 .kg-tbl__fold:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .kg-tbl__groupname { font-size: var(--text-control); font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
 .kg-tbl__count { flex: none; font-size: var(--text-meta); color: var(--muted); font-variant-numeric: tabular-nums; }
-.kg-tbl__chev { width: 14px; height: 14px; flex: none; color: var(--muted); transition: transform var(--dur-fast) var(--ease-in-out); }
+.icon.kg-tbl__chev { width: 14px; height: 14px; flex: none; color: var(--muted); transition: transform var(--dur-fast) var(--ease-in-out); }
 .kg-tbl__chev.is-open { transform: rotate(90deg); }
 
 /* rows */
@@ -141,12 +141,15 @@
 .kg-tbl__table tbody .kg-tbl__page { z-index: 1; }
 
 .kg-tbl__more td { color: var(--muted); }
-.kg-tbl__table td.kg-tbl__empty { color: var(--muted); text-align: center; height: 120px; border-bottom: 0; }
+.kg-tbl__table td.kg-tbl__empty { color: var(--muted); text-align: center; height: 120px; border-bottom: 0; white-space: normal; }
+.kg-tbl__emptytext { margin: 0 0 var(--space-3); }
 
 @media (pointer: coarse) {
   /* Rows and the header are 44px, and the sort and fold buttons fill that height (they were 16 and
      20px targets inside taller cells; scripts/check-design-rules.mjs). */
   .kg-tbl { --kg-tbl-row-h: 44px; --kg-tbl-head-h: 44px; }
   .kg-tbl__sort, .kg-tbl__fold { min-height: var(--touch-target); }
+  /* The row's tick: the full row height to touch, the box drawn at its normal size (audit 2026-11-24: 13px). */
+  .kg-tbl__tick { height: var(--touch-target); }
   .kg-tbl select.kg-tbl__select { font-size: max(16px, 1em); } /* a focused field under 16px zooms the page on iOS */
 }

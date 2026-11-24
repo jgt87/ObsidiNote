@@ -31,7 +31,7 @@ export function GraphView({ load, sourceKey, onAdd, onLinkMention, onEditPage, o
   if (state.status === 'error') {
     return (
       <GraphMessage title={title} alert heading="The map could not be loaded" text={state.message}>
-        <button type="button" className="btn" onClick={retry}>
+        <button type="button" className="btn" onClick={retry} aria-label="Try again: load the map">
           Try again
         </button>
       </GraphMessage>

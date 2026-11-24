@@ -1,6 +1,6 @@
 import { Fragment, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { WebLink } from '../components/WebLink'
-import { splitLinks, webUrl } from '../model/links'
+import { oneNoteHref, splitLinks, webUrl } from '../model/links'
 import { answerShares, citeChipView, citeTarget, combinedLine, confidenceLabel, droppedCitationsNote, pathChips, sentencesPerSource, sharePercent, sourceAnchor, sourceOrigin } from './askModel'
 import type { AskResult, AskSentence, AskSource, AskStaleLink } from './types'
 import './Ask.css'
@@ -214,10 +214,10 @@ function SourceRow({ source: s, id, share, sentences, stale: st, setLit, onShowP
       </div>
       <span className="ask-muted ask-src__age">
         {s.age}
-        {s.link && (
+        {oneNoteHref(s.link) && (
           <>
             {s.age ? ' · ' : ''}
-            <a className="ask-src__onenote" href={s.link} aria-label={`Open “${s.title}” in OneNote`}>
+            <a className="ask-src__onenote" href={oneNoteHref(s.link)} aria-label={`Open “${s.title}” in OneNote`}>
               OneNote
             </a>
           </>
@@ -293,7 +293,7 @@ function SourceTitle({ source: s, onShowPage }: { source: AskSource; onShowPage?
         {s.title}
       </button>
     )
-  return s.link ? <a href={s.link}>{s.title}</a> : <span>{s.title}</span>
+  return oneNoteHref(s.link) ? <a href={oneNoteHref(s.link)}>{s.title}</a> : <span>{s.title}</span>
 }
 
 function AskActions({ onFollowUp, onSavePage, onShowOnMap }: AskAnswerActions) {

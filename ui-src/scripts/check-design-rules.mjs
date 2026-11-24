@@ -1,21 +1,26 @@
 // Rendered design checks that a reading of the CSS cannot hold (design review 2026-11-14: every one
-// of these rules was already written down, and each was broken somewhere without a check):
-//   1 one primary button per view (home, home with waiting items, History, graph, page window, Edit)
+// of these rules was already written down, and each was broken somewhere without a check).
+// A rule DESIGN.md names ("Named Rules") is named here as there, and its failures start with that
+// name in brackets. DESIGN.md's One Purple, Results First and One Look Per Choice are not checked here.
+//   1 One Primary Per View: one primary button per view (home, home with waiting items, History, graph, page window, Edit)
 //   2 the knowledge graph never makes the page scroll (1440x900 and 1024x768)
 //   3 in a narrow window (720 and 390 px) the Add box starts on the first screen
-//   4 on a touch screen every control is at least 44 px high (390 px, coarse pointer)
-//   5 no dot of the map lies under a topic name (100 pages, the Sources view, 600 pages)
+//   4 Touch 44: on a touch screen every control is at least 44 px high (390 px, coarse pointer)
+//   5 Weight Is Relevance, Every Dot Is Content: no dot of the map lies under a topic name (100 pages, the Sources view, 600 pages)
 //   6 a section row of the side bar opens a List that holds pages
 //   7 "Labels: hubs only" leaves the topic names and names a page only while it is pointed at
 //  10 tags: added in the page window, its chip opens the Tags grouping with that tag alone, added to two ticked rows of the List
-//  15 the page window shows the page's text (headings, lists, a table, a link to another page that opens it; only http(s)/mailto/onenote addresses; a failed read as an error with one retry; a long page says so)
+//  15 the page window shows the page's text (headings, lists, a table, a link to another page that opens it; only http(s)/mailto/onenote addresses; a long page says so);
+//     Errors Read As Errors: a failed read is an error box with one retry
 //  14 the page window's title is changed in place (Esc keeps the old one and the window, Enter saves, empty is refused)
-//  13 the Tags grouping shows one area per tag with only tagged pages; a chip removes a tag's area; the topics inside are named on no dot
+//  13 the Tags grouping shows one area per tag with only tagged pages; a chip removes a tag's area;
+//     Weight Is Relevance, Every Dot Is Content: no dot under a tag name, the topics inside are named on no dot
 //  12 one banner names the reason the window is read only (not the side bar, no badge); Settings lists the vault's tags
 //  11 a read-only page window says why and shows Edit disabled
 //   9 the map's search shows its clear button whenever it holds text, without hover, and it clears
 //   8 during a long zoom-in with the wheel the map is drawn again before it is stretched 1.35 times
-//  20 the Journal: entries as rows, a topic search shows everything about it, Decisions with their sources, a row opens the page window, 44 px on touch
+//  20 the Journal: entries as rows, a topic search shows everything about it, Decisions with their sources, a row opens the page window;
+//     One Primary Per View; Touch 44: 44 px on touch
 // Views and states visited: home (idle, with waiting items, after an Add, with an Add that waits),
 // History, Journal (no search, a topic, Decisions), knowledge graph (map, List), page window, its Edit form.
 //  17 every text field has its own edge or fill of at least 3:1 against what is behind it (home, graph, Edit; light and dark)
@@ -167,7 +172,7 @@ async function connect() {
   }
   const t = { S, js, list, size, go, click, openDot, problems: [], checks: 0 }
   t.expect = (ok, text) => { t.checks++; if (!ok) t.problems.push(text) }
-  t.onePrimary = async (view) => { const p = await list(PRIMARIES); t.expect(p.length <= 1, `${view}: ${p.length} primary buttons (${p.join(', ')})`) }
+  t.onePrimary = async (view) => { const p = await list(PRIMARIES); t.expect(p.length <= 1, `[One Primary Per View] ${view}: ${p.length} primary buttons (${p.join(', ')})`) }
   return t
 }
 
@@ -181,17 +186,17 @@ async function loadStubGraph({ js, size, go }) {
   graph.source = { ...graph.source, id: 'v1', kind: 'vault', readOnly: false }
 }
 
-// 5 no dot under a topic name (the demo map and the Sources view)
+// 5 Weight Is Relevance, Every Dot Is Content: no dot under a topic name (the demo map and the Sources view)
 async function noDotUnderNames({ list, go, click, expect }) {
   let under = await list(UNDER_NAMES)
-  expect(under.length === 0, `map: dots under topic names: ${JSON.stringify(under)}`)
+  expect(under.length === 0, `[Weight Is Relevance, Every Dot Is Content] map: dots under topic names: ${JSON.stringify(under)}`)
   await click('Sources'); await wait(700)
   under = await list(UNDER_NAMES)
-  expect(under.length === 0, `map, Sources view: dots under names: ${JSON.stringify(under)}`)
+  expect(under.length === 0, `[Weight Is Relevance, Every Dot Is Content] map, Sources view: dots under names: ${JSON.stringify(under)}`)
 
   await go('/graph-demo.html?pages=600&topics=25', '.kg-dot'); await wait(600)
   under = await list(UNDER_NAMES)
-  expect(under.length === 0, `map of 600 pages (fitted zoomed out): dots under topic names: ${JSON.stringify(under)}`)
+  expect(under.length === 0, `[Weight Is Relevance, Every Dot Is Content] map of 600 pages (fitted zoomed out): dots under topic names: ${JSON.stringify(under)}`)
 }
 
 // 7 "Labels: hubs only": the topic names stay, no page is named at rest, the page pointed at is.
@@ -303,11 +308,11 @@ async function tagsGrouping({ js, list, go, click, expect }) {
     const fewer = await names()
     expect(!fewer.includes('licensing') && fewer.length === 2 && (await dots()) < tagged, `Tags grouping, "licensing" switched off: areas ${JSON.stringify(fewer)}, ${await dots()} dots (were ${tagged})`)
     const under = await list(UNDER_NAMES)
-    expect(under.length === 0, `Tags grouping: dots under tag names: ${JSON.stringify(under)}`)
+    expect(under.length === 0, `[Weight Is Relevance, Every Dot Is Content] Tags grouping: dots under tag names: ${JSON.stringify(under)}`)
     // The topics inside a tag area are named, and no name lies on a dot.
     await click('All tags'); await wait(900)
     const groups = await list(`JSON.stringify((() => { const dots = [...document.querySelectorAll('.kg-base circle.kg-dot')].map((c) => c.getBoundingClientRect()); const labels = [...document.querySelectorAll('.kg-glabel')]; const hit = labels.filter((l) => { const r = l.getBoundingClientRect(); return dots.some((d) => d.left < r.right - 1 && d.right > r.left + 1 && d.top < r.bottom - 1 && d.bottom > r.top + 1) }).map((l) => l.textContent); return { names: labels.length, hit } })())`)
-    expect(groups.names >= 3 && groups.hit.length === 0, `Tags grouping, topics inside the areas: ${groups.names} topic name(s) shown, on a dot: ${JSON.stringify(groups.hit)}`)
+    expect(groups.names >= 3 && groups.hit.length === 0, `[Weight Is Relevance, Every Dot Is Content] Tags grouping, topics inside the areas: ${groups.names} topic name(s) shown, on a dot: ${JSON.stringify(groups.hit)}`)
   }
 }
 
@@ -367,7 +372,7 @@ async function pageTextFails({ list, go, openDot, expect }) {
   await go('/graph-demo.html?pages=100&body=fail', '.kg-dot')
   await openDot(); await wait(700)
   const err = await list(`JSON.stringify((() => { const n = document.querySelector('dialog[open] .notice--error'); return { text: n?.textContent ?? '', role: n?.getAttribute('role') ?? '', retry: [...(n?.querySelectorAll('button') ?? [])].map((b) => b.textContent.trim()), links: document.querySelectorAll('dialog[open] .kg-row').length } })())`)
-  expect(readFailedRight(err), `page text, the read fails: ${JSON.stringify(err)} (an error box with one retry; the links stay)`)
+  expect(readFailedRight(err), `[Errors Read As Errors] page text, the read fails: ${JSON.stringify(err)} (an error box with one retry; the links stay)`)
 }
 
 async function pageTextLong({ js, go, openDot, expect }) {
@@ -476,7 +481,7 @@ async function askCitations({ S, js, list, expect }) {
   submitAnswer = added
 }
 
-// 1 one primary button per view (the knowledge graph's own is checked after rule 6)
+// 1 One Primary Per View: one primary button per view (the knowledge graph's own is checked after rule 6)
 async function onePrimaryPerView({ S, js, go, click, openDot, expect, onePrimary }) {
   await go('/graph-demo.html?pages=100', '.kg-dot'); await openDot(); await onePrimary('page window')
   await click('Edit', `document.querySelector('dialog[open]')`); await wait(400); await onePrimary('page window, Edit form')
@@ -547,11 +552,11 @@ async function journalView({ js, list, size, go, click, expect, onePrimary }) {
   expect(opened, 'Journal: a row did not open the page window')
   await size(390, 844, true); await go('/#/journal', '.jr__row')
   const small = await list(SMALL)
-  expect(small.length === 0, `Journal on touch: under 44px: ${small.join(', ')}`)
+  expect(small.length === 0, `[Touch 44] Journal on touch: under 44px: ${small.join(', ')}`)
   await size(1440, 900, false)
 }
 
-// 1 (continued) the knowledge graph's one primary button
+// 1 One Primary Per View (continued): the knowledge graph's one primary button
 async function onePrimaryOnGraph({ go, onePrimary }) {
   await go('/#/graph', '.kg-dot'); await onePrimary('knowledge graph')
 }
@@ -575,10 +580,10 @@ async function addBoxFirstScreen({ js, size, go, expect }) {
   }
 }
 
-// 4 touch: every control at least 44 px high
+// 4 Touch 44: on touch every control at least 44 px high
 async function touchTargets({ list, size, go, click, openDot, expect }) {
   await size(390, 844, true)
-  const touch = async (view) => { const s = await list(SMALL); expect(s.length === 0, `${view} on touch: under 44px: ${s.join(', ')}`) }
+  const touch = async (view) => { const s = await list(SMALL); expect(s.length === 0, `[Touch 44] ${view} on touch: under 44px: ${s.join(', ')}`) }
   waiting = true; await go('/#/', '.act__row'); await touch('home')
   await go('/#/history', '.act__row'); await touch('History')
   await go('/#/graph', '.kg-dot'); await touch('knowledge graph')
@@ -662,7 +667,7 @@ async function main() {
   const { checks, problems } = t
   if (checks < 45) problems.push(`only ${checks} checks ran: the script did not reach every view`)
   if (problems.length) { console.error('Design rules broken:\n' + problems.join('\n')); process.exitCode = 1 }
-  else console.log(`OK: ${checks} rendered design checks (one primary per view, no page scroll on the graph, Add box on the first screen, 44px touch targets, no dot under a topic name, section rows open their pages).`)
+  else console.log(`OK: ${checks} rendered design checks (One Primary Per View, Touch 44, Weight Is Relevance, Every Dot Is Content, Errors Read As Errors; no page scroll on the graph, Add box on the first screen, section rows open their pages).`)
 }
 main().catch((e) => { console.error(e); process.exitCode = 1 }).finally(async () => {
   try { ws?.close() } catch {} // already closed: nothing to do

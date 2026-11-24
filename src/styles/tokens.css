@@ -161,14 +161,16 @@ a { text-underline-offset: 0.2em; }
   border: 1px solid var(--border-strong); border-radius: var(--radius);
   background: var(--surface); color: var(--ink);
   font: 500 var(--text-control)/1 var(--font-sans);
-  cursor: pointer;
+  cursor: pointer; touch-action: manipulation; /* no double-tap zoom delay on a press */
   transition: background-color var(--dur) ease-out, border-color var(--dur) ease-out;
 }
-@media (hover: hover) { .btn:hover { background: var(--hover); } }
+/* An unavailable button paints no hover (audit 2026-11-24: .btn:hover still lit a disabled one).
+   :where() keeps the old weight, so a pressed toggle still beats the hover fill. */
+@media (hover: hover) { .btn:hover:where(:not(:disabled, [aria-disabled="true"])) { background: var(--hover); } }
 .btn:active { transform: translateY(1px); }
 .btn:disabled, .btn[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; transform: none; }
 .btn--primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
-@media (hover: hover) { .btn--primary:hover { background: var(--accent-hover); } }
+@media (hover: hover) { .btn--primary:hover:where(:not(:disabled, [aria-disabled="true"])) { background: var(--accent-hover); } }
 .btn--ghost { background: transparent; border-color: transparent; }
 .btn--danger { background: var(--danger-soft); border-color: transparent; color: var(--danger); }
 .btn--sm { height: var(--control-h-sm); padding: 0 var(--space-3); font-size: var(--text-meta); }
@@ -255,7 +257,8 @@ input[type="range"], input[type="checkbox"], input[type="radio"] { accent-color:
 .menu { min-width: 240px; padding: 6px 0; background: var(--raised); border: 1px solid var(--border);
   border-radius: var(--radius); box-shadow: var(--shadow-menu); z-index: var(--z-dropdown); }
 .menu__item { display: flex; align-items: center; gap: var(--space-3); height: 32px; padding: 0 12px; cursor: pointer; }
-.menu__item:hover, .menu__item:focus-visible { background: var(--hover); outline: none; }
+@media (hover: hover) { .menu__item:hover:where(:not([aria-disabled="true"])) { background: var(--hover); } }
+.menu__item:focus-visible { background: var(--hover); outline: none; }
 @media (forced-colors: active) { .menu__item:focus-visible { outline: 2px solid CanvasText; outline-offset: -2px; } }
 .menu__item[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
 .tooltip { padding: 6px 8px; border-radius: var(--radius-sm); background: var(--ink); color: var(--bg);

@@ -2,6 +2,7 @@
 // counts), "Only pages without links", "Link summaries older than N days" and "Show archived"; and the one-line summary of what is
 // active, with the focus steps toggle, "Show all" and "Clear". The rules are in filters.ts.
 
+import { unavailable } from '../components/disabledGuard'
 import { useEffect, useId, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { duplicateIds } from './duplicates'
 import { emptyFilter, filterOptions, filterParts, isFilterActive, type FocusDepth, type GraphFilter } from './filters'
@@ -10,6 +11,7 @@ import type { GraphIndex } from './graphIndex'
 import { isLinkPage, isStale, staleCutoff } from './linkUpdateRun'
 import { UNFILED_ID } from './model'
 import './FilterPanel.css'
+import { Icon } from '../components/icons'
 
 interface PanelProps {
   index: GraphIndex
@@ -133,9 +135,7 @@ export function FilterButton({ index, filter, onChange, show, onShow, staleDays 
   return (
     <div ref={pop.wrapRef} className="kg-fp" {...pop.wrapHandlers}>
       <button ref={pop.buttonRef} type="button" className="btn btn--sm" aria-expanded={pop.open} aria-controls={panelId} data-active={n > 0 || undefined} onClick={pop.toggle}>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-          <path d="M2 4h12M4.5 8h7M7 12h2" />
-        </svg>
+        <Icon name="filter" />
         Filter{n > 0 ? ` · ${n}` : ''}
       </button>
       <div ref={pop.panelRef} id={panelId} className="kg-fp__panel" role="group" aria-label="Filter pages" hidden={!pop.open}>
@@ -155,7 +155,7 @@ export function FilterButton({ index, filter, onChange, show, onShow, staleDays 
         )}
         <PageStateBoxes filter={filter} set={set} counts={counts} staleDays={staleDays} />
         <div className="kg-fp__foot">
-          <button type="button" className="btn btn--sm btn--ghost" disabled={!isFilterActive(filter)} onClick={() => onChange(emptyFilter())}>
+          <button type="button" className="btn btn--sm btn--ghost" {...unavailable(!isFilterActive(filter))} onClick={() => onChange(emptyFilter())}>
             Clear filters
           </button>
           <button type="button" className="btn btn--sm" onClick={() => pop.close(true)}>

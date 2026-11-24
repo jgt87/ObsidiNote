@@ -38,7 +38,7 @@ describe('shouldShow, visibleNotes, hiddenCount', () => {
 })
 
 describe('this run\'s memory', () => {
-  beforeEach(() => resetWhatsNewForTests())
+  beforeEach(() => { resetWhatsNewForTests() })
   it('asks the server once, with the app header', async () => {
     const f = vi.fn(async () => new Response(JSON.stringify({ version: 'v1.2.0', updated: true, notes: [] }), { status: 200 }))
     const a = await loadWhatsNew(f as unknown as typeof fetch)

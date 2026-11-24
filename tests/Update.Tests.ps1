@@ -106,6 +106,35 @@ Describe 'Update settings' {
         Get-LocalAppValue "$b\app" 'autoUpdate' | Should Be $false
         Remove-Item $b -Recurse -Force
     }
+    It 'writes the settings file and version.txt through a temp file and a swap, leaving no temp file' {
+        $b = New-UpdateDirs
+        $file = "$b\app\config\obsidinote.local.json"
+        Write-FileReplace $file '{ "a": 1 }'
+        [IO.File]::ReadAllText($file) | Should Be '{ "a": 1 }'
+        Write-FileReplace "$b\app\version.txt" 'v0.1.2'                    # a new file too
+        [IO.File]::ReadAllText("$b\app\version.txt") | Should Be 'v0.1.2'
+        @(Get-ChildItem -LiteralPath "$b\app\config", "$b\app" -Force -Filter '*.tmp').Count | Should Be 0
+        $bytes = [IO.File]::ReadAllBytes($file)
+        $bytes[0] | Should Be ([byte][char]'{')                                # no BOM
+        Remove-Item $b -Recurse -Force
+    }
+    It 'keeps the old file whole when the new text cannot be swapped in' {
+        $b = New-UpdateDirs
+        $file = "$b\app\config\obsidinote.local.json"
+        $lock = [IO.File]::Open($file, 'Open', 'Read', 'None')               # another program holds it
+        try { { Write-FileReplace $file '{ "b": 2 }' } | Should Throw } finally { $lock.Close() }
+        [IO.File]::ReadAllText($file) | Should Be '{}'
+        @(Get-ChildItem -LiteralPath "$b\app\config" -Force -Filter '*.tmp').Count | Should Be 0
+        Remove-Item $b -Recurse -Force
+    }
+    It 'is used for every write of the settings file and of version.txt' {
+        # A bare WriteAllText of either file cuts it off when the write stops halfway (audit 2026-11-24).
+        $mod = [IO.File]::ReadAllText((Join-Path $root 'lib\Update.psm1'))
+        $tool = [IO.File]::ReadAllText((Join-Path $root 'tools\update.ps1'))
+        $tool | Should Match 'Write-FileReplace \$verFile'
+        $tool | Should Not Match 'WriteAllText\(\$verFile'
+        $mod | Should Match 'Write-FileReplace \$file'
+    }
 }
 
 Describe 'Files an update touches' {

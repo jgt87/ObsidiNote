@@ -10,7 +10,8 @@ import { GraphHeading, GraphTools, SourceBanner, TagBar } from './GraphHeader'
 import { GraphList } from './GraphList'
 import { GraphStage, type Active } from './GraphStage'
 import { areaCount, areaWordOf } from './graphViewModel'
-import type { GraphModel } from './model'
+import { emptyFilter, narrowingParts } from './filters'
+import { UNFILED_ID, type GraphModel } from './model'
 import { PageDialog, type PageActions } from './PageDialog'
 import { useFindRequest, useGraphSearch, usePageDialog, usePageRetire, useSearchKeys } from './useGraphInteraction'
 import { useGraphFilter, useMapChoices, useMapLayouts, useTagGrouping, useVisiblePages } from './useGraphView'
@@ -149,7 +150,21 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           stageRef={stageRef}
         />
       ) : (
-        <GraphList index={index} layout={layout} matches={listMatches} onOpen={page.open} onTagPages={actions.onTagPages} onPickTag={showTag} onRetirePages={retirePages} onUpdateLink={actions.onUpdateLink} />
+        <GraphList
+          index={index}
+          layout={layout}
+          matches={listMatches}
+          onOpen={page.open}
+          onTagPages={actions.onTagPages}
+          onPickTag={showTag}
+          onRetirePages={retirePages}
+          onUpdateLink={actions.onUpdateLink}
+          narrowedBy={narrowingParts(liveFilter, search.query, (id) => (id === UNFILED_ID ? 'Unfiled' : index.topicById.get(id)?.name ?? id), (id) => index.pageById.get(id)?.title ?? id)}
+          onClearFilters={() => {
+            setFilter(emptyFilter())
+            search.onQuery('')
+          }}
+        />
       )}
 
       {dialog && (

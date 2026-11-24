@@ -1,0 +1,176 @@
+{
+  "ui-src/scripts/check-code-size.mjs": {
+    "complexity": 1
+  },
+  "ui-src/scripts/check-design-rules.mjs": {
+    "complexity": 1
+  },
+  "ui-src/scripts/readme-shots.mjs": {
+    "complexity": 2
+  },
+  "ui-src/src/App.tsx": {
+    "max-lines-per-function": 1,
+    "complexity": 1
+  },
+  "ui-src/src/activity/ActivityRow.tsx": {
+    "max-lines-per-function": 1,
+    "complexity": 1
+  },
+  "ui-src/src/activity/ActivityView.tsx": {
+    "complexity": 1
+  },
+  "ui-src/src/activity/activityModel.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/add/LinkUpdateView.tsx": {
+    "max-lines-per-function": 1,
+    "complexity": 1
+  },
+  "ui-src/src/add/addResultView.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/add/fileText.ts": {
+    "complexity": 2
+  },
+  "ui-src/src/add/format.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/add/types.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/ask/AskStates.tsx": {
+    "complexity": 1
+  },
+  "ui-src/src/components/Composer.tsx": {
+    "max-lines-per-function": 1,
+    "complexity": 1
+  },
+  "ui-src/src/components/HomeView.tsx": {
+    "complexity": 1
+  },
+  "ui-src/src/components/NewVaultDialog.tsx": {
+    "max-lines-per-function": 1,
+    "complexity": 1
+  },
+  "ui-src/src/components/NotebookSwitcher.tsx": {
+    "complexity": 1
+  },
+  "ui-src/src/components/Notice.tsx": {
+    "complexity": 1
+  },
+  "ui-src/src/components/RecentList.tsx": {
+    "complexity": 1
+  },
+  "ui-src/src/components/SettingsDialog.tsx": {
+    "max-lines-per-function": 1,
+    "complexity": 1
+  },
+  "ui-src/src/components/TagsSettings.tsx": {
+    "max-lines-per-function": 1
+  },
+  "ui-src/src/graph/HoverCard.tsx": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/InlineText.tsx": {
+    "max-lines-per-function": 1,
+    "complexity": 1
+  },
+  "ui-src/src/graph/KnowledgeGraph.tsx": {
+    "max-lines-per-function": 1,
+    "complexity": 1
+  },
+  "ui-src/src/graph/PageBody.tsx": {
+    "max-lines-per-function": 1
+  },
+  "ui-src/src/graph/PageDialog.tsx": {
+    "max-lines-per-function": 1,
+    "complexity": 1
+  },
+  "ui-src/src/graph/PageDialogParts.tsx": {
+    "complexity": 3
+  },
+  "ui-src/src/graph/PageEditForm.tsx": {
+    "max-lines-per-function": 1
+  },
+  "ui-src/src/graph/RetireDialog.tsx": {
+    "max-lines-per-function": 1
+  },
+  "ui-src/src/graph/TagsRow.tsx": {
+    "max-lines-per-function": 1
+  },
+  "ui-src/src/graph/bodyText.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/duplicates.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/editModel.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/graphIndex.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/graphViewModel.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/layout.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/linkUpdateRun.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/mentions.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/pageDialogModel.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/retireModel.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/seriesFold.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/stageModel.ts": {
+    "complexity": 2
+  },
+  "ui-src/src/graph/synthetic.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/table/TableGroupRows.tsx": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/table/tableModel.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/graph/useStageInput.ts": {
+    "max-lines-per-function": 1
+  },
+  "ui-src/src/hooks/useHomeFlow.ts": {
+    "max-lines-per-function": 1
+  },
+  "ui-src/src/journal/JournalView.tsx": {
+    "complexity": 1
+  },
+  "ui-src/src/journal/journalModel.ts": {
+    "complexity": 2
+  },
+  "ui-src/src/meetings/meetingsModel.ts": {
+    "complexity": 2
+  },
+  "ui-src/src/meetings/useMeetings.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/model/attention.ts": {
+    "complexity": 2
+  },
+  "ui-src/src/model/composerView.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/model/handoff.ts": {
+    "complexity": 1
+  },
+  "ui-src/src/search/switcherModel.ts": {
+    "complexity": 1
+  }
+}

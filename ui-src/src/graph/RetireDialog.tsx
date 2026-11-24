@@ -2,7 +2,11 @@
 // or many, no "don't ask again"). It shows the server's plan: the pages, where they go, how many
 // links point at them, and the pages that are left out with the reason. Wording: retireModel.ts.
 
+import { BusyLabel } from '../components/BusyLabel'
 import { useEffect, useRef } from 'react'
+import { unavailable } from '../components/disabledGuard'
+import { Icon } from '../components/icons'
+import { useModal } from '../components/useModal'
 import { confirmWording, refusedLines, sectionLabel, type AskingAction, type RetirePlan } from './retireModel'
 
 interface Props {
@@ -23,9 +27,9 @@ export function RetireDialog({ action, plan, busy, error, onConfirm, onCancel }:
   const left = refusedLines(plan)
   const many = plan.pages.length > 1
 
+  // Shown as a modal; closed with the focus back on the button that opened it when it is answered.
+  useModal(ref)
   useEffect(() => {
-    const d = ref.current
-    if (d && !d.open) d.showModal()
     // Delete cannot be undone here: focus starts on Cancel. Archive can: on the action.
     ;(action === 'delete' ? cancelRef : goRef).current?.focus()
   }, [action])
@@ -75,14 +79,18 @@ export function RetireDialog({ action, plan, busy, error, onConfirm, onCancel }:
             ))}
           </div>
         )}
-        {error && (
-          <p className="kg-retire__error" role="alert">
-            {error}
-          </p>
-        )}
+        {/* Mounted empty and kept, so a failure is announced; the icon says it is one (not the fill alone). */}
+        <div className="live" role="alert">
+          {error && (
+            <p className="kg-retire__error">
+              <Icon name="warn" />
+              <span>{error}</span>
+            </p>
+          )}
+        </div>
       </div>
       <div className="kg-retire__actions">
-        <button ref={cancelRef} type="button" className="btn" onClick={onCancel} disabled={busy}>
+        <button ref={cancelRef} type="button" className="btn" onClick={onCancel} {...unavailable(busy)}>
           Cancel
         </button>
         <button
@@ -90,10 +98,10 @@ export function RetireDialog({ action, plan, busy, error, onConfirm, onCancel }:
           type="button"
           className={action === 'delete' ? 'btn kg-retire__go--delete' : 'btn btn--primary'}
           onClick={onConfirm}
-          disabled={busy}
+          {...unavailable(busy)}
           aria-busy={busy}
         >
-          {busy ? w.busy : w.confirm}
+          <BusyLabel label={w.confirm} busyText={w.busy} />
         </button>
       </div>
     </dialog>

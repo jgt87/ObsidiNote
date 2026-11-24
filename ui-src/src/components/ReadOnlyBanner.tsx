@@ -1,5 +1,7 @@
+import { BusyLabel } from './BusyLabel'
+import { unavailable } from './disabledGuard'
 import { useState } from 'react'
-import { LockIcon } from './icons'
+import { Icon } from './icons'
 import './ReadOnlyBanner.css'
 
 /**
@@ -22,14 +24,14 @@ export function ReadOnlyBanner({ text, onCheck, result = '' }: { text: string; o
   }
   return (
     <div className="notice ro-banner" role="status">
-      <LockIcon />
+      <Icon name="lock" />
       <div className="notice__body">
         <p>{text}</p>
         {result && <p className="ro-banner__result">{result}</p>}
       </div>
       {onCheck && (
-        <button type="button" className="btn btn--sm" onClick={() => void check()} disabled={busy} aria-busy={busy}>
-          {busy ? 'Checking…' : 'Check again'}
+        <button type="button" className="btn btn--sm" onClick={() => void check()} {...unavailable(busy)} aria-busy={busy}>
+          <BusyLabel label="Check again" busyText="Checking…" />
         </button>
       )}
     </div>

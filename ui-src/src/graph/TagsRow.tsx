@@ -3,8 +3,11 @@
 // Tags are set by hand only. Without `onChange` (a read-only source) the chips are shown and
 // nothing can be changed.
 
+import { BusyLabel } from '../components/BusyLabel'
+import { unavailable } from '../components/disabledGuard'
 import { useId, useState } from 'react'
 import { normalizeTag, suggestTags, type TagCount } from './tags'
+import { Icon } from '../components/icons'
 
 interface Props {
   /** The tags to show as chips (a page's own; for a selection: none). */
@@ -63,10 +66,8 @@ export function TagsRow({ tags, all, onChange, label, onPick }: Props) {
                 <span className="kg-tagchip__name">{t}</span>
               )}
               {onChange && (
-                <button type="button" className="kg-tagchip__x" aria-label={`Remove tag ${t}`} title={`Remove tag ${t}`} disabled={busy} onClick={() => void run([], [t])}>
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
-                    <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
-                  </svg>
+                <button type="button" className="kg-tagchip__x" aria-label={`Remove tag ${t}`} title={`Remove tag ${t}`} {...unavailable(busy)} onClick={() => void run([], [t])}>
+                  <Icon name="close" />
                 </button>
               )}
             </li>
@@ -86,12 +87,14 @@ export function TagsRow({ tags, all, onChange, label, onPick }: Props) {
             aria-describedby={error ? errId : undefined}
             list={listId}
             maxLength={60}
-            disabled={busy}
+            {...unavailable(busy)} readOnly={busy}
             onChange={(e) => {
               setText(e.target.value)
               setError('')
             }}
             onKeyDown={(e) => {
+              // No Backspace-removes-the-last-tag (operator, 2026-11-24): a removal writes to OneNote
+              // at once, so it takes the tag's own remove button (DESIGN.md, Accepted deviations).
               if (e.nativeEvent.isComposing) return
               if (e.key === 'Enter' || e.key === ',') {
                 e.preventDefault()
@@ -105,8 +108,8 @@ export function TagsRow({ tags, all, onChange, label, onPick }: Props) {
               <option key={t} value={t} />
             ))}
           </datalist>
-          <button type="button" className="btn btn--sm" disabled={busy || !text.trim()} aria-busy={busy} onClick={add}>
-            Add
+          <button type="button" className="btn btn--sm" {...unavailable(busy || !text.trim())} aria-busy={busy} onClick={add}>
+            <BusyLabel label="Add" />
           </button>
         </span>
       )}

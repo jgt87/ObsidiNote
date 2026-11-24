@@ -25,10 +25,10 @@ export function formatOneNotePath(page: PlacedPage): string {
   return page.oneNotePath.join(' › ')
 }
 
-/** 3240 -> "3.2 s"; under a second -> "0.4 s". */
+/** 3240 -> "3.2 s"; under a second -> "0.4 s". A no-break space: a number and its unit never break apart. */
 export function formatSeconds(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return ''
-  return `${(ms / 1000).toFixed(1)} s`
+  return `${(ms / 1000).toFixed(1)} s`
 }
 
 export function clampStrength(n: number): 1 | 2 | 3 {

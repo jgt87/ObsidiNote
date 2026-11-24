@@ -176,9 +176,10 @@ function inlineText(n: PasteNode, marks: Marks): string {
 }
 
 /** [label](address) for an http(s) or mailto address outside another link; else the label alone.
- *  A link without a label shows its address. */
+ *  A link without a label shows its address. Tabs and line breaks in the address are dropped, as a
+ *  browser drops them: kept, they split the link and the rest read as a heading or list line. */
 function inlineLink(n: PasteNode, marks: Marks): string {
-  const href = attr(n, 'href').trim()
+  const href = attr(n, 'href').replace(/[\t\r\n]/g, '').trim()
   if (marks.link || !LINK_SCHEMES.test(href)) return inner(n, marks)
   const label = inner(n, { ...marks, link: true }).replace(/\n/g, ' ')
   const url = href.replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29')

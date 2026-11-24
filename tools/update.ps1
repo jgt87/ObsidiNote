@@ -111,7 +111,7 @@ function Install-Release([string]$From, [string]$NewVersion) {
         $back = if ($notBack.Count) { "; putting the previous version back failed for $($notBack -join ', ')" } else { "; the previous version ($(if ($current) { $current } else { 'unknown' })) was put back whole" }
         throw "robocopy failed with code $code$(if ($failed.Count) { ' on ' + ($failed -join ', ') + ' (in use?)' } else { '' })$back. The update runs again at the next start."
     }
-    [IO.File]::WriteAllText($verFile, $NewVersion)
+    Write-FileReplace $verFile $NewVersion
     try { Remove-Item -LiteralPath $backup -Recurse -Force } catch { }
     $cv = ConvertTo-ReleaseVersion $current; $nv = ConvertTo-ReleaseVersion $NewVersion
     $older = $cv -and $nv -and $nv -lt $cv

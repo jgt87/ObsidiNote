@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { loneLink, splitLinks, webUrl } from './links'
+import { loneLink, oneNoteHref, splitLinks, webUrl } from './links'
+
+describe('oneNoteHref: only an onenote: address becomes a OneNote link', () => {
+  it('keeps onenote: and refuses every other scheme', () => {
+    expect(oneNoteHref('onenote:https://d.docs.live.net/x#p1')).toBe('onenote:https://d.docs.live.net/x#p1')
+    expect(oneNoteHref(' ONENOTE:x ')).toBe('ONENOTE:x')
+    for (const bad of ['javascript:alert(1)', 'JaVaScRiPt:x', 'data:text/html,x', 'file:///c:/x', '//evil.example', '', null, undefined]) expect(oneNoteHref(bad)).toBeUndefined()
+  })
+})
 
 describe('loneLink: a text that is one link and nothing else', () => {
   it('reads a bare address and a titled Markdown link as that address', () => {

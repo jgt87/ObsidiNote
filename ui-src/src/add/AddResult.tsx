@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { Icon } from '../components/icons'
+import { unavailable } from '../components/disabledGuard'
 import { Notice } from '../components/Notice'
 import { WebLink } from '../components/WebLink'
-import { webUrl } from '../model/links'
+import { oneNoteHref, webUrl } from '../model/links'
 import { addResultView, type AddResultView } from './addResultView'
 import { ConfirmReplaceDialog, type ReplaceDecision } from './ConfirmReplaceDialog'
 import { chipLabel, formatOneNotePath, formatSeconds, formatTopicPath, placementParts, resultHeading } from './format'
@@ -34,21 +36,13 @@ export interface AddResultActions {
   onOpenPage?: (pageId: string) => void
 }
 
-function CheckIcon() {
-  return (
-    <svg className="add-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-      <path d="m3 8.5 3 3 7-7" />
-    </svg>
-  )
-}
-
 function RelatedPages({ pages }: { pages: PageRef[] }) {
   return (
     <>
       {pages.map((p, i) => (
         <span key={p.id}>
           {i > 0 && ', '}
-          {p.link ? <a className="add-a" href={p.link}>{p.title}</a> : p.title}
+          {oneNoteHref(p.link) ? <a className="add-a" href={oneNoteHref(p.link)}>{p.title}</a> : p.title}
         </span>
       ))}
     </>
@@ -62,19 +56,19 @@ function AddActionRow({ view, busy, a }: { view: AddResultView; busy: boolean; a
   if (askUndo) return <ConfirmUndo busy={busy} onKeep={() => setAskUndo(false)} onUndo={a.onUndo} />
   return (
     <div className="add-actions">
-      <button type="button" className="btn" onClick={a.onDone} disabled={busy}>
+      <button type="button" className="btn" onClick={a.onDone} {...unavailable(busy)}>
         Done
       </button>
       {OPTIONAL_ACTIONS.map(([shown, action, label]) => {
         const run = a[action]
         return view[shown] && run ? (
-          <button key={label} type="button" className="btn" onClick={run} disabled={busy}>
+          <button key={label} type="button" className="btn" onClick={run} {...unavailable(busy)}>
             {label}
           </button>
         ) : null
       })}
       {view.undo && a.onUndo && (
-        <button type="button" className="btn" onClick={() => setAskUndo(true)} disabled={busy}>
+        <button type="button" className="btn" onClick={() => setAskUndo(true)} {...unavailable(busy)}>
           Undo
         </button>
       )}
@@ -94,10 +88,10 @@ function ConfirmUndo({ busy, onKeep, onUndo }: { busy: boolean; onKeep: () => vo
   return (
     <div className="add-actions">
       <span className="add-text">Undo this page? It goes to OneNote’s Deleted Pages.</span>
-      <button type="button" className="btn" onClick={onKeep} disabled={busy}>
+      <button type="button" className="btn" onClick={onKeep} {...unavailable(busy)}>
         Keep
       </button>
-      <button type="button" className="btn btn--danger" onClick={onUndo} disabled={busy}>
+      <button type="button" className="btn btn--danger" onClick={onUndo} {...unavailable(busy)}>
         Undo
       </button>
     </div>
@@ -125,8 +119,8 @@ function PlacedGroup({ page, chips }: { page: PlacedPage; chips: AddResultData['
       </div>
       <div className="add-muted add-path__where">
         OneNote:{' '}
-        {page.link ? (
-          <a className="add-a" href={page.link} title="Open in OneNote">
+        {oneNoteHref(page.link) ? (
+          <a className="add-a" href={oneNoteHref(page.link)} title="Open in OneNote">
             {formatOneNotePath(page)}
           </a>
         ) : (
@@ -221,7 +215,8 @@ function UpdateParts({ r, v }: { r: AddResultData; v: AddResultView }) {
     <>
       {v.update && r.update && <LinkUpdateView update={r.update} status={r.status} />}
       {v.couldNotUpdate && (
-        <section className="add-card" role="status">
+        // Announced by the home view's one region (model/flowSay.ts), not by a region mounted with it.
+        <section className="add-card">
           <p className="add-text">{r.message}</p>
         </section>
       )}
@@ -242,8 +237,8 @@ function ResultTop({ r, written }: { r: AddResultData; written: boolean }) {
     <div className="add-result__top">
       <h1 className="add-result__title">{resultHeading(r.status, r.page?.title ?? '')}</h1>
       {written && (
-        <div role="status" className="add-muted add-result__status">
-          <CheckIcon />
+        <div className="add-muted add-result__status">
+          <Icon name="check" className="add-icon" />
           Written to OneNote · {formatSeconds(r.timings.totalMs)}
         </div>
       )}
@@ -258,12 +253,12 @@ function FailedNotice({ r, busy, a }: { r: AddResultData; busy: boolean; a: AddR
   const actions = dup && (a.onOpenPage || a.onAddDuplicate) ? (
     <>
       {a.onOpenPage && (
-        <button type="button" className="btn btn--sm" onClick={() => a.onOpenPage?.(dup)} disabled={busy}>
+        <button type="button" className="btn btn--sm" onClick={() => a.onOpenPage?.(dup)} {...unavailable(busy)}>
           Open it
         </button>
       )}
       {a.onAddDuplicate && (
-        <button type="button" className="btn btn--sm" onClick={a.onAddDuplicate} disabled={busy}>
+        <button type="button" className="btn btn--sm" onClick={a.onAddDuplicate} {...unavailable(busy)}>
           Add anyway
         </button>
       )}
@@ -288,12 +283,12 @@ function AskInsteadCard({ message, busy, onAddAnyway, onAsk }: { message: string
     <section className="add-card add-actions">
       <p className="add-text add-actions__text">{message}</p>
       {onAddAnyway && (
-        <button type="button" className="btn" onClick={onAddAnyway} disabled={busy}>
+        <button type="button" className="btn" onClick={onAddAnyway} {...unavailable(busy)}>
           Add anyway
         </button>
       )}
       {onAsk && (
-        <button type="button" className="btn" onClick={onAsk} disabled={busy}>
+        <button type="button" className="btn" onClick={onAsk} {...unavailable(busy)}>
           Ask it
         </button>
       )}

@@ -278,7 +278,22 @@ function Set-LocalAppValue([string]$AppRoot, [string]$Key, $Value) {
     if ($null -eq $Value) { $obj.PSObject.Properties.Remove($Key) }
     else { $obj | Add-Member -Force -NotePropertyName $Key -NotePropertyValue $Value }
     $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $file)
-    [IO.File]::WriteAllText($file, ($obj | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding($false)))
+    Write-FileReplace $file ($obj | ConvertTo-Json -Depth 6)
+}
+
+function Write-FileReplace([string]$Path, [string]$Text) {
+    <# Writes $Text (UTF-8, no BOM) to a temp file next to $Path, then swaps it in whole: a crash or a
+       full disk halfway leaves the old file, never a cut-off one (a cut-off local settings file
+       loses every per-PC setting; a cut-off version.txt sends the next start into an update). #>
+    $tmp = Join-Path (Split-Path -Parent $Path) ('.' + (Split-Path -Leaf $Path) + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        [IO.File]::WriteAllText($tmp, $Text, (New-Object Text.UTF8Encoding($false)))
+        # [NullString]: a plain $null reaches .NET as '' here ("The path is not of a legal form").
+        if (Test-Path -LiteralPath $Path) { [IO.File]::Replace($tmp, $Path, [NullString]::Value) }
+        else { [IO.File]::Move($tmp, $Path) }
+    } finally {
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 function Get-UpdateSettings([string]$AppRoot) {
@@ -293,4 +308,4 @@ function Get-UpdateSettings([string]$AppRoot) {
     $s
 }
 
-Export-ModuleMember -Function Get-UpdateFileList, ConvertTo-ReleaseVersion,Test-SameRelease, Test-ReleaseSkipped, Get-RollbackSkip, Get-LocalAppValue, Set-LocalAppValue, Get-UpdateSettings, New-InstallManifest, New-ReleaseChecksums, Test-InstallIntegrity, Format-InstallProblem, Get-UpdateNewFiles, Save-UpdateBackup, Restore-UpdateBackup, Test-FileLocked, Get-FileHashShared, Get-UpdateTouchedFiles, Get-LockedUpdateFiles, Format-LockedUpdateFiles, Get-RobocopyFailures
+Export-ModuleMember -Function Get-UpdateFileList, ConvertTo-ReleaseVersion,Test-SameRelease, Test-ReleaseSkipped, Get-RollbackSkip, Get-LocalAppValue, Set-LocalAppValue, Write-FileReplace, Get-UpdateSettings, New-InstallManifest, New-ReleaseChecksums, Test-InstallIntegrity, Format-InstallProblem, Get-UpdateNewFiles, Save-UpdateBackup, Restore-UpdateBackup, Test-FileLocked, Get-FileHashShared, Get-UpdateTouchedFiles, Get-LockedUpdateFiles, Format-LockedUpdateFiles, Get-RobocopyFailures

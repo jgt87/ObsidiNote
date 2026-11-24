@@ -1,3 +1,5 @@
+import { BusyLabel } from './BusyLabel'
+import { unavailable } from './disabledGuard'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ApiError, newVault, type NewVaultResult, type NotebookSummary } from '../api'
 import './NewVaultDialog.css'
@@ -88,11 +90,11 @@ export function NewVaultDialog({ notebooks, onClose, onMade }: { notebooks: Note
           )}
         </div>
         <div className="nv__actions">
-          <button type="button" className="btn btn--ghost" onClick={() => close.current()} disabled={busy}>
+          <button type="button" className="btn btn--ghost" onClick={() => close.current()} {...unavailable(busy)}>
             Cancel
           </button>
-          <button type="submit" className="btn btn--primary" disabled={busy || !valid} aria-busy={busy}>
-            {busy ? 'Making it…' : confirm ? 'Write the vault' : 'Make the vault'}
+          <button type="submit" className="btn btn--primary" {...unavailable(busy || !valid)} aria-busy={busy}>
+            <BusyLabel label={confirm ? 'Write the vault' : 'Make the vault'} busyText="Making it…" />
           </button>
         </div>
       </form>

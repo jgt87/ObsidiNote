@@ -6,14 +6,14 @@ import type { AttentionNote } from '../model/attention'
 import { plural } from '../model/format'
 import { canSetUpShown, notebookLine, sectionsEmptyText, sectionsHeading } from '../model/railWording'
 import { VIEW_ORDER, VIEWS, type View } from '../model/views'
-import { GraphIcon, HistoryIcon, JournalIcon, PlusIcon, SettingsIcon, WarnIcon } from './icons'
+import { Icon, type IconName } from './icons'
 import { RetryButton } from './RetryButton'
 import { NotebookSwitcher } from './NotebookSwitcher'
 import { SectionTree } from './SectionTree'
 import { ThemeSwitch } from './ThemeSwitch'
 import './Rail.css'
 
-const NAV_ICONS: Record<View, () => React.JSX.Element> = { home: PlusIcon, graph: GraphIcon, journal: JournalIcon, history: HistoryIcon }
+const NAV_ICONS: Record<View, IconName> = { home: 'plus', graph: 'graph', journal: 'journal', history: 'history' }
 
 interface Props {
   view: View
@@ -33,14 +33,18 @@ interface Props {
 export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp, onRetryCopilot, onSettings, onOpenSection }: Props) {
   const nb = notebook.data
   return (
-    <nav className="rail" aria-label="Main">
-      <div className="rail__brand">
+    // Landmarks (audit 2026-11-24): the name is the window's header, the views its labelled nav; the
+    // side bar's other groups (notebook, sections, notes) are not navigation, so they sit outside it.
+    <div className="rail">
+      <header className="rail__brand">
         <img src={iconUrl} width="26" height="26" alt="" />
         <span>ObsidiNote</span>
-      </div>
+      </header>
 
       {/* The menu first, under the name; the notebook switcher below it (operator, 2026-11-14). */}
-      <RailMenu view={view} onSettings={onSettings} />
+      <nav aria-label="Main">
+        <RailMenu view={view} onSettings={onSettings} />
+      </nav>
 
       <NotebookSwitcher notebooks={notebooks} onNewVault={onNewVault} onSetUp={canSetUpShown(nb, notebooks.shownId) ? onSetUp : null} />
 
@@ -53,7 +57,7 @@ export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp, on
           <ThemeSwitch />
         </div>
       </footer>
-    </nav>
+    </div>
   )
 }
 
@@ -62,11 +66,10 @@ function RailMenu({ view, onSettings }: { view: View; onSettings?: () => void })
   return (
     <ul className="rail__nav">
       {VIEW_ORDER.map((v) => {
-        const Icon = NAV_ICONS[v]
         return (
           <li key={v}>
             <a href={VIEWS[v].hash} className="rail__link" aria-current={v === view ? 'page' : undefined}>
-              <Icon />
+              <Icon name={NAV_ICONS[v]} />
               {VIEWS[v].label}
             </a>
           </li>
@@ -76,7 +79,7 @@ function RailMenu({ view, onSettings }: { view: View; onSettings?: () => void })
         // Not a view: opens the Settings window (kept in the vault in OneNote).
         <li>
           <button type="button" className="rail__link rail__link--btn" onClick={onSettings}>
-            <SettingsIcon />
+            <Icon name="settings" />
             Settings
           </button>
         </li>
@@ -119,7 +122,7 @@ function RailNotes({ notes, onRetryCopilot }: { notes: AttentionNote[]; onRetryC
     <ul className="rail__notes" role="status" aria-label="Needs attention">
       {notes.map((n) => (
         <li key={n.id} className="rail__note">
-          <WarnIcon />
+          <Icon name="warn" />
           {n.retry ? <RetryButton text={n.text} onRetry={onRetryCopilot} /> : <span>{n.text}</span>}
         </li>
       ))}

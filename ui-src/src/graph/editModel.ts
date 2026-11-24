@@ -121,14 +121,25 @@ export function summaryProblem(summary: string): string {
   return summary.trim().length > 2000 ? 'The summary can be at most 2,000 characters.' : ''
 }
 
-/** What is wrong with the form before it is sent ('' = nothing). The server checks again. */
-export function editProblem(form: EditForm, isLink: boolean): string {
+/** A field of the form a problem belongs to; `link` names the link by its place in the list. */
+export type EditField = { name: 'title' } | { name: 'url' } | { name: 'summary' } | { name: 'why'; link: number }
+
+/** The first thing wrong with the form, in the order of the fields, with the field it is about, so
+ *  the form marks that field and puts the focus there (null = nothing). The server checks again. */
+export function editProblemAt(form: EditForm, isLink: boolean): { field: EditField; text: string } | null {
   const title = titleProblem(form.title)
-  if (title) return title
-  if (isLink && !webUrl(form.url)) return 'The address must be an http(s) link.'
-  if (summaryProblem(form.summary)) return summaryProblem(form.summary)
-  if (form.links.some((l) => l.why.length > 300)) return 'A link’s reason can be at most 300 characters.'
-  return ''
+  if (title) return { field: { name: 'title' }, text: title }
+  if (isLink && !webUrl(form.url)) return { field: { name: 'url' }, text: 'The address must be an http(s) link.' }
+  const summary = summaryProblem(form.summary)
+  if (summary) return { field: { name: 'summary' }, text: summary }
+  const link = form.links.findIndex((l) => l.why.length > 300)
+  if (link >= 0) return { field: { name: 'why', link }, text: 'A link’s reason can be at most 300 characters.' }
+  return null
+}
+
+/** What is wrong with the form before it is sent ('' = nothing). */
+export function editProblem(form: EditForm, isLink: boolean): string {
+  return editProblemAt(form, isLink)?.text ?? ''
 }
 
 /** The request with only the fields that differ from `before`; null when nothing changed. */

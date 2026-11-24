@@ -3,7 +3,8 @@
 // Sorting, grouping and counting are pure (table/tableModel.ts); this file holds the view state
 // (in memory only) and renders.
 
-import { useEffect, useMemo, useState } from 'react'
+import { unavailable } from '../components/disabledGuard'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { exportSourceOf } from '../export/exportApi'
 import { plural } from './format'
 import type { GraphIndex } from './graphIndex'
@@ -28,6 +29,7 @@ import {
   type TableSort,
 } from './table/tableModel'
 import './table/table.css'
+import { Icon } from '../components/icons'
 
 interface Props {
   index: GraphIndex
@@ -43,6 +45,9 @@ interface Props {
   onRetirePages?: (action: RetireAction, ids: string[]) => void
   /** Update of one link page's summary: "Update summaries" runs it for the ticked link pages. */
   onUpdateLink?: (id: string) => Promise<AddStatus>
+  /** What narrows the List (filters.ts narrowingParts) and how to clear it, for the empty row. */
+  narrowedBy?: string[]
+  onClearFilters?: () => void
 }
 
 const COLUMNS: { key: SortKey; label: string; className?: string }[] = [
@@ -58,13 +63,11 @@ const COLUMNS: { key: SortKey; label: string; className?: string }[] = [
 function SortArrow({ dir }: { dir: 'ascending' | 'descending' | undefined }) {
   if (!dir) return null
   return (
-    <svg className="kg-tbl__arrow" viewBox="0 0 16 16" aria-hidden="true">
-      <path d={dir === 'ascending' ? 'M8 12V4M4.5 7.5L8 4l3.5 3.5' : 'M8 4v8M4.5 8.5L8 12l3.5-3.5'} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <Icon name={dir === 'ascending' ? 'sort-up' : 'sort-down'} className="kg-tbl__arrow" />
   )
 }
 
-export function GraphList({ index, layout, matches, onOpen, onTagPages, onPickTag, onRetirePages, onUpdateLink }: Props) {
+export function GraphList({ index, layout, matches, onOpen, onTagPages, onPickTag, onRetirePages, onUpdateLink, narrowedBy = [], onClearFilters }: Props) {
   // A running "Update summaries" (the link pages ticked when it started); it stays while it runs.
   const [run, setRun] = useState<string[] | null>(null)
   const canSelect = !!(onTagPages || onRetirePages)
@@ -89,7 +92,7 @@ export function GraphList({ index, layout, matches, onOpen, onTagPages, onPickTa
             ))}
           </colgroup>
           <ListHead sort={sort} onSort={(key) => setSort((s) => nextSort(s, key))} />
-          <ListGroups index={index} groups={table.groups} groupBy={groupBy} onOpen={onOpen} selected={selected} onSelect={canSelect ? onSelect : undefined} onPickTag={onPickTag} />
+          <ListGroups index={index} groups={table.groups} groupBy={groupBy} onOpen={onOpen} selected={selected} onSelect={canSelect ? onSelect : undefined} onPickTag={onPickTag} empty={<EmptyRow narrowedBy={narrowedBy} onClear={onClearFilters} />} />
         </table>
       </div>
     </div>
@@ -170,7 +173,7 @@ function SelectionBar({ index, selected, running, onClear, onTagPages, onRetireP
       </span>
       {onTagPages && <TagsRow tags={parts.tags} all={allTags} onChange={(add, remove) => onTagPages([...selected], add, remove)} label="Add a tag to the selected pages" />}
       {onUpdate && parts.links.length > 0 && (
-        <button type="button" className="btn btn--sm" disabled={running} onClick={() => onUpdate(parts.links)}>
+        <button type="button" className="btn btn--sm" {...unavailable(running)} onClick={() => onUpdate(parts.links)}>
           Update summaries ({parts.links.length})
         </button>
       )}
@@ -228,6 +231,26 @@ function ListHead({ sort, onSort }: { sort: TableSort | null; onSort: (key: Sort
 /** A header cell's own class: the number column aligns right, the page column has its own width. */
 const HEAD_CLASS: Partial<Record<SortKey, string>> = { links: 'num', title: 'kg-tbl__page' }
 
+/** Nothing matches: one spanning row that names what narrows the List and offers to clear it
+ *  (operator, 2026-11-24). */
+function EmptyRow({ narrowedBy, onClear }: { narrowedBy: string[]; onClear?: () => void }) {
+  const narrowed = narrowedBy.length > 0
+  return (
+    <tbody>
+      <tr>
+        <td colSpan={COLUMN_COUNT} className="kg-tbl__empty">
+          <p className="kg-tbl__emptytext">{narrowed ? `No pages match ${narrowedBy.join(' · ')}.` : 'No pages match.'}</p>
+          {narrowed && onClear && (
+            <button type="button" className="btn btn--sm" onClick={onClear}>
+              Clear filters
+            </button>
+          )}
+        </td>
+      </tr>
+    </tbody>
+  )
+}
+
 interface ListGroupsProps {
   index: GraphIndex
   groups: TableGroup[]
@@ -236,26 +259,18 @@ interface ListGroupsProps {
   selected: ReadonlySet<string>
   onSelect?: (id: string, on: boolean) => void
   onPickTag?: (tag: string) => void
+  /** The row shown when nothing matches (EmptyRow). */
+  empty: ReactNode
 }
 
 /** The groups of rows, or one line when nothing matches. Folding and "Show more" are keyed
  *  "<groupBy>:<group key>" and hold only what the person changed (in memory). */
-function ListGroups({ index, groups, groupBy, onOpen, selected, onSelect, onPickTag }: ListGroupsProps) {
+function ListGroups({ index, groups, groupBy, onOpen, selected, onSelect, onPickTag, empty }: ListGroupsProps) {
   const [folded, setFolded] = useState<Record<string, boolean>>({})
   const [limits, setLimits] = useState<Record<string, number>>({})
   const openByDefault = useMemo(() => defaultOpenGroups(groups), [groups])
   const src = exportSourceOf(index.model.source)
-  if (groups.length === 0) {
-    return (
-      <tbody>
-        <tr>
-          <td colSpan={COLUMN_COUNT} className="kg-tbl__empty">
-            No pages match.
-          </td>
-        </tr>
-      </tbody>
-    )
-  }
+  if (groups.length === 0) return empty
   return groups.map((g) => {
     const k = `${groupBy}:${g.key}`
     const open = folded[k] === undefined ? openByDefault.has(g.key) : !folded[k]

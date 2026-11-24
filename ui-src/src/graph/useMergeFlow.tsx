@@ -52,12 +52,17 @@ export function useMergeFlow(run: Run | undefined) {
   }
 
   const dialog: ReactNode = pending && <MergeDialog plan={pending.plan} busy={pending.busy} error={pending.error} onConfirm={() => void confirm()} onCancel={() => setPending(null)} />
-  const notice: ReactNode = note && (
-    <div className="kg-retire-note" role="status">
-      <p>{note}</p>
-      <button type="button" className="btn btn--sm btn--ghost" onClick={() => setNote(null)}>
-        Dismiss
-      </button>
+  // The region is there empty too, so the result put in it is announced.
+  const notice: ReactNode = (
+    <div className="live" role="status">
+      {note && (
+        <div className="kg-retire-note">
+          <p>{note}</p>
+          <button type="button" className="btn btn--sm btn--ghost" onClick={() => setNote(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
     </div>
   )
 

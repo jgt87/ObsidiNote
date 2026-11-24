@@ -42,7 +42,7 @@ describe('AddResult', () => {
   it('shows the placement, chips, links with strength and the actions', () => {
     const html = renderToStaticMarkup(<AddResult result={added} onDone={noop} onUndo={noop} onEditLinks={noop} onMoveInIndex={noop} />)
     expect(html).toContain('Added: Identity-aware proxies')
-    expect(html).toContain('Written to OneNote · 3.2 s')
+    expect(html).toContain('Written to OneNote · 3.2 s')
     expect(html).toContain('<b>Identity-aware proxies</b>')
     expect(html).toContain('ObsidiNote › Notes › Identity-aware proxies')
     expect(html).toContain('also under Projects / Partner portal')
@@ -70,7 +70,7 @@ describe('AddResult', () => {
     const html = renderToStaticMarkup(<AddResult result={r} onDone={noop} onCheckAnswer={noop} />)
     expect(html).toContain('Waiting for Copilot')
     expect(html).toContain('waits in your Intake')
-    expect(html).toContain('>Check for the answer</button>')
+    expect(html).toContain('<span class="busy-label__idle">Check for the answer</span>')
     expect(html).not.toContain('btn--primary')
     expect(html).not.toContain('Not added</p>')
     const busy = renderToStaticMarkup(<AddResult result={r} busy onDone={noop} onCheckAnswer={noop} />)
@@ -83,7 +83,7 @@ describe('AddResult', () => {
     expect(html).toContain('role="alert"')
     expect(html).toContain('Answer not for this item')
     expect(html).toContain('Nothing was written')
-    expect(html).toContain('>Check for the answer</button>')
+    expect(html).toContain('<span class="busy-label__idle">Check for the answer</span>')
   })
   it('shows old vs new for an updated link, and the confirmation for an edited summary', () => {
     const base = { title: 'Fernbrook handbook', where: 'HR site', kind: 'page', summary: 'Old text.', keyFacts: ['Leave is 25 days'], useFor: '', sensitivity: '' }

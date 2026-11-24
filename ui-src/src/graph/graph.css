@@ -64,7 +64,8 @@
   user-select: none;
   cursor: grab;
 }
-.kg-stage:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+/* A canvas takes an inset ring, keyboard focus only (shared rule docs/17 §8, audit 2026-11-24). */
+.kg-stage:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .kg-stage[data-dragging="true"] { cursor: grabbing; }
 /* The layer moves as one composited picture during a wheel or drag gesture (GraphStage). */
 .kg-layer { position: absolute; inset: 0; transform-origin: 0 0; will-change: transform; }
@@ -188,7 +189,7 @@
 /* ---------- shared bits (the List view's table lives in table/table.css) ---------- */
 .kg-dlg__export { margin: var(--space-4) 0 0; }
 .kg-linkbtn { all: unset; cursor: pointer; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 0.2em; }
-@media (hover: hover) { .kg-linkbtn:hover { color: var(--accent); text-decoration-color: currentColor; } }
+@media (hover: hover) { .kg-linkbtn:hover:not(:disabled, [aria-disabled="true"]) { color: var(--accent); text-decoration-color: currentColor; } }
 .kg-linkbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 2px; }
 .kg-tag { color: var(--muted); font-size: var(--text-label); }
 
@@ -202,15 +203,19 @@
 /* ---------- tags (set by hand): chips with a remove button, and the field that adds one ---------- */
 .kg-tags { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .kg-tags__list { display: contents; list-style: none; margin: 0; padding: 0; }
-.kg-tagchip { display: inline-flex; align-items: center; height: 24px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface); font-size: var(--text-label); font-weight: 500; }
+/* 24px outside, border included (operator, 2026-11-24: the chip size of the shared badge rule; it was 26). */
+.kg-tagchip { display: inline-flex; align-items: center; box-sizing: border-box; height: 24px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface); font-size: var(--text-label); font-weight: 500; }
 .kg-tagchip__name { all: unset; padding: 0 var(--space-3); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 button.kg-tagchip__name { cursor: pointer; }
 @media (hover: hover) { button.kg-tagchip__name:hover { text-decoration: underline; text-underline-offset: 0.2em; } }
 button.kg-tagchip__name:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; border-radius: var(--radius-pill); }
-.kg-tagchip__x { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-right: 1px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+/* 24px: the smallest target WCAG 2.2 AA allows next to the tag's own button (axe target-size,
+   audit 2026-11-24: it was 22px). The chip's inside is 22px, so the button reaches over its
+   border by 1px (negative margin): the full chip height, and the chip keeps its 24px. */
+.kg-tagchip__x { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: -1px -1px -1px 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; touch-action: manipulation; }
 .kg-tagchip__x svg { width: 12px; height: 12px; }
-@media (hover: hover) { .kg-tagchip__x:hover { color: var(--ink); background: var(--hover); } }
-.kg-tagchip__x:disabled { opacity: 0.45; cursor: not-allowed; }
+@media (hover: hover) { .kg-tagchip__x:hover:not(:disabled, [aria-disabled="true"]) { color: var(--ink); background: var(--hover); } }
+.kg-tagchip__x:disabled, .kg-tagchip__x[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
 .kg-tags__add { display: inline-flex; align-items: center; gap: var(--space-2); }
 .kg-tags__input { height: var(--control-h-sm); width: 150px; font-size: var(--text-meta); }
 /* design (operator, 2026-11-16): in the page window the tag field takes the rest of its row; the
@@ -221,6 +226,9 @@ button.kg-tagchip__name:focus-visible { outline: 2px solid var(--ring); outline-
 @media (pointer: coarse) {
   /* The chip keeps its size; its remove button reaches 44px through an invisible box. */
   .kg-tagchip__x::after { content: ''; position: absolute; inset: -11px; }
+  /* The tag's own button (it shows the tag on the map) reaches 44px the same way, up and down only. */
+  button.kg-tagchip__name { position: relative; }
+  button.kg-tagchip__name::after { content: ''; position: absolute; inset: -14px 0; }
 }
 
 /* ---------- page dialog ---------- */
@@ -335,7 +343,7 @@ textarea.kg-inline-edit__field { height: auto; padding: var(--space-3); resize: 
   border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .kg-dlg__hist { display: inline-flex; gap: var(--space-1); flex: none; }
 /* "link it" on a mention (T3): busy state and the error line in the page dialog. */
-.kg-linkbtn:disabled { cursor: not-allowed; opacity: .5; }
+.kg-linkbtn:disabled, .kg-linkbtn[aria-disabled="true"] { cursor: not-allowed; opacity: .5; }
 .kg-linkbtn[aria-busy="true"] { cursor: progress; opacity: 1; }
 .kg-link-error { margin: var(--space-3) 0 0; color: var(--danger); background: var(--danger-soft); border-radius: var(--radius); padding: var(--space-3) var(--space-4); font-size: var(--text-meta); }
 /* Archive / Delete confirm (RetireDialog.tsx): a small alert dialog over the map or the page window. */
@@ -349,7 +357,8 @@ textarea.kg-inline-edit__field { height: auto; padding: var(--space-3); resize: 
 .kg-retire__where { color: var(--muted); font-size: var(--text-meta); }
 .kg-retire__left { margin-top: var(--space-3); color: var(--muted); font-size: var(--text-meta); }
 .kg-retire__left p { margin: 0 0 var(--space-1); }
-.kg-retire__error { margin: var(--space-3) 0 0; padding: var(--space-3) var(--space-4); border-radius: var(--radius); background: var(--danger-soft); color: var(--danger); font-weight: 600; }
+.kg-retire__error { display: flex; align-items: flex-start; gap: var(--space-3); margin: var(--space-3) 0 0; padding: var(--space-3) var(--space-4); border-radius: var(--radius); background: var(--danger-soft); color: var(--danger); font-weight: 600; }
+.kg-retire__error > svg { width: 14px; height: 14px; flex: none; margin-top: 2px; }
 .kg-retire__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); padding: var(--space-4) var(--space-6) var(--space-6); }
 .kg-retire__actions .btn { min-width: 112px; }
 /* design: the one solid "danger" fill is the final Delete (the app has no red; danger is ink). */

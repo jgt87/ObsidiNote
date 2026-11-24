@@ -39,7 +39,7 @@ describe('placement', () => {
 
 describe('labels', () => {
   it('formats seconds, strength and chips', () => {
-    expect(formatSeconds(3240)).toBe('3.2 s')
+    expect(formatSeconds(3240)).toBe('3.2 s') // a no-break space: number and unit stay together
     expect(formatSeconds(-1)).toBe('')
     expect(clampStrength(7)).toBe(3)
     expect(clampStrength(0)).toBe(1)

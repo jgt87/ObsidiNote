@@ -34,8 +34,14 @@ export function persistTheme(theme: Theme): void {
 
 /** Sets the theme on <html> (tokens.css reads data-theme); system removes it. */
 export function applyTheme(theme: Theme, root: { dataset: DOMStringMap } = document.documentElement): void {
+  // No transitions for the frame of the switch, so every surface changes at once (audit
+  // 2026-11-24: surfaces with a colour transition changed one after another). app.css holds the rule.
+  root.dataset.themeSwitch = ''
   if (theme === 'system') delete root.dataset.theme
   else root.dataset.theme = theme
+  const done = () => delete root.dataset.themeSwitch
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => requestAnimationFrame(done))
+  else done()
 }
 
 /** A OneNote notebook id: {GUID}{n}{Bn}. Anything else read back is ignored. */

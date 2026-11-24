@@ -48,7 +48,8 @@ export function closeFocus(i: CloseFocusInput): 'clear' | 'stage' | 'back' {
 export type SearchKeyAction = { kind: 'open'; id: string } | { kind: 'clear' } | { kind: 'pick'; id: string }
 
 /** A key in the search box: Enter opens the focused result (else the first), Esc clears the search,
- *  the arrows step through the results and wrap around. null: the key is the field's own. */
+ *  the arrows step through the results and wrap around. null: the key is the field's own. Never
+ *  called while an input method is composing (useGraphInteraction.ts skips e.nativeEvent.isComposing). */
 export function searchKeyAction(key: string, matches: readonly string[] | null, activeId: string | null, query: string): SearchKeyAction | null {
   const has = !!matches?.length
   if (key === 'Enter' && has) return { kind: 'open', id: activeId && matches!.includes(activeId) ? activeId : matches![0] }

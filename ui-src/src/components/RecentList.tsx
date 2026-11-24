@@ -16,7 +16,7 @@ export function RecentList({ notebook, onOpen }: { notebook: NotebookState; onOp
           error
           title="The notebook could not be read"
           actions={
-            <button type="button" className="btn btn--sm" onClick={notebook.reload}>
+            <button type="button" className="btn btn--sm" onClick={notebook.reload} aria-label="Try again: read the notebook">
               Try again
             </button>
           }

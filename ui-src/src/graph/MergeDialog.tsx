@@ -2,7 +2,11 @@
 // shows the server's plan: per meeting the page that stays and the copy that goes to the Archive.
 // Same look as the Archive confirm (RetireDialog's kg-retire classes). Wording: mergeModel.ts.
 
+import { BusyLabel } from '../components/BusyLabel'
 import { useEffect, useRef } from 'react'
+import { unavailable } from '../components/disabledGuard'
+import { Icon } from '../components/icons'
+import { useModal } from '../components/useModal'
 import { mergeWording, type MergePlan } from './mergeModel'
 
 interface Props {
@@ -19,9 +23,8 @@ export function MergeDialog({ plan, busy, error, onConfirm, onCancel }: Props) {
   const goRef = useRef<HTMLButtonElement>(null)
   const w = mergeWording(plan)
 
+  useModal(ref)
   useEffect(() => {
-    const d = ref.current
-    if (d && !d.open) d.showModal()
     // Restorable from the Archive, as Archive is: focus starts on the action.
     goRef.current?.focus()
   }, [])
@@ -58,18 +61,21 @@ export function MergeDialog({ plan, busy, error, onConfirm, onCancel }: Props) {
             </li>
           ))}
         </ul>
-        {error && (
-          <p className="kg-retire__error" role="alert">
-            {error}
-          </p>
-        )}
+        <div className="live" role="alert">
+          {error && (
+            <p className="kg-retire__error">
+              <Icon name="warn" />
+              <span>{error}</span>
+            </p>
+          )}
+        </div>
       </div>
       <div className="kg-retire__actions">
-        <button type="button" className="btn" onClick={onCancel} disabled={busy}>
+        <button type="button" className="btn" onClick={onCancel} {...unavailable(busy)}>
           Cancel
         </button>
-        <button ref={goRef} type="button" className="btn btn--primary" onClick={onConfirm} disabled={busy} aria-busy={busy}>
-          {busy ? w.busy : w.confirm}
+        <button ref={goRef} type="button" className="btn btn--primary" onClick={onConfirm} {...unavailable(busy)} aria-busy={busy}>
+          <BusyLabel label={w.confirm} busyText={w.busy} />
         </button>
       </div>
     </dialog>

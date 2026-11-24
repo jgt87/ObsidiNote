@@ -15,7 +15,7 @@ export function ActivityView({ refreshKey, onOpen }: { refreshKey: string; onOpe
         error
         title="History could not be read"
         actions={
-          <button type="button" className="btn btn--sm" onClick={reload}>
+          <button type="button" className="btn btn--sm" onClick={reload} aria-label="Try again: read History">
             Try again
           </button>
         }

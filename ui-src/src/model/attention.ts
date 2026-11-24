@@ -69,7 +69,8 @@ export interface SendBlock {
 }
 
 export function sendBlock(status: AppStatus | null, serverDown: boolean): SendBlock | null {
-  if (serverDown) return { text: 'ObsidiNote is not running, so nothing can be sent. Start it again; your text stays here.', disableSend: true, retry: false }
+  // Inferred from a status request that got no answer, so worded as likely (audit 2026-11-24).
+  if (serverDown) return { text: 'ObsidiNote does not answer: it seems to have stopped, so nothing can be sent. Start it again; your text stays here.', disableSend: true, retry: false }
   if (!status || status.copilot.state === 'connected' || !(status.copilot.state in COPILOT)) return null
   const retry = RETRY[status.copilot.state] ?? false
   return { text: retry ? 'Copilot is not connected. Adding and asking need it.' : 'Copilot is off for this start. Adding and asking need it.', disableSend: false, retry }
@@ -77,7 +78,7 @@ export function sendBlock(status: AppStatus | null, serverDown: boolean): SendBl
 
 export function attentionNotes(status: AppStatus | null, serverDown: boolean): AttentionNote[] {
   if (serverDown) {
-    return [{ id: 'server', text: 'ObsidiNote is not running. Start it again; its console window must stay open.' }]
+    return [{ id: 'server', text: 'ObsidiNote does not answer: it seems to have stopped. Start it again; its console window must stay open.' }]
   }
   if (!status) return []
   const notes: AttentionNote[] = []

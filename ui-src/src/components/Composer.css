@@ -13,7 +13,7 @@
    help and the paperclip at the left, Send at the right. */
 .composer__help { position: relative; }
 .composer__help-btn, .composer__file-btn { color: var(--muted); }
-@media (hover: hover) { .composer__help-btn:hover, .composer__file-btn:hover:not(:disabled) { color: var(--ink); } }
+@media (hover: hover) { .composer__help-btn:hover, .composer__file-btn:hover:not(:disabled, [aria-disabled="true"]) { color: var(--ink); } }
 
 /* Shortcut card: shown on hover or keyboard focus of the (i) button, never catching the pointer. */
 .composer__keys {

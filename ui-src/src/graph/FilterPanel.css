@@ -19,6 +19,12 @@
 .kg-fp__opt[data-depth="3"], .kg-fp__opt[data-depth="4"] { padding-left: calc(var(--space-2) + 48px); }
 @media (hover: hover) { .kg-fp__opt:hover { background: var(--hover); } }
 .kg-fp__opt input { margin: 0; flex: none; }
+/* Touch 44 (DESIGN.md): on a touch screen the option row and its box reach 44px in height; the
+   box itself is drawn at its normal size inside that height (audit 2026-11-24: 13px targets). */
+@media (pointer: coarse) {
+  .kg-fp__opt { min-height: var(--touch-target); }
+  .kg-fp__opt input { height: var(--touch-target); }
+}
 .kg-fp__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kg-fp__count { color: var(--muted); font-size: var(--text-meta); font-variant-numeric: tabular-nums; }
 .kg-fp__none { margin: 0; color: var(--muted); font-size: var(--text-meta); }

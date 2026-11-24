@@ -9,5 +9,8 @@
 .nv__area { height: auto; min-height: 96px; padding: var(--space-2) var(--space-3); resize: vertical; font-family: var(--font-mono, inherit); }
 .nv__check { display: inline-flex; align-items: center; gap: var(--space-3); font-size: var(--text-body); cursor: pointer; }
 .nv__check input { margin: 0; }
+/* Touch 44 (DESIGN.md): the label row and its box reach 44px on a touch screen; the box is drawn at
+   its normal size inside that height (audit 2026-11-24: 13px targets in Settings). */
+@media (pointer: coarse) { .nv__check { min-height: var(--touch-target); } .nv__check input { height: var(--touch-target); } }
 .nv__error { margin: 0; font-size: var(--text-body); color: var(--ink); }
 .nv__actions { display: flex; justify-content: flex-end; gap: var(--space-3); padding: var(--space-4) var(--space-6) var(--space-6); }

@@ -4,8 +4,9 @@
 // turns it into a field with Save and Cancel. Enter saves (Shift+Enter is a new line in the
 // summary), Esc puts the old text back and never closes the page window.
 
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { PencilIcon } from '../components/icons'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import { unavailable } from '../components/disabledGuard'
+import { Icon } from '../components/icons'
 
 interface Props {
   value: string
@@ -25,6 +26,7 @@ export function InlineText({ value, name, empty = '', multiline = false, problem
   const [draft, setDraft] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const errId = `${useId()}-error`
   const view = useRef<HTMLButtonElement>(null)
   const field = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
   const open = draft !== null
@@ -71,7 +73,7 @@ export function InlineText({ value, name, empty = '', multiline = false, problem
     return (
       <button ref={view} type="button" className="kg-inline" data-empty={value ? undefined : true} onClick={() => setDraft(value)} title={`Change the ${name}`}>
         <span className="kg-inline__text">{value || empty}</span>
-        <PencilIcon />
+        <Icon name="pencil" />
         <span className="kg-sr">Change the {name}</span>
       </button>
     )
@@ -84,6 +86,7 @@ export function InlineText({ value, name, empty = '', multiline = false, problem
         className="field kg-inline-edit__field"
         aria-label={name[0].toUpperCase() + name.slice(1)}
         aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errId : undefined}
         value={draft ?? ''}
         rows={multiline ? 4 : undefined}
         readOnly={busy}
@@ -91,17 +94,16 @@ export function InlineText({ value, name, empty = '', multiline = false, problem
         onKeyDown={onKeyDown}
       />
       <span className="kg-inline-edit__row">
-        <button type="button" className="btn btn--sm" onClick={() => void save()} disabled={busy}>
+        <button type="button" className="btn btn--sm" onClick={() => void save()} {...unavailable(busy)}>
           {busy ? 'Saving…' : 'Save'}
         </button>
-        <button type="button" className="btn btn--sm btn--ghost" onClick={stop} disabled={busy}>
+        <button type="button" className="btn btn--sm btn--ghost" onClick={stop} {...unavailable(busy)}>
           Cancel
         </button>
-        {error && (
-          <span role="alert" className="kg-inline-edit__error">
-            {error}
-          </span>
-        )}
+        {/* Mounted empty with the field and kept, so a problem is announced; the field points at it. */}
+        <span id={errId} role="alert" className="kg-inline-edit__error live">
+          {error}
+        </span>
       </span>
     </span>
   )

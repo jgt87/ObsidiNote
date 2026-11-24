@@ -5,6 +5,47 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.26] - 2026-11-24
+
+### Fixed
+- **Add or ask**: text typed in the box and not yet sent is kept when you go to the map, the Journal or History and come back (it was lost). It stays in the window's memory only, never on disk. Going back no longer repeats an earlier "Ask about this" text over what you typed since.
+- **Updates and settings**: `config\obsidinote.local.json` and `version.txt` are written to a temporary file next to them and then swapped in, so a crash or a full disk halfway leaves the old file whole instead of a cut-off one.
+- **Keyboard and screen readers**:
+  - A button that cannot be used right now (Send while the box is empty, any button while it works) stays in the Tab order and keeps its tooltip. Before, it dropped out, so the focus fell back to the page.
+  - "Skip to content" is the first thing Tab reaches.
+  - Choosing another view puts the focus on that view.
+  - Messages (a result, a note above the box, an error, "Copilot is connected") are announced when they appear.
+  - The Archive, Delete, Merge and "Replace your edited summary?" confirms give the focus back to the button that opened them. The last one is announced as a confirm, with its question.
+  - The Edit form marks the field that is wrong, says why next to it, and puts the focus there. A title, summary or reason that is too long is no longer cut off without a word; Save says what is too long.
+  - The quick switcher shows a full ring while it has the focus.
+  - The map shows its focus ring inside its edge.
+  - The box is named by the heading above it.
+  - Typing with an input method (Japanese, Chinese and the like): Enter that picks a word in the map's search or in a tag's new name no longer also opens a result or renames the tag.
+  - The "Why" field of each link in the Edit form has its own label for screen readers ("Why it links to ..."); it looks the same.
+  - An error that is already there when a view opens is read out as part of the view, not as an interrupting alert. An error that appears later is still an alert.
+- **Touch screens**: the List's tick boxes, the Filter's and Settings' tick boxes, and a tag's own button reach 44 px. A tag's remove button is 24 px everywhere.
+- **Display**:
+  - A button that cannot be used no longer lights up under the pointer.
+  - Errors in the Edit form and in the Archive, Delete and Merge confirms carry the warning icon.
+  - A number and its unit ("3.2 s") never break over two lines.
+  - Switching between light and dark changes every surface at once.
+  - A button that is working (Send, Save, Check again, Check for the answer, Archive, Delete, Merge, Export and the others) shows a small turning ring with its "...ing" text inside it, and keeps its width, so nothing next to it moves.
+  - Tags are 24 px high (they were 26); their remove button stays 24 px, and reaches 44 px on touch screens.
+  - Every icon comes from one set with one line weight; some were drawn a little heavier or lighter than the rest.
+- **List**: when nothing matches, the List says what hides the pages (the search, the page you focused on, the filters) and offers **Clear filters**.
+- **Reliability**:
+  - A drawing error in one part of the window (side bar, the view, the quick switcher, a dialog) now shows an error box with "Draw ... again" there, and the rest keeps working. Before, the whole window went blank.
+  - When ObsidiNote does not answer, the window says it seems to have stopped, instead of stating it as a fact.
+  - "Try again" buttons name what they try again.
+- **Links**:
+  - The page window no longer shows an Open button for a page whose address is not a web (http/https) or OneNote address, so a `javascript:` or `file:` address stored in a page cannot be opened from it.
+  - OneNote links in Add results and Ask sources are only links when they are `onenote:` addresses.
+  - Pasting a link whose address holds a line break no longer turns the rest of the address into a heading or a list line in the added text.
+- **Single sign-on**: checking whether Edge turned single sign-on on by itself no longer fails on an Edge profile whose settings file does not have that field yet (a new profile); it now reads as off.
+- **For the project**: the size check (`npm run lint`) now sees every function of the window's code. Its reader, refreshed from the shared copy, missed functions with a TypeScript return type and those after a JSX `/>` or `</tag>`, so it found 20 breaches of the limits where ESLint finds 72; it now finds the same 72, and its baseline holds them (existing code, not new growth).
+
+No upgrade step: none of these change how pages are filed, indexed or shaped; they are the window, the updater's own files and the checks (the List's empty row, the busy buttons, the icons and the tag size included).
+
 ## [v0.12.25] - 2026-11-20
 
 ### Fixed

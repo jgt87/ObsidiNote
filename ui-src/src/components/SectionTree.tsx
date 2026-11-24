@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { SectionNode } from '../api'
 import { sectionQuery } from '../model/sections'
-import { ChevronIcon } from './icons'
+import { Icon } from './icons'
 
 /** The notebook's sections and section groups with page counts; groups fold open and shut.
  *  A section row opens the knowledge graph's List on that section's pages (review 2026-11-14: the
@@ -55,7 +55,7 @@ function TreeItem({ node, path, onOpen, vault }: { node: SectionNode; path: stri
     <li>
       <button type="button" className="tree__row tree__toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="tree__chev" data-open={open}>
-          <ChevronIcon />
+          <Icon name="chevron" />
         </span>
         {label}
       </button>

@@ -2,6 +2,7 @@
 # hierarchy parsing. Synthetic data only (fictional names, made-up ids).
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Import-Module (Join-Path $root 'lib\NotebookStructure.psm1') -Force
+. (Join-Path $root 'tests\AstParse.ps1')
 
 $ns = 'xmlns:one="http://schemas.microsoft.com/office/onenote/2013/onenote"'
 $fixture = @"
@@ -176,8 +177,8 @@ Describe 'Link rules and origin: one place each (code review 2026-11-15)' {
         "$(@($none.InternalHosts).Count):$(@($none.CompanyNames).Count)" | Should Be '0:0'
     }
     It 'the start and the server both use it and neither works the company names out itself' {
-        # The commands a file calls (comments and strings left out by the tokenizer).
-        $calls = { param($file) $err = $null; @([Management.Automation.PSParser]::Tokenize([IO.File]::ReadAllText($file), [ref]$err) | Where-Object { $_.Type -eq 'Command' } | ForEach-Object { $_.Content }) }
+        # The commands a file calls (comments and strings are no commands in the AST).
+        $calls = { param($file) @((Read-ScriptAst -Path $file).FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() } | Where-Object { $_ }) }
         foreach ($f in 'obsidinote.ps1', 'lib\Server.psm1') {
             $c = & $calls (Join-Path $root $f)
             "$f $($c -contains 'Get-LinkRules') $($c -contains 'Get-CompanyNames')" | Should Be "$f True False"

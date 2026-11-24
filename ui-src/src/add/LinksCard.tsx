@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { oneNoteHref } from '../model/links'
 import { backlinksLine } from './format'
 import { StrengthBar } from './StrengthBar'
 import type { ResultLink } from './types'
@@ -29,8 +30,8 @@ export function LinksCard({ links, backlinks, title = 'Links', showBacklinks = t
           <li key={l.target} className="add-link">
             <StrengthBar strength={l.strength} />
             <div className="add-link__main">
-              {l.link ? (
-                <a className="add-a" href={l.link} title={`Open “${l.title}” in OneNote`}>
+              {oneNoteHref(l.link) ? (
+                <a className="add-a" href={oneNoteHref(l.link)} title={`Open “${l.title}” in OneNote`}>
                   {l.title || l.target}
                 </a>
               ) : (

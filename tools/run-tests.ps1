@@ -20,9 +20,11 @@ if ($PSVersionTable.PSVersion.Major -le 5) {
 # this script started with -File (CommonShared ps51 starter, 16 Nov 2026).
 try { Import-Module Pester -RequiredVersion 3.4.0 -ErrorAction Stop } catch { Write-Warning 'Pester 3.4.0 is not installed: the tests run with the newest Pester found.' }
 
-$bad = Get-ChildItem -Path $root -Recurse -Include *.ps1, *.psm1 -File |
-    Where-Object { $_.FullName -notlike '*\release\*' -and $_.FullName -notlike '*\node_modules\*' } |
-    Where-Object { [IO.File]::ReadAllBytes($_.FullName) | Where-Object { $_ -gt 127 } | Select-Object -First 1 }
+# The ASCII-only lint. A run that found no file to check is a failure, not a pass (rule audit, 2026-11-24).
+$scripts = @(Get-ChildItem -Path $root -Recurse -Include *.ps1, *.psm1 -File |
+    Where-Object { $_.FullName -notlike '*\release\*' -and $_.FullName -notlike '*\node_modules\*' })
+if ($scripts.Count -eq 0) { Write-Error "The ASCII-only lint found no .ps1/.psm1 files under $root" -ErrorAction Continue; exit 1 }
+$bad = $scripts | Where-Object { [IO.File]::ReadAllBytes($_.FullName) | Where-Object { $_ -gt 127 } | Select-Object -First 1 }
 if ($bad) {
     $bad | ForEach-Object { Write-Error "non-ASCII bytes in $($_.FullName)" -ErrorAction Continue }
     exit 1

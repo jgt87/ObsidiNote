@@ -13,6 +13,7 @@ import { plural } from '../graph/format'
 import { isFindKey } from '../model/keys'
 import { emptyListText, moveActive, requestFor, rowDomId, switcherAnnouncement, switcherList, type FindRequest, type SwitcherList, type SwitcherRow } from './switcherModel'
 import './QuickSwitcher.css'
+import { Icon } from '../components/icons'
 
 type Data = { status: 'idle' } | { status: 'loading' } | { status: 'ready'; index: GraphIndex } | { status: 'error'; message: string }
 
@@ -203,10 +204,7 @@ interface BoxProps {
 function SwitcherBox({ inputRef, text, onText, onKeyDown, activeRow, hasRows, loading }: BoxProps) {
   return (
     <div className="qs__bar">
-      <svg className="qs__icon" viewBox="0 0 16 16" aria-hidden="true">
-        <circle cx="7" cy="7" r="4.5" />
-        <path d="M10.5 10.5L14 14" />
-      </svg>
+      <Icon name="search" className="qs__icon" />
       <input
         ref={inputRef}
         className="qs__input"
