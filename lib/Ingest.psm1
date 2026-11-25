@@ -186,7 +186,7 @@ function Copy-PartWith($Part, [string]$Text, [string]$Href) {
 
 function ConvertTo-BodyLines {
     <# The item's text as outline lines. Markdown (headings, lists, emphasis, links, code, tables;
-       lib/MarkdownLines.psm1) becomes real OneNote formatting (user, 2026-11-13); other text stays one
+       lib/MarkdownLines.psm1) becomes real OneNote formatting (D-116); other text stays one
        plain line per text line. Trailing empty lines are dropped. #>
     param([string]$Text)
     if (Test-MarkdownText $Text) { return , @(ConvertFrom-MarkdownText $Text) }
@@ -377,9 +377,7 @@ function Invoke-AddRequest {
         $r.message = "Nothing was added: $($_.Exception.Message)"
         return (Complete-AddResult $r $sw)
     }
-    # A SharePoint, OneDrive or Teams link with the person's own words (operator, 2026-11-17: "for
-    # SharePoint sites, I also want to fetch a Copilot summary of the content of that page; right now
-    # only my own notes are added"): the link's page, summarized by Copilot, with the words in "Your
+    # A SharePoint, OneDrive or Teams link with the person's own words (D-066): the link's page, summarized by Copilot, with the words in "Your
     # notes". Only internal links: a web address in a note is usually a reference, not the subject.
     # The Intake item keeps the whole text, so "Check for the answer" finds the words again.
     if (-not $url) {
@@ -402,7 +400,7 @@ function Invoke-AddRequest {
             $oc = Resolve-OriginId (Get-LkProp $Request 'origin' $null)
             if (-not $oc.ok -and -not $Resume) { $r.message = "Nothing was added: $($oc.error)"; return (Complete-AddResult $r $sw) }
             $origin = $oc.origin
-            # A Teams meeting (operator, 2026-11-18: a daily meeting is one series): its series and
+            # A Teams meeting (D-068): its series and
             # start come from the text, the same day of the same series updates its page.
             $mi = if ($origin -eq 'meeting') { Get-MeetingInfoFromText $text } else { $null }
             if ($mi -and $mi.day) {
@@ -448,8 +446,8 @@ function Get-MeetingPagesOf {
 
 function Find-MeetingOccurrence {
     <# The page of series $Key for the meeting that starts at $At, or $null: the same day, and the same
-       time when both have one (operator, 2026-11-18: fetched several times a day, a meeting is merged,
-       never duplicated; two meetings of one series on one day stay two pages). A page with the exact
+       time when both have one (D-068: merged, never duplicated; two meetings of one series on one
+       day stay two pages). A page with the exact
        time wins over one without a time. #>
     param($Index, [string]$Key, [string]$At)
     $same = @(Get-MeetingPagesOf $Index $Key | Where-Object { Test-MeetingSameOccurrence (Get-LkString $_ 'meetingAt') $At })
@@ -466,7 +464,7 @@ function Find-SeriesPage {
 
 function Update-SeriesPage {
     <# Writes the series page of a meeting series after one of its meetings was added or updated
-       (operator, 2026-11-19: "the same meeting but many occurrences", consolidated in one page): made
+       (D-073): made
        the first time, rewritten after: Copilot's summary of the latest meetings (one question; when it
        cannot answer, the page keeps its last summary), the latest meeting, decisions and actions by
        date, who joined and how often, every meeting linked. Only its own body outline is written;
@@ -502,7 +500,7 @@ function Update-SeriesPage {
             $id = Get-LkString $sp 'id'; $title = Get-LkString $sp 'title'
         } else {
             # Its topics: the newest meeting's; they are the series' topics from now on, which every
-            # meeting of the series takes (operator, 2026-11-19: one topic per series).
+            # meeting of the series takes (D-074).
             $topics = @(@($days[0].topics) | Where-Object { $_ })
             $id = [string](Invoke-Store $Store 'NewId')
             $title = Format-SeriesPageTitle $Info.series
@@ -771,13 +769,13 @@ function Invoke-TextAdd {
     # whatever type Copilot proposed: the person picked a meeting, and Meetings is where it belongs.
     if ($Origin -eq 'meeting' -and $types -contains 'meeting') { $val.type = 'meeting'; $val.intent = 'add' }
     # A meeting of a series: ObsidiNote names the page "<series> . <day>" and links it to the series'
-    # previous meeting, so the occurrences form a chain (operator, 2026-11-18).
+    # previous meeting, so the occurrences form a chain (D-068).
     $mi = Get-IngestOption $Options 'Meeting' $null
     if ($mi -and $val.type -eq 'meeting') {
         # A second meeting of the series on the same day (another time): its title carries the time.
         $sameDay = @(Get-MeetingPagesOf $idx $mi.key | Where-Object { (Get-MeetingDayOf (Get-LkString $_ 'meetingAt')) -eq $mi.day })
         if ($mi.day) { $val.title = Format-MeetingPageTitle -Series $mi.series -Day $mi.day -Time $(if ($sameDay.Count) { Get-MeetingTimeOf $mi.at } else { '' }) }
-        # One topic per series (operator, 2026-11-19): a series that has its page files the meeting
+        # One topic per series (D-074): a series that has its page files the meeting
         # under the series page's topics, whatever Copilot proposed for this one.
         $sp = Find-SeriesPage -Index $idx -Key $mi.key
         $spTopics = @(if ($sp) { @(Get-LkProp $sp 'topics' @()) | Where-Object { $_ } })
@@ -793,7 +791,7 @@ function Invoke-TextAdd {
         $r.message = 'This looks like a question. Ask it instead?'
         return $r
     }
-    # A journal entry goes into today's page (operator, 2026-11-17: one page per day). A store without
+    # A journal entry goes into today's page (D-060). A store without
     # JournalEntry (an older kit) files it as its own page, as before.
     if ($val.type -eq 'log' -and (Get-LkProp $Store 'JournalEntry' $null) -is [scriptblock]) {
         return (Invoke-JournalAdd -Store $Store -Index $idx -Value $val -Text $Text -Ref $ref -Now $now -Origin $Origin -Inbox $inbox -Result $r -Shortlist $sl -Options $Options)
@@ -1267,7 +1265,7 @@ function Invoke-PageRemoval {
 }
 
 # ---------------------------------------------------------------------------- archive, restore, delete
-# FEASIBILITY.md "Archive and delete" (user, 2026-11-12). Archive is the default and reversible: the
+# FEASIBILITY.md "Archive and delete" (D-110). Archive is the default and reversible: the
 # page moves to Archive/<bucket> and keeps its id, links and "Your notes"; obsn.status = archived and
 # obsn.archivedFrom (its section) are written on the page and its index record. Restore moves it back.
 # Delete goes to OneNote's Deleted Pages through Invoke-PageRemoval, as Undo does. Only ObsidiNote's own
@@ -1647,7 +1645,7 @@ function Invoke-LinkUpdate {
 
 $script:LinkItWhy = 'Linked by you (mentioned in the text)'
 # A link the person made is "related" (2), not "loose" (1): their own decision, drawn as such on the
-# map (operator, 2026-11-14). Links written with 1 before are raised by lib/Upgrade.psm1 link-strength.
+# map (D-025). Links written with 1 before are raised by lib/Upgrade.psm1 link-strength.
 $script:LinkItStrength = 2
 
 function Test-PagesLinked {
@@ -1768,7 +1766,7 @@ function Update-LinkItStrength {
     @{ changed = $n }
 }
 
-# ---------------------------------------------------------------------------- edit a page (user, 2026-11-13)
+# ---------------------------------------------------------------------------- edit a page (D-007)
 
 $script:EditFields = @('title', 'type', 'topics', 'aliases', 'summary', 'url', 'links', 'origin', 'tags')
 
@@ -1874,7 +1872,7 @@ function Get-EditPlan {
     }
     if ($Ask.ContainsKey('origin')) {
         # Where the page came from ('' = typed in ObsidiNote); also for pages added before it was
-        # recorded (operator, 2026-11-14). A link page's place comes from its address instead.
+        # recorded (D-015). A link page's place comes from its address instead.
         $oc = Resolve-OriginId $Ask.origin   # the one check, as for Add
         if (-not $oc.ok) { return (& $fail $oc.error) }
         $o = $oc.origin

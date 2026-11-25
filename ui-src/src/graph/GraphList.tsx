@@ -232,7 +232,7 @@ function ListHead({ sort, onSort }: { sort: TableSort | null; onSort: (key: Sort
 const HEAD_CLASS: Partial<Record<SortKey, string>> = { links: 'num', title: 'kg-tbl__page' }
 
 /** Nothing matches: one spanning row that names what narrows the List and offers to clear it
- *  (operator, 2026-11-24). */
+ *  (D-085). */
 function EmptyRow({ narrowedBy, onClear }: { narrowedBy: string[]; onClear?: () => void }) {
   const narrowed = narrowedBy.length > 0
   return (

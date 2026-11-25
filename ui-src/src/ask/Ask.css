@@ -9,8 +9,7 @@
 .ask-label { margin: 0 0 var(--space-3); font-size: var(--text-meta); font-weight: 600; color: var(--muted); }
 .ask-muted { color: var(--muted); font-size: var(--text-meta); }
 /* The answer is what the person came for: the largest running text on the screen, at a readable measure. */
-/* design (operator, 2026-11-15: "Answer doesn't use the full width"): the answer fills its card, like
-   the sources under it; no 72ch reading measure here, a deliberate exception to the shared prose rule. */
+/* design: D-031: the answer fills its card, like the sources under it; no 72ch reading measure. */
 .ask-paragraph { margin: 0 0 var(--space-3); font-size: var(--text-title); line-height: 1.5; }
 .ask-answer__meta { margin: var(--space-3) 0 0; }
 
@@ -23,7 +22,7 @@
   font-size: var(--text-label); color: var(--ink);
 }
 
-/* Citation markers sit on the text line (not raised like a superscript; operator, 2026-11-13). */
+/* Citation markers sit on the text line (not raised like a superscript; D-121). */
 .ask-cite {
   display: inline-block; margin-left: var(--space-1); padding: 0 var(--space-2);
   border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -67,8 +66,8 @@
    rounded data end, the percent beside it in text (never the bar alone). */
 .ask-share { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-1); }
 .ask-share__track { position: relative; flex: 0 0 160px; height: 6px; border-radius: 3px; background: var(--active); overflow: hidden; }
-/* Quiet at rest, the accent only for the source the pointer is on (operator, 2026-11-14: "only do
-   the accent color on hover"); keyboard focus inside the row shows it too. */
+/* Quiet at rest, the accent only for the source the pointer is on (D-018);
+   keyboard focus inside the row shows it too. */
 .ask-share__fill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--muted); transition: background-color var(--dur-fast) ease-out; }
 .ask-src:focus-within .ask-share__fill { background: var(--accent); }
 @media (hover: hover) { .ask-src:hover .ask-share__fill { background: var(--accent); } }

@@ -1,4 +1,4 @@
-// The confirm of "Merge duplicates" (operator, 2026-11-19): like Archive it always asks first. It
+// The confirm of "Merge duplicates" (D-075): like Archive it always asks first. It
 // shows the server's plan: per meeting the page that stays and the copy that goes to the Archive.
 // Same look as the Archive confirm (RetireDialog's kg-retire classes). Wording: mergeModel.ts.
 

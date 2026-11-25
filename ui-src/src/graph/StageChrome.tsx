@@ -14,7 +14,7 @@ export function StageToolbar({ firstRef, onZoom, onFit }: { firstRef: RefObject<
       <button type="button" className="btn btn--ghost" aria-label="Fit to screen" title="Fit to screen (0)" onClick={onFit}>
         <Icon name="fit" />
       </button>
-      {/* design (operator, 2026-11-16): no guiding text beside the zoom buttons. The map's help stays
+      {/* design: D-057, no guiding text beside the zoom buttons. The map's help stays
           for screen readers (the stage's aria-describedby). */}
       <span className="kg-sr" id="kg-stage-help">
         Hover a dot to focus it, click to open, scroll to zoom and drag to pan. Arrow keys or Tab move between pages, Enter opens, F focuses on the page, Esc leaves the map.

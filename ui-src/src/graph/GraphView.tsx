@@ -97,7 +97,7 @@ export function GraphMessage({ title, heading, text, alert = false, children }: 
 }
 
 /** Loading: the title and one line of text, nothing drawn on the map. design: no placeholder areas;
- *  grey blobs before the data arrives looked like topics of an empty vault (user, 2026-11-13: "when
+ *  grey blobs before the data arrives looked like topics of an empty vault (D-097: "when
  *  there's no data then there shouldn't be anything here"). Every mark on the map is content. */
 export function GraphSkeleton({ title = 'Knowledge graph' }: { title?: string }) {
   return (

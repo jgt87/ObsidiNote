@@ -104,7 +104,7 @@ export function useGraphNavigation(notebooks: NotebooksState, goto: (v: View) =>
       showInGraph(request)
     },
     /** A page opened from the home page or History: the knowledge graph of its notebook with the
-     *  page window open (the same FindRequest the Ctrl+K switcher uses; operator, 2026-11-14). */
+     *  page window open (the same FindRequest the Ctrl+K switcher uses; D-026). */
     openPage: (entry: NotebookSummary | undefined, pageId: string) => {
       if (!entry) return
       if (entry.id !== notebooks.shownId) notebooks.choose(entry.id)
@@ -122,7 +122,7 @@ export function useGraphNavigation(notebooks: NotebooksState, goto: (v: View) =>
  * again": the server tries to take the vault now (it is never taken from a holder that still renews
  * it), then the status is read again; what it found stays under the note until the note goes.
  * When this window becomes the writer (the earlier start let go of the vault), `reloadGraph` reads
- * the map again, so its pages stop showing read only without a click (operator, 2026-11-15).
+ * the map again, so its pages stop showing read only without a click (D-036).
  */
 export function useVaultAccess(status: AppStatus | null, serverDown: boolean, refreshStatus: () => Promise<void>, reloadGraph: () => void) {
   const vaultWhy = status && !serverDown ? vaultNote(status) : ''

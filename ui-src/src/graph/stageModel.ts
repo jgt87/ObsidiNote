@@ -142,9 +142,9 @@ const meets = (r: Rect, k: Rect) => r[0] < k[2] && r[2] > k[0] && r[1] < k[3] &&
  * (placeAreaLabels), with the count of its pages drawn beside it; at rest page names then keep
  * clear of them, and placeLabels drops a page name that would overlap one already placed, so names
  * never pile up. A topic's name gives way while the pointer is over its area, or one of its pages
- * is focused, so it never covers the pages (operator, 2026-11-14): those areas are in `hiddenAreas`.
+ * is focused, so it never covers the pages (D-022): those areas are in `hiddenAreas`.
  * While a page is focused the rest of the map is faded, so the names of the page and its linked
- * pages come first (operator, 2026-11-15): a faded topic or group name they would meet is hidden
+ * pages come first (D-040): a faded topic or group name they would meet is hidden
  * instead of dropping theirs.
  */
 export function stageLabels(i: StageLabelInput) {

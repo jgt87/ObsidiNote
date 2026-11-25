@@ -1,4 +1,4 @@
-# Journal (operator, 2026-11-17): one page per day. Every Add that Copilot types as a journal entry
+# Journal (D-060): one page per day. Every Add that Copilot types as a journal entry
 # ('log') goes into that day's page "yyyy-MM-dd" in Journal/<year> as one entry: a bold "HH:mm  title"
 # line with the text under it in the page's body outline (lib/PageMeta.psm1 Add-ObsnBodyEntry), and one
 # item of the page's obsn.entries Meta. The day page's topics and links are the union of its entries',

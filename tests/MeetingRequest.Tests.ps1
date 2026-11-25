@@ -1,5 +1,5 @@
 # Pester 3.4 syntax (inbox on Windows): Should Be / Should Throw.
-# Meetings of other days from the box (lib/MeetingRequest.psm1; operator, 2026-11-20): a short
+# Meetings of other days from the box (lib/MeetingRequest.psm1; D-078): a short
 # command ("meetings yesterday", "Daily Standup meetings this week") becomes the days the Meetings
 # panel lists, one Copilot question per day, and an optional series filter. Invented names only.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -104,7 +104,7 @@ Describe 'Get-MeetingRequest: Fetch, Get or Import with a time, without the word
     }
 }
 
-Describe 'Get-MeetingRequest: a series named in a sentence (operator, 2026-11-20)' {
+Describe 'Get-MeetingRequest: a series named in a sentence (D-078)' {
     It 'takes the words after "with the topic of", "called", "met het onderwerp" as the series' {
         $r = Get-Req 'Fetch the meetings for this week with the topic of Daily Fernbrook & Tidal'
         $r.series | Should Be 'Daily Fernbrook & Tidal'
@@ -124,7 +124,7 @@ Describe 'Get-MeetingRequest: a series named in a sentence (operator, 2026-11-20
         $r.series | Should Be 'Daily Standup'
         @($r.days).Count | Should Be 5
     }
-    It 'reads the time before the word after a verb, with a long Teams title as the series (operator, 2026-11-20)' {
+    It 'reads the time before the word after a verb, with a long Teams title as the series (D-079)' {
         $r = Get-Req 'Fetch for this week meetings Daily Sync | Fernbrook & Tidal | Garden Platform & Pump Studio Governance'
         $r.series | Should Be 'Daily Sync | Fernbrook & Tidal | Garden Platform & Pump Studio Governance'
         @($r.days).Count | Should Be 5
@@ -140,7 +140,7 @@ Describe 'Get-MeetingRequest: a series named in a sentence (operator, 2026-11-20
     }
 }
 
-Describe 'Get-MeetingRequest: a series fetched on a day it does not meet (operator, 2026-11-20)' {
+Describe 'Get-MeetingRequest: a series fetched on a day it does not meet (D-080)' {
     It 'takes the past 7 days for a series without a time, today for no series' {
         $r = Get-Req 'Fetch Daily Sync | Fernbrook & Tidal meetings'
         (@($r.days)) -join ',' | Should Be '2031-04-07,2031-04-08,2031-04-09,2031-04-10,2031-04-11'
@@ -203,7 +203,7 @@ Describe 'Get-Intent: rule 5, a meetings request (auto only)' {
     }
 }
 
-Describe 'Get-MeetingRequest: the many ways to ask (fixtures/meeting-request-samples.json; operator, 2026-11-20)' {
+Describe 'Get-MeetingRequest: the many ways to ask (fixtures/meeting-request-samples.json; D-078)' {
     # Phrasings in English and Dutch: verbs, polite forms, possessives, number and month words,
     # ranges, "since", "ago", short weekdays, series before or after, and notes and questions that
     # must stay what they are. A sample that fails names its text.

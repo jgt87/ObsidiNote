@@ -1,5 +1,4 @@
-// The knowledge graph by source (operator, 2026-11-14: "switch from topic areas to data sources:
-// SharePoint is one source, OneDrive another"). Pure: the same model with its areas made from
+// The knowledge graph by source (D-014). Pure: the same model with its areas made from
 // GraphModel.sources instead of the topic tree, so the map's layout, lines, sizes and hover all
 // work unchanged. The server decides each page's source (lib/GraphModel.psm1, Get-LinkSource);
 // this module only regroups. The page window, filters and List keep the real topics.

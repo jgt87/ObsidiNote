@@ -4,9 +4,9 @@
   gap: 0;
   width: 248px;
   flex: none;
-  /* Stays in place while the page scrolls (operator, 2026-11-13). The logo and the nav/switcher at
-     the top and the footer (notes, counts, theme) at the bottom are always visible; only the section
-     list scrolls, inside its own box (operator, 2026-11-14). */
+  /* Stays in place while the page scrolls (D-004). The logo and the nav/switcher at the top and the
+     footer (notes, counts, theme) at the bottom are always visible; only the section list scrolls,
+     inside its own box. */
   position: sticky;
   top: 0;
   height: 100dvh;
@@ -17,7 +17,7 @@
   border-right: 1px solid var(--border);
 }
 
-/* Distinct groups (operator, 2026-11-14): logo, menu, notebook, sections, then the footer; each
+/* Distinct groups (D-028): logo, menu, notebook, sections, then the footer; each
    group after the first starts with a divider line and the same space above and below it. */
 /* div.rail: one element more than the groups' own one-class rules (.switcher, .rail__nav set padding). */
 div.rail > * + * {
@@ -77,7 +77,7 @@ div.rail > .rail__footer { margin-top: auto; }
 .switcher__select { width: 100%; min-width: 0; font-size: var(--text-body); }
 .switcher__note { margin: 0; font-size: var(--text-meta); color: var(--muted); }
 .switcher__note b { color: var(--ink); font-weight: 600; }
-/* The side bar's buttons look alike (user, 2026-11-13): the switcher's full width, one height, one
+/* The side bar's buttons look alike (D-120): the switcher's full width, one height, one
    line, the same secondary style (the box's Send stays the page's one primary button). */
 .switcher__new { align-self: stretch; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rail__footer .export { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-2); }

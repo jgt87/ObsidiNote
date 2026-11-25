@@ -1,5 +1,5 @@
 # Pester 3.4 syntax (inbox on Windows): Should Be / Should Throw.
-# The active vault is never demoted (operator, 2026-11-15): a vault that the start or a switch
+# The active vault is never demoted (D-035): a vault that the start or a switch
 # opened stays the active, writable vault in every route while its notebook is open in OneNote, also
 # when a later detection does not list it (OneNote answering the notebook without its sections, or
 # its Index pages without their Meta: here simulated by the in-memory OneNote's .Hidden; what desktop

@@ -7,7 +7,7 @@ import type { VaultState } from '../api'
 export interface AttentionNote {
   id: string
   text: string
-  /** The note offers the refresh button that tries to connect Copilot again (user, 2026-11-14). */
+  /** The note offers the refresh button that tries to connect Copilot again (D-118). */
   retry?: boolean
 }
 
@@ -22,11 +22,10 @@ const COPILOT: Record<CopilotState, string> = {
 const RETRY: Record<CopilotState, boolean> = { connected: false, skipped: false, 'not-running': true, 'no-tab': true }
 
 /** Why this window cannot write in its vault, and what to do; '' when it can (or the server is too
- *  old to say). operator, 2026-11-15: pages of the main vault showed "read only" with no reason.
+ *  old to say). D-102, D-037: pages of the main vault showed "read only" with no reason.
  *  The lease reasons are read from a lease record, not seen happen, and usually pass by themselves
  *  (a start taking over from the one before), so they say what may be the case and what comes next,
- *  never a verdict (operator, 2026-11-15: "this currently isn't confirmed so the statement must be
- *  adjusted to make it probable/possible"). */
+ *  never a verdict (D-037). */
 export function vaultNote(status: AppStatus): string {
   const v = status.vault
   if (!v || v.mode === 'writer' || !v.reason) return ''
@@ -42,8 +41,7 @@ export function vaultNote(status: AppStatus): string {
  * What "Check again" found, under the note ('' when this window is the writer now: the note goes).
  * A holder that renewed its lease within the last 90 seconds is still running (it renews every
  * minute), so waiting will not help and the person is told where to close it; otherwise the lease
- * runs out at "until" and this window takes over then (operator, 2026-11-15: "Check again doesn't
- * seem to clear the message").
+ * runs out at "until" and this window takes over then (D-036).
  */
 export function leaseCheckNote(v: VaultState, now: Date = new Date()): string {
   if (v.mode === 'writer' || !v.reason || v.reason === 'not-opened') return ''

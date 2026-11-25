@@ -294,7 +294,7 @@ Describe 'A JSON body that is not an object is refused with 400' {
 }
 
 Describe 'POST /api/vault/check-lease: "Check again" tries to take the vault now' {
-    # operator, 2026-11-15: "Check again" only read the status again, so the note stayed until the
+    # D-036: "Check again" only read the status again, so the note stayed until the
     # next renewal of the lease (every minute) even when nothing held the vault any more.
     $app = New-TempAppRoot
     It 'takes the lease at once when the earlier holder gave it back' {
@@ -353,7 +353,7 @@ Describe 'Archive, Restore and Delete through the routes (POST /api/pages/archiv
         (Get-Json $r) | Should Match '"plan":\{"pages":\[\{"id":"p1","title":"Zero-trust networking","section":"Notes","to":"Archive/Notes","inbound":1\}\],"refused":\[\{"id":"p99"'
         $w.f.Writes.Count | Should Be $before
     }
-    It 'refuses a page the person made with words for a person, not a bad-request error (operator, 2026-11-16)' {
+    It 'refuses a page the person made with words for a person, not a bad-request error (D-056)' {
         $before = $w.f.Writes.Count
         $key = 'n:{3A1F0000-0000-4000-8000-00000000AB12}{1}{B0}'
         $p = Invoke-ApiRoute -Method 'POST' -Path '/api/pages/delete' -Body ('{"ids":["' + $key + '"]}') -State $state

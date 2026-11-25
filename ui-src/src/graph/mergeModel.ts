@@ -1,4 +1,4 @@
-// "Merge duplicates" of a meeting series in the window (operator, 2026-11-19): the server's plan and
+// "Merge duplicates" of a meeting series in the window (D-075): the server's plan and
 // result (lib/Ingest.psm1 Get-SeriesMergePlan / Invoke-SeriesMerge, POST /api/series/merge) and the
 // confirm dialog's wording. Like Archive it always asks first. Pure (tests: mergeModel.test.ts).
 

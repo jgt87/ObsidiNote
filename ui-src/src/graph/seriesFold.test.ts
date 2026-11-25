@@ -13,7 +13,7 @@ function model(pages: GraphPage[], edges: GraphEdge[]): GraphModel {
   return { source: { id: 'v', name: 'Vault', kind: 'vault' }, topics: [], pages, edges } as unknown as GraphModel
 }
 
-describe('foldSeries (operator, 2026-11-20: a series as one dot)', () => {
+describe('foldSeries: a series as one dot (D-077)', () => {
   const m = model(
     [page('sp', { series: S, seriesPage: true, title: `${S} (series)` }), meeting('m1', '2031-04-07'), meeting('m2', '2031-04-08'), meeting('m3', '2031-04-09'), page('pump')],
     [edge('m1', 'm2'), edge('m2', 'm3'), edge('sp', 'm1'), edge('m1', 'pump', 1), edge('m3', 'pump', 3), edge('pump', 'm2', 2, 'mention')],

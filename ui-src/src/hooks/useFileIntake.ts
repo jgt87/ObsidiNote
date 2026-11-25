@@ -13,7 +13,7 @@ export interface FileLink {
 /**
  * A file dropped on the Add box, or picked with "Add a file": its text is read here, in memory
  * (add/fileText.ts), and handed to `onText` like a paste; nothing is stored or uploaded as a file.
- * Then, when it is in a folder OneDrive syncs here (operator, 2026-11-14), its address is looked up
+ * Then, when it is in a folder OneDrive syncs here (D-016), its address is looked up
  * so the Add makes that file's link page.
  *
  * Every step after an await first checks that the box has not moved on (a send, an emptied box, a

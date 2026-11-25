@@ -18,7 +18,7 @@ body { margin: 0; background: var(--sunken); }
 
 .icon { width: 16px; height: 16px; flex: none; }
 
-/* A busy button (components/BusyLabel.tsx, operator 2026-11-24): the label and "ring + busy text"
+/* A busy button (components/BusyLabel.tsx, D-083): the label and "ring + busy text"
    share one grid cell, so the button is as wide as the wider of the two at all times (no shift);
    the button's own aria-busy switches which one shows. */
 .busy-label { display: inline-grid; }

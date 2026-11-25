@@ -113,7 +113,7 @@ describe('wording', () => {
   })
 })
 
-describe('what an answer was made from (operator, 2026-11-14)', () => {
+describe('what an answer was made from (D-017)', () => {
   const src = (n: number, path: string) => ({ n, id: `p${n}`, key: `p${n}`, title: `Page ${n}`, path, link: '', updated: '', age: '', type: '', archived: false, sourceId: 'v1', sourceName: '', readOnly: false, stale: false, summarizedAge: '' })
   it('says how many pages from how many topics', () => {
     expect(combinedLine([src(1, 'Security / Networking'), src(2, 'Projects'), src(3, 'Security / Networking')])).toBe('Combined from 3 pages in 2 topics.')

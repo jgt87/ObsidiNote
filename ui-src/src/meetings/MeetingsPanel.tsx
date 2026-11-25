@@ -20,11 +20,11 @@ import {
 import { useMeetings } from './useMeetings'
 import './meetings.css'
 
-/** "Today's meetings" on the home page (operator, 2026-11-17): Copilot lists today's Teams meetings,
+/** "Today's meetings" on the home page (D-064): Copilot lists today's Teams meetings,
  *  the person ticks the ones to keep, and each becomes a meeting page through the normal Add (it then
  *  shows in History and can be undone there). Nothing is written before "Add". Other days, several
  *  days and one series come from the box ("meetings yesterday", "Daily Standup meetings this week";
- *  operator, 2026-11-20): request is what was sent there, listed here one day at a time. */
+ *  D-078): request is what was sent there, listed here one day at a time. */
 export function MeetingsPanel({ onAdded, request }: { onAdded: () => void; request?: MeetingsRequest | null }) {
   const m = useMeetings(onAdded)
   const { phase } = m

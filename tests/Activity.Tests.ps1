@@ -1,6 +1,6 @@
 # Pester 3.4 syntax (inbox on Windows): Should Be / Should Throw.
 # lib/Activity.psm1 and GET /api/activity, POST /api/intake/remove: what ObsidiNote did, read from the
-# vault's own Intake (operator, 2026-11-14). Synthetic data in the in-memory OneNote only.
+# vault's own Intake (D-013). Synthetic data in the in-memory OneNote only.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $here
 $env:OBSIDINOTE_DATA_DIR = Join-Path $env:TEMP 'obsidinote-test-data'

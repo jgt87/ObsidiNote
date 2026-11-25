@@ -6,7 +6,7 @@ import { OWN_PAGE_WHY, pageReadOnlyWhy, readOnlyWhy } from './readOnly'
 // What the server sends per page (tests/GraphModel.Tests.ps1 compares its output with this file).
 const fixture = JSON.parse(readFileSync(new URL('../../../tests/fixtures/graph-pages.json', import.meta.url), 'utf8')) as { pages: { id: string; source: string; own: boolean }[] }
 
-describe('pageReadOnlyWhy: a page the person made is listed, never changed (operator, 2026-11-16)', () => {
+describe('pageReadOnlyWhy: a page the person made is listed, never changed (D-056)', () => {
   const vault = { kind: 'vault' as const, readOnly: false, readOnlyReason: '' as const }
   it('reads own from what the server sends, for every kind of page in the fixture', () => {
     const m = normalizeGraph({ source: vault, pages: fixture.pages.map((p) => ({ id: p.id, title: p.id, own: p.own })) })

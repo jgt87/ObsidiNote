@@ -99,8 +99,8 @@ function useModeKeys(setMode: (m: Mode) => void, focus: () => void) {
   }, [])
 }
 
-/** The box starts at four lines and grows with its text up to about twelve, then scrolls (operator,
- *  2026-11-15: "make the typing area bigger"; CSS min/max-height). Its edge counts in its height. */
+/** The box starts at four lines and grows with its text up to about twelve, then scrolls (D-044;
+ *  CSS min/max-height). Its edge counts in its height. */
 function useAutoGrow(area: RefObject<HTMLTextAreaElement | null>, text: string) {
   useEffect(() => {
     const el = area.current
@@ -258,9 +258,7 @@ export function Composer({ addTarget, onSend, busy, prefill, note, children, cle
         )}
       </div>
       <IntentLine intent={result?.intent} line={line} error={error} onFlip={setMode} />
-      {/* design (operator, 2026-11-15: "move the auto/add/ask buttons into the bottom part as well, so all
-          buttons are in the same row ... and then the paperclip button next to those buttons"): every
-          control of the box in one row under the text, what the text will do on its own line above. */}
+      {/* design: D-045: every control of the box in one row under the text, what the text will do on its own line above. */}
       <div className="composer__bottom">
         <ModeSwitch mode={mode} onChange={(m) => { setMode(m); focus() }} />
         <KeysHelp />

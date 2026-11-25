@@ -25,6 +25,7 @@ evidence-private/
 .claude/CLAUDE.md
 CLAUDE.local.md
 tasks/lessons.md
+tasks/lessons-upstream.md
 # machine-local: real names from the operator's own data, read by tests/NoReferenceName.Tests.ps1
 tasks/private-names.txt
 .impeccable/live/

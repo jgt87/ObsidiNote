@@ -151,7 +151,7 @@ function ConvertTo-NotebookView {
         if ($link -notmatch '^(?i)onenote:') { $link = '' }
         $title = "$($p.node.GetAttribute('name'))".Trim()
         # The page's id as the knowledge graph knows it (its obsn.id, else n:<OneNote id>) and its type,
-        # so the home page opens it in the page window (operator, 2026-11-14).
+        # so the home page opens it in the page window (D-026).
         $oid = ''; $type = ''
         foreach ($c in @($p.node.ChildNodes)) {
             if ($c.NodeType -ne 'Element' -or $c.LocalName -ne 'Meta') { continue }

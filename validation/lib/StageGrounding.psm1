@@ -141,13 +141,11 @@ function Invoke-P8 {
     Invoke-LinkProbe -Ctx $Ctx -Bridge $Bridge -Name 'P8 web, Work IQ on' -Url $url -Kinds 'article, docs, tool, video or other' -WorkIq 'on'
 }
 
-# P10 Meetings (operator, 2026-11-14: "In many meetings, Copilot is used to transcribe or use
-# facilitator to create action lists and meeting notes"): can Copilot, with the person's own access,
+# P10 Meetings (D-029): can Copilot, with the person's own access,
 # list recent meetings with a transcript, recap or notes, and turn them into structured notes? This
 # decides whether ObsidiNote gets an "Add a meeting" step. Read only. Logged: counts and yes/no only,
 # never a meeting title, a name, a link, a date or any text.
-# A full day (operator, 2026-11-15: "fetch all meeting notes from a full day ... from multiple
-# meetings"): after the list of the last 7 days, the probe asks for every meeting of one day (the
+# A full day (D-052): after the list of the last 7 days, the probe asks for every meeting of one day (the
 # day given with -MeetingDay, else the busiest day of that list) and then for the notes of up to
 # $MeetingNotesAsked of them, one question per meeting, as an "Add a day's meetings" step would.
 $script:MeetingListKeys = @('meetings')
@@ -164,8 +162,7 @@ function Test-MeetingDayValue([AllowEmptyString()][string]$Day) {
 
 function Resolve-MeetingDay([string]$Day, [datetime]$Now = (Get-Date)) {
     <# A valid -MeetingDay value as the date to ask for: "today" is this computer's local date
-       (operator, 2026-11-16: a Microsoft 365 outage left the busiest day of the week without
-       meetings, so the probe asks for the current day). Pure but for the default $Now. #>
+       (D-059). Pure but for the default $Now. #>
     if ($Day.Trim() -eq 'today') { return $Now.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) }
     $Day.Trim()
 }

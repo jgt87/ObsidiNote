@@ -14,7 +14,7 @@ describe('shortSeriesName', () => {
   })
 })
 
-describe('pageMapLabel (operator, 2026-11-20: a series as one dot, not meetings told apart by date)', () => {
+describe('pageMapLabel: a series as one dot, not meetings told apart by date (D-077)', () => {
   it('names a series\' one dot by its short name and its number of meetings', () => {
     expect(pageMapLabel({ title: `${long} (series)`, series: long, seriesCount: 6 })).toBe('Daily Sync · 6 meetings')
     expect(pageMapLabel({ title: `${long} · 2031-04-08`, series: long, seriesCount: 1 })).toBe('Daily Sync · 1 meeting')

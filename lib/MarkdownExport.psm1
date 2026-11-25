@@ -1,4 +1,4 @@
-# Markdown export (user, 2026-11-13): pages of a vault or notebook as Markdown with [[wikilinks]].
+# Markdown export (D-108): pages of a vault or notebook as Markdown with [[wikilinks]].
 # The one way content leaves OneNote, and only as a download the person asks for: the files are
 # built in memory (a zip in a MemoryStream) and handed to the browser; nothing is written to disk
 # here and nothing is kept. The log gets counts and timings only.

@@ -1,6 +1,4 @@
-# Meetings of other days from the box (operator, 2026-11-20: "through the input field, fetch
-# meetings from other days ... or from multiple days, for example for a daily meeting all
-# occurrences for that series within a given week"). Reads a short command such as
+# Meetings of other days from the box (D-078). Reads a short command such as
 #   meetings yesterday | meetings 2026-11-17 | meetings 17-11 to 19-11 | meetings last 3 days
 #   Daily Standup meetings this week | fetch meetings of "Daily Standup" last week | vergaderingen gisteren
 #   fetch yesterday | get Daily Standup this week | import last week | fetch yesterday's meetings
@@ -34,7 +32,7 @@ $script:MonthWord = '(jan(?:uary|uari)?|feb(?:ruary|ruari)?|mar(?:ch)?|maart|apr
 $script:NumberWords = @{ one = 1; two = 2; three = 3; four = 4; five = 5; six = 6; seven = 7; eight = 8; nine = 9; ten = 10; eleven = 11; twelve = 12; thirteen = 13; fourteen = 14
     een = 1; twee = 2; drie = 3; vier = 4; vijf = 5; zes = 6; zeven = 7; acht = 8; negen = 9; tien = 10; elf = 11; twaalf = 12; dertien = 13; veertien = 14 }
 # Words that introduce the series ("with the topic of Daily Standup", "called Daily Standup", "met
-# het onderwerp ..."; operator, 2026-11-20): everything after them, up to a time, is the series.
+# het onderwerp ..."; D-078): everything after them, up to a time, is the series.
 $script:SeriesMarker = '(?i)(?:^|\s)(?:(?:(?:with|having|for|on|of|met|van|voor)\s+)?(?:the\s+|a\s+|het\s+|de\s+)?(?:topic|title|subject|name|series|onderwerp|titel|naam|reeks)(?:\s+(?:of|is|van))?\s*:?|called|named|titled|genaamd|getiteld)(?=\s)'
 # Openings of a question about meetings ("which meetings last week", "what meetings ..."): Ask's.
 $script:QuestionStart = '^(?:(?:show|tell|give|toon|geef)\s+(?:me|us|mij)\b|what|which|how|who|whom|why|when|where|did|do|does|were|was|are|is|can|could|wat|welke|welk|hoe|wie|waarom|wanneer|waar|hadden|had|zijn|waren|kan|heb|hebben)\b'
@@ -290,11 +288,11 @@ function Get-MeetingRequest {
     $bare = $false
     $when = Find-WhenPhrase -Text $rest -Today $Today
     # A time in the middle or first ("meetings this week Daily Standup", "Fetch for this week meetings
-    # Daily Standup", operator 2026-11-20): only after Fetch/Get/Import, so "Board meetings this
+    # Daily Standup", D-079): only after Fetch/Get/Import, so "Board meetings this
     # week went well" stays a note.
     if (-not $when -and $verb.Success) { $when = Find-WhenPhrase -Text $rest -Today $Today -Anywhere }
     if (-not $mw.Success) {
-        # A verb without the word (operator, 2026-11-20: "also on Fetch, Get or Import"): "Fetch
+        # A verb without the word (D-079): "Fetch
         # yesterday", "Get Daily Standup this week", "Fetch Daily Sync | A & B". The rest must read as
         # a meeting title (checked below), so "Import the budget file" and "Get groceries this week"
         # stay notes. A time must name past days: "Get milk tomorrow" stays a note.
@@ -326,8 +324,7 @@ function Get-MeetingRequest {
     if (($bare -or $single) -and -not $quoted -and -not (Test-TitleLike $series)) { return $null }
     if ($bare -and -not $when -and -not $quoted -and -not ($series.Contains('|') -or $words.Count -ge 2)) { return $null }
     $r = [ordered]@{ days = @(); series = $series; when = 'today'; error = '' }
-    # No time: today; a named series without a time takes its meetings of the past 7 days (operator,
-    # 2026-11-20: a series fetched on a day it does not meet came back empty).
+    # No time: today; a named series without a time takes its meetings of the past 7 days (D-080).
     if (-not $when -and $series) { $r.when = 'the past 7 days'; $wd = Get-WorkDays $Today.Date.AddDays(-6) $Today.Date; $r.days = @($wd | ForEach-Object { ConvertTo-IsoDay $_ }); return $r }
     if (-not $when) { $r.days = @(ConvertTo-IsoDay $Today.Date); return $r }
     $r.when = $rest.Substring($when.index, $when.length).Trim()

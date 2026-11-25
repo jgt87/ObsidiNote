@@ -4,7 +4,7 @@ import { Notice } from './Notice'
 import './RecentList.css'
 
 /** The 10 most recently changed pages of the notebook. A title opens the page window (the same as in
- *  the knowledge graph: summary, links, Edit, Export; operator 2026-11-14); "OneNote" opens it there. */
+ *  the knowledge graph: summary, links, Edit, Export; D-026); "OneNote" opens it there. */
 export function RecentList({ notebook, onOpen }: { notebook: NotebookState; onOpen?: (pageId: string) => void }) {
   const nb = notebook.data
   let body: React.JSX.Element

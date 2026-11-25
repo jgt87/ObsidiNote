@@ -1,18 +1,16 @@
 # Pester 3.4 syntax (inbox on Windows): Should Be / Should Throw.
 # Names that never appear in the repo: code, comments, docs, tests, config, the built interface
-# (operator, 2026-11-12/13): the note app ObsidiNote's ideas come from and the author's sister
+# (D-001): the note app ObsidiNote's ideas come from and the author's sister
 # projects. Describe things on their own terms ("Markdown with [[wikilinks]]", "the author's
 # earlier Copilot bridge"). One spelling stays allowed: Microsoft's Copilot endpoint path
 # "/StreamHub" in URL patterns, which the bridge must match. The names are built from pieces, so
 # this file does not match itself.
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-# The code-index tool used while building (operator, 2026-11-14: never named in docs or code; its
-# local folder is ignored through .git/info/exclude, not the tracked .gitignore).
+# The code-index tool used while building (D-030).
 $script:Names = @(('obsid' + 'ian'), ('ccb' + 'ridge'), ('stream' + 'hub'), ('repo' + 'wise'))
 $script:Allowed = '/' + 'stream' + 'hub'   # Microsoft's endpoint path, matched case-insensitively
 
-# Real names of people and companies seen in the operator's own data (operator, 2026-11-19: "make sure
-# that no existing names of people or companies are being used"): kept in tasks/private-names.txt,
+# Real names of people and companies seen in the operator's own data (D-076): kept in tasks/private-names.txt,
 # which is gitignored and stays on that machine, one name per line ('#' starts a comment), matched as a
 # whole word in any case. The repo itself never holds them; on CI the file is absent and adds nothing.
 function Get-PrivateNames {

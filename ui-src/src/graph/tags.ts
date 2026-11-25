@@ -1,5 +1,5 @@
-// Tags: marks a person sets by hand to group pages that nothing else relates (operator,
-// 2026-11-15). Copilot never sets them. Pure (tests: tags.test.ts, on tests/fixtures/tags.json,
+// Tags: marks a person sets by hand to group pages that nothing else relates (D-034). Copilot
+// never sets them. Pure (tests: tags.test.ts, on tests/fixtures/tags.json,
 // which the server's tag function is tested against too: change all three together).
 
 import type { GraphPage } from './model'

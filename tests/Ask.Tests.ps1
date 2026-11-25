@@ -69,7 +69,7 @@ function Invoke-Ask {
     Invoke-AskRequest -Request $Request -Context @{ Sources = @($Sources); Copilot = $Copilot; Now = $script:Now }
 }
 
-Describe 'Ask within one meeting series: those meetings and nothing else (operator, 2026-11-18)' {
+Describe 'Ask within one meeting series: those meetings and nothing else (D-069)' {
     BeforeEach { Reset-AskState }
     function New-SeriesVault {
         $v = New-Vault
@@ -346,7 +346,7 @@ Describe 'Ask: read-only sources' {
     }
 }
 
-Describe 'Ask: how many pages, and which ones it used (operator, 2026-11-14)' {
+Describe 'Ask: how many pages, and which ones it used (D-011, D-017)' {
     BeforeEach { Reset-AskState }
 
     It 'asks for at most the vault''s page limit (default 20) and looks in more branches for many pages' {

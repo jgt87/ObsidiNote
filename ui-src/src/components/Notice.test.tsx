@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { BusyLabel } from './BusyLabel'
 import { Notice, ViewOpening } from './Notice'
 
-// Operator, 2026-11-24: an error that is there when a view opens is a status; one that arrives later an alert.
+// D-084: an error there when a view opens is a status; one that arrives later an alert.
 describe('Notice role', () => {
   it('is a status for an error drawn when the view opens', () => {
     const html = renderToStaticMarkup(

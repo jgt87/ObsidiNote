@@ -1,11 +1,10 @@
 // Why a page cannot be changed here, in words. Pure (tests: readOnly.test.ts).
-// operator, 2026-11-15: a page of the main vault showed "read only" with no reason and no Edit
+// D-102, D-056: a page of the main vault showed "read only" with no reason and no Edit
 // button; the cause (another ObsidiNote held the vault's writer lease) could only be guessed.
 
 import type { GraphPage, GraphSource } from './model'
 
-/** Why a page you made yourself is not changed here (operator, 2026-11-16: Delete was offered on
- *  such a page and failed). ObsidiNote lists those pages and never edits, archives or deletes them. */
+/** Why a page you made yourself is not changed here (D-056). ObsidiNote lists those pages and never edits, archives or deletes them. */
 export const OWN_PAGE_WHY = 'You made this page in OneNote: ObsidiNote lists it and never changes it. Change, archive or delete it in OneNote.'
 
 /** Why this page cannot be changed in the window: the source's reason first, then a page that is

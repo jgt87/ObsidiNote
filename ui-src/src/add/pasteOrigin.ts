@@ -1,5 +1,5 @@
-// Which app a paste came from, read from the HTML the clipboard carries (operator, 2026-11-14:
-// "record where new items come from"). Pure and a best guess: the person sees it as the "From:"
+// Which app a paste came from, read from the HTML the clipboard carries (D-015).
+// Pure and a best guess: the person sees it as the "From:"
 // choice under the box and can change it before Add. Markers, checked in this order:
 // - Teams: its message markup (itemprop="copy-paste-block", data-tid) or a Teams address;
 // - Outlook: its Office namespace, its reply/forward header blocks or Outlook on the web's markup;

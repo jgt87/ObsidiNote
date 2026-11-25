@@ -41,7 +41,7 @@ export function Rail({ view, notebooks, notebook, notes, onNewVault, onSetUp, on
         <span>ObsidiNote</span>
       </header>
 
-      {/* The menu first, under the name; the notebook switcher below it (operator, 2026-11-14). */}
+      {/* The menu first, under the name; the notebook switcher below it (D-028). */}
       <nav aria-label="Main">
         <RailMenu view={view} onSettings={onSettings} />
       </nav>
@@ -131,7 +131,7 @@ function RailNotes({ notes, onRetryCopilot }: { notes: AttentionNote[]; onRetryC
 }
 
 /** The shown notebook's counts and name; nothing until it has been read. Export as Markdown lives
- *  in the page window, per page and per topic (operator, 2026-11-14: not a button in the side bar). */
+ *  in the page window, per page and per topic, not in the side bar (D-012). */
 function RailNotebookCounts({ nb }: { nb: NotebookView | null }) {
   if (!nb?.available || !nb.notebook) return null
   return (

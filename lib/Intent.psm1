@@ -176,7 +176,7 @@ function Get-Intent {
     <# Whether the input is an Add or an Ask: @{ intent = add|ask|unclear|empty|meetings; reason; rule;
        askScore; addScore }; a meetings request (rule 5, auto only: "meetings yesterday", "Daily
        Standup meetings this week") also carries meetings = Get-MeetingRequest's answer and is listed
-       by the Meetings panel, never added or asked (operator, 2026-11-20). $Today: the day words
+       by the Meetings panel, never added or asked (D-078). $Today: the day words
        count from (tests). $Mode: auto (default), add or ask; an explicit add/ask always wins. reason
        is a short phrase for "Will ask your wiki: <reason>". $InternalHosts / $CompanyNames: the
        vault's link rules, so a company link with words is named as the Add it will be (optional). #>
@@ -199,7 +199,7 @@ function Get-Intent {
         return New-IntentResult 'add' 'a company link with your words: its page is summarized and your words become your notes' 1
     }
 
-    # 5. A short command for the Teams meetings of some days (operator, 2026-11-20).
+    # 5. A short command for the Teams meetings of some days (D-078).
     $mr = Get-MeetingRequest -Text $t -Today $Today
     if ($mr) {
         $r = New-IntentResult 'meetings' (Format-MeetingRequestReason $mr) 5

@@ -1,6 +1,6 @@
-// The Meetings panel's words and choices (operator, 2026-11-17: "build as suggested"): today's Teams
+// The Meetings panel's words and choices (D-064): today's Teams
 // meetings as Copilot lists them, a tick per meeting, then one Add per ticked meeting. Pure.
-// Other days and several days (operator, 2026-11-20): typed in the box ("meetings yesterday", "Daily
+// Other days and several days (D-078): typed in the box ("meetings yesterday", "Daily
 // Standup meetings this week"); the panel asks one day at a time and lists them by day.
 import type { MeetingRequest, SubmitResult } from '../api'
 

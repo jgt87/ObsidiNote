@@ -157,7 +157,7 @@ function Connect-Copilot {
         [int]$Port = 0,
         [string]$ProfileDir = '',
         [string]$SelectorsPath,
-        # 10 minutes for a sign-in (user, 2026-11-13: 5 was too short on a slow tenant sign-in).
+        # 10 minutes for a sign-in (D-115: 5 was too short on a slow tenant sign-in).
         [int]$SignInTimeoutSec = 600,
         [ValidateSet('', 'single-sign-on', 'private')][string]$SignIn = '',
         # Return at once when the person still has to sign in: the bridge comes back with SignInPending,

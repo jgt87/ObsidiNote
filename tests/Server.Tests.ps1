@@ -137,7 +137,7 @@ Describe 'Get-CopilotState with the start''s bridge' {
     }
 }
 
-Describe 'POST /api/copilot/reconnect (the refresh button, user 2026-11-14)' {
+Describe 'POST /api/copilot/reconnect (the refresh button, D-118)' {
     # Port 1 has no Edge: without a bridge Copilot counts as not running. -TestConnect stands in for
     # Connect-Copilot; nothing here opens Edge.
     $open = [pscustomobject]@{ Session = [pscustomobject]@{ Lost = $false; Ws = [pscustomobject]@{ State = 'Open' } }; SignInPending = $false }
@@ -372,7 +372,7 @@ Describe 'Invoke-ApiRoute: switching vault, a new vault (in-memory OneNote)' {
     Remove-Item $app -Recurse -Force
 }
 
-Describe 'Invoke-ApiRoute: vault settings in OneNote (operator, 2026-11-14)' {
+Describe 'Invoke-ApiRoute: vault settings in OneNote (D-010)' {
     $w = New-SyntheticVault -SessionId 'start'
     $null = Close-VaultSession -Adapter $w.a -Vault $w.open.vault -Lease $w.open.lease
     $app = New-TempAppRoot
@@ -416,7 +416,7 @@ Describe 'Invoke-ApiRoute: vault settings in OneNote (operator, 2026-11-14)' {
     Remove-Item $app -Recurse -Force
 }
 
-Describe 'Invoke-ApiRoute: setting up an empty notebook as a vault (user, 2026-11-13)' {
+Describe 'Invoke-ApiRoute: setting up an empty notebook as a vault (D-117)' {
     $w = New-SyntheticVault -SessionId 'start'
     $null = Close-VaultSession -Adapter $w.a -Vault $w.open.vault -Lease $w.open.lease
     $empty = $w.f.AddNotebook('ObsidiNote')

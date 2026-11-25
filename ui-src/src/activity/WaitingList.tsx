@@ -3,7 +3,7 @@ import { waitingItems } from './activityModel'
 import { useActivity } from './useActivity'
 import './activity.css'
 
-/** "Waiting for Copilot" on the home page (operator, 2026-11-14): every Intake item still waiting,
+/** "Waiting for Copilot" on the home page (D-013): every Intake item still waiting,
  *  with Check for the answer and Remove, so it is not lost when the Add result is gone. Nothing
  *  shows when nothing waits (or the list cannot be read: History says why). */
 export function WaitingList({ refreshKey, onOpen }: { refreshKey: string; onOpen: (pageId: string) => void }) {

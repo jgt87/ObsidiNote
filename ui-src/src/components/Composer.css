@@ -9,7 +9,7 @@
 }
 .composer:focus-within { border-color: var(--border-strong); }
 
-/* Every control in one row under the text (operator, 2026-11-15): the mode switch, the shortcut
+/* Every control in one row under the text (D-045): the mode switch, the shortcut
    help and the paperclip at the left, Send at the right. */
 .composer__help { position: relative; }
 .composer__help-btn, .composer__file-btn { color: var(--muted); }
@@ -63,11 +63,10 @@ kbd {
 
 /* The segmented control (.seg) lives in src/styles/tokens.css: the map uses it too. */
 
-/* design (operator, 2026-11-15: "make the typing area bigger, and make the text input field a more
-   distinct own area"): the text has its own well inside the card, a sunken fill with an edge, so it
+/* design: D-044: the text has its own well inside the card, a sunken fill with an edge, so it
    reads as the place to type and the controls under it as controls. It starts at four lines and
-   grows with its text (Composer sets the height) up to about twelve, then scrolls (was 2 to 6 lines,
-   operator 2026-11-14; always six, user 2026-11-13: "make it higher"). */
+   grows with its text (Composer sets the height) up to about twelve, then scrolls (D-044;
+   before it 2 to 6 lines, and earlier always six). */
 .composer__text {
   width: 100%;
   box-sizing: border-box;
@@ -87,7 +86,7 @@ kbd {
 }
 /* Typing: the well turns to the card's own fill (no ring, see below). */
 .composer__text:focus { background: var(--surface); }
-/* design: no focus ring around the box or the text (user, 2026-11-13: "do not show the outline on the
+/* design: D-119: no focus ring around the box or the text ("do not show the outline on the
    textbox whenever it is selected"). Focus shows as the well's fill and stronger edge (above), the
    card's darker border (:focus-within) and the caret; the box is the page's one input and gets
    focus on load. */

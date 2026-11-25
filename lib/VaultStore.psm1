@@ -308,7 +308,7 @@ function Invoke-VsUpdatePage {
 }
 
 function Invoke-VsJournalEntry {
-    <# A journal day page (operator, 2026-11-17: one page per day). -Lines: the entry to append (line
+    <# A journal day page (D-060). -Lines: the entry to append (line
        model: its heading line with the entry's text as children). -Index/-Heading: the entry to take out
        (Remove-ObsnBodyEntry; refused when the page was changed in OneNote). Then $Meta (the day page's
        topics, links, summary and entries after the change) and its props outline, through

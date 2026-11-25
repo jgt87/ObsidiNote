@@ -1,7 +1,7 @@
 # Pester 3.4 syntax (inbox on Windows): Should Be / Should Throw.
 # lib/VaultSettings.psm1: the vault's settings live in OneNote (obsn.settings on the state page).
 # At every start missing keys are added with their defaults; an existing value is never set back
-# (operator, 2026-11-14). Synthetic data in the in-memory OneNote only.
+# (D-010). Synthetic data in the in-memory OneNote only.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $here
 $env:OBSIDINOTE_DATA_DIR = Join-Path $env:TEMP 'obsidinote-test-data'

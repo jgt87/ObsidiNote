@@ -111,7 +111,7 @@ Describe 'Add of a text item through the real store' {
     }
 }
 
-Describe 'Markdown text through the real store (user, 2026-11-13: OneNote has no Markdown)' {
+Describe 'Markdown text through the real store (D-116: OneNote has no Markdown)' {
     $w = New-SyntheticVault
     $md = "# Proxy notes`n`nThe proxy **checks who the user is** first.`n`n- step one`n  - step one a`n1. first`n2. second`n`n| Name | Role |`n|---|---|`n| Sam | lead |`n`nRun ``partner portal`` here."
     $reply = '{"title": "Proxy notes", "summary": "Notes on the proxy.", "type": "concept", "topics": [{"new": "Security/Proxies"}], "links": [{"target": "p1", "anchor": "checks who the user is", "strength": 3, "why": "core concept"}, {"target": "p2", "anchor": "partner portal", "strength": 2, "why": "named"}], "aliases": [], "intent": "add"}'

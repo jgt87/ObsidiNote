@@ -8,7 +8,7 @@ import { TagsSettings } from './TagsSettings'
 import './NewVaultDialog.css'
 import './SettingsDialog.css'
 
-/** Settings (operator, 2026-11-14: "a central settings modal accessible from the menu"): everything
+/** Settings (D-010): everything
  *  the vault keeps in OneNote (lib/VaultSettings.psm1), so every PC that opens it uses the same.
  *  Save sends only what changed. A read-only window shows the values without Save. The theme stays
  *  per PC at the bottom of the side bar; ports and sign-in stay in config\obsidinote.local.json. */
@@ -127,7 +127,7 @@ export function SettingsDialog({ onClose, onSaved, onTagsChanged, version = '' }
     <dialog ref={ref} className="nv st" aria-labelledby="st-title" aria-describedby="st-desc" onCancel={(e) => { e.preventDefault(); if (!busy) close.current() }}>
       <form onSubmit={onSubmit}>
         <div className="st__head">
-          {/* design (operator, 2026-11-15): the app's version in the top right, beside the title. */}
+          {/* design: D-047: the app's version in the top right, beside the title. */}
           <div className="st__title-row">
             <h2 id="st-title" className="nv__title">
               Settings

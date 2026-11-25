@@ -77,7 +77,7 @@ Requirements and limits:
 - Alternative: the Microsoft Graph OneNote API. It needs an Entra app registration and token,
   which goes against the zero-install / no-admin goal. Keep it as a fallback only.
 
-### OneNote's API, every method (operator, 2026-11-16)
+### OneNote's API, every method (D-054)
 
 Every method of desktop OneNote's COM API (`OneNote.Application`, IApplication), what it does,
 where ObsidiNote uses it, and what it could add. Kinds: **read** changes nothing; **write**
@@ -214,7 +214,7 @@ Consequences:
 - **Concurrency.** A single writer is enforced by a lease Meta tag on the `ObsidiNote` page
   (session id + expiry, renewed while running). There is no lock file on disk. A second
   instance starts read-only.
-  On one PC there is one ObsidiNote (operator, 2026-11-15): a new start asks the one that is
+  On one PC there is one ObsidiNote (D-032, D-033): a new start asks the one that is
   running to stop (`POST /api/shutdown`; it gives the lease back) and, when it does not, ends the
   leftover start of the same script. The lease also carries a machine mark (`m`: 12 hex characters
   of a hash of the computer name, never the name). A lease that is not expired, carries THIS
@@ -330,7 +330,7 @@ Paste just a link, and ObsidiNote files a **summary page** for it, so you can fi
 is about later without opening it again.
 
 **Which bucket.** The app decides by the URL's host, with fixed rules and no model:
-- **Internal** (`Internal links`): company data, wherever it is hosted (user, 2026-11-13):
+- **Internal** (`Internal links`): company data, wherever it is hosted (D-112):
   - Microsoft 365: `*.sharepoint.com` (including `-my.sharepoint.com` for OneDrive),
     `teams.microsoft.com`, `*.loop.cloud.microsoft` and `loop.microsoft.com`, `*.office.com`,
     `m365.cloud.microsoft`, plus any intranet hosts listed in the setting `internalHosts`;
@@ -352,7 +352,7 @@ is about later without opening it again.
   the app reads the page's text through its own Edge session and sends that text to Copilot
   instead. That text stays in memory, never on disk.
 
-**Slow answers: check for the answer later** (user, 2026-11-13). Reading a SharePoint source can
+**Slow answers: check for the answer later** (D-106). Reading a SharePoint source can
 keep Copilot silent for minutes. Pressing Copilot's Stop cancels its answer, so Add never stops a
 slow answer: at the end of the wait the bridge returns `Pending` and leaves Copilot working, the
 Intake item becomes `waiting` with its request reference (`ref`, a short code with no content that
@@ -431,7 +431,7 @@ the box.
 | In the index | Listed on an **Archive** index page and in A-Z (marked archived); in topic hubs under a collapsed "Archived" group | Removed. The `ObsidiNote` state page keeps a **Recently deleted** list (title, bucket, date) for 60 days, matching the recycle bin |
 | Ask and Map | Left out of Ask by default ("include archived" switch); faded in the map, behind a filter | Gone |
 | Undo | **Restore** moves it back to its original bucket, with everything as it was | Within 60 days: restore it in OneNote (Deleted Pages); the next start's completeness check finds it and puts it back in the index. After that it is gone |
-| Confirmation | **Always** (user, 2026-11-12): a dialog naming the page(s), their bucket and where they go (`Archive / <bucket>`), "You can restore it later". Primary button "Archive"; afterwards an "Archived · Undo" notice | **Always**: a dialog naming the page(s), the bucket, how many links point to them, and "OneNote keeps deleted pages for 60 days". Primary button "Delete" |
+| Confirmation | **Always** (D-110): a dialog naming the page(s), their bucket and where they go (`Archive / <bucket>`), "You can restore it later". Primary button "Archive"; afterwards an "Archived · Undo" notice | **Always**: a dialog naming the page(s), the bucket, how many links point to them, and "OneNote keeps deleted pages for 60 days". Primary button "Delete" |
 
 Rules:
 - **Only ObsidiNote's own pages** can be archived or deleted by the app. Pages and sections you
@@ -611,17 +611,17 @@ with a one-key flip. A wrong guess costs little:
 - An unanswered question can be saved as an "Open question" page.
 
 Map details (the user's spec, 2026-11-12): a **Knowledge graph** of dots, with no large cards.
-- **Topics | Sources** (user, 2026-11-14): the areas are topics, or where the pages come from. A
+- **Topics | Sources** (D-014): the areas are topics, or where the pages come from. A
   link page's source is read from its address by fixed rules (each SharePoint site, OneDrive,
   Teams, Loop, Microsoft 365, each company service, each web site; a site with fewer than 3 pages
   joins "Other web sites"); a page without an address is in "ObsidiNote notes" ("OneNote pages" in
-  a connected notebook). A page without an address carries `obsn.origin` (user, 2026-11-14):
+  a connected notebook). A page without an address carries `obsn.origin` (D-015):
   detected from the pasted HTML (Outlook, Teams, Word, a web page), shown as "From:" before Add and
   changeable in Edit; older pages have none (never recorded, so nothing to upgrade) and can be set
   in Edit. The origin's area wins over "ObsidiNote notes"; a link page's address wins over both.
 - **Dots** are pages; dot size = link weight on one smooth scale: the strengths of the links to the
-  page, plus half of its own links' (operator, 2026-11-14: being linked to is what makes a page
-  matter; Copilot gives a new page up to 8 links of its own at once). Two pages that link each other
+  page, plus half of its own links' (D-019; Copilot gives a new page up to 8 links of its own at
+  once). Two pages that link each other
   count once as neighbours and get one line. Pages with no links yet are hollow dashed dots.
 - **Blobs** are topics: a soft grey area around each topic's dots, labelled with the topic
   name.
@@ -629,8 +629,7 @@ Map details (the user's spec, 2026-11-12): a **Knowledge graph** of dots, with n
   in the link JSON). A filter can add "mentions, not linked" as faint lines. Links between
   topics are one line per pair of topics; linked topics are placed next to each other so the
   line is short, and a line that still meets a third topic bends around it (never across or
-  under a third topic); at most 8 at rest, all of them when zoomed in (1.5x the fitted zoom), all of a topic's when one of its pages is focused (operator,
-  2026-11-14, after a code map that routes its lines this way).
+  under a third topic); at most 8 at rest, all of them when zoomed in (1.5x the fitted zoom), all of a topic's when one of its pages is focused (D-020, D-021).
 - **Look and feel of the clustering** (the user's reference images, 2026-11-12, adapted to the
   light monochrome look):
   - Many small dots; clusters emerge from link density and show as soft grey areas (no glow),
@@ -640,7 +639,7 @@ Map details (the user's spec, 2026-11-12): a **Knowledge graph** of dots, with n
     in size. Lines between topics are as wide as the summed strength of their links.
     "Link it" writes strength 2 (related): the person's own decision.
   - **Every dot is content** (a note, file or link). No decorative dots, specks or dust
-    (user, 2026-11-12).
+    (D-114).
   - Each topic area has a visible label: the topic name with its page count beside it (the main
     subjects are in the List; a second line lay on the dots, 2026-11-14).
   - Links are curved.
@@ -648,7 +647,7 @@ Map details (the user's spec, 2026-11-12): a **Knowledge graph** of dots, with n
   stay sharp and get labels, with the links to them drawn stronger: its own links solid, links
   to it that it does not return dashed. Everything else, topic areas and names included, fades
   under one veil to about a quarter, and the linked pages' names come before the faded topic
-  names (operator, 2026-11-15). With nothing focused, only hub labels show.
+  names (D-040). With nothing focused, only hub labels show.
 - **Hover a dot** to see a preview card: index path, title, a one-line summary, link and
   backlink counts, when it was added, and "Click to open". Keyboard focus shows the same
   preview.

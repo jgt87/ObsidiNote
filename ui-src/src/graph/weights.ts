@@ -1,4 +1,4 @@
-// How much a page matters on the map, from its links (operator, 2026-11-14). Pure; the one
+// How much a page matters on the map, from its links (D-019). Pure; the one
 // definition: the server sends the edges, normalizeGraph() derives these numbers from them.
 //
 // - Being linked TO is what counts: Copilot gives every new page up to 8 links of its own at once,

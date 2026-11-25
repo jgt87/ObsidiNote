@@ -131,7 +131,7 @@ Describe 'ConvertTo-GraphModel: sources' {
         "$($s.id):$($s.name):$($s.kind)" | Should Be 'internal:Other company sites:other-internal'
         (@($g2.sources | ForEach-Object { $_.kind }) -join ',') | Should Be 'm365,other-internal,web,other,notes'
     }
-    It 'files a link page without an address by its host, then by its link type, never as a note (operator, 2026-11-16)' {
+    It 'files a link page without an address by its host, then by its link type, never as a note (D-055)' {
         $m3 = New-TestModel
         foreach ($i in 1..3) { $null = Add-IndexPage -Model $m3 -Page @{ id = "h$i"; title = "Host only $i"; type = 'link-web'; bucket = 'Web links'; section = 'Web links'; oneNoteId = "{H$i}"; host = 'docs.example.org' } }
         $null = Add-IndexPage -Model $m3 -Page @{ id = 't1'; title = 'Web, nothing else'; type = 'link-web'; bucket = 'Web links'; section = 'Web links'; oneNoteId = '{T1}' }
@@ -207,7 +207,7 @@ Describe 'ConvertTo-GraphModel: section, bucket and kind per page (tests/fixture
         $jn | Should Match '"tags":\[\]\}$'
         $jv | Should Match '"tags":\[\{"name":"follow up","count":1\},'
     }
-    It 'gives a meeting page without a series its key from its title when it came from Today''s meetings or carries a date (operator, 2026-11-20: a series as one dot)' {
+    It 'gives a meeting page without a series its key from its title when it came from Today''s meetings or carries a date (D-077)' {
         $m0 = New-IndexModel -Kind 'vault' -VaultId 'v1'
         foreach ($r in @(
                 @{ key = 'a'; title = 'Kickoff 2031-04-08'; type = 'meeting' },

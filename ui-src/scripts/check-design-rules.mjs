@@ -103,7 +103,7 @@ const FIELD_EDGES = `JSON.stringify((() => {
   }
   return bad })())`
 // Text fields whose edge or fill is under 3:1 against what is behind them (rules/ui.md, 1.4.11):
-// a field without its own edge does not read as a place to type (operator, 2026-11-15).
+// a field without its own edge does not read as a place to type (D-044).
 const UNDER_NAMES = `JSON.stringify((() => { const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
   const dots = [...document.querySelectorAll('.kg-base circle.kg-dot')].map((d) => d.getBoundingClientRect())
   // The name and the page count beside it, as one box.
@@ -605,7 +605,7 @@ async function toolbarLegendApart({ list, size, go, expect }) {
 }
 
 // 19 a search highlights its results and hides nothing: a page that is not a result still shows
-// its card on hover and opens on click (operator, 2026-11-15: only the searched dots answered)
+// its card on hover and opens on click (D-042)
 async function searchHidesNothing({ S, js, list, size, go, expect }) {
   await size(1440, 900, false)
   await go('/graph-demo.html?pages=100', '.kg-dot')
@@ -630,7 +630,7 @@ async function searchHidesNothing({ S, js, list, size, go, expect }) {
       const on = await js(focused)
       expect(on === target.id, `search "zero" (${target.hits} results): hovering ${target.id}, which is not a result, focuses "${on}" instead`)
       // Off every dot again: the focus goes back to the search's result until the search is cleared
-      // (operator, 2026-11-15).
+      // (D-042).
       if (empty) {
         await S('Input.dispatchMouseEvent', { type: 'mouseMoved', x: empty[0], y: empty[1] }); await wait(400)
         const back = await js(focused)

@@ -35,7 +35,7 @@ describe('PageDialog: the first render', () => {
     expect(render(3, { onRetirePages: noop }, roIndex)).not.toContain('>Delete</button>')
   })
 
-  it('a page the person made: no Archive or Delete, Edit greyed out with the reason (operator, 2026-11-16)', () => {
+  it('a page the person made: no Archive or Delete, Edit greyed out with the reason (D-056)', () => {
     const html = render(4, { onRetirePages: noop, onEditPage: async () => {} })
     expect(html).not.toContain('>Delete</button>')
     expect(html).not.toContain('>Archive</button>')

@@ -1,4 +1,4 @@
-// Markdown export (user, 2026-11-13): POST /api/export answers with the file itself (one .md for a
+// Markdown export (D-108): POST /api/export answers with the file itself (one .md for a
 // page, a .zip for a topic or everything). The file is handed to the browser as a download the
 // person asked for; nothing is kept here. Every call carries X-ObsidiNote: 1, which the server
 // requires (so a plain link cannot be used).

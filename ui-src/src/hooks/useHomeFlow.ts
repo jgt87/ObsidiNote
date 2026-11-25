@@ -21,7 +21,7 @@ export type Flow =
   /** copilot: the send failed because Copilot is not connected (503), so the notice offers to connect it. */
   | { kind: 'notice'; text: string; error: boolean; copilot?: boolean }
 
-/** 503 = no Copilot (AGENTS.md, POST /api/submit). */
+/** 503 = no Copilot (.claude/rules/project-contracts.md, POST /api/submit). */
 function needsCopilot(e: unknown): boolean {
   return e instanceof ApiError && e.status === 503
 }
@@ -79,7 +79,7 @@ export function useHomeFlow(choices: AskChoices, onShowOnMap: (pageIds: string[]
 
   // The box empties once the server has processed what was sent (any answer, also failed or
   // waiting: the text is then on the result and in the Intake). It keeps the text only when the
-  // call itself failed, so nothing was sent (operator, 2026-11-13). "Ask it" / "Add anyway" reuse
+  // call itself failed, so nothing was sent (D-008). "Ask it" / "Add anyway" reuse
   // the result's own text, never the box.
   const cleared = () => setClearKey((k) => k + 1)
 

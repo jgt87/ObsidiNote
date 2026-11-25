@@ -134,7 +134,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
             <BaseLayer layout={layout} links={filters.links} mentions={filters.mentions} shown={shown} bundles={resting} />
           </g>
         </g>
-        {/* design (operator, 2026-11-15): pointing at a page (or searching) lays one veil in the stage's
+        {/* design: D-043. Pointing at a page (or searching) lays one veil in the stage's
             colour over the whole map, areas included, and the focus layer draws the page, its linked
             pages and their lines above it. One rectangle, whatever the size of the map; the base layer
             is never redrawn. In screen space: during a gesture it moves with the layer, and what it
@@ -166,7 +166,7 @@ export function GraphStage({ index, layout, filters, matches, active, onActive, 
 
 /**
  * What the stage can reach and what is focused. A search highlights its results; it hides nothing
- * (operator, 2026-11-15: "I'm not able to select any other dots than the searched item"). The
+ * (D-042). The
  * pointer reaches every page the filters show (isShown); the keyboard walks the results while a
  * search runs (visible), as the box's Enter and arrow keys do. The focused dot only counts while
  * its page is shown; `near` are its linked pages that are shown.

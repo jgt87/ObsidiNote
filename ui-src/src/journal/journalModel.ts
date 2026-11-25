@@ -1,9 +1,8 @@
-// The Journal (operator, 2026-11-17): one page per day, and a topic search across everything.
+// The Journal (D-060): one page per day, and a topic search across everything.
 // - Without a search it lists the journal itself: the entries of each day page, newest day first,
 //   plus journal pages written before day pages existed (one page per entry), each as one item, and
-//   meeting pages on the day they were added (operator, 2026-11-17: "the meetings are imported, they
-//   are by default not visible under journal"; no time: the page knows when it was added, not when
-//   the meeting was).
+//   meeting pages on the day they were added (D-061; no time: the page knows when it was added,
+//   not when the meeting was).
 // - With a topic (its subtopics included) or words, it lists everything relevant across all sources
 //   and all days: the entries of day pages that match, and every other page that matches, on the day
 //   it was made.

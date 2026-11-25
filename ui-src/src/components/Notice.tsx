@@ -9,7 +9,7 @@ export const NoticeIsLive = createContext(true)
 const ViewIsOpening = createContext<{ current: boolean }>({ current: false })
 
 /** Around a view: an error box that is already there when the view opens is a status (it is the
- *  view's state, read with the rest of it); one that appears later is an alert (operator, 2026-11-24). */
+ *  view's state, read with the rest of it); one that appears later is an alert (D-084). */
 export function ViewOpening({ children }: { children: ReactNode }) {
   const opening = useRef(true)
   useEffect(() => {

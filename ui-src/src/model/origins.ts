@@ -1,4 +1,4 @@
-// Where a page without an address came from (operator, 2026-11-14): the "From:" choice under the
+// Where a page without an address came from (D-015): the "From:" choice under the
 // box (prefilled from the paste, add/pasteOrigin.ts), and the "From" field of Edit. The server keeps
 // the same table (lib/NotebookStructure.psm1 $script:Origins) and refuses other ids; both are pinned
 // to tests/fixtures/origins.json (origins.test.ts and tests/PageEdit.Tests.ps1): change all three

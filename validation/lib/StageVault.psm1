@@ -121,8 +121,7 @@ function Get-NotebookReadFacts($Adapter, [string]$NotebookId, [xml]$AllDoc) {
 }
 
 function Add-NotebookReadResults($Ctx, $Adapter, [object[]]$Vaults) {
-    <# Read only (operator, 2026-11-15: pages of the vault showed "read only" while another notebook
-       was the selected one in OneNote): per open notebook, what OneNote answers and whether it is the
+    <# Read only (D-035): per open notebook, what OneNote answers and whether it is the
        notebook OneNote shows now. Run it once with another notebook selected and once with the vault's
        notebook selected, and compare the "state page found" of the vault's notebook. Counts and yes/no
        only. It never selects a notebook itself. #>
@@ -163,7 +162,7 @@ function Add-NotebookReadResults($Ctx, $Adapter, [object[]]$Vaults) {
 }
 
 function Invoke-NotebookSelectionProbe($Ctx, $Adapter, [object[]]$Vaults) {
-    <# -SelectNotebooks (Run Notebook Selection Probe.cmd; STATUS 29, operator 2026-11-16: "should a
+    <# -SelectNotebooks (Run Notebook Selection Probe.cmd; STATUS 29, D-035, D-053: "should a
        new probe be created"): does what OneNote answers for a vault depend on which notebook it shows?
        Shows each open notebook in turn (Select-KitNotebook: NavigateTo, writes nothing), then reads
        every vault's notebook as the app does (Get-NotebookReadFacts) and says per vault whether its
@@ -405,7 +404,7 @@ function Invoke-DevAnswerCheck($Ctx, $Adapter, $Dev, $Bridge) {
 }
 
 function Invoke-DevUpdateCheck($Ctx, $Store, $AskShort, $AskNormal, $ReadChat, $Seen = @{ state = ''; chars = 0; busy = $false; conversation = $false }) {
-    <# A slow link update waits too (user, 2026-11-13): the synthetic public link is added, its Update
+    <# A slow link update waits too (D-106): the synthetic public link is added, its Update
        is sent with the 1-second wait (Pending: an Intake item "Update: ..." waits), then "Check for
        the answer" finishes it (Copilot must repeat the reference AND the link as "source"); then
        Undo of the link page. Statuses and timings only. #>
@@ -577,8 +576,8 @@ function Format-KitLinkCompare([string]$Text, [string]$OneNote) {
 }
 
 function Invoke-DevRetire($Ctx, $Adapter, $Dev) {
-    <# Archive, Restore and Delete (lib/Ingest.psm1 Get-RetirePlan, Invoke-PageRetire; operator
-       2026-11-15): a synthetic target page and a page that links to it (Meta and its own text). The
+    <# Archive, Restore and Delete (lib/Ingest.psm1 Get-RetirePlan, Invoke-PageRetire; D-038):
+       a synthetic target page and a page that links to it (Meta and its own text). The
        target is archived (found again under Archive; then the link in the other page's text is
        followed in OneNote: does it still open the moved page? STATUS P1c says a moved page gets a new
        id), restored to its own section, and deleted (out of the index; the other page's link becomes

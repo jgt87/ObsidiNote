@@ -129,8 +129,8 @@
 .kg-alabel__count { font-size: var(--text-meta); font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
 .kg-alabel[data-dim="true"] { opacity: var(--kg-veiled); }
 .kg-alabel[data-hidden="true"] { opacity: 0; } /* after data-dim: a focused page dims the map too */
-/* Page labels sit on a small solid pill, so links and dots never run through the text (operator,
-   2026-11-13: "more readable, maybe with a pill/cell element around the text"). The focused page's
+/* Page labels sit on a small solid pill, so links and dots never run through the text (D-006).
+   The focused page's
    label is the strongest: ink text, a purple edge like its dot. view.ts labelRect counts the padding. */
 .kg-plabel {
   font-size: var(--text-label); line-height: 1.25; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
@@ -203,7 +203,7 @@
 /* ---------- tags (set by hand): chips with a remove button, and the field that adds one ---------- */
 .kg-tags { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .kg-tags__list { display: contents; list-style: none; margin: 0; padding: 0; }
-/* 24px outside, border included (operator, 2026-11-24: the chip size of the shared badge rule; it was 26). */
+/* 24px outside, border included: the shared chip size (D-087). */
 .kg-tagchip { display: inline-flex; align-items: center; box-sizing: border-box; height: 24px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface); font-size: var(--text-label); font-weight: 500; }
 .kg-tagchip__name { all: unset; padding: 0 var(--space-3); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 button.kg-tagchip__name { cursor: pointer; }
@@ -218,7 +218,7 @@ button.kg-tagchip__name:focus-visible { outline: 2px solid var(--ring); outline-
 .kg-tagchip__x:disabled, .kg-tagchip__x[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
 .kg-tags__add { display: inline-flex; align-items: center; gap: var(--space-2); }
 .kg-tags__input { height: var(--control-h-sm); width: 150px; font-size: var(--text-meta); }
-/* design (operator, 2026-11-16): in the page window the tag field takes the rest of its row; the
+/* design: D-058. In the page window the tag field takes the rest of its row; the
    List's tag bar keeps the compact field. */
 .kg-dialog .kg-tags__add { flex: 1 1 240px; min-width: 0; }
 .kg-dialog .kg-tags__input { flex: 1 1 auto; width: auto; min-width: 150px; }
@@ -232,7 +232,7 @@ button.kg-tagchip__name:focus-visible { outline: 2px solid var(--ring); outline-
 }
 
 /* ---------- page dialog ---------- */
-/* design (operator, 2026-11-16): a page opened from the map gets a bigger window when the screen has
+/* design: D-058. A page opened from the map gets a bigger window when the screen has
    the room; it still fits a small window with 16px each side. */
 .kg-dialog { width: min(1120px, calc(100vw - 32px)); max-height: min(900px, calc(100dvh - 48px)); }
 .kg-dialog[open] { display: flex; flex-direction: column; }
@@ -251,7 +251,7 @@ button.kg-tagchip__name:focus-visible { outline: 2px solid var(--ring); outline-
 .kg-tab::after { content: attr(data-label); height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
 @media (hover: hover) { .kg-tab:hover { color: var(--ink); } }
 .kg-dlg__body { overflow: auto; padding: var(--space-5) var(--space-6); flex: 1 1 auto; min-height: 0; }
-/* design (operator, 2026-11-16): the page itself (summary, tags, page text) is what is read, so it
+/* design: D-058. The page itself (summary, tags, page text) is what is read, so it
    gets 65% of the window and the link sections 35%. Before, the links had the wider half, from when
    the window showed no page text and the summary side stood mostly empty. */
 .kg-cols { display: grid; grid-template-columns: minmax(0, 65fr) minmax(0, 35fr); gap: var(--space-6); }
@@ -278,7 +278,7 @@ textarea.kg-inline-edit__field { height: auto; padding: var(--space-3); resize: 
 .kg-note { margin: 0; color: var(--muted); font-size: var(--text-meta); }
 /* The page's own text (PageBody): reading text, a step larger than the interface around it.
    Headings sit under the window's title, so they stay small and bold.
-   design (operator, 2026-11-16: "the left side items should utilize the available space"): the text
+   design: D-058. The text
    fills its column instead of stopping at a 70-character measure; the column itself is 65% of a
    window of at most 1120px, so a line stays short of a full screen. */
 .kg-body { font-size: var(--text-control); line-height: 1.5; overflow-wrap: anywhere; }

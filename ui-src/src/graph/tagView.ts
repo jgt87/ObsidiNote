@@ -1,5 +1,4 @@
-// The knowledge graph by tag (operator, 2026-11-15: "there's a Topics/Sources switch, add tags in
-// there ... select from the available tags"). Pure, like sourceView.ts: the same model with its
+// The knowledge graph by tag (D-049). Pure, like sourceView.ts: the same model with its
 // areas made from the hand-set tags, so the map's layout, lines, sizes and hover work unchanged.
 // Only pages that carry one of the chosen tags are on this map: tags mark a few pages out of
 // many, and one area for "everything else" would be most of the picture. A page with several of

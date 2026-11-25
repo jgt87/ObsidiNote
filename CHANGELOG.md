@@ -5,6 +5,12 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.27] - 2026-11-25
+
+### Changed
+- **Project notes**: the notes a development session loads at every start are a quarter smaller and a test keeps them under a set size; the contract of each feature (server routes, meetings, the interface, the validation kit) moved word for word into its own notes file, read when that part is worked on.
+- **Project notes**: the decisions you made about how ObsidiNote works and looks now live in one place, `DECISIONS.md`, one entry each with its goal and the solution chosen; the code and the other docs point at an entry by its number instead of repeating it.
+
 ## [v0.12.26] - 2026-11-24
 
 ### Fixed

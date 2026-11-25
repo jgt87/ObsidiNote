@@ -1,5 +1,5 @@
 # Pester 3.4 syntax (inbox on Windows): Should Be / Should Throw.
-# Journal day pages (operator, 2026-11-17: "one page per day"): lib/Journal.psm1 (pure), the body-entry
+# Journal day pages (D-060): lib/Journal.psm1 (pure), the body-entry
 # helpers of lib/PageMeta.psm1, and Add / Undo of journal entries end to end through the real store, the
 # write guard and the in-memory OneNote. Recorded Copilot replies; synthetic data only.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path

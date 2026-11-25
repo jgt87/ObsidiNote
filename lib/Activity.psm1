@@ -1,4 +1,4 @@
-# What ObsidiNote did (operator, 2026-11-14): the home page's "Waiting for Copilot" list and the
+# What ObsidiNote did (D-013): the home page's "Waiting for Copilot" list and the
 # History view. The source is the vault's own Intake: every Add and every link Update makes one
 # Intake item, whose obsn.status says how it ended (new, waiting, linked, failed) and obsn.filedAs
 # which page it became. Nothing else is kept: no log file, no cache (OneNote is the only store).

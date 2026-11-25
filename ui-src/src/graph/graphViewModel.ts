@@ -33,7 +33,7 @@ export interface CloseFocusInput {
 /**
  * Where focus goes when the page window closes:
  * - 'clear': opened with a click on the map: no page stays focused, so no preview card stays
- *   behind (it would only close when the pointer passed over another dot; operator, 2026-11-13);
+ *   behind (it would only close when the pointer passed over another dot; D-122);
  * - 'stage': opened with the keyboard from the map (or from nowhere): back to the map, with the page
  *   the window showed last focused;
  * - 'back': anywhere else (the List, the search box): back to what had the focus.

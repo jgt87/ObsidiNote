@@ -70,8 +70,7 @@ export function GraphTools({ mode, onMode, groupBy, onGroup, filter, query, onQu
       <label htmlFor="kg-search" className="kg-sr">
         Search pages and topics
       </label>
-      {/* design: the search has its own clear button, shown whenever there is text (operator,
-          2026-11-15: the browser's own "x" only shows while the pointer is over the field). */}
+      {/* design: D-048, the search's own clear button, shown whenever there is text. */}
       <span className="kg-searchbox">
         <input
           id="kg-search"

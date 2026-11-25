@@ -5,7 +5,7 @@ export type View = 'home' | 'graph' | 'journal' | 'history'
 export const VIEWS: Record<View, { label: string; hash: string }> = {
   home: { label: 'Add or ask', hash: '#/' },
   graph: { label: 'Knowledge graph', hash: '#/graph' },
-  // The Journal (operator, 2026-11-17): one page per day, searched by topic across all sources.
+  // The Journal (D-060): one page per day, searched by topic across all sources.
   journal: { label: 'Journal', hash: '#/journal' },
   history: { label: 'History', hash: '#/history' },
 }

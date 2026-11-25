@@ -9,7 +9,7 @@ foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease
 . (Join-Path $here 'FakeOneNote.ps1')
 . (Join-Path $here 'SyntheticVault.ps1')
 
-Describe 'A meeting series as an Ask source (operator, 2026-11-18)' {
+Describe 'A meeting series as an Ask source (D-069)' {
     $w = New-SyntheticVault
     $m = $w.open.model
     foreach ($k in 'p1', 'p2', 'p3') { $m.pages[$k].type = 'meeting' }

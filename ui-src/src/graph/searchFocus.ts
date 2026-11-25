@@ -1,6 +1,5 @@
-// Where the map's focus goes while a search runs (operator, 2026-11-15: "when the user used the
-// search, hovered an item that's not part of the search and then unhovers any/all items, then the
-// focused view should go back again on the item in the searchbar until it is cleared"). Pure
+// Where the map's focus goes while a search runs (D-042: back on the search's result after
+// leaving every dot, until the search is cleared). Pure
 // (tests: searchFocus.test.ts); KnowledgeGraph.tsx wires it between the stage and its state.
 import type { Active } from './GraphStage'
 

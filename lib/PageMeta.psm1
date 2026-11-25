@@ -21,12 +21,12 @@ Import-Module (Join-Path $PSScriptRoot 'OneNote.psm1')
 # Get-OriginList; set at Add from the paste or by the person, changeable in Edit; 2026-11-14).
 # tags: set by hand only (2026-11-15), never by Copilot; a JSON array of normal-form tags
 # (ConvertTo-TagList). A page that never had a tag has no obsn.tags Meta; '' = all were removed.
-# entries: a journal day page's entries (operator, 2026-11-17: one page per day), a JSON array of
+# entries: a journal day page's entries (D-060), a JSON array of
 # { r: request ref, at: yyyy-MM-ddTHH:mm, t: title, s: summary, p: topic paths, l: links } in the order of
 # the body outline's top-level lines (Add-ObsnBodyEntry). Only on day pages; '' or absent elsewhere.
 # series / meetingAt: a meeting page's series (the Teams title as the meeting list gave it) and when
 # the meeting started (yyyy-MM-ddTHH:mm, local), written by ObsidiNote at import, never by Copilot
-# (operator, 2026-11-18: a daily meeting is one series of pages). '' or absent on other pages.
+# (D-068). '' or absent on other pages.
 # meeting: a meeting page's notes in structured form (JSON: s summary, d decisions, a actions
 # {t, o owner, u due}, p people {n, e}), read from its own text at import (2026-11-19), for the
 # series page. kind 'series' marks a series page (the overview of a meeting series).
@@ -536,7 +536,7 @@ function Edit-ObsnBodyAnchors {
     @{ count = $state.n; xml = $sb.ToString() }
 }
 
-# ---------------------------------------------------------------- journal day pages (operator, 2026-11-17)
+# ---------------------------------------------------------------- journal day pages (D-060)
 # One page per day: each journal Add is one entry = one top-level OE of the page's body outline (a bold
 # "HH:mm  title" line with the entry's text under it), and one item of the page's obsn.entries Meta, in
 # the same order. Both helpers send the body outline whole by its objectID, with the other entries as

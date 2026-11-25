@@ -1,5 +1,5 @@
 # Pester 3.4 syntax (inbox on Windows): Should Be / Should Throw.
-# POST /api/open (lib/Server.psm1, operator 2026-11-17): a web link from the window opens in a new tab
+# POST /api/open (lib/Server.psm1, D-062): a web link from the window opens in a new tab
 # of the default browser, not in ObsidiNote's own Edge. Only http(s) addresses; the test state records
 # the address instead of starting a browser (State.OpenedUrls). Synthetic data only.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path

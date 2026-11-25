@@ -259,7 +259,7 @@ Describe 'Request reference in every Add prompt' {
     }
 }
 
-Describe 'A dropped file found in OneDrive becomes its link page (operator, 2026-11-14)' {
+Describe 'A dropped file found in OneDrive becomes its link page (D-016)' {
     It 'summarizes the file text, not the address, and files the link page under that address' {
         $v = New-FakeVault
         $c = New-FakeCopilot @('{"readable": false, "problem": "other"}')
@@ -278,7 +278,7 @@ Describe 'A dropped file found in OneDrive becomes its link page (operator, 2026
     }
 }
 
-Describe 'A SharePoint link with your own words becomes its link page, the words in Your notes (operator, 2026-11-17)' {
+Describe 'A SharePoint link with your own words becomes its link page, the words in Your notes (D-066)' {
     $sp = 'https://fernbrook.sharepoint.com/sites/garden/SitePages/Tidal-beds.aspx'
     $words = "Plan for the tidal beds.`nAsk Ada about pumps."
     function Get-NotesTexts($Page) {
@@ -321,7 +321,7 @@ Describe 'A SharePoint link with your own words becomes its link page, the words
     }
 }
 
-Describe 'A meeting of a series takes the series'' topic (operator, 2026-11-19: one topic per series)' {
+Describe 'A meeting of a series takes the series'' topic (D-074)' {
     Import-Module (Join-Path $root 'lib\Meetings.psm1') -Global
     $notes = @{ found = $true; date = ''; attendees = @('Ada Example'); summary = 'The beds move north.'; decisions = @(); actions = @(); basedOn = 'transcript' }
     $day = { param($d) ConvertTo-MeetingNoteText -Title 'Garden sync | Tidal beds' -Day $d -Time '10:00' -Notes $notes }
@@ -343,7 +343,7 @@ Describe 'A meeting of a series takes the series'' topic (operator, 2026-11-19: 
     }
 }
 
-Describe 'A daily meeting is one series of pages (operator, 2026-11-18)' {
+Describe 'A daily meeting is one series of pages (D-068)' {
     Import-Module (Join-Path $root 'lib\Meetings.psm1') -Global
     $notes = @{ found = $true; date = ''; attendees = @('Ada Example'); summary = 'The beds move north.'; decisions = @('Move them.'); actions = @(); basedOn = 'transcript' }
     $day = { param($d, $t) ConvertTo-MeetingNoteText -Title 'Garden sync | Tidal beds' -Day $d -Time $t -Notes $notes }
@@ -427,7 +427,7 @@ Describe 'A daily meeting is one series of pages (operator, 2026-11-18)' {
     }
 }
 
-Describe 'A meeting series has one overview page (operator, 2026-11-19)' {
+Describe 'A meeting series has one overview page (D-073)' {
     Import-Module (Join-Path $root 'lib\Meetings.psm1') -Global
     $n1 = @{ found = $true; date = ''; attendees = @(@{ name = 'Ada Example'; email = 'ada@example.com' }, @{ name = 'Bo Sample'; email = '' }); summary = 'The beds move north.'; decisions = @('Move the beds.'); actions = @(@{ text = 'Order a pump'; owner = 'Ada Example'; due = '2031-04-12' }); basedOn = 'transcript' }
     $n2 = @{ found = $true; date = ''; attendees = @(@{ name = 'Ada Example'; email = 'ada@example.com' }); summary = 'The pump arrived.'; decisions = @('Keep the old pump as a spare.'); actions = @(); basedOn = 'transcript' }

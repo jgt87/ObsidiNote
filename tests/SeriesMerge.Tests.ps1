@@ -1,6 +1,5 @@
 # Pester 3.4 syntax (inbox on Windows): Should Be / Should Throw.
-# "Merge duplicates" of a meeting series (operator, 2026-11-19: "merge existing items if they are from
-# the same meeting series"): lib/Ingest.psm1 Get-SeriesMergePlan / Invoke-SeriesMerge and the route
+# "Merge duplicates" of a meeting series (D-075): lib/Ingest.psm1 Get-SeriesMergePlan / Invoke-SeriesMerge and the route
 # POST /api/series/merge. Two copies of one meeting, made by versions before the occurrence check of
 # 2026-11-18, become one page; the other copy goes to the Archive. In-memory OneNote; invented data.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path

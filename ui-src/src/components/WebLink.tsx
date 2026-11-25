@@ -8,7 +8,7 @@ export function opensInDefaultBrowser(e: Pick<MouseEvent, 'button' | 'ctrlKey' |
 }
 
 /** A link to a web address (http/https) that opens in a new tab of the person's default browser
- *  (operator, 2026-11-17), through ObsidiNote's server, which asks Windows to open it. It stays a real
+ *  (D-062), through ObsidiNote's server, which asks Windows to open it. It stays a real
  *  link (copy address, middle click); when the server cannot open it, the window opens it itself. */
 export function WebLink({ href, className, title, label, children }: { href: string; className?: string; title?: string; label?: string; children: ReactNode }) {
   const onClick = (e: MouseEvent<HTMLAnchorElement>) => {

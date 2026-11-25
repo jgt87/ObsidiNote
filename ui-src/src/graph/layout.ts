@@ -85,7 +85,7 @@ export interface LayoutOptions {
 
 export const AREA_GAP = 36
 /** Room kept above and below an area for its name: none since the names sit centred inside their
- *  areas (operator, 2026-11-14; was 34 for a name above or below). */
+ *  areas (D-022; was 34 for a name above or below). */
 export const LABEL_SPACE = 0
 const CURVE = 0.18
 
@@ -115,8 +115,7 @@ export const DOT_MIN_R = 3
 export const DOT_MAX_R = 11
 
 /** Dot size from the page's link weight (weights.ts): one smooth scale, so 1 and 4 links differ
- *  and there is no jump at a hub threshold (operator, 2026-11-14: radius went 4.4 -> 8.3 between
- *  4 and 5 links). A hub is marked by its thicker outline and its label, not by a jump in size. */
+ *  and there is no jump at a hub threshold (D-019). A hub is marked by its thicker outline and its label, not by a jump in size. */
 export function dotRadius(page: GraphPage): number {
   if (page.unlinked || page.weight <= 0) return DOT_MIN_R
   return Math.min(DOT_MAX_R, 3.2 + Math.sqrt(page.weight) * 1.25)
@@ -208,9 +207,9 @@ interface Circle {
  *  takes the farthest spot that keeps the fitted size (it uses the stage's spare height or width). */
 const OUTER_PUSH = 0.1
 
-/** Cost, in fitted-picture px, of a topic line that would have to pass another area (operator,
- *  2026-11-14: the areas are placed so that topic lines do not pass under other topics; a line is
- *  bent around one only where no placement avoids it). */
+/** Cost, in fitted-picture px, of a topic line that would have to pass another area (D-021:
+ *  the areas are placed so that topic lines do not pass under other topics; a line is bent around
+ *  one only where no placement avoids it). */
 export const CROSS_PENALTY = 30
 /** Clearance a topic line keeps from an area it passes (world px), for the placement check. */
 const CROSS_CLEARANCE = 6
@@ -816,15 +815,15 @@ export interface BundleLayout {
   d: string
 }
 
-/** Topic lines shown with nothing focused (operator, 2026-11-14, after the code-map reference: a
- *  calm picture; pointing at a page shows all of its topic's lines). */
+/** Topic lines shown with nothing focused (D-020: a calm picture; pointing at a page shows all of
+ *  its topic's lines). */
 export const RESTING_BUNDLES = 8
 /** Smallest gap, in world px along a rim, between two topic lines leaving the same area. */
 export const BUNDLE_SPREAD = 14
 
 /**
- * One line per pair of topic areas, standing for all the links between their pages (operator,
- * 2026-11-14: page-to-page links across topics crossed the whole map). The page-level lines show
+ * One line per pair of topic areas, standing for all the links between their pages (D-020).
+ * The page-level lines show
  * when a page is focused. Only links (not mentions), and only between pages that are shown.
  * Each line starts on the side of its area that faces the other area; lines that would leave an
  * area at almost the same spot are spread along the rim (spreadEnds), and every line leaves the rim
@@ -917,8 +916,7 @@ export const ROUTE_CLEARANCE = 6
 const BEND_OUT = AREA_GAP / 2
 
 /**
- * Bends from s to e around every circle in the way (operator, 2026-11-14: a topic line must never
- * pass under another topic). A segment that comes closer than r + ROUTE_CLEARANCE to a circle's
+ * Bends from s to e around every circle in the way (D-021). A segment that comes closer than r + ROUTE_CLEARANCE to a circle's
  * centre gets a bend just outside that circle, on the side the segment already passes; repeated
  * until every segment is clear. Returns the points, s first and e last. Pure.
  */

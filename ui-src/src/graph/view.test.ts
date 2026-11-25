@@ -48,7 +48,7 @@ describe('labelMode: which pages get a name', () => {
     expect(labelMode(400, 0.6, 0.5, false)).toBe('hubs')
     expect(labelMode(400, 0.9, 0.5, false)).toBe('all')
   })
-  // operator, 2026-11-15: "hubs" are the topic areas. With the switch on only their bold names
+  // D-039: "hubs" are the topic areas. With the switch on only their bold names
   // show; no page is named at rest, however small the map or far the zoom (a page shows its name
   // while pointed at, GraphStage).
   it('names no page at rest when "Labels: hubs only" is on', () => {

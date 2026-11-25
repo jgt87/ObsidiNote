@@ -53,7 +53,7 @@ Describe 'A new vault' {
     }
 }
 
-Describe '"01 Inbox" becomes "01 Intake" in an existing vault (user, 2026-11-13)' {
+Describe '"01 Inbox" becomes "01 Intake" in an existing vault (D-109)' {
     $f = New-World
     $a = New-GuardedOneNote -Inner $f
     $r = New-ObsidiVault -Adapter $a -Name 'Old Vault' -Year 2026
@@ -199,7 +199,7 @@ Describe 'Write guard' {
     }
 }
 
-Describe 'Setting up an empty notebook as a vault (user, 2026-11-13)' {
+Describe 'Setting up an empty notebook as a vault (D-117)' {
     $f = New-World
     $a = New-GuardedOneNote -Inner $f
     $empty = $f.AddNotebook('ObsidiNote'); $f.AddRecycleBin($empty) | Out-Null

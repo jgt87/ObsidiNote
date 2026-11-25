@@ -1,5 +1,5 @@
 # P9: move a page to another section with UpdateHierarchy (needed to re-file existing pages when a
-# filing rule changes; operator, 2026-11-13). Writes only inside the ObsidiNote-Probe notebook:
+# filing rule changes; D-002). Writes only inside the ObsidiNote-Probe notebook:
 # sections "Move from" and "Move to", invented pages. Checks: the page leaves the old section and
 # appears in the new one, keeps its id, Meta and outlines; the other page in the target section is
 # untouched; whether the page's onenote: link changes. Then the probe pages go to Deleted Pages.

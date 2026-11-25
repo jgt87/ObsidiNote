@@ -1,4 +1,4 @@
-# Vault settings kept in OneNote (operator, 2026-11-14): the settings that belong to a vault, not to a
+# Vault settings kept in OneNote (D-010): the settings that belong to a vault, not to a
 # PC, live in one Meta tag `obsn.settings` (compact JSON) on the vault's `ObsidiNote` state page, next
 # to the lease, so they follow the vault to every PC. At every start (and on a vault switch) the
 # settings are checked: a missing key is added with its default; an existing value is NEVER set back
@@ -7,7 +7,7 @@
 # Writer only: a read-only session uses the values in memory and writes nothing.
 #
 # Kept local instead (config\obsidinote.local.json, needed before OneNote is open or per PC): uiPort,
-# cdpPort, signIn, notebook, vaultId; the theme stays per PC in the browser (operator, 2026-11-14).
+# cdpPort, signIn, notebook, vaultId; the theme stays per PC in the browser (D-010).
 # Once: a local "internalHosts" fills the OneNote key when OneNote has none; it never replaces it.
 # The interface's copy of the defaults (ui-src/src/model/vaultSettings.ts) is pinned to this table
 # by tests/fixtures/vault-settings.json: change all three together. PS 5.1, ASCII only.
@@ -18,7 +18,7 @@ Import-Module (Join-Path $PSScriptRoot 'Vault.psm1')
 $script:SettingsMeta = 'obsn.settings'
 
 # key -> default and kind (hosts = list of host rules; choice = one of; flag = true/false; number =
-# a whole number from min to max). Added 2026-11-14 (operator): relatedCount (Add, was fixed at 3),
+# a whole number from min to max). Added 2026-11-14 (D-010): relatedCount (Add, was fixed at 3),
 # linkStaleDays (when Ask offers Update on a cited link page, was fixed at 90), askIncludeArchived,
 # graphShowArchived (the defaults of Ask's checkbox and the graph's Filter).
 $script:SettingDefs = [ordered]@{
@@ -29,7 +29,7 @@ $script:SettingDefs = [ordered]@{
     linkStaleDays      = @{ kind = 'number'; default = 90; min = 7; max = 730 }
     askIncludeArchived = @{ kind = 'flag'; default = $false }
     graphShowArchived  = @{ kind = 'flag'; default = $false }
-    # Pages Ask may read for one answer (operator, 2026-11-14: default 20, up to 50; was fixed at 8).
+    # Pages Ask may read for one answer (D-011).
     askMaxPages        = @{ kind = 'number'; default = 20; min = 1; max = 50 }
 }
 

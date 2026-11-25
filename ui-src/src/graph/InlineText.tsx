@@ -1,6 +1,5 @@
-// A line of the page window that is changed where it stands (design round 2, 2026-11-15: the
-// title and the summary no longer need the Edit form; operator, 2026-11-15: "How can I edit a card
-// like this one, for example if I'd like to adjust the title"). The text is a button; pressing it
+// A line of the page window that is changed where it stands (D-101: the title and the summary
+// no longer need the Edit form). The text is a button; pressing it
 // turns it into a field with Save and Cancel. Enter saves (Shift+Enter is a new line in the
 // summary), Esc puts the old text back and never closes the page window.
 

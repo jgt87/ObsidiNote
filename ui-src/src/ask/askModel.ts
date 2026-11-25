@@ -2,8 +2,7 @@ import { webUrl } from '../model/links'
 import type { AskParagraph, AskPath, AskResult, AskSource, AskStep } from './types'
 
 /**
- * Where a citation [n] leads (operator, 2026-11-15: open the page or the direct link, whichever is
- * most relevant): a link page's own http(s) address; else a page of the active vault in its page
+ * Where a citation [n] leads (D-046): a link page's own http(s) address; else a page of the active vault in its page
  * window (when the window can open one); else the page in OneNote; else the source in the list.
  */
 export type CiteTarget = { kind: 'url' | 'onenote'; href: string } | { kind: 'page' } | { kind: 'list' }
@@ -141,7 +140,7 @@ export function notFoundText(reason: string | undefined): string {
 }
 
 /** "Combined from 5 pages in 3 topics": how many cited pages the answer joins, and from how many
- *  topics (their index paths). '' for an answer from one page (operator, 2026-11-14). */
+ *  topics (their index paths). '' for an answer from one page (D-017). */
 export function combinedLine(sources: AskSource[]): string {
   if (sources.length < 2) return ''
   const topics = new Set(sources.map((s) => s.path || '(no topic)'))
@@ -155,8 +154,7 @@ export function sentencesPerSource(paragraphs: AskParagraph[]): Map<number, numb
   return m
 }
 
-/** What share of the answer came from each source (operator, 2026-11-14: "a bar ... how much of the
- *  answer came from each source"). Each cited sentence's length is split evenly over the sources it
+/** What share of the answer came from each source (D-017). Each cited sentence's length is split evenly over the sources it
  *  cites; sentences without a source are left out, so the shares of the cited sources add up to 1.
  *  Returns source number -> share (0..1). */
 export function answerShares(paragraphs: AskParagraph[]): Map<number, number> {

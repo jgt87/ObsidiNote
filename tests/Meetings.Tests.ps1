@@ -34,7 +34,7 @@ Describe 'A day''s meetings (pure)' {
         $p = New-MeetingDayPrompt -Day $script:Day -Ref 'rabc12345'
         $p | Should Match 'on 2031-04-09'
         $p | Should Match '"ref": "rabc12345"'
-        # Invited but not joined (operator, 2026-11-20).
+        # Invited but not joined (D-081).
         $p | Should Match 'invited to but did not join'
         $p | Should Not Match 'whose title contains'
     }

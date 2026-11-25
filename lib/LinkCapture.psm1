@@ -33,8 +33,7 @@ function Get-PastedUrl {
 $script:MaxLinkNotes = 4000
 
 function Get-LinkWithNotes {
-    <# A link with the person's own words around it (operator, 2026-11-17: "for SharePoint sites, I
-       also want a Copilot summary of the page; right now only my own notes are added"): @{ url;
+    <# A link with the person's own words around it (D-066): @{ url;
        notes } when the text holds exactly one http(s) address (the same one may repeat) and other
        words, is not a pasted mail (two or more header lines such as From: or Subject:), and the words
        are at most 4000 characters; $null otherwise. The caller decides which links qualify (Add:

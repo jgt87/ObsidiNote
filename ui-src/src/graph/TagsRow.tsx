@@ -93,8 +93,7 @@ export function TagsRow({ tags, all, onChange, label, onPick }: Props) {
               setError('')
             }}
             onKeyDown={(e) => {
-              // No Backspace-removes-the-last-tag (operator, 2026-11-24): a removal writes to OneNote
-              // at once, so it takes the tag's own remove button (DESIGN.md, Accepted deviations).
+              // D-089: no Backspace-removes-the-last-tag; a removal writes to OneNote at once.
               if (e.nativeEvent.isComposing) return
               if (e.key === 'Enter' || e.key === ',') {
                 e.preventDefault()

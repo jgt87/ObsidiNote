@@ -3,8 +3,8 @@
 // violations over the committed baseline, and a file not in the baseline may
 // have none. Tests are exempt (a describe block is long by nature).
 // Origin: CommonShared templates/scripts/check-code-size.mjs. Fitted here: the
-// starter measures with ESLint; this project installs no linter for it (operator,
-// 2026-11-24), so it measures with the dependency-free reader the CommonShared
+// starter measures with ESLint; this project installs no linter for it (D-082),
+// so it measures with the dependency-free reader the CommonShared
 // audit uses (scripts/code-size-reader.mjs, copied in unedited).
 //
 //   node scripts/check-code-size.mjs            check (`npm run lint`)

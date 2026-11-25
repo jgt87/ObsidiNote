@@ -29,7 +29,7 @@ $script:MaxPagesPerSection = 500
 # under Web links before are moved by lib/Upgrade.psm1 link-bucket at the next start).
 $script:PersonalOneDriveRules = @('*.docs.live.net', 'onedrive.live.com')
 $script:InternalHostRules = @('*.sharepoint.com', 'teams.microsoft.com', 'teams.cloud.microsoft', '*.loop.cloud.microsoft', 'loop.microsoft.com', '*.office.com', 'm365.cloud.microsoft') + $script:PersonalOneDriveRules
-# Company data in a SaaS tenant is internal too (user, 2026-11-13: "Workday where a timesheet can be
+# Company data in a SaaS tenant is internal too (D-112: "Workday where a timesheet can be
 # hosted, or internal vacancies are published"). These hosts are a company's own tenant whenever
 # there is a subdomain (wd3.myworkday.com/<company>/..., <company>.service-now.com); the vendor's
 # public pages (www., docs., community. ...) are not.
@@ -235,7 +235,7 @@ function Get-HostLinkBucket {
     return 'Web links'
 }
 
-# The knowledge graph's Sources view (operator, 2026-11-14): one area per Microsoft 365 app (SharePoint
+# The knowledge graph's Sources view (D-014): one area per Microsoft 365 app (SharePoint
 # per site), per company service and per public web site. Names of the tenant services, by host rule.
 $script:ServiceNames = [ordered]@{
     '*.myworkday.com' = 'Workday'; '*.service-now.com' = 'ServiceNow'; '*.servicenowservices.com' = 'ServiceNow'
@@ -247,7 +247,7 @@ $script:ServiceNames = [ordered]@{
     '*.concursolutions.com' = 'Concur'; '*.freshservice.com' = 'Freshservice'
 }
 
-# Where a page WITHOUT an address came from (operator, 2026-11-14): detected from the paste in the
+# Where a page WITHOUT an address came from (D-015): detected from the paste in the
 # interface (ui-src/src/add/pasteOrigin.ts), shown as "From:" before Add, changeable in Edit; saved as
 # obsn.origin. '' = typed in ObsidiNote (or not known). The ids are Sources-view areas too. The
 # interface's copy (ui-src/src/model/origins.ts) is pinned to this table by tests/fixtures/origins.json.

@@ -31,7 +31,7 @@ const ICONS = {
       </>
     ),
   },
-  /** A meeting page: two people (operator, 2026-11-18). Not a calendar, so it is not read as the Journal. */
+  /** A meeting page: two people (D-072). Not a calendar, so it is not read as the Journal. */
   meeting: {
     body: (
       <>
@@ -95,7 +95,7 @@ const ICONS = {
   },
   /** Points right; the parent rotates it (CSS transform) when open. */
   chevron: { body: <path d="m6.5 4.5 3.5 3.5-3.5 3.5" /> },
-  /** Add a file, beside Send (operator, 2026-11-15). */
+  /** Add a file, beside Send (D-045). */
   paperclip: { body: <path d="M13.2 7.4 8 12.6a3.2 3.2 0 0 1-4.5-4.5l5.4-5.4a2.1 2.1 0 0 1 3 3L6.5 11a1.05 1.05 0 0 1-1.5-1.5l4.8-4.8" /> },
   /** Three sliders, not a gear, to stay in the set's simple strokes. */
   settings: {

@@ -23,7 +23,7 @@ Set-StrictMode -Version 2.0
 $script:PromptMax = 75000        # characters per prompt (the tenant limit is about 80k)
 $script:StaleDays = 90           # a cited link summary older than this offers Update (the default)
 $script:ActiveStaleDays = 90     # this request's: Context.StaleDays, the vault setting linkStaleDays
-$script:DefaultMaxPages = 20     # pages Ask may read (vault setting askMaxPages, 1-50; operator 2026-11-14, was 8)
+$script:DefaultMaxPages = 20     # pages Ask may read (vault setting askMaxPages, 1-50; D-011, was 8)
 $script:MaxPages = 20            # this request's: Context.MaxPages, else the default
 $script:MaxBranches = 4          # step 1 picks at most this many branches: 4, more for many pages (Get-AskBranchLimit)
 $script:SummaryMax = 240         # step 2: characters of a page summary
@@ -462,8 +462,7 @@ function Invoke-AskCopilot {
 function Start-AskChat {
     <# A new chat for a question (or a follow-up that needs one), with Work IQ switched OFF: Ask answers
        only from the pages it sends, and with Work IQ on Copilot could also draw on mail, chats and
-       files. Today's meetings switches it on for its own questions and left it on (operator,
-       2026-11-17: "it only fetches information from those daily meetings, and not other sources"). #>
+       files. Today's meetings switches it on for its own questions and left it on (D-065). #>
     param($Copilot, [hashtable]$Conv)
     $new = Get-AskProp $Copilot 'NewChat'
     if ($new) { & $new }
@@ -517,7 +516,7 @@ function Read-AskAnswer {
 
 function ConvertTo-AskSourceItem {
     <# A source for the answer card: number, title, index path, OneNote link, the original address of
-       a link page (url, http(s) only: the interface opens that first, user 2026-11-13), age, origin. #>
+       a link page (url, http(s) only: the interface opens that first, D-005), age, origin. #>
     param($Record, [int]$Number, [datetime]$Now)
     $sum = ConvertTo-AskDate $Record.summarizedAt
     $isLink = ($Record.type -like 'link-*') -or [bool]$Record.url
@@ -604,8 +603,7 @@ function New-AskResult {
         ok = $true; intent = 'ask'; mode = 'ask'; status = $Status; conversationId = $Conv.id; turn = ($Conv.turns.Count + 1)
         question = $Question; writes = 0; note = 'Asking never changes your notebook.'
         path = $null; answer = $null; sources = @(); staleLinks = @(); invalidCitations = @(); notFound = $null
-        # Pages read for the answer that it does not cite (operator, 2026-11-14: show that nothing
-        # relevant was skipped); same item shape as sources, n = 0.
+        # Pages read for the answer that it does not cite (D-017); same item shape as sources, n = 0.
         unused = @()
         budget = @{ promptMax = $script:PromptMax; step1Chars = 0; step2Chars = 0; step3Chars = 0; trimmedPages = @() }
         message = ''
@@ -688,8 +686,7 @@ function Invoke-AskProgress {
 }
 
 function Invoke-AskSeriesQuestion {
-    <# Ask within one meeting series (operator, 2026-11-18: "it only fetches information from those
-       daily meetings, and not other sources"): ObsidiNote itself picks the pages, the series' meeting
+    <# Ask within one meeting series (D-069): ObsidiNote itself picks the pages, the series' meeting
        pages of the active vault, newest first; no topic step, no other vault or notebook. At most
        askMaxPages (at least 30, at most 50); older meetings are left out and the summary says so.
        Copilot answers in a new chat with Work IQ off (Start-AskChat) from these pages only, and a

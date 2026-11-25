@@ -1,5 +1,5 @@
 # Upgrade steps: when a filing, indexing or page rule changes, the knowledge already in the vault is
-# brought in line too, not only new items (operator, 2026-11-13). Each step is a conformance check:
+# brought in line too, not only new items (D-002). Each step is a conformance check:
 # it compares every page with the CURRENT rule and fixes what differs, so it is idempotent and simply
 # runs at every start (writer only; a read-only session only reports the plan). Never deletes, never
 # touches the person's pages, archived pages, other vaults or connected notebooks.

@@ -175,7 +175,7 @@ function Open-ObsidiVault {
 function Test-EmptyNotebook {
     <# True when the open notebook $NotebookId holds nothing of the person's: no section groups and no
        pages (empty sections, such as OneNote's own "New Section 1", count as empty; the recycle bin is
-       ignored). Only such a notebook may be set up as a vault in place (user, 2026-11-13). #>
+       ignored). Only such a notebook may be set up as a vault in place (D-117). #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Adapter, [Parameter(Mandatory)][string]$NotebookId)
     [xml]$doc = $Adapter.GetHierarchy($NotebookId, 4)

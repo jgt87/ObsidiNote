@@ -1,4 +1,4 @@
-// The vault's settings, kept in OneNote by the server (lib/VaultSettings.psm1, operator 2026-11-14).
+// The vault's settings, kept in OneNote by the server (lib/VaultSettings.psm1, D-010).
 // The defaults are pinned to the server's table by tests/fixtures/vault-settings.json: change all
 // three together. The theme is not one of them: it stays per PC (model/preferences.ts). Pure.
 

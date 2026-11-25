@@ -1,6 +1,6 @@
 # Pester 3.4 syntax (inbox on Windows): Should Be / Should Throw.
 # lib/SyncedFiles.psm1 and POST /api/file/locate: a dropped file's OneDrive/SharePoint address, found
-# by name, size and time in the synced folders (operator, 2026-11-14). A made-up synced folder in
+# by name, size and time in the synced folders (D-016). A made-up synced folder in
 # %TEMP% stands in for OneDrive; no real files, names or tenants.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $here

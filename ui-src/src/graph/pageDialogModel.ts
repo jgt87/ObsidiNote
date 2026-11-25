@@ -64,7 +64,7 @@ export interface OpenButtons {
 
 /**
  * The window's "Open" buttons. A link page opens its own address first and OneNote second
- * (operator, 2026-11-13: use OneNote as little as possible as the interface); any other page opens
+ * (D-005); any other page opens
  * in OneNote, shown disabled when there is no OneNote link. One primary per view: while the Edit
  * form is open its Save is the primary, so these go quiet.
  * Only an http(s) address is a link and only an onenote: address opens OneNote: a page's fields

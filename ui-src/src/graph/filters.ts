@@ -51,8 +51,7 @@ export function filterParts(f: GraphFilter, topicName: (id: string) => string): 
   return parts
 }
 
-/** What narrows the List, in words, for its empty row (operator, 2026-11-24: a filtered-empty List
- *  names its filters and offers to clear them): the search, the focus on a page, then the filter's
+/** What narrows the List, in words, for its empty row (D-085): the search, the focus on a page, then the filter's
  *  choices. "archived shown" widens, so it is not one of them. */
 export function narrowingParts(f: GraphFilter, query: string, topicName: (id: string) => string, pageTitle: (id: string) => string): string[] {
   const parts: string[] = []

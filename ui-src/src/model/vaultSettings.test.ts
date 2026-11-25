@@ -29,7 +29,7 @@ describe('vault settings', () => {
     expect(parseNumber('', 'linkStaleDays')).toBeNull()
     expect(parseNumber('365', 'linkStaleDays')).toBe(365)
   })
-  it('move a number to the nearest end of its range when the field is left (operator 2026-11-14: "mentions 1 to 10 but the setting is 12")', () => {
+  it('move a number to the nearest end of its range when the field is left (D-124: "mentions 1 to 10 but the setting is 12")', () => {
     expect(settleNumber('12', 'relatedCount', 3)).toBe(10)
     expect(settleNumber('0', 'relatedCount', 3)).toBe(1)
     expect(settleNumber('5000', 'linkStaleDays', 90)).toBe(730)

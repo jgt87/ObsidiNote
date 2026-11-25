@@ -1,5 +1,4 @@
-# Where a dropped file lives online (operator, 2026-11-14: "If the file is from OneDrive then the link
-# to the original file should be stored"). A browser never tells the page a dropped file's path, so
+# Where a dropped file lives online (D-016). A browser never tells the page a dropped file's path, so
 # the window sends its name, size and last-changed time, and this module looks for exactly that file
 # in the folders OneDrive syncs on this PC. OneDrive's own records (HKCU\Software\SyncEngines\
 # Providers\OneDrive\<id>: MountPoint = the local folder, UrlNamespace = its web address) turn the

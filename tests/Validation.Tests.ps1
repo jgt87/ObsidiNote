@@ -384,7 +384,7 @@ Describe 'V5 Grounding probes' {
     }
 }
 
-Describe 'V5 P10 meetings (operator, 2026-11-14)' {
+Describe 'V5 P10 meetings (D-029)' {
     $list = '{"meetings":[{"title":"Fabrikam merger steering","start":"2026-11-13 10:00","attendees":6,"hasTranscript":true,"hasRecap":true,"hasNotes":false,"link":"https://fernbrook.sharepoint.com/recap/1"},{"title":"Coffee with Ada","start":"2026-11-12 09:00","attendees":2,"hasTranscript":false,"hasRecap":false,"hasNotes":false,"link":""}],"searched":["Teams"]}'
     $notes = '{"found":true,"date":"2026-11-13","attendees":[{"name":"Ada Lovelace","email":"ada@fernbrook.example"},{"name":"Grace Hopper","email":""}],"summary":"Secret merger talk.","decisions":["Buy Fabrikam for 12M"],"actions":[{"text":"Draft term sheet","owner":"Ada Lovelace","due":"2026-11-20"},{"text":"Call the bank","owner":"","due":""}],"basedOn":"transcript","source":"https://fernbrook.sharepoint.com/recap/1"}'
     It 'counts meetings and what Copilot can read of them; picks the newest one that has something' {
@@ -401,7 +401,7 @@ Describe 'V5 P10 meetings (operator, 2026-11-14)' {
         (Test-MeetingNotesReply '{"found":true,"attendees":["Ada <ada@fernbrook.example>","Grace"],"decisions":[],"actions":[]}').addresses | Should Be 1
         (Test-MeetingNotesReply '{"found":false,"attendees":[],"decisions":[],"actions":[]}').found | Should Be $false
     }
-    # The full day (operator, 2026-11-15): every meeting of 2026-11-13, two of them with something to read.
+    # The full day (D-052): every meeting of 2026-11-13, two of them with something to read.
     $dayList = '{"meetings":[{"title":"Fabrikam merger steering","start":"2026-11-13 10:00","attendees":6,"hasTranscript":true,"hasRecap":true,"hasNotes":false,"link":""},{"title":"Northwind budget review","start":"2026-11-13 14:00","attendees":4,"hasTranscript":false,"hasRecap":true,"hasNotes":true,"link":""},{"title":"Coffee with Ada","start":"2026-11-13 16:00","attendees":2,"hasTranscript":false,"hasRecap":false,"hasNotes":false,"link":""}],"searched":["Teams"]}'
     function Set-P10Replies([string]$Week, [string]$Day, [string]$Notes) {
         # Pester 3.4: a Mock runs in the module's scope and cannot see this Describe's variables.
@@ -480,7 +480,7 @@ Describe 'V5 P10 meetings (operator, 2026-11-14)' {
         Test-MeetingDayValue '2026-11-13' | Should Be $true
         foreach ($bad in '', '2026-02-30', '13-11-2026', '2026-11-13 10:00', '20261113', 'tomorrow') { Test-MeetingDayValue $bad | Should Be $false }
     }
-    It 'takes "today" as -MeetingDay and asks for this computer''s date (operator, 2026-11-16)' {
+    It 'takes "today" as -MeetingDay and asks for this computer''s date (D-059)' {
         Test-MeetingDayValue 'today' | Should Be $true
         Resolve-MeetingDay 'today' -Now ([datetime]'2026-11-16 23:30') | Should Be '2026-11-16'
         Resolve-MeetingDay '2026-11-12' | Should Be '2026-11-12'
@@ -738,7 +738,7 @@ Describe 'V6 "Undo of a linked page" and "Tags" in the dev vault (in-memory OneN
     }
 }
 
-Describe 'V6 "Archive, restore and delete" in the dev vault (in-memory OneNote, no Copilot; operator 2026-11-15)' {
+Describe 'V6 "Archive, restore and delete" in the dev vault (in-memory OneNote, no Copilot; D-038)' {
     foreach ($m in 'OneNote', 'PageMeta', 'NotebookStructure', 'Vault', 'WriterLease', 'Index', 'VaultSession', 'VaultStore', 'Linker', 'LinkCapture', 'Ingest') { Import-Module (Join-Path $root "lib\$m.psm1") -Global }
     . (Join-Path $here 'SyntheticVault.ps1')
     $w = New-SyntheticVault
@@ -962,8 +962,7 @@ Describe 'The kit on disk' {
             "$($c.Name): $([IO.File]::ReadAllText($f) -match "[^`r]`n")" | Should Be "$($c.Name): False"
         }
     }
-    # The checks still open after the target machine's v0.12.4 run (operator, 2026-11-17: "if there are
-    # items still to be confirmed then create a new scoped cmd for them"): Copilot, today's meetings, the
+    # The checks still open after the target machine's v0.12.4 run (D-067): Copilot, today's meetings, the
     # notebook selection probe and the write tests, nothing else. It is the one probe launcher that writes,
     # and only through -WriteTest (the test notebooks); V5 stays narrowed to P10, so no P3 marker page.
     It 'Run Open Checks.cmd runs only the open checks, asking nothing' {
@@ -975,8 +974,7 @@ Describe 'The kit on disk' {
         $t = [IO.File]::ReadAllText((Join-Path $kit 'Run Meeting Probe.cmd'))
         $t | Should Match '-Stage V5 -Probe P10 -NoPrompt'
     }
-    # One launcher per probe still to run on the target machine (operator, 2026-11-15: "provide cmd
-    # files for them as well"): each runs exactly its own probe or stage, and never writes.
+    # One launcher per probe still to run on the target machine (D-053): each runs exactly its own probe or stage, and never writes.
     It 'each probe launcher runs only its own probe or stage, and none of them writes' {
         $want = [ordered]@{
             'Run OneNote Search Probe.cmd' = '-Stage V5 -Probe P3 -NoPrompt %*'
@@ -1002,7 +1000,9 @@ Describe 'The kit on disk' {
     $ast = Read-ScriptAst -Path (Join-Path $kit 'Run-Validation.ps1')
     $params = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
     $cmdNames = @(Get-ChildItem -LiteralPath $kit -Filter *.cmd -File | ForEach-Object { $_.Name })
-    $agents = [IO.File]::ReadAllText((Join-Path $root 'AGENTS.md'))
+    # The kit's line moved out of AGENTS.md into its rule file (2026-11-25, AGENTS.md points there):
+    # the agent doc is the two read together.
+    $agents = [IO.File]::ReadAllText((Join-Path $root 'AGENTS.md')) + "`n" + [IO.File]::ReadAllText((Join-Path $root '.claude\rules\project-validation.md'))
     $people = (@([IO.File]::ReadAllText((Join-Path $root 'README.md'))) + @(Get-ChildItem -LiteralPath (Join-Path $root 'docs\runbooks') -Filter *.md | ForEach-Object { [IO.File]::ReadAllText($_.FullName) })) -join "`n"
     $missingIn = {
         param([string]$Text)
@@ -1016,7 +1016,7 @@ Describe 'The kit on disk' {
     It 'the README or a runbook names every parameter of Run-Validation.ps1 and every .cmd of the kit' {
         ((& $missingIn $people) -join ', ') | Should Be ''
     }
-    It 'AGENTS.md names every parameter of Run-Validation.ps1 and every .cmd of the kit' {
+    It 'AGENTS.md with its rule file names every parameter of Run-Validation.ps1 and every .cmd of the kit' {
         ((& $missingIn $agents) -join ', ') | Should Be ''
     }
     It 'the stage table and the options of RB-03 know P10 and -Probe' {

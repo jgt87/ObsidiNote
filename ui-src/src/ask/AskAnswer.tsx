@@ -52,13 +52,13 @@ export function AskAnswer({ result, ...actions }: { result: AskResult } & AskAns
   const anchor = (n: number) => sourceAnchor(result.conversationId, result.turn, n)
   const byNumber = new Map(result.sources.map((s) => [s.n, s]))
   const stale = new Map(result.staleLinks.map((l) => [l.id, l]))
-  // What the answer was made from (operator, 2026-11-14): pages and topics, sentences per page,
+  // What the answer was made from (D-017): pages and topics, sentences per page,
   // and the pages read but not used.
   const paragraphs = result.answer?.paragraphs ?? []
   const used = sentencesPerSource(paragraphs)
   const shares = answerShares(paragraphs)
   // The source the pointer (or keyboard focus) is on: its sentences in the answer turn to the accent
-  // (operator, 2026-11-14). Session state of this card only.
+  // (D-018). Session state of this card only.
   const [lit, setLit] = useState<number | null>(null)
   const cite = (n: number) => <CiteChip key={n} n={n} source={byNumber.get(n)} anchor={anchor(n)} onOpenPage={actions.onOpenPage} />
   return (
@@ -133,8 +133,7 @@ function AnswerSentence({ sentence: s, lit }: { sentence: AskSentence; lit: numb
 }
 
 /**
- * A citation [n]. design (operator, 2026-11-15: "a reference like [1] being clicked should open that
- * topic card or direct link, whichever is most relevant"): a link page opens its own address, a page
+ * A citation [n]. design: D-046: a link page opens its own address, a page
  * of the active vault its page window, a page of another notebook OneNote; else it jumps to the
  * source in the list.
  */

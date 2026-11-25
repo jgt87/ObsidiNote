@@ -1,4 +1,4 @@
-# Meetings into ObsidiNote (operator, 2026-11-14 and 2026-11-17: "build as suggested"). Copilot,
+# Meetings into ObsidiNote (D-029, D-064). Copilot,
 # with the person's own Microsoft 365 access, lists the Teams meetings of one day and writes
 # structured notes for one meeting from its transcript, recap or notes. Kit probe P10 on the target
 # machine (2026-11-17): the day's list works (8 meetings, 3 with a transcript) and the notes of two
@@ -48,8 +48,7 @@ function Get-MeetingFlagForms($Meetings) {
 
 function Get-MeetingFlag($Object, [string]$Name) {
     <# A yes/no of Copilot's meeting list. Copilot does not always write a JSON true: "yes", "true",
-       "available", 1 also mean yes (operator, 2026-11-18: a transcribed meeting was listed as having
-       nothing to read; only a literal true counted). #>
+       "available", 1 also mean yes (D-071). #>
     if (-not $Object.PSObject.Properties[$Name]) { return $false }
     $v = "$($Object.$Name)".Trim().ToLowerInvariant()
     $v -in 'true', 'yes', 'y', '1', 'available', 'ja', 'present'
@@ -62,8 +61,7 @@ function Format-PromptTitle([string]$Title) {
 
 function New-MeetingDayPrompt {
     <# The question for every Teams meeting of $Day (kit P10's day question, with the reference).
-       Also the meetings the person was invited to and did not join (operator, 2026-11-20: "I didn't
-       join, but because I was invited I do have access to the transcript and Copilot summary"), and
+       Also the meetings the person was invited to and did not join (D-081), and
        with $Series every meeting of that series by name: a general list missed them. #>
     param([Parameter(Mandatory)][string]$Day, [Parameter(Mandatory)][string]$Ref, [string]$Series = '')
     $s = Get-MeetingText $Series $script:MaxTitle
@@ -107,10 +105,9 @@ function New-MeetingNotesPrompt {
     param([Parameter(Mandatory)][string]$Title, [string]$Start = '', [Parameter(Mandatory)][string]$Ref)
     $s = Get-MeetingText $Start 40
     'From the transcript, the Copilot recap or the meeting notes of my Teams meeting "' + (Format-PromptTitle $Title) + '"' + $(if ($s) { ' (started ' + $s + ')' } else { '' }) + ', write structured meeting notes for my personal wiki. ' +
-    # Invited but not joined (operator, 2026-11-20): the recording is shared with the invitees.
+    # Invited but not joined (D-081): the recording is shared with the invitees.
     'I may not have joined this meeting myself: I was invited, so its transcript and Copilot recap are shared with me. Read them all the same. ' +
-    # Attendees = who joined, not who was invited (operator, 2026-11-18: "previously it captured
-    # everyone who joined, now it lists all of the invitees"). Only the address comes from the invitation.
+    # Attendees = who joined, not who was invited (D-070). Only the address comes from the invitation.
     'Attendees are only the people who joined the meeting (who spoke in the transcript or are in its attendance), not everyone who was invited. ' +
     'For each attendee give the display name and the e-mail address as the meeting invitation has it; leave the address empty when you do not see it, never guess one. ' +
     'Answer only with one JSON object and no other text: {"ref": "' + $Ref + '", "found": true or false, "date": "yyyy-mm-dd", "attendees": [{"name": "display name", "email": "address or empty"}], "summary": "3 to 5 sentences", "decisions": ["each decision in one sentence"], ' +
@@ -123,8 +120,7 @@ $script:MailPattern = '^[^@\s<>()",;]+@[^@\s<>()",;]+\.[^@\s<>()",;]+$'
 function Get-MeetingAttendees($Object) {
     <# The attendees of a notes reply: @(@{ name; email }). Takes the asked shape ({name, email}) and
        the old one (plain names, also "Name <address>"); an address is kept only when it looks like
-       one, a person with the same address once; a name alone stays a name (operator, 2026-11-18:
-       "store the display name as well as the e-mail address"). Pure. #>
+       one, a person with the same address once; a name alone stays a name (D-070). Pure. #>
     if (-not $Object.PSObject.Properties['attendees']) { return , @() }
     $out = New-Object System.Collections.Generic.List[object]
     $seen = @{}
@@ -230,7 +226,7 @@ function ConvertTo-MeetingNoteText {
     $l.ToArray() -join "`n"
 }
 
-# ---------------------------------------------------------------- series (operator, 2026-11-18)
+# ---------------------------------------------------------------- series (D-068)
 # A daily meeting is one series: the same Teams title every day, other attendees, date and content.
 # ObsidiNote, not Copilot, names the series and the page, so every occurrence gets the same series
 # and a title that never collides: "<series> . <yyyy-mm-dd>".
@@ -324,7 +320,7 @@ function Get-MeetingInfoFromText {
     @{ series = $series; key = (Get-MeetingSeriesKey $series); day = $day; at = $(if ($day) { Format-MeetingAt -Day $day -Time $w.Groups[2].Value } else { '' }) }
 }
 
-# ---------------------------------------------------------------- series page (operator, 2026-11-19)
+# ---------------------------------------------------------------- series page (D-073)
 # One overview page per series, written by ObsidiNote after each import of the series: Copilot's
 # summary of what the series covered lately, the latest meeting, decisions and actions by date, who
 # joined and how often, and every meeting linked. The meetings' own pages stay as they are.

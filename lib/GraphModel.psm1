@@ -9,7 +9,7 @@
 #     left out. A page's link count, weight, dot size and hubs are worked out from the edges in the
 #     interface (ui-src/src/graph/weights.ts), the one definition; this module sends none of them.
 #   - aliases (other names) and site (a link page's host) feed search and mentions in the interface.
-#   - sourceId per page and the sources list feed the Sources view (operator, 2026-11-14): where a
+#   - sourceId per page and the sources list feed the Sources view (D-014): where a
 #     link page's address lives (Get-LinkSource in lib/NotebookStructure.psm1), web sites with fewer
 #     than $script:MinWebPages pages together as "Other web sites" (internal sites likewise as "Other
 #     company sites"; internal = the vault's own link rules, $LinkRules), every page without an address in
@@ -47,8 +47,7 @@ function Get-GraphSources {
     foreach ($p in $Pages) {
         # The address wins (a link page); then its host alone (a link page whose record lost the
         # address); then where it came from (obsn.origin); then its link type; the notes area only
-        # when nothing says where it is from (operator, 2026-11-16: "putting items in ObsidiNote notes
-        # should be minimized. Web links should be listed as such, and not as notes").
+        # when nothing says where it is from (D-055).
         $s = if ([string]$p.url -match '^(?i)https?://') { Get-LinkSource -Url ([string]$p.url) -InternalHosts $hosts -CompanyNames $names } else { $null }
         if (-not $s -and $p.ContainsKey('host') -and [string]$p.host -match '^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$') { $s = Get-LinkSource -Url "https://$([string]$p.host)/" -InternalHosts $hosts -CompanyNames $names }
         if (-not $s -and $p.ContainsKey('origin') -and $p.origin) { $s = Get-OriginSource ([string]$p.origin) }
@@ -146,21 +145,20 @@ function ConvertTo-GraphModel {
             # tags: set by hand (obsn.tags); always an array, [] when none.
             tags = [string[]]@(@($p['tags']) | Where-Object { $_ } | ForEach-Object { [string]$_ })
             # own: one of ObsidiNote's own pages (it can be edited, archived and deleted); false for a
-            # page the person made in OneNote, which is listed and never changed (operator, 2026-11-16:
-            # Delete was offered on such a page and failed).
+            # page the person made in OneNote, which is listed and never changed (D-056).
             own = ([string]$p.owner -eq 'obsn')
             # created: OneNote's own page date ('' when the model does not know it); entries: a journal
-            # day page's entries (operator, 2026-11-17), [] for every other page. The Journal view reads
+            # day page's entries (D-060), [] for every other page. The Journal view reads
             # both; entry links are page keys like the page's own links.
             created = $(if ($p.ContainsKey('created')) { [string]$p['created'] } else { '' })
             entries = @(ConvertTo-GraphEntries $p)
             # series / meetingAt: a meeting page's series and start (yyyy-MM-ddTHH:mm), '' otherwise
-            # (operator, 2026-11-18; pinned by tests/fixtures/graph-pages.json).
+            # (D-068; pinned by tests/fixtures/graph-pages.json).
             series = $(if ($p.ContainsKey('series')) { [string]$p['series'] } else { '' })
             meetingAt = $(if ($p.ContainsKey('meetingAt')) { [string]$p['meetingAt'] } else { '' })
             # seriesKey: which series the page belongs to, by the one rule the server groups series by
             # (Get-MeetingSeriesKey: punctuation and dates aside), so the map draws each series as one
-            # dot (operator, 2026-11-20). A meeting page without a series counts by its title when it
+            # dot (D-077). A meeting page without a series counts by its title when it
             # came from Today's meetings or carries a date ("Kickoff 2026-11-18"); '' otherwise.
             seriesKey = (Get-GraphSeriesKey $p)
             # seriesPage: the overview page of a meeting series (record kind series, 2026-11-19), not a

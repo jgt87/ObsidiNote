@@ -275,7 +275,7 @@ function Get-PendingUpdateAsk { { [pscustomobject]@{ Text = ''; Result = 'Pendin
 function New-UpdateChat([string]$Text) { { param($ChatUrl) @{ state = 'read'; text = $Text; busy = $false } }.GetNewClosure() }
 function Add-RefSource([string]$Reply, [string]$Ref, [string]$Source) { $Reply.TrimEnd().TrimEnd('}') + ', "ref": "' + $Ref + '", "source": "' + $Source + '"}' }
 
-Describe 'A slow link update waits for "Check for the answer" (user, 2026-11-13)' {
+Describe 'A slow link update waits for "Check for the answer" (D-106)' {
     It 'leaves the page alone and keeps an Intake item that waits, for the button and for a pasted link' {
         $v = New-FakeVault
         $r = Update-LinkSummary -Store $v.store -Ask (Get-PendingUpdateAsk) -Id 'p7' -Options @{ Now = $script:Now }

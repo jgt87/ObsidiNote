@@ -29,7 +29,7 @@ describe('the journal without a search', () => {
     expect(days[0].items.map((i) => i.kind)).toEqual(['entry', 'entry'])
     expect(days[0].items[0].pageId).toBe('p201')
   })
-  it('lists a meeting page on the day it was added, without a time (operator, 2026-11-17)', () => {
+  it('lists a meeting page on the day it was added, without a time (D-061)', () => {
     const m = model()
     const other = m.pages.find((p) => p.kind !== 'log' && p.kind !== 'decision')!
     m.pages.push({ ...other, id: 'p299', title: 'Meeting: garden sync', kind: 'meeting', created: '2026-11-17T21:34:00.000Z', archived: false })

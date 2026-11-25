@@ -346,8 +346,7 @@ export function DialogFooter({ page, editing, readOnly, why, src, onAsk, seriesC
   const open = openButtons(page, editing)
   return (
     <footer className="kg-dlg__foot">
-      {/* A link page opens its own address first; OneNote is the second choice (operator, 2026-11-13:
-          use OneNote as little as possible as the interface). */}
+      {/* A link page opens its own address first; OneNote is the second choice (D-005). */}
       {/* design: one primary per view. While the Edit form is open its Save is the primary, so the
           footer's goes quiet. */}
       {open.link && (

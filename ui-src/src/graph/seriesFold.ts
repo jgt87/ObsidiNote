@@ -1,5 +1,4 @@
-// One dot per meeting series on the map (operator, 2026-11-20: "I want a series to show up as one dot
-// instead of each meeting in a series to have its own dot"). The map draws a folded copy of the
+// One dot per meeting series on the map (D-077). The map draws a folded copy of the
 // model: the meetings of a series are left out and their links go to the series' dot. That dot is the
 // series page ("‹series› (series)"); a series without one (or whose page is archived) keeps its
 // newest meeting as the dot. The List, the search, the page window and the Journal keep every

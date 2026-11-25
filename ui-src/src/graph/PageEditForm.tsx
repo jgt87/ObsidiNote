@@ -146,7 +146,7 @@ export function PageEditForm({ index, page, onSave, onCancel }: Props) {
                   </option>
                 ))}
               </select>
-              {/* A real label, visually hidden: the placeholder "Why" is what shows (operator, 2026-11-24). */}
+              {/* A real label, visually hidden: the placeholder "Why" is what shows (D-088). */}
               <label className="visually-hidden" htmlFor={`${id}-why-${i}`}>
                 Why it links to {title(l.target)}
               </label>

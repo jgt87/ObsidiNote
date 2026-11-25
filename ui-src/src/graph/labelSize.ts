@@ -41,7 +41,7 @@ export function groupLabelSize(name: string): { w: number; h: number } {
  * layout units. `scale` = layout units per screen pixel at the zoom the map is fitted to: 1 on
  * a small map, more on a map that is fitted zoomed out, where the name (drawn at a fixed screen
  * size) covers more of the layout (layout.ts layoutGraph works it out).
- * design (review 2026-11-14): the name sits in the middle of its area (operator, 2026-11-14), and
+ * design (review 2026-11-14): the name sits in the middle of its area (D-022), and
  * the dots keep out of that room, so a name never lies on the pages it names.
  */
 export function labelSlot(name: string, r: number, scale = 1, count?: number): { hw: number; hh: number } {

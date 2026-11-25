@@ -21,7 +21,7 @@ export interface JournalViewProps {
 
 type Tab = 'all' | 'decisions'
 
-/** The Journal (operator, 2026-11-17): your journal one page per day; searched on a topic or words,
+/** The Journal (D-060): your journal one page per day; searched on a topic or words,
  *  everything relevant from all sources and all days, and for a topic its decisions with the pages
  *  they came from. Built from the active vault's map data; read only. */
 export function JournalView({ vaultKey, load, onOpen, onAsk, onAskSeries }: JournalViewProps) {

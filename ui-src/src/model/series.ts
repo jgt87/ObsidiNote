@@ -1,4 +1,4 @@
-// A meeting series (operator, 2026-11-18: a daily meeting is one series of pages). Pure.
+// A meeting series: a daily meeting is one series of pages (D-068). Pure.
 
 /** The comparable form of a series name: letters and digits in lower case, one space between words,
  *  as lib/Meetings.psm1 Get-MeetingSeriesKey ("Daily Sync | Team" and "Daily Sync Team" are one). */

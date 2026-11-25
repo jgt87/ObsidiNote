@@ -58,8 +58,7 @@ function Join-ActiveVault {
        state's Vault, ConvertTo-VaultRecord) when detection does not list it while its notebook is
        still open. Detection reads OneNote again every few seconds; when OneNote answered a notebook
        without its sections, or its Index pages without their Meta, the vault this session had opened
-       and was writing in turned into a read-only connected notebook in the window (operator,
-       2026-11-15: another notebook was the selected one in OneNote). A vault that was opened stays
+       and was writing in turned into a read-only connected notebook in the window (D-035). A vault that was opened stays
        the active vault until the person switches or its notebook is closed.
        Returns @{ vaults; notebooks; kept }: kept = the record was added. Nothing is added without a
        record, when the vault is listed, when its notebook is not open, or when detection found

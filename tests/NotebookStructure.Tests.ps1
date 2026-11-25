@@ -86,7 +86,7 @@ Describe 'Link bucket by host' {
         Get-LinkBucket 'http://intranet:8080/home' -InternalHosts @('intranet') | Should Be 'Internal links'
         Get-LinkBucket 'https://other.example/' -InternalHosts @('*.corp.example') | Should Be 'Web links'
     }
-    It 'files a company''s SaaS tenant as Internal links (user, 2026-11-13: timesheets, internal vacancies)' {
+    It 'files a company''s SaaS tenant as Internal links (D-112: timesheets, internal vacancies)' {
         foreach ($u in 'https://wd3.myworkday.com/fernbrook/d/inst/1$2/rel-task/3.htmld', 'https://fernbrookitsmprod.service-now.com/msh?id=kb_article',
             'https://fernbrook.atlassian.net/wiki/spaces/OPS', 'https://fernbrook.okta.com/app/UserHome', 'https://fernbrook.my.salesforce.com/001',
             'https://fernbrook.zoom.us/j/123', 'https://app.slack.com/client/T01') {

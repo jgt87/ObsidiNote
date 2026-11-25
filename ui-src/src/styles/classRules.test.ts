@@ -19,7 +19,7 @@ const TOKENS = fileURLToPath(new URL('../../../src/styles/tokens.css', import.me
 const HOOKS: Record<string, string> = {
   'kg-base': 'the map layer the rendered checks and the stage code select',
   'kg-areas': 'excluded from the dimming rule by :not(.kg-areas)',
-  'kg-focus-bundles': "the layer of a focused page's topic lines (named in AGENTS.md); its lines carry the style",
+  'kg-focus-bundles': "the layer of a focused page's topic lines (named in .claude/rules/project-interface.md); its lines carry the style",
 }
 
 const walk = (dir: string): string[] => readdirSync(dir, { recursive: true, encoding: 'utf8' }).map((f) => f.replace(/\\/g, '/'))

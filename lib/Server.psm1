@@ -149,7 +149,7 @@ function Test-WebAddress([string]$Url) {
 
 function Invoke-OpenUrlRoute($State, [string]$Body) {
     <# POST /api/open {url}: opens a web address in a new tab of the person's default browser
-       (operator, 2026-11-17: web links open there, not in ObsidiNote's own Edge window). The window
+       (D-062). The window
        cannot pick the browser itself; this asks Windows to open the address. http(s) only; nothing
        is written or kept; the log says only that an address was opened. #>
     try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
@@ -247,7 +247,7 @@ function Invoke-MeetingsDayRoute($State, [string]$Body) {
     $total = @($x.meetings).Count
     if ($series) { $x.meetings = @(@($x.meetings) | Where-Object { Test-MeetingInSeries -Title $_.title -Filter $series }) }
     # Each meeting's series and how many of its meetings are in the wiki already (another day), so the
-    # window can say "part of a series" (operator, 2026-11-18). 0 when no vault is open.
+    # window can say "part of a series" (D-068). 0 when no vault is open.
     # inWiki / waiting (2026-11-18: fetched several times a day): this meeting has its page already, or
     # its Add still waits for Copilot; the window does not tick it and says so.
     $counts = Get-MeetingSeriesCounts $State
@@ -369,7 +369,7 @@ function Get-VaultData($State, [switch]$Fresh) {
        vault" from this list. The vault this session opened ($State.Vault) is therefore put back here
        when a detection does not list it while its notebook is still open (Join-ActiveVault,
        lib/VaultSession.psm1; kept = that happened): the active vault is never demoted to a read-only
-       notebook by what OneNote answers later (operator, 2026-11-15). #>
+       notebook by what OneNote answers later (D-035). #>
     $c = $script:VaultCache
     if (-not $Fresh -and $c -and $c.at.ElapsedMilliseconds -lt $script:CacheMs -and $c.key -eq $State.Id) { return $c.data }
     $data = @{ adapter = $null; vaults = @(); notebooks = @(); message = ''; kept = $false }
@@ -417,8 +417,7 @@ function Get-VaultModeInfo($State) {
        start's Vault line as detail. since: when the holder took the lease (ISO, UTC), '' unknown.
        until: when the holder's lease runs out unless it is renewed (ISO, UTC); renewed: when the
        holder last renewed it (until minus the lease time). A holder that renews every minute is
-       still running; one that stopped lets this window take over at "until" (operator, 2026-11-15:
-       "Check again" did not clear the note, and the note could not say what it was waiting for). #>
+       still running; one that stopped lets this window take over at "until" (D-036). #>
     $mode = Get-LeaseMode $State
     $r = [ordered]@{ mode = $mode; reason = ''; since = ''; until = ''; renewed = ''; detail = '' }
     if ($mode -eq 'none') { $r.reason = 'not-opened'; $r.detail = [string]$State.VaultDetail; return $r }
@@ -508,7 +507,7 @@ function Read-NotebookData {
     try { $v = Get-NotebookView -Id $entry.notebookId -GetState { 'window' } -GetXml $getXml -GetLink $getLink } catch { return (New-EmptyView $script:NoAnswer) }
     if ($v.notebook) { $v.notebook.id = $entry.id; $v.notebook.name = $entry.name; $v.notebook.vault = [bool]$entry.vault; $v.notebook.active = [bool]$entry.active }
     # An empty notebook that is no vault and holds none can be set up as one ("Set up ObsidiNote in
-    # this notebook", POST /api/vault/setup; user, 2026-11-13).
+    # this notebook", POST /api/vault/setup; D-117).
     $canSetUp = $false
     if ($v.notebook -and -not $entry.vault) {
         $nb = @($d.notebooks | Where-Object { $_.id -eq $entry.notebookId }) | Select-Object -First 1
@@ -656,7 +655,7 @@ function Get-CopilotMissing([string]$Intent) {
     @{ status = 503; body = @{ intent = $Intent; error = 'Microsoft 365 Copilot is not connected, so ObsidiNote cannot add or ask right now. Start ObsidiNote with Copilot and sign in. The map, your notebooks and Undo still work.' } }
 }
 
-# How long Add and Ask wait for Copilot (user, 2026-11-13: a SharePoint link came back "NoAnswer").
+# How long Add and Ask wait for Copilot (D-106: a SharePoint link came back "NoAnswer").
 # TimeoutSec: the normal wait. StallSec: no data from Copilot this long counts as hanging; the bridge
 # then presses Stop, which also cancels an answer that was still coming, so it is long (reading a
 # SharePoint or OneDrive source through Work IQ can be silent for minutes; it was 90 s). MaxTimeoutSec:
@@ -666,7 +665,7 @@ function Get-CopilotMissing([string]$Intent) {
 $script:CopilotWait = @{ TimeoutSec = 600; StallSec = 300; MaxTimeoutSec = 900; BusyWaitSec = 60 }
 # Add (new items, link updates, "Check for the answer"'s linking step) is never stopped, so its wait
 # only decides how long the window stays busy before the item shows as waiting with "Check for the
-# answer" (user, 2026-11-13: about 2 minutes; it could be busy for 15).
+# answer" (D-106: about 2 minutes; it could be busy for 15).
 $script:AddWait = @{ TimeoutSec = 120; StallSec = 120; MaxTimeoutSec = 0; BusyWaitSec = 60 }
 
 function Get-AskCopilotAdapter($State) {
@@ -712,7 +711,7 @@ $script:ReconnectSignInSec = 15
 
 function Invoke-CopilotReconnectRoute($State) {
     <# POST /api/copilot/reconnect: the refresh button next to "Copilot is not connected" in the
-       window's side bar (user, 2026-11-14). One attempt to attach to Copilot in ObsidiNote's Edge
+       window's side bar (D-118). One attempt to attach to Copilot in ObsidiNote's Edge
        window (Connect-Copilot starts that Edge when it is closed), without the start's 10-minute
        sign-in wait. 200 {state, message}: connected | sign-in | failed. 409 when this start skipped
        Copilot (-NoCopilot). The log gets the outcome only. #>
@@ -888,7 +887,7 @@ function New-VaultRoute($State, [string]$Body) {
 
 function Set-UpVaultRoute($State, [string]$Body) {
     <# POST /api/vault/setup {id, confirm}: sets up an open, EMPTY notebook (no pages, no section groups)
-       as a vault in place, then makes it active (user, 2026-11-13). Without confirm it only answers
+       as a vault in place, then makes it active (D-117). Without confirm it only answers
        409 needsConfirm: it writes into a notebook ObsidiNote does not own yet. #>
     try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
     $id = "$(Get-BodyValue $b 'id' '')"
@@ -1031,7 +1030,7 @@ function Get-PageBodyRoute($State, [string]$Query) {
 
 function Invoke-ExportRoute($State, [string]$Body) {
     <# POST /api/export {scope page|topic|all, vault?, notebook?, page?, topic?}: Markdown for one page
-       (.md), a topic or everything (.zip), as a download the person asked for (user, 2026-11-13, the
+       (.md), a topic or everything (.zip), as a download the person asked for (D-108, the
        one exception to "content stays in OneNote"). Read only; built in memory, never on disk. #>
     try { $b = Read-JsonBody $Body } catch { return @{ status = 400; body = @{ error = $_.Exception.Message } } }
     $scope = "$(Get-BodyValue $b 'scope' 'all')"
@@ -1310,7 +1309,7 @@ function Invoke-PagesRetireRoute($State, [string]$Body, [string]$Action) {
     # A page key of the map: ObsidiNote's own (p...) or a page the person made (n:<OneNote id>). The
     # plan refuses the second kind with words for a person ("A page you made yourself is moved or
     # deleted in OneNote"); before, the whole request failed with "ids must be ObsidiNote page ids"
-    # (operator, 2026-11-16, deleting a test page). Anything else is no page of a map.
+    # (D-056). Anything else is no page of a map.
     if (@($ids | Where-Object { -not (Test-ObsnId $_) -and $_ -notmatch '^n:[{}A-Za-z0-9-]{1,120}$' }).Count) { return @{ status = 400; body = @{ error = 'These are not pages of this map.' } } }
     if (Test-OtherVault $State $b) { return (Get-OtherVaultAnswer) }
     $u = Use-ActiveVault $State
@@ -1330,7 +1329,7 @@ function Invoke-PagesRetireRoute($State, [string]$Body, [string]$Action) {
 
 function Invoke-SeriesMergeRoute($State, [string]$Body) {
     <# POST /api/series/merge {series, confirm[, vault]} (lib/Ingest.psm1 Get-SeriesMergePlan /
-       Invoke-SeriesMerge; no Copilot; operator, 2026-11-19): the copies of one meeting of a series
+       Invoke-SeriesMerge; no Copilot; D-075): the copies of one meeting of a series
        become one page, the other copies go to the Archive. Like Archive it always asks first: without
        confirm = true it answers 409 {needsConfirm, plan: {series, groups: [{keep: {id, title}, extra:
        [{id, title}]}]}} and writes nothing. 200 {status merged|partial|nothing, message, merged,

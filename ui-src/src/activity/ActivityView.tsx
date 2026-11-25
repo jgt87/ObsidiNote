@@ -3,7 +3,7 @@ import { ActivityRow } from './ActivityRow'
 import { useActivity } from './useActivity'
 import './activity.css'
 
-/** History (operator, 2026-11-14): what Add and link Update did in the active vault, newest first,
+/** History (D-013): what Add and link Update did in the active vault, newest first,
  *  read from its Intake. Edits and "Link it" are not listed (they make no Intake item). */
 export function ActivityView({ refreshKey, onOpen }: { refreshKey: string; onOpen: (pageId: string) => void }) {
   const { data, error, loading, reload } = useActivity(refreshKey)

@@ -31,7 +31,7 @@ export interface ComposerView {
   liveFileUrl: string
   /** A file's address was kept and is not any more: the box says so. */
   linkDropped: boolean
-  /** Ask's options (what Ask reads) only when the text will be asked (operator, 2026-11-14). */
+  /** Ask's options (what Ask reads) only when the text will be asked (D-027). */
   asking: boolean
   canSend: boolean
 }

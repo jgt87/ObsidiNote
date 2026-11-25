@@ -91,7 +91,7 @@ if (@($checks | Where-Object { $_.status -eq 'FAIL' }).Count) {
 # record is filled in once the notebook is found.
 [Console]::Error.WriteLine('Starting')
 # --- 2b. The ObsidiNote that is running on this PC ---------------------------------------------------
-# A new start replaces it (operator, 2026-11-15): it is asked to stop (POST /api/shutdown: it gives
+# A new start replaces it (D-032): it is asked to stop (POST /api/shutdown: it gives
 # its writer lease back, as on Ctrl+C); when it does not, the leftover starts of THIS script are
 # stopped (lib/Startup.psm1 Invoke-ReplaceRunning). Before the vault opens, so this start becomes
 # the writer; $noOtherHere then lets it take a lease this PC left behind (never another PC's).
@@ -151,7 +151,7 @@ if (-not $NoOneNote) {
         $mainAdapter = Get-OneNoteAdapter
         # Find-StartVault (lib/VaultSession.psm1): the open vaults and the one to continue in. When the
         # notebook on record is open but OneNote lists no vault in it (seen when another notebook was
-        # the selected one in OneNote, operator 2026-11-15), it selects that notebook in OneNote once
+        # the selected one in OneNote, D-035), it selects that notebook in OneNote once
         # (NavigateTo: not a write) and looks again a few times; one status line only when it did.
         $det = Find-StartVault -Adapter $mainAdapter -RecordVaultId "$(Get-AppSetting -Key 'vaultId' -Default '' -AppRoot $PSScriptRoot)" -Record (Get-NotebookRecord -AppRoot $PSScriptRoot)
         if ($det.status) { Write-Status -ToError $det.status 'Vault' $det.detail -Hint $det.hint }

@@ -1,6 +1,6 @@
 # Pester 3.4 syntax (inbox on Windows): Should Be / Should Throw.
-# lib/Upgrade.psm1: existing pages follow rules that changed after they were filed (operator,
-# 2026-11-13). Old-shaped data in the in-memory OneNote: company SaaS links filed under Web links
+# lib/Upgrade.psm1: existing pages follow rules that changed after they were filed
+# (D-002). Old-shaped data in the in-memory OneNote: company SaaS links filed under Web links
 # before the internal-link rule changed. Synthetic data only.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $here
@@ -106,7 +106,7 @@ Describe 'Upgrade: "Link it" links written as loose (1) before 2026-11-14 become
     }
 }
 
-Describe 'Upgrade: meetings imported before series pages get their notes kept and one series page (operator, 2026-11-19)' {
+Describe 'Upgrade: meetings imported before series pages get their notes kept and one series page (D-073)' {
     Import-Module (Join-Path $root 'lib\Meetings.psm1') -Force -Global
     $w = New-SyntheticVault
     # Old shape (v0.12.11-v0.12.14): meeting pages with series and meetingAt, the notes only as text.
@@ -165,7 +165,7 @@ Describe 'Upgrade: meetings imported before series pages get their notes kept an
     }
 }
 
-Describe 'Upgrade: a meeting page whose text has no meeting line takes its series from its title (operator, 2026-11-18)' {
+Describe 'Upgrade: a meeting page whose text has no meeting line takes its series from its title (D-068)' {
     $w = New-SyntheticVault
     # Old shape: a meeting page with Copilot's title and the date in it, its text not ObsidiNote's meeting text.
     $pg = Find-FakePage $w.f 'Partner portal: access review notes'
@@ -190,7 +190,7 @@ Describe 'Upgrade: a meeting page whose text has no meeting line takes its serie
     }
 }
 
-Describe 'Upgrade: meeting pages of one series made by different versions are joined, one topic (operator, 2026-11-19)' {
+Describe 'Upgrade: meeting pages of one series made by different versions are joined, one topic (D-075)' {
     Import-Module (Join-Path $root 'lib\Meetings.psm1') -Force -Global
     $w = New-SyntheticVault
     $teams = 'Garden sync | Tidal & Brook | Beds and pumps'

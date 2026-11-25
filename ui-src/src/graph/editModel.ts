@@ -1,5 +1,4 @@
-// Editing a page in the page window (operator, 2026-11-13: "adjust the title, adjust/replace/update
-// links, page details"): the form's state from the graph, the choices it offers, and the request that
+// Editing a page in the page window (D-007): the form's state from the graph, the choices it offers, and the request that
 // carries only what changed (POST /api/page/edit; the server checks everything again). Pure.
 
 import type { GraphIndex } from './graphIndex'
@@ -61,7 +60,7 @@ export function formFor(index: GraphIndex, page: GraphPage): EditForm {
 
 /**
  * The types the page may take. A type of another section moves the page there when saved (the
- * server's Edit-Page, operator 2026-11-15); a link page's type follows its address, so it keeps its
+ * server's Edit-Page, D-123); a link page's type follows its address, so it keeps its
  * own; an archived page stays in the Archive until Restore, so it keeps its section's types.
  */
 export function typeChoices(model: GraphModel, page: GraphPage): string[] {

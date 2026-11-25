@@ -57,7 +57,7 @@ function Get-AskBranchData {
 function Get-AskSeriesData {
     <# The meeting pages of series $Key (lib/Meetings.psm1 Get-MeetingSeriesKey), newest first, in
        the shape of a branch's pages plus meetingAt: Ask within one series reads these and nothing
-       else (operator, 2026-11-18). Archived pages only with $IncludeArchived. Pure. #>
+       else (D-069). Archived pages only with $IncludeArchived. Pure. #>
     param([Parameter(Mandatory)][hashtable]$Model, [Parameter(Mandatory)][hashtable]$Ids, [Parameter(Mandatory)][string]$Key, [bool]$IncludeArchived = $false)
     $list = @(foreach ($k in @($Model.pages.Keys)) {
             $p = $Model.pages[$k]

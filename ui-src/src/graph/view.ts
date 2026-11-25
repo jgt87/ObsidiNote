@@ -13,8 +13,8 @@ export interface Viewport {
 
 export const MIN_ZOOM_FACTOR = 0.5
 export const MAX_ZOOM = 8
-/** "Fit to screen" never zooms in further than this. A small vault fills the frame (operator,
- *  2026-11-14: 25 pages used a third of it at 1.6); labels are screen pixels, so they keep their size. */
+/** "Fit to screen" never zooms in further than this. A small vault fills the frame (D-023);
+ *  labels are screen pixels, so they keep their size. */
 export const MAX_FIT = 2.5
 /** Up to this many visible pages, every page is named (unless "Labels: hubs only" is on). */
 export const ALL_LABELS_UP_TO = 60
@@ -24,8 +24,7 @@ export const ALL_LABELS_ZOOM = 1.8
 /** Which pages get a name at rest: all of them on a small or zoomed-in map, else the most linked
  *  ones. With "Labels: hubs only" on: none. The operator's "hubs" are the topic areas, whose bold
  *  names always show; a page's name then shows only while the pointer or the keyboard is on it
- *  (operator, 2026-11-15: "only the hubs labels visible, in the bold text ... hide any labels of
- *  the topics within that blob unless hovered"). Until then the switch kept the names of the most
+ *  (D-039). Until then the switch kept the names of the most
  *  linked pages, which the code calls hub pages: one word, two meanings. */
 export function labelMode(visiblePages: number, k: number, fitK: number, hubsOnly: boolean): 'all' | 'hubs' | 'none' {
   if (hubsOnly) return 'none'
@@ -33,7 +32,7 @@ export function labelMode(visiblePages: number, k: number, fitK: number, hubsOnl
 }
 
 /** Zoom (against the fitted view) from which every topic line shows instead of the heaviest
- *  (operator, 2026-11-14: zooming in should reveal all topic lines). */
+ *  (D-020). */
 export const ALL_LINES_ZOOM = 1.5
 
 /** Which topic lines show: all when zoomed in to ALL_LINES_ZOOM or more, else the resting set. */
@@ -65,8 +64,8 @@ export const SHARP_EVERY_MS = 60
 /**
  * Whether a running zoom must draw the map again now. While the wheel keeps turning, the map is
  * moved as one stretched picture of its last drawing (cheap); it was only drawn again once the
- * wheel rested, so a long zoom-in showed circles and letters as coarse pixels (operator,
- * 2026-11-15: "while scrolling in on a topic, the circle becomes pixelated"). `ratio` = the zoom
+ * wheel rested, so a long zoom-in showed circles and letters as coarse pixels (D-050).
+ * `ratio` = the zoom
  * asked for against the zoom of the last drawing. Zooming out only shrinks the picture, which
  * stays sharp, so it waits for the rest as before.
  */
@@ -187,7 +186,7 @@ export interface AreaLabelPlace {
   /** Top centre of the label, screen pixels. */
   x: number
   top: number
-  /** Always centred on its own area (operator, 2026-11-14); kept as a field for the CSS hook. */
+  /** Always centred on its own area (D-022); kept as a field for the CSS hook. */
   at: 'center'
   rect: Rect
   /** The name as drawn: shortened with "…" when the full name and its count are wider than its area. */
@@ -199,10 +198,9 @@ import { areaLabelSize, shortenToWidth } from './labelSize'
 export { areaLabelSize, shortenToWidth }
 
 /**
- * Each topic name centred on its own area (operator, 2026-11-14: names above or below an area sat
- * in the gaps where the topic lines run; centred, a name never meets a line, and the stage hides it
- * while the pointer is over its area so it never blocks the pages). One line: the name and its page
- * count beside it (operator, 2026-11-15), no second line (review 2026-11-14: an "N pages · subjects"
+ * Each topic name centred on its own area (D-022: centred, a name never meets a line, and the stage
+ * hides it while the pointer is over its area so it never blocks the pages). One line: the name and
+ * its page count beside it (D-041), no second line (review 2026-11-14: an "N pages · subjects"
  * line under the name lay on the area's dots and links; the layout keeps the room of the name with
  * its count free of dots, labelSize.ts labelSlot, and the subjects are in the List, the quick
  * switcher and the page window's Topic tab); a name wider than its area is shortened
@@ -242,8 +240,7 @@ function rectHitsCircle(r: Rect, c: { x: number; y: number; r: number }): boolea
 
 /**
  * Where the preview card goes: of the four corners around the dot, the first that stays on the
- * stage and covers the fewest linked pages (operator, 2026-11-14: the card hid the very links it
- * was about). Order on a tie: right-below, right-above, left-below, left-above.
+ * stage and covers the fewest linked pages (D-024). Order on a tie: right-below, right-above, left-below, left-above.
  */
 export function cardPosition(
   dot: { x: number; y: number },

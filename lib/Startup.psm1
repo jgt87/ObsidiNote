@@ -92,7 +92,7 @@ function Get-LeftoverStarts {
 }
 
 function Invoke-ReplaceRunning {
-    <# A new start replaces the ObsidiNote that is running on this computer (operator, 2026-11-15).
+    <# A new start replaces the ObsidiNote that is running on this computer (D-032).
        When one answers on the port: ask it to stop (POST /api/shutdown; it gives its writer lease
        back and disconnects, as on Ctrl+C) and wait until the port is silent. When it does not stop
        (an older version has no such route, or it hangs): stop the leftover starts of this script
