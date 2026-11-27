@@ -1,5 +1,6 @@
 // Decisions of the page window (PageDialog.tsx): what an arrow key does, the line under the title,
-// which "Open" buttons show and which is the primary, the tab names, and the pages two steps away.
+// which "Open" buttons show and which is the primary, which other actions the footer offers, the
+// tab names, and the pages two steps away.
 // Pure (tests: pageDialogModel.test.ts).
 import { pageTypeLabel } from '../model/format'
 import { webUrl } from '../model/links'
@@ -75,6 +76,25 @@ export function openButtons(page: Pick<GraphPage, 'url' | 'onenoteUrl'>, editing
   const onenote = /^onenote:/i.test(page.onenoteUrl ?? '') ? page.onenoteUrl : ''
   if (web) return { link: { href: web, primary: !editing }, onenote: onenote ? { href: onenote, primary: false } : null }
   return { link: null, onenote: { href: onenote, primary: !editing } }
+}
+
+/** Which of the footer's optional actions it offers (DialogFooter). */
+export interface FooterOffers {
+  /** "Ask about this series": a meeting of a series with more than one meeting. */
+  askSeries: boolean
+  /** "Merge duplicates": a page of a series with second copies of meetings, in a window that may write. */
+  merge: boolean
+  /** Archive or Restore, by the page's state, and Delete with it; null in a read-only window. */
+  retire: 'archive' | 'restore' | null
+}
+
+export function footerOffers(i: { page: Pick<GraphPage, 'series' | 'archived'>; readOnly: boolean; seriesCount: number; copies: number; canAsk: boolean; canMerge: boolean; canRetire: boolean }): FooterOffers {
+  const series = !!i.page.series
+  return {
+    askSeries: i.canAsk && series && i.seriesCount > 1,
+    merge: i.canMerge && !i.readOnly && series && i.copies > 0,
+    retire: i.canRetire && !i.readOnly ? (i.page.archived ? 'restore' : 'archive') : null,
+  }
 }
 
 /** A page's links: those it makes, those made to it, and the mentions it is part of. */

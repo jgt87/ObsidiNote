@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { areaCount, areaWordOf, closeFocus, isSearchSlash, isTypingTarget, readOnlyBanner, searchKeyAction, toggleTagChoice } from './graphViewModel'
+import { emptyFilter } from './filters'
+import { buildIndex } from './graphIndex'
+import { areaCount, areaWordOf, closeFocus, isSearchSlash, isTypingTarget, listNarrowing, readOnlyBanner, searchKeyAction, toggleTagChoice } from './graphViewModel'
+import { normalizeGraph, UNFILED_ID } from './model'
 
 const key = (k: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean }> = {}) => ({ key: k, ctrlKey: false, metaKey: false, altKey: false, ...mods })
 const field = { closest: (s: string) => (s.includes('input') ? {} : null) }
@@ -102,5 +105,24 @@ describe('areaWordOf and readOnlyBanner', () => {
     expect(readOnlyBanner({ readOnlyReason: 'lease' }, 'general', 'Another PC seems to be writing.', 'Still held.', check)).toEqual({ text: 'Another PC seems to be writing.', onCheck: check, result: 'Still held.' })
     expect(readOnlyBanner({ readOnlyReason: 'lease' }, 'general', undefined, '', check)).toEqual({ text: 'general', onCheck: check, result: '' })
     expect(readOnlyBanner({ readOnlyReason: 'notebook' }, 'A connected notebook.', 'ignored', 'ignored', check)).toEqual({ text: 'A connected notebook.', onCheck: undefined, result: '' })
+  })
+})
+
+describe('listNarrowing: what narrows the List, by name', () => {
+  // Invented example data only.
+  const index = buildIndex(normalizeGraph({
+    source: { kind: 'vault', id: 'v1', name: 'Test vault', readOnly: false },
+    topics: [{ id: 't1', name: 'Methods' }],
+    pages: [{ id: 'p1', title: 'Threat modelling', kind: 'note', topicIds: ['t1'] }],
+    edges: [],
+  }))
+  it('names the search, the page focused on and the topics; Unfiled by its name', () => {
+    const f = { ...emptyFilter(), topics: new Set(['t1', UNFILED_ID]), focus: { id: 'p1', depth: 1 as const } }
+    expect(listNarrowing(f, ' zero ', index)).toEqual(['search “zero”', 'around Threat modelling', 'topic: Methods, Unfiled'])
+  })
+  it('shows an id the model no longer has as it is, and nothing without a filter or search', () => {
+    const f = { ...emptyFilter(), topics: new Set(['gone']), focus: { id: 'p9', depth: 1 as const } }
+    expect(listNarrowing(f, '', index)).toEqual(['around p9', 'topic: gone'])
+    expect(listNarrowing(emptyFilter(), '', index)).toEqual([])
   })
 })

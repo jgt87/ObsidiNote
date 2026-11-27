@@ -82,6 +82,34 @@ describe('KnowledgeGraph: pages shown first ("Show on map" from an Ask answer)',
   })
 })
 
+describe('KnowledgeGraph: a meeting series (D-077)', () => {
+  // Invented example series: a series page and three meetings; the map folds them, the List does not.
+  const S = 'Garden sync | Tidal beds'
+  const series = () => normalizeGraph({
+    source: { kind: 'vault', id: 'v1', name: 'Test vault', readOnly: false },
+    topics: [{ id: 't1', name: 'Methods' }],
+    pages: [
+      { id: 'sp', title: `${S} (series)`, kind: 'note', topicIds: ['t1'], series: S, seriesPage: true },
+      ...['2031-04-07', '2031-04-08', '2031-04-09'].map((d, i) => ({ id: `m${i + 1}`, title: `${S} · ${d}`, kind: 'meeting', topicIds: ['t1'], series: S, meetingAt: `${d}T10:00` })),
+      { id: 'p1', title: 'Pump notes', kind: 'note', topicIds: ['t1'] },
+    ],
+    edges: [{ from: 'm2', to: 'p1', strength: 2 }],
+  })
+  const dotIds = (html: string) => [...html.matchAll(/<circle[^>]*data-id="([^"]+)"/g)].map((m) => m[1]).sort()
+  it('draws the series as one dot on the map', () => {
+    expect(dotIds(render({ model: series() }))).toEqual(['p1', 'sp'])
+  })
+  it('lists every meeting in the List', () => {
+    const html = render({ model: series(), initialMode: 'list' })
+    for (const d of ['2031-04-07', '2031-04-08', '2031-04-09']) expect(html).toContain(`${S} · ${d}`)
+  })
+  it('focuses a folded meeting as its series\' dot: the card names the series', () => {
+    const html = render({ model: series(), focusIds: ['m2'] })
+    expect(html).toContain('kg-card')
+    expect(text(html.slice(html.indexOf('kg-card')))).toContain('Garden sync')
+  })
+})
+
 describe('KnowledgeGraph: read only', () => {
   const banner = (html: string) => {
     const at = html.indexOf('ro-banner')

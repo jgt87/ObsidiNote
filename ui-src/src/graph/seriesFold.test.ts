@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GraphEdge, GraphModel, GraphPage } from './model'
 import { pageMapLabel } from './pageLabel'
-import { foldIds, foldSeries } from './seriesFold'
+import { foldIds, foldSeries, mapMatchIds, mapShownIds, onMapDot } from './seriesFold'
 
 const S = 'Garden sync | Tidal beds'
 function page(id: string, extra: Partial<GraphPage> = {}): GraphPage {
@@ -79,5 +79,31 @@ describe('foldSeries: a series as one dot (D-077)', () => {
   it('maps ids of the full model to the map\'s dots', () => {
     const f = foldSeries(m)
     expect(foldIds(['m1', 'm2', 'pump', 'sp'], f.dotOf)).toEqual(['sp', 'pump'])
+  })
+})
+
+describe('the map\'s view of shown pages, matches and focus', () => {
+  const dotOf = new Map([['m1', 'sp'], ['m2', 'sp']])
+  it('shows every dot (null) when every page is shown, folded or not', () => {
+    expect(mapShownIds(new Set(['m1']), true, dotOf)).toBeNull()
+    expect(mapShownIds(new Set(['m1']), true, null)).toBeNull()
+  })
+  it('turns the shown meetings into their series\' dot; without a fold, the set itself', () => {
+    expect([...mapShownIds(new Set(['m1', 'm2', 'pump']), false, dotOf)!]).toEqual(['sp', 'pump'])
+    const shown = new Set(['pump'])
+    expect(mapShownIds(shown, false, null)).toBe(shown)
+  })
+  it('folds the matches; no search stays no search', () => {
+    expect(mapMatchIds(['m2', 'pump', 'm1'], dotOf)).toEqual(['sp', 'pump'])
+    const matches = ['m1']
+    expect(mapMatchIds(matches, null)).toBe(matches)
+    expect(mapMatchIds(null, dotOf)).toBeNull()
+  })
+  it('focuses a folded meeting as its dot and keeps how it was focused; any other page as it is', () => {
+    expect(onMapDot({ id: 'm2', via: 'keyboard' }, dotOf)).toEqual({ id: 'sp', via: 'keyboard' })
+    const other = { id: 'pump', via: 'pointer' }
+    expect(onMapDot(other, dotOf)).toBe(other)
+    expect(onMapDot(other, null)).toBe(other)
+    expect(onMapDot(null, dotOf)).toBeNull()
   })
 })

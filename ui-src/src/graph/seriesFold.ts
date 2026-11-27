@@ -68,3 +68,21 @@ export function foldIds(ids: Iterable<string>, dotOf: Map<string, string>): stri
   for (const id of ids) out.add(dotOf.get(id) ?? id)
   return [...out]
 }
+
+/** The map's dots for the pages the filters show: null when every page is shown; with `dotOf` null
+ *  (nothing folded) the set itself. */
+export function mapShownIds(shown: Set<string>, allShown: boolean, dotOf: Map<string, string> | null): Set<string> | null {
+  if (allShown) return null
+  return dotOf ? new Set(foldIds(shown, dotOf)) : shown
+}
+
+/** The search's matches as dots on the map (null stays null: no search). */
+export function mapMatchIds(matches: string[] | null, dotOf: Map<string, string> | null): string[] | null {
+  return matches && dotOf ? foldIds(matches, dotOf) : matches
+}
+
+/** The focused page as the map has it: a folded meeting is its series' dot, the rest as it is. */
+export function onMapDot<T extends { id: string }>(item: T | null, dotOf: Map<string, string> | null): T | null {
+  const dot = item && dotOf?.get(item.id)
+  return dot ? ({ ...item, id: dot } as T) : item
+}

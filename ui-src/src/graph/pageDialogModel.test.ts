@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildIndex } from './graphIndex'
 import { normalizeGraph } from './model'
-import { dialogKeyAction, dialogKeysHint, nextTab, openButtons, pageLinks, pageMetaLine, tabLabel, twoStepsAway } from './pageDialogModel'
+import { dialogKeyAction, dialogKeysHint, footerOffers, nextTab, openButtons, pageLinks, pageMetaLine, tabLabel, twoStepsAway } from './pageDialogModel'
 import { syntheticGraph } from './synthetic'
 
 const k = (key: string, mods: Partial<{ altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }> = {}) => ({ key, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...mods })
@@ -88,5 +88,31 @@ describe('pageLinks and dialogKeysHint', () => {
     expect(dialogKeysHint(0, false)).toBe('Esc closes')
     expect(dialogKeysHint(3, false)).toBe('Esc closes · ← → previous or next linked page')
     expect(dialogKeysHint(0, true)).toBe('Esc closes · Alt+← → back or forward')
+  })
+})
+
+describe('footerOffers: the footer\'s optional actions', () => {
+  const all = { readOnly: false, seriesCount: 3, copies: 2, canAsk: true, canMerge: true, canRetire: true }
+  const meeting = { series: 'Garden sync', archived: false }
+  it('offers everything for a meeting of a series in a window that may write', () => {
+    expect(footerOffers({ page: meeting, ...all })).toEqual({ askSeries: true, merge: true, retire: 'archive' })
+  })
+  it('asks about a series only with Ask, a series and more than one meeting', () => {
+    expect(footerOffers({ page: meeting, ...all, seriesCount: 1 }).askSeries).toBe(false)
+    expect(footerOffers({ page: meeting, ...all, canAsk: false }).askSeries).toBe(false)
+    expect(footerOffers({ page: { series: '', archived: false }, ...all }).askSeries).toBe(false)
+    expect(footerOffers({ page: meeting, ...all, readOnly: true }).askSeries).toBe(true)
+  })
+  it('merges only with second copies, the action, a series, and never read only', () => {
+    expect(footerOffers({ page: meeting, ...all, copies: 0 }).merge).toBe(false)
+    expect(footerOffers({ page: meeting, ...all, canMerge: false }).merge).toBe(false)
+    expect(footerOffers({ page: { archived: false },...all }).merge).toBe(false)
+    expect(footerOffers({ page: meeting, ...all, readOnly: true }).merge).toBe(false)
+  })
+  it('restores an archived page, archives any other; neither read only or without the action', () => {
+    expect(footerOffers({ page: { archived: true }, ...all }).retire).toBe('restore')
+    expect(footerOffers({ page: { archived: false },...all }).retire).toBe('archive')
+    expect(footerOffers({ page: { archived: false },...all, readOnly: true }).retire).toBeNull()
+    expect(footerOffers({ page: { archived: false },...all, canRetire: false }).retire).toBeNull()
   })
 })

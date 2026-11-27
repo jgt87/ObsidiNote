@@ -61,10 +61,6 @@
   "ui-src/src/components/RecentList.tsx": {
     "complexity": 1
   },
-  "ui-src/src/components/SettingsDialog.tsx": {
-    "max-lines-per-function": 1,
-    "complexity": 1
-  },
   "ui-src/src/components/TagsSettings.tsx": {
     "max-lines-per-function": 1
   },
@@ -76,8 +72,7 @@
     "complexity": 1
   },
   "ui-src/src/graph/KnowledgeGraph.tsx": {
-    "max-lines-per-function": 1,
-    "complexity": 1
+    "max-lines-per-function": 1
   },
   "ui-src/src/graph/PageBody.tsx": {
     "max-lines-per-function": 1
@@ -85,9 +80,6 @@
   "ui-src/src/graph/PageDialog.tsx": {
     "max-lines-per-function": 1,
     "complexity": 1
-  },
-  "ui-src/src/graph/PageDialogParts.tsx": {
-    "complexity": 3
   },
   "ui-src/src/graph/PageEditForm.tsx": {
     "max-lines-per-function": 1

@@ -1,7 +1,11 @@
 // Decisions of the knowledge graph view (KnowledgeGraph.tsx): the "/" shortcut, where focus goes
-// when the page window closes, what a key in the search box does, and the count line in the header.
+// when the page window closes, what a key in the search box does, the count line in the header and
+// the List's "narrowed by" line.
 // Pure (tests: graphViewModel.test.ts).
+import { narrowingParts, type GraphFilter } from './filters'
 import { plural } from './format'
+import type { GraphIndex } from './graphIndex'
+import { UNFILED_ID } from './model'
 import type { GroupBy } from './sourceView'
 
 type KeyLike = { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean }
@@ -86,6 +90,13 @@ export function toggleTagChoice(choice: ReadonlySet<string> | null, all: readonl
 export function areaWordOf(drawn: { tags: boolean; sources: boolean }): 'tag' | 'source' | 'topic' {
   if (drawn.tags) return 'tag'
   return drawn.sources ? 'source' : 'topic'
+}
+
+/** What narrows the List, in words (its "narrowed by" line): the filter and the search, topics and
+ *  pages by their names; an id the model no longer has is shown as it is. */
+export function listNarrowing(filter: GraphFilter, query: string, index: GraphIndex): string[] {
+  const topicName = (id: string) => (id === UNFILED_ID ? 'Unfiled' : index.topicById.get(id)?.name ?? id)
+  return narrowingParts(filter, query, topicName, (id) => index.pageById.get(id)?.title ?? id)
 }
 
 /** The read-only banner above the graph: the app's own sentence for the active vault's lease (who

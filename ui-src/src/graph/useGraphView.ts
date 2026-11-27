@@ -1,14 +1,15 @@
 // The knowledge graph's map layouts per grouping, the vault's map settings, which pages are shown
-// and the Tags grouping's choice. Used by KnowledgeGraph.tsx.
+// and the Tags grouping's choice, and the map's folded model with its ids. Used by KnowledgeGraph.tsx.
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { getSettings, saveSetting } from '../api'
 import type { VaultSettings } from '../model/vaultSettings'
 import { archivedHidden, emptyFilter, pruneFilter, visiblePageIds, type GraphFilter } from './filters'
 import { buildIndex, type GraphIndex } from './graphIndex'
 import type { Active, Filters } from './GraphStage'
-import { toggleTagChoice } from './graphViewModel'
+import { areaWordOf, toggleTagChoice } from './graphViewModel'
 import { layoutGraph } from './layout'
 import type { GraphModel } from './model'
+import { foldSeries, mapMatchIds, mapShownIds, onMapDot } from './seriesFold'
 import { bySource, type GroupBy } from './sourceView'
 import { availableTags, byTag } from './tagView'
 import { searchPages } from './view'
@@ -97,6 +98,29 @@ export function useMapLayouts(model: GraphModel, index: GraphIndex, aspect: numb
     return layoutGraph(m, { aspect }, buildIndex(m))
   }, [groupBy, model, aspect, tagChoice])
   return { layout, sourceLayout, tagLayout, mapLayout: tagLayout ?? sourceLayout ?? layout }
+}
+
+/**
+ * What the map draws: one dot per meeting series (seriesFold.ts, D-077) laid out by the chosen
+ * grouping. `layout` is the topic layout of the WHOLE model, for the List and the header's counts,
+ * which keep every meeting; `mapLayout` is the folded map's. `dotOf` is null when nothing is folded.
+ */
+export function useMapModel(model: GraphModel, index: GraphIndex, aspect: number, groupBy: GroupBy, tagChoice: ReadonlySet<string> | null) {
+  const fold = useMemo(() => foldSeries(model), [model])
+  const mapModel = fold.model
+  const mapIndex = useMemo(() => (mapModel === model ? index : buildIndex(mapModel)), [mapModel, model, index])
+  const { layout: mapTopicLayout, sourceLayout, tagLayout, mapLayout } = useMapLayouts(mapModel, mapIndex, aspect, groupBy, tagChoice)
+  const layout = useMemo(() => (mapModel === model ? mapTopicLayout : layoutGraph(model, { aspect }, index)), [mapModel, model, mapTopicLayout, aspect, index])
+  const dotOf = fold.dotOf.size ? fold.dotOf : null
+  return { mapModel, mapIndex, layout, mapLayout, areaWord: areaWordOf({ tags: !!tagLayout, sources: !!sourceLayout }), dotOf }
+}
+
+/** The visible pages, the search's matches and the focused page as dots of the folded map. */
+export function useMapIds(dotOf: Map<string, string> | null, v: { shown: Set<string>; allShown: boolean; matches: string[] | null; active: Active | null }) {
+  const { shown, allShown, matches } = v
+  const mapShown = useMemo(() => mapShownIds(shown, allShown, dotOf), [allShown, shown, dotOf])
+  const mapMatches = useMemo(() => mapMatchIds(matches, dotOf), [matches, dotOf])
+  return { shown: mapShown, matches: mapMatches, active: onMapDot(v.active, dotOf) }
 }
 
 /**

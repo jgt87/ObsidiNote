@@ -1,25 +1,20 @@
-// The parts of the page window (PageDialog.tsx): its header, the three tab panels and the footer.
-// Render only; the window holds the state.
+// The parts of the page window (PageDialog.tsx): its header and the three tab panels; the footer is
+// in PageDialogFooter.tsx. Render only; the window holds the state.
 import { BusyLabel } from '../components/BusyLabel'
 import { unavailable } from '../components/disabledGuard'
-import type { ReactNode } from 'react'
-import { WebLink } from '../components/WebLink'
 import { ExportButton } from '../export/ExportButton'
-import type { ExportRequest } from '../export/exportApi'
 import { summaryProblem, titleProblem, type PageEditRequest } from './editModel'
 import { InlineText } from './InlineText'
 import { PageBody, type PageBodyResult } from './PageBody'
 import { plural } from './format'
 import { indexPath, type GraphIndex } from './graphIndex'
-import { primaryTopic, type GraphEdge, type GraphPage } from './model'
-import { openButtons, pageMetaLine, tabLabel, twoStepsAway, DIALOG_TABS, type DialogTab } from './pageDialogModel'
-import type { RetireAction } from './retireModel'
+import { primaryTopic, type GraphEdge, type GraphPage, type GraphTopic } from './model'
+import { pageMetaLine, tabLabel, twoStepsAway, DIALOG_TABS, type DialogTab } from './pageDialogModel'
+import type { ExportSource } from './PageDialogFooter'
 import { tagCounts } from './tags'
 import { TagsRow } from './TagsRow'
 import { Icon } from '../components/icons'
 
-/** Which source an export reads (export/exportApi.ts exportSourceOf). */
-type ExportSource = Pick<ExportRequest, 'vault' | 'notebook'>
 
 export function Bars({ s }: { s: number }) {
   return (
@@ -169,13 +164,7 @@ export function PageTab({ index, page, nav, inPlace, out, back, mentions, readOn
     <div className="kg-cols">
       <div>
         <p className="kg-lbl">Summary</p>
-        <p className="kg-summary">
-          {inPlace ? (
-            <InlineText key={page.id} value={page.summary} name="summary" empty="No summary yet." multiline problem={summaryProblem} onSave={(summary) => inPlace({ id: page.id, summary })} />
-          ) : (
-            page.summary || 'No summary yet.'
-          )}
-        </p>
+        <SummaryText page={page} inPlace={inPlace} />
         <p className="kg-lbl">Tags</p>
         <TagsRow
           key={page.id}
@@ -186,42 +175,81 @@ export function PageTab({ index, page, nav, inPlace, out, back, mentions, readOn
           onPick={onPickTag}
         />
         <p className="kg-lbl">Page content</p>
-        {loadBody ? (
-          <PageBody pageId={page.id} load={loadBody} hasPage={(id) => index.pageById.has(id)} onOpenPage={nav.go} />
-        ) : (
-          <p className="kg-note">The page text stays in OneNote: open it there to read or edit it, or export a copy as Markdown.</p>
-        )}
-        {page.topicIds.length > 1 && (
-          <>
-            <p className="kg-lbl">Also under</p>
-            <ul className="kg-rows">
-              {page.topicIds.slice(1).map((id) => (
-                <li key={id} className="kg-row__none">
-                  {indexPath(index, id)}
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
+        <PageContent index={index} page={page} nav={nav} loadBody={loadBody} />
+        <AlsoUnder index={index} page={page} />
       </div>
       <div>
         <p className="kg-lbl">Links out</p>
-        <ul className="kg-rows">{out.length ? out.map((e) => <LinkRow key={`${e.from}>${e.to}`} nav={nav} e={e} other={e.to} />) : <None text="No links out yet." />}</ul>
+        <LinkList nav={nav} edges={out} other="to" none="No links out yet." />
         <p className="kg-lbl">Linked from</p>
-        <ul className="kg-rows">{back.length ? back.map((e) => <LinkRow key={`${e.from}>${e.to}`} nav={nav} e={e} other={e.from} />) : <None text="Nothing links here yet." />}</ul>
+        <LinkList nav={nav} edges={back} other="from" none="Nothing links here yet." />
         <p className="kg-lbl">Mentions, not linked</p>
-        <ul className="kg-rows">
-          {mentions.length
-            ? mentions.map((e) => <MentionRow key={`${e.from}>${e.to}`} index={index} page={page} nav={nav} e={e} readOnly={readOnly} onLinkMention={onLinkMention} linking={linking} setLinking={setLinking} />)
-            : <None text="No unlinked mentions." />}
-        </ul>
-        {linking?.error && linking.pageId === page.id && (
-          <p className="kg-link-error" role="alert">
-            {linking.error}
-          </p>
-        )}
+        <MentionList index={index} page={page} nav={nav} mentions={mentions} readOnly={readOnly} onLinkMention={onLinkMention} linking={linking} setLinking={setLinking} />
       </div>
     </div>
+  )
+}
+
+/** The summary: changed where it stands when it can be, else the text (or that there is none). */
+function SummaryText({ page, inPlace }: Pick<PageTabProps, 'page' | 'inPlace'>) {
+  return (
+    <p className="kg-summary">
+      {inPlace ? (
+        <InlineText key={page.id} value={page.summary} name="summary" empty="No summary yet." multiline problem={summaryProblem} onSave={(summary) => inPlace({ id: page.id, summary })} />
+      ) : (
+        page.summary || 'No summary yet.'
+      )}
+    </p>
+  )
+}
+
+/** The page's own text when it can be read here, else where it is. */
+function PageContent({ index, page, nav, loadBody }: Pick<PageTabProps, 'index' | 'page' | 'nav' | 'loadBody'>) {
+  return loadBody ? (
+    <PageBody pageId={page.id} load={loadBody} hasPage={(id) => index.pageById.has(id)} onOpenPage={nav.go} />
+  ) : (
+    <p className="kg-note">The page text stays in OneNote: open it there to read or edit it, or export a copy as Markdown.</p>
+  )
+}
+
+/** The page's other topics, after its first; nothing for a page under one topic. */
+function AlsoUnder({ index, page }: Pick<PageTabProps, 'index' | 'page'>) {
+  if (page.topicIds.length <= 1) return null
+  return (
+    <>
+      <p className="kg-lbl">Also under</p>
+      <ul className="kg-rows">
+        {page.topicIds.slice(1).map((id) => (
+          <li key={id} className="kg-row__none">
+            {indexPath(index, id)}
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
+/** Links of the page, one row each, named by the page at their `other` end; `none` when there are none. */
+function LinkList({ nav, edges, other, none }: { nav: RowNav; edges: GraphEdge[]; other: 'to' | 'from'; none: string }) {
+  return <ul className="kg-rows">{edges.length ? edges.map((e) => <LinkRow key={`${e.from}>${e.to}`} nav={nav} e={e} other={e[other]} />) : <None text={none} />}</ul>
+}
+
+/** Mentions that are not links yet, each with "link it", and why the last "link it" failed. */
+function MentionList({ mentions, ...row }: Pick<PageTabProps, 'index' | 'page' | 'nav' | 'mentions' | 'readOnly' | 'onLinkMention' | 'linking' | 'setLinking'>) {
+  const { page, linking } = row
+  return (
+    <>
+      <ul className="kg-rows">
+        {mentions.length
+          ? mentions.map((e) => <MentionRow key={`${e.from}>${e.to}`} {...row} e={e} />)
+          : <None text="No unlinked mentions." />}
+      </ul>
+      {linking?.error && linking.pageId === page.id && (
+        <p className="kg-link-error" role="alert">
+          {linking.error}
+        </p>
+      )}
+    </>
   )
 }
 
@@ -259,42 +287,63 @@ export function TopicTab({ index, page, nav, src }: { index: GraphIndex; page: G
   return (
     <div className="kg-cols">
       <div>
-        <p className="kg-lbl">Topic</p>
-        <p className="kg-summary">{topic ? topic.path : 'Unfiled: pages without a topic yet'}</p>
-        {topic?.subjects && <p className="kg-row__sub">{topic.subjects}</p>}
-        {topic && (
-          <p className="kg-dlg__export">
-            <ExportButton request={{ scope: 'topic', topic: topic.id, ...src }} label="Export topic as Markdown" />
-          </p>
-        )}
-        {subtopics.length > 0 && (
-          <>
-            <p className="kg-lbl">Subtopics</p>
-            <ul className="kg-rows">
-              {subtopics.map((t) => (
-                <li key={t.id} className="kg-row__none">
-                  {t.name} · {plural(t.pageCount, 'page')}
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
+        <TopicAbout topic={topic} src={src} />
+        <SubtopicList subtopics={subtopics} />
       </div>
       <div>
         <p className="kg-lbl">Other pages in {topic?.name ?? 'Unfiled'}</p>
-        <ul className="kg-rows">
-          {topicPages.length
-            ? topicPages.slice(0, 60).map((id) => (
-                <li key={id} className="kg-row">
-                  <div className="kg-row__sub">{index.pageById.get(id)!.links}</div>
-                  <RowMain nav={nav} id={id} />
-                </li>
-              ))
-            : <None text="No other pages here." />}
-          {topicPages.length > 60 && <None text={`and ${topicPages.length - 60} more (List view shows all)`} />}
-        </ul>
+        <TopicPages index={index} nav={nav} ids={topicPages} />
       </div>
     </div>
+  )
+}
+
+/** The topic's path and subjects, and its export; for a page without a topic, that it is Unfiled. */
+function TopicAbout({ topic, src }: { topic: GraphTopic | undefined; src: ExportSource }) {
+  return (
+    <>
+      <p className="kg-lbl">Topic</p>
+      <p className="kg-summary">{topic ? topic.path : 'Unfiled: pages without a topic yet'}</p>
+      {topic?.subjects && <p className="kg-row__sub">{topic.subjects}</p>}
+      {topic && (
+        <p className="kg-dlg__export">
+          <ExportButton request={{ scope: 'topic', topic: topic.id, ...src }} label="Export topic as Markdown" />
+        </p>
+      )}
+    </>
+  )
+}
+
+function SubtopicList({ subtopics }: { subtopics: GraphTopic[] }) {
+  if (!subtopics.length) return null
+  return (
+    <>
+      <p className="kg-lbl">Subtopics</p>
+      <ul className="kg-rows">
+        {subtopics.map((t) => (
+          <li key={t.id} className="kg-row__none">
+            {t.name} · {plural(t.pageCount, 'page')}
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
+/** The topic's other pages, the first 60, then how many more the List shows. */
+function TopicPages({ index, nav, ids }: { index: GraphIndex; nav: RowNav; ids: string[] }) {
+  return (
+    <ul className="kg-rows">
+      {ids.length
+        ? ids.slice(0, 60).map((id) => (
+            <li key={id} className="kg-row">
+              <div className="kg-row__sub">{index.pageById.get(id)!.links}</div>
+              <RowMain nav={nav} id={id} />
+            </li>
+          ))
+        : <None text="No other pages here." />}
+      {ids.length > 60 && <None text={`and ${ids.length - 60} more (List view shows all)`} />}
+    </ul>
   )
 }
 
@@ -321,102 +370,5 @@ export function NeighbourhoodTab({ index, page, nav }: { index: GraphIndex; page
   )
 }
 
-export interface DialogFooterProps {
-  page: GraphPage
-  editing: boolean
-  readOnly: boolean
-  why: string
-  src: ExportSource
-  onAsk?: (page: GraphPage, within?: { series: string; count: number }) => void
-  /** How many meetings the page's series has (0: not a meeting of a series). */
-  seriesCount?: number
-  /** Edit is offered (the active vault's page with an edit action). */
-  canEdit: boolean
-  onToggleEdit: () => void
-  onRetirePages?: (action: RetireAction, ids: string[]) => void
-  /** "Merge duplicates" of the series (a series page only, with `copies` second copies of meetings). */
-  onMergePages?: (series: string) => void
-  copies?: number
-  onFocusPage?: () => void
-  /** The keys line: "Esc closes" and what the arrows do here. */
-  keys: ReactNode
-}
-
-export function DialogFooter({ page, editing, readOnly, why, src, onAsk, seriesCount = 0, canEdit, onToggleEdit, onRetirePages, onMergePages, copies = 0, onFocusPage, keys }: DialogFooterProps) {
-  const open = openButtons(page, editing)
-  return (
-    <footer className="kg-dlg__foot">
-      {/* A link page opens its own address first; OneNote is the second choice (D-005). */}
-      {/* design: one primary per view. While the Edit form is open its Save is the primary, so the
-          footer's goes quiet. */}
-      {open.link && (
-        <WebLink className={open.link.primary ? 'btn btn--primary' : 'btn'} href={open.link.href} title={open.link.href}>
-          Open link
-        </WebLink>
-      )}
-      {open.onenote &&
-        (open.onenote.href ? (
-          <a className={open.onenote.primary ? 'btn btn--primary' : 'btn'} href={open.onenote.href}>
-            Open in OneNote
-          </a>
-        ) : (
-          <button type="button" className={open.onenote.primary ? 'btn btn--primary' : 'btn'} aria-disabled="true" title="This page has no OneNote link">
-            Open in OneNote
-          </button>
-        ))}
-      <button type="button" className="btn" onClick={() => onAsk?.(page)} {...unavailable(!onAsk)}>
-        Ask about this
-      </button>
-      {onAsk && page.series && seriesCount > 1 && (
-        <button type="button" className="btn" onClick={() => onAsk(page, { series: page.series ?? '', count: seriesCount })}>
-          Ask about this series
-        </button>
-      )}
-      {/* The series page offers it only when a meeting of the series has a second copy (2026-11-19). */}
-      {onMergePages && !readOnly && page.series && copies > 0 && (
-        <button type="button" className="btn" onClick={() => onMergePages(page.series ?? '')}>
-          Merge duplicates ({copies})
-        </button>
-      )}
-      {readOnly && (
-        // Shown, not hidden: a missing button gave no hint that pages can be edited at all, or why
-        // not here. Focusable, so the reason is reachable by keyboard; it does nothing.
-        <button type="button" className="btn" aria-disabled="true" aria-describedby="kg-dlg-why" title={why}>
-          Edit
-        </button>
-      )}
-      {canEdit && (
-        <button type="button" className="btn" aria-pressed={editing} onClick={onToggleEdit}>
-          Edit
-        </button>
-      )}
-      {/* Archive is the default way out of sight and can be undone; Delete asks too
-          (FEASIBILITY.md "Archive and delete"). */}
-      {onRetirePages && !readOnly && (
-        <button type="button" className="btn" onClick={() => onRetirePages(page.archived ? 'restore' : 'archive', [page.id])}>
-          {page.archived ? 'Restore' : 'Archive'}
-        </button>
-      )}
-      {onRetirePages && !readOnly && (
-        <button type="button" className="btn btn--danger" onClick={() => onRetirePages('delete', [page.id])}>
-          Delete
-        </button>
-      )}
-      {/* The two that leave the page (a file, the map) sit apart at the right, quiet. */}
-      <span className="kg-dlg__side">
-        <ExportButton request={{ scope: 'page', page: page.id, ...src }} label="Export as Markdown" className="btn btn--ghost" />
-        {onFocusPage && (
-          <button type="button" className="btn btn--ghost" title="Show only this page and its linked pages" onClick={onFocusPage}>
-            Focus on this page
-          </button>
-        )}
-      </span>
-      {readOnly && (
-        <span id="kg-dlg-why" className="kg-dlg__why">
-          {why}
-        </span>
-      )}
-      {keys}
-    </footer>
-  )
-}
+// The footer has its own file; its names stay importable from here.
+export { DialogFooter, type DialogFooterProps } from './PageDialogFooter'

@@ -35,11 +35,16 @@
 // graph demo. Usage (ui-src): npx vite --port 5193 --strictPort   (separately), then
 //   node scripts/check-design-rules.mjs [http://localhost:5193] [cdp port 9559]
 // Exit 1 names the view and the rule. Writes nothing.
+// The pure parts (the stub API's answers, the verdicts over measured values, the Ask fixture) are
+// exported and imported by src/testing/checkDesignRules.test.ts; Edge starts and the rules run only
+// when this file is the program, so importing it starts nothing.
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { startEdge, stopEdge } from './headlessEdge.mjs'
 
 const BASE = process.argv[2] || 'http://localhost:5193'
 const PORT = Number(process.argv[3] || 9559)
-const browser = startEdge(PORT, 'obsn-design-')
+let browser = null
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // ---------- invented data for the app's API ----------
@@ -57,7 +62,7 @@ const added = { intent: 'add', status: 'added', kind: 'link', message: 'Added.',
   chips: [{ kind: 'type', label: 'Internal link' }], links: [{ target: 'p3', title: 'Zero trust overview', link: 'onenote:x', anchor: 'zero trust', strength: 3, why: 'Applies the model.' }],
   backlinks: 1, related: [], dropped: [], warnings: [], timings: { totalMs: 48200 }, undo: { id: 'u1', pageId: 'p900', targets: ['p3'] }, inbox: { pageId: 'i9', status: 'filed' }, update: null, confirm: null }
 let submitAnswer = added
-function answer(path) {
+export function answer(path) {
   switch (path) {
     case '/api/status': return { app: 'ObsidiNote', version: 'v0.0.0', uiPort: 8767, oneNote: { state: 'window', running: true, notebookOpen: true, notebook: 'Work wiki' }, copilot: { state: 'connected', port: 9334 }, ...(vaultStatus ? { vault: vaultStatus } : {}) }
     case '/api/notebooks': return { notebooks: [notebook], message: '', activeVaultId: VAULT, mode: 'writer' }
@@ -347,7 +352,7 @@ const PAGE_BODY = `JSON.stringify((() => { const b = document.querySelector('dia
 
 /** The demo page's text as it should show: its headings, lists and table, one link to another page,
  *  only http(s)/mailto/onenote addresses, no live HTML, and no sideways scroll. */
-function bodyShownRight(body) {
+export function bodyShownRight(body) {
   if (!body.shown || !body.table || body.html || body.scroll) return false
   const addressesSafe = body.web.every((h) => /^(https?:|mailto:|onenote:)/.test(h))
   return body.headings >= 3 && body.lists >= 3 && body.pageLinks === 1 && addressesSafe
@@ -366,7 +371,7 @@ async function pageTextShown({ js, list, go, openDot, expect }) {
 }
 
 /** A failed read: an error box (role alert) that says so, with one retry; the page's links stay. */
-const readFailedRight = (err) => /could not be read/.test(err.text) && err.role === 'alert' && err.retry.length === 1 && err.links > 0
+export const readFailedRight = (err) => /could not be read/.test(err.text) && err.role === 'alert' && err.retry.length === 1 && err.links > 0
 
 async function pageTextFails({ list, go, openDot, expect }) {
   await go('/graph-demo.html?pages=100&body=fail', '.kg-dot')
@@ -430,7 +435,7 @@ async function fieldEdges({ S, js, list, go, openDot, expect }) {
 
 /** An answered Ask from the stub graph: sentence 1 cites a page of the vault (no address), sentence 2
  *  a link page (https://example.com/guide). Returns the answer and the vault page cited. */
-function askAnswerFixture(pages) {
+export function askAnswerFixture(pages) {
   const target = pages.find((p) => !p.url && p.id) ?? pages[0]
   const linkPage = pages.find((p) => p.id !== target.id) ?? pages[1]
   const source = (n, p, url = '') => ({ n, id: p.id, key: p.id, title: p.title, path: 'Security', link: 'onenote:#example', url, updated: '', age: 'today', type: 'note', archived: false, sourceId: 'v1', sourceName: 'Work wiki', readOnly: false, stale: false, summarizedAge: '' })
@@ -450,10 +455,10 @@ async function waitForValue(js, expr, tries) {
 }
 
 /** The box's controls (mode switch, paperclip "Add a file", Send) on one line: centres within 2 px. */
-const composerRowRight = (row) => row.n === 3 && row.spread <= 2 && row.clip === 'Add a file'
+export const composerRowRight = (row) => row.n === 3 && row.spread <= 2 && row.clip === 'Add a file'
 
 /** Ask's citations: a button for the vault page, the address for the link page. */
-const citationsRight = (cites) => cites.length === 2 && cites[0].tag === 'BUTTON' && cites[1].href === 'https://example.com/guide'
+export const citationsRight = (cites) => cites.length === 2 && cites[0].tag === 'BUTTON' && cites[1].href === 'https://example.com/guide'
 
 // The answer cited (set by composerRow, used by askCitations; they run one after the other).
 let askTarget = null
@@ -654,7 +659,7 @@ async function searchHidesNothing({ S, js, list, size, go, expect }) {
   }
 }
 
-const RULES = [
+export const RULES = [
   loadStubGraph, noDotUnderNames, hubsOnlyLabels, zoomNeverStretched, searchClearButton, tagsSetEverywhere, tagsGrouping,
   titleInPlace, pageTextShown, pageTextFails, pageTextLong, readOnlyPage, readOnlyBanner, fieldEdges, composerRow, askCitations,
   onePrimaryPerView, sectionRows, journalView,
@@ -669,7 +674,10 @@ async function main() {
   if (problems.length) { console.error('Design rules broken:\n' + problems.join('\n')); process.exitCode = 1 }
   else console.log(`OK: ${checks} rendered design checks (One Primary Per View, Touch 44, Weight Is Relevance, Every Dot Is Content, Errors Read As Errors; no page scroll on the graph, Add box on the first screen, section rows open their pages).`)
 }
-main().catch((e) => { console.error(e); process.exitCode = 1 }).finally(async () => {
-  try { ws?.close() } catch {} // already closed: nothing to do
-  await stopEdge(browser)
-})
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  browser = startEdge(PORT, 'obsn-design-')
+  main().catch((e) => { console.error(e); process.exitCode = 1 }).finally(async () => {
+    try { ws?.close() } catch {} // already closed: nothing to do
+    await stopEdge(browser)
+  })
+}

@@ -4,17 +4,16 @@
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { FilterButton, FilterSummary } from './FilterPanel'
 import { buildIndex } from './graphIndex'
-import { layoutGraph } from './layout'
-import { foldIds, foldSeries } from './seriesFold'
 import { GraphHeading, GraphTools, SourceBanner, TagBar } from './GraphHeader'
 import { GraphList } from './GraphList'
+import { GraphPageWindow } from './GraphPageWindow'
 import { GraphStage, type Active } from './GraphStage'
-import { areaCount, areaWordOf } from './graphViewModel'
-import { emptyFilter, narrowingParts } from './filters'
-import { UNFILED_ID, type GraphModel } from './model'
-import { PageDialog, type PageActions } from './PageDialog'
+import { areaCount, listNarrowing } from './graphViewModel'
+import { emptyFilter } from './filters'
+import type { GraphModel } from './model'
+import type { PageActions } from './PageDialog'
 import { useFindRequest, useGraphSearch, usePageDialog, usePageRetire, useSearchKeys } from './useGraphInteraction'
-import { useGraphFilter, useMapChoices, useMapLayouts, useTagGrouping, useVisiblePages } from './useGraphView'
+import { useGraphFilter, useMapChoices, useMapIds, useMapModel, useTagGrouping, useVisiblePages } from './useGraphView'
 import { SearchFilters } from '../search/SearchFilters'
 import type { FindRequest } from '../search/switcherModel'
 import { useMergeFlow } from './useMergeFlow'
@@ -75,11 +74,8 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   const tags = useTagGrouping(model)
   // One dot per meeting series on the map (seriesFold.ts); the List, the search and the page window
   // keep the whole model.
-  const fold = useMemo(() => foldSeries(model), [model])
-  const mapModel = fold.model
-  const mapIndex = useMemo(() => (mapModel === model ? index : buildIndex(mapModel)), [mapModel, model, index])
-  const { layout: mapTopicLayout, sourceLayout, tagLayout, mapLayout } = useMapLayouts(mapModel, mapIndex, aspect, groupBy, tags.tagChoice)
-  const layout = useMemo(() => (mapModel === model ? mapTopicLayout : layoutGraph(model, { aspect }, index)), [mapModel, model, mapTopicLayout, aspect, index])
+  const map = useMapModel(model, index, aspect, groupBy, tags.tagChoice)
+  const { layout, mapLayout } = map
 
   // The page window, the search box and its keys, and a quick-switcher request (useGraphInteraction.ts).
   const page = usePageDialog(stageRef, mode, setActive)
@@ -87,10 +83,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
   const { liveFilter, shown, allShown, hiddenArchived, matches, listMatches } = useVisiblePages(index, filter, search.query, focus)
   const { onStageActive, onSearchKey } = useSearchKeys({ ...search, matches, active, setActive, open: page.open })
   // The map's view of the visible pages, the matches and the active page: a folded meeting is its series' dot.
-  const dotOf = fold.dotOf.size ? fold.dotOf : null
-  const mapShown = useMemo(() => (allShown ? null : dotOf ? new Set(foldIds(shown, dotOf)) : shown), [allShown, shown, dotOf])
-  const mapMatches = useMemo(() => (matches && dotOf ? foldIds(matches, dotOf) : matches), [matches, dotOf])
-  const mapActive = active && dotOf?.has(active.id) ? { ...active, id: dotOf.get(active.id)! } : active
+  const onMap = useMapIds(map.dotOf, { shown, allShown, matches, active })
   useFindRequest(request, model, { index, onQuery: search.onQuery, showList: () => setMode('list'), setActive, openRequested: page.openRequested, onRequestDone })
 
   // A tag picked in the page window or the List: the Tags grouping with that tag alone.
@@ -128,7 +121,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
       <SourceBanner source={model.source} appNote={readOnlyNote} checkResult={checkResult} onCheckAgain={onCheckAgain} />
       <SearchFilters query={search.query} onQuery={search.onQuery} />
       {mode === 'graph' && groupBy === 'tags' && (
-        <TagBar tags={tags.groupTags} choice={tags.tagChoice} onToggle={tags.toggleTag} onAll={() => tags.setTagChoice(null)} shownPages={mapLayout.dots.length} allPages={mapModel.pages.length} />
+        <TagBar tags={tags.groupTags} choice={tags.tagChoice} onToggle={tags.toggleTag} onAll={() => tags.setTagChoice(null)} shownPages={mapLayout.dots.length} allPages={map.mapModel.pages.length} />
       )}
 
       <FilterSummary index={index} filter={liveFilter} onChange={setFilter} shown={shown.size} />
@@ -137,13 +130,13 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
 
       {mode === 'graph' ? (
         <GraphStage
-          index={mapIndex}
+          index={map.mapIndex}
           layout={mapLayout}
-          areaWord={areaWordOf({ tags: !!tagLayout, sources: !!sourceLayout })}
+          areaWord={map.areaWord}
           filters={filters}
-          shown={mapShown}
-          matches={mapMatches}
-          active={mapActive}
+          shown={onMap.shown}
+          matches={onMap.matches}
+          active={onMap.active}
           onActive={onStageActive}
           onOpen={page.open}
           onFocusPage={focusOn}
@@ -159,7 +152,7 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
           onPickTag={showTag}
           onRetirePages={retirePages}
           onUpdateLink={actions.onUpdateLink}
-          narrowedBy={narrowingParts(liveFilter, search.query, (id) => (id === UNFILED_ID ? 'Unfiled' : index.topicById.get(id)?.name ?? id), (id) => index.pageById.get(id)?.title ?? id)}
+          narrowedBy={listNarrowing(liveFilter, search.query, index)}
           onClearFilters={() => {
             setFilter(emptyFilter())
             search.onQuery('')
@@ -167,30 +160,22 @@ export function KnowledgeGraph({ model, title = 'Knowledge graph', initialMode =
         />
       )}
 
-      {dialog && (
-        <PageDialog
-          key="dialog"
-          index={index}
-          pageId={dialog.pageId}
-          anchorId={dialog.anchorId}
-          onNavigate={page.navigate}
-          onClose={page.close}
-          onFocusPage={focusOn}
-          onPickTag={(t) => {
-            page.close()
-            showTag(t)
-          }}
-          {...actions}
-          onRetirePages={retirePages}
-          onMergePages={actions.onMergeSeries ? (s) => void merge.start(s) : undefined}
-          notice={
-            <>
-              {retire.notice}
-              {merge.notice}
-            </>
-          }
-        />
-      )}
+      <GraphPageWindow
+        index={index}
+        dialog={dialog}
+        page={page}
+        onFocusPage={focusOn}
+        onPickTag={showTag}
+        {...actions}
+        onRetirePages={retirePages}
+        onMerge={merge.start}
+        notice={
+          <>
+            {retire.notice}
+            {merge.notice}
+          </>
+        }
+      />
       {retire.dialog}
       {merge.dialog}
     </div>
