@@ -5,7 +5,7 @@
 import { useRef, useState } from 'react'
 import { ApiError, submit } from '../api'
 import { getMeetingNotes, getMeetingsOfDay } from './api'
-import { defaultPicks, rowStateFromAdd, todayRequest, type Meeting, type MeetingsRequest, type RowState } from './meetingsModel'
+import { defaultPicks, listOutcome, rowStateFromAdd, todayRequest, type Meeting, type MeetingsRequest, type RowState } from './meetingsModel'
 
 export interface FailedDay {
   day: string
@@ -19,7 +19,22 @@ type Phase =
   | { kind: 'list'; req: MeetingsRequest; meetings: Meeting[]; failed: FailedDay[] }
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
-const byDay = (a: Meeting, b: Meeting) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0)
+// No Copilot (503) or no server: the other days would fail the same way.
+const stopsOtherDays = (e: unknown) => e instanceof ApiError && (e.status === 503 || e.status === 0)
+
+/** Asks days[i] and adds its meetings to found, or the day to failed. A failure that every later day
+ *  would share fails those days too and answers false: ask no further. */
+async function askDay(days: string[], i: number, series: string, found: Meeting[], failed: FailedDay[]): Promise<boolean> {
+  try {
+    found.push(...(await getMeetingsOfDay(days[i], series)).meetings)
+    return true
+  } catch (e) {
+    failed.push({ day: days[i], message: errorText(e) })
+    if (!stopsOtherDays(e)) return true
+    for (const d of days.slice(i + 1)) failed.push({ day: d, message: errorText(e) })
+    return false
+  }
+}
 
 export function useMeetings(onAdded: () => void) {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
@@ -41,24 +56,12 @@ export function useMeetings(onAdded: () => void) {
     for (let i = 0; i < days.length; i++) {
       if (run !== fetchRun.current) return
       setPhase({ kind: 'loading', req, day: days[i], done: i, total: days.length })
-      try {
-        found.push(...(await getMeetingsOfDay(days[i], req.series)).meetings)
-      } catch (e) {
-        failed.push({ day: days[i], message: errorText(e) })
-        // No Copilot (503) or no server: the other days would fail the same way.
-        if (e instanceof ApiError && (e.status === 503 || e.status === 0)) {
-          for (const d of days.slice(i + 1)) failed.push({ day: d, message: errorText(e) })
-          break
-        }
-      }
+      if (!(await askDay(days, i, req.series, found, failed))) break
     }
     if (run !== fetchRun.current) return
-    const meetings = [...keep, ...found].sort(byDay)
-    if (!meetings.length && failed.length === days.length && !keep.length) {
-      setPhase({ kind: 'error', req, message: failed[0].message })
-      return
-    }
-    setPhase({ kind: 'list', req, meetings, failed })
+    const out = listOutcome(keep, found, failed, days.length)
+    if (out.kind === 'error') return setPhase({ kind: 'error', req, message: out.message })
+    setPhase({ kind: 'list', req, meetings: out.meetings, failed })
     setPicks((p) => new Set([...(keep.length ? p : []), ...defaultPicks(found)]))
   }
 

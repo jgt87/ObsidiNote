@@ -1,6 +1,6 @@
 import { BusyLabel } from '../components/BusyLabel'
 import { unavailable } from '../components/disabledGuard'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import {
   addLabel,
   emptyText,
@@ -17,7 +17,7 @@ import {
   type MeetingsRequest,
   type RowState,
 } from './meetingsModel'
-import { useMeetings } from './useMeetings'
+import { useMeetings, type FailedDay } from './useMeetings'
 import './meetings.css'
 
 /** "Today's meetings" on the home page (D-064): Copilot lists today's Teams meetings,
@@ -72,26 +72,16 @@ export function MeetingsPanel({ onAdded, request }: { onAdded: () => void; reque
   )
 }
 
-function MeetingList({ req, meetings, failed, m }: { req: MeetingsRequest; meetings: Meeting[]; failed: { day: string; message: string }[]; m: ReturnType<typeof useMeetings> }) {
+type Meetings = ReturnType<typeof useMeetings>
+
+function MeetingList({ req, meetings, failed, m }: { req: MeetingsRequest; meetings: Meeting[]; failed: FailedDay[]; m: Meetings }) {
   const failedLine = failedDaysText(failed)
   const retry = failed.length ? (
     <button type="button" className="btn btn--ghost" {...unavailable(m.running)} onClick={m.retryFailed}>
       {failed.length === 1 ? 'Try that day again' : `Try those ${failed.length} days again`}
     </button>
   ) : null
-  if (!meetings.length) {
-    return (
-      <div className="mt__bar">
-        <p className="mt__text">{failedLine || emptyText(req)}</p>
-        {retry}
-        <button type="button" className="btn" onClick={() => void m.again()}>
-          Fetch again
-        </button>
-      </div>
-    )
-  }
-  const states = Object.values(m.rows)
-  const summary = m.running ? '' : runSummary(states)
+  if (!meetings.length) return <NoMeetings text={failedLine || emptyText(req)} retry={retry} m={m} />
   // Several days: one sub-heading per day, so a week of a daily meeting reads as five rows by date.
   const groups = req.days.length > 1 ? groupByDay(meetings) : [{ day: '', meetings }]
   return (
@@ -106,21 +96,42 @@ function MeetingList({ req, meetings, failed, m }: { req: MeetingsRequest; meeti
           </ul>
         </div>
       ))}
-      <div className="mt__bar mt__foot">
-        <button type="button" className="btn" {...unavailable(m.running || !m.picks.size)} aria-busy={m.running} onClick={() => void m.addPicked()}>
-          <BusyLabel label={addLabel(m.picks.size)} busyText="Adding…" />
-        </button>
-        <button type="button" className="btn btn--ghost" {...unavailable(m.running)} onClick={() => void m.again()}>
-          Fetch again
-        </button>
-        {retry}
-        {(summary || failedLine) && (
-          <p className="mt__text" role="status">
-            {[summary, failedLine].filter(Boolean).join(' ')}
-          </p>
-        )}
-      </div>
+      <ListFoot failedLine={failedLine} retry={retry} m={m} />
     </>
+  )
+}
+
+/** A list without meetings: why, and the ways to ask again. */
+function NoMeetings({ text, retry, m }: { text: string; retry: ReactNode; m: Meetings }) {
+  return (
+    <div className="mt__bar">
+      <p className="mt__text">{text}</p>
+      {retry}
+      <button type="button" className="btn" onClick={() => void m.again()}>
+        Fetch again
+      </button>
+    </div>
+  )
+}
+
+/** Under the list: Add the ticked meetings, fetch again, and what the last run did. */
+function ListFoot({ failedLine, retry, m }: { failedLine: string; retry: ReactNode; m: Meetings }) {
+  const summary = m.running ? '' : runSummary(Object.values(m.rows))
+  return (
+    <div className="mt__bar mt__foot">
+      <button type="button" className="btn" {...unavailable(m.running || !m.picks.size)} aria-busy={m.running} onClick={() => void m.addPicked()}>
+        <BusyLabel label={addLabel(m.picks.size)} busyText="Adding…" />
+      </button>
+      <button type="button" className="btn btn--ghost" {...unavailable(m.running)} onClick={() => void m.again()}>
+        Fetch again
+      </button>
+      {retry}
+      {(summary || failedLine) && (
+        <p className="mt__text" role="status">
+          {[summary, failedLine].filter(Boolean).join(' ')}
+        </p>
+      )}
+    </div>
   )
 }
 

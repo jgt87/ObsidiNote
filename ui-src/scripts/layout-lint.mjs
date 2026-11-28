@@ -1,6 +1,6 @@
 // The shared rendered layout lint (scripts/shared/check-design-rules.mjs, a copy of CommonShared's
-// templates/scripts/check-design-rules.mjs, with probe-scan.mjs, the module it imports: refresh
-// both from there, never edit them here) run on this
+// templates/scripts/check-design-rules.mjs, with probe-scan.mjs and api-stubs.mjs, the modules it
+// imports: refresh all three from there, never edit them here) run on this
 // app with invented data. It checks what this project's own check-design-rules.mjs does not: text
 // under 10/11px, text touching or spilling out of its box, sideways scroll, fields under 16px on
 // touch, text hidden under reduced motion, 44px reach on touch, one primary per view, and lists the

@@ -445,8 +445,12 @@ function isDecision(c, i) {
   if (!DECISION.has(t)) return false;
   return !isIdent(t) || (prev !== '.' && prev !== '?.' && next !== ':');
 }
-// max-lines-per-function skips an IIFE: (function () { ... })() and (() => { ... })().
-const isIIFE = (c, sp) => tok(c, sp.start - 1) === '(' && c.m[sp.start - 1] === sp.end + 1 && tok(c, sp.end + 2) === '(';
+// max-lines-per-function skips an IIFE: (function () { ... })() and (() => { ... })(), and the form
+// with the call inside the parentheses, (function () { ... }()), which a classic-script dashboard
+// wraps its whole file in (read as one 190-line function; a TV app audit, 26 Nov 2026).
+const isIIFE = (c, sp) => tok(c, sp.start - 1) === '(' && (
+  (c.m[sp.start - 1] === sp.end + 1 && tok(c, sp.end + 2) === '(')
+  || (tok(c, sp.end + 1) === '(' && c.m[sp.start - 1] === c.m[sp.end + 1] + 1));
 function codeLines(code, from, to) {
   let n = 0;
   for (let l = from; l <= to; l++) if (code.has(l)) n++;

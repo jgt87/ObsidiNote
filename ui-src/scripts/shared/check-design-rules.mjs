@@ -18,6 +18,12 @@
 //                    rest: it does not read as a place to type (rules/ui.md, WCAG 1.4.11)
 //   motion-hides     text that is visible normally and hidden under reduced motion
 //   zoom-reflow      the page scrolls sideways at 200 % zoom (a window half the first desktop size)
+//   first-line       a centred flex row (align-items: center) beside a text that wraps: a short text
+//                    in it (a mark, a status word, a button's word) sits more than 4px off the wrapped
+//                    text's first line. A row whose text can wrap aligns to its first line
+//                    (align-items: flex-start, one-line parts in a box of the first line's height);
+//                    when only icons or avatars are off it is listed for a person instead (a list row
+//                    may centre an avatar on purpose). A title over a subtitle is a stack, not checked.
 // For a person to judge (listed, never failing unless --strict):
 //   tight-inset      text 4 to 8px from its box's edge (the rule's minimum is 8, 12 preferred)
 //   card-in-card, border-and-shadow, near-tangent (edges 1 to 7px apart), heading-space (less room
@@ -42,7 +48,11 @@
 // design-check.json (every key but "views" has a default):
 //   { "base": "http://127.0.0.1:5193",
 //     "api": { "/api/status": { "ok": true } },      answered in the browser, so no server is needed;
-//                                                     invented data only
+//                                                     invented data only; a key is any path
+//                                                     ("/data/demo.json"). Every browser check answers
+//                                                     these the same way (api-stubs.mjs) and blocks a
+//                                                     write (POST/PUT/PATCH/DELETE) to any path not
+//                                                     listed, under "Blocked requests"
 //     "primary": ".btn--primary",
 //     "controls": "button, a.btn, select, input, [role=tab]",
 //     "exempt": ".link-btn",                          text links inside a sentence (WCAG 2.5.8)
@@ -67,6 +77,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { probeApply, probeCollect, probePage, tokenReach } from './probe-scan.mjs';
+import { blockedReport, stubs } from './api-stubs.mjs';
 
 const DEFAULTS = {
   base: '',
@@ -118,8 +129,12 @@ const primaryScan = (sel) => `(() => { ${visible} return JSON.stringify([...docu
 const scrollScan = `JSON.stringify([document.documentElement.scrollHeight, innerHeight])`;
 const topScan = (sel) => `(() => { const e = document.querySelector(${JSON.stringify(sel)}); return JSON.stringify(e ? Math.round(e.getBoundingClientRect().top + scrollY) : null); })()`;
 // The reach of a control: its own box, or the invisible ::after that grows it (docs/10 §4).
+// A check box, radio or switch is reached through the label that wraps it or names it (for=): the
+// label's box is the target (a test audit measured an 18px box inside a 44px label row, 24 Nov 2026).
 const touchScan = (sel, exempt, min) => `(() => { ${visible}
-  const reach = (e) => { const h = e.getBoundingClientRect().height; const a = getComputedStyle(e, '::after'); return a.content !== 'none' && a.position === 'absolute' ? Math.max(h, parseFloat(a.height) || 0) : h; };
+  const own = (e) => { const h = e.getBoundingClientRect().height; const a = getComputedStyle(e, '::after'); return a.content !== 'none' && a.position === 'absolute' ? Math.max(h, parseFloat(a.height) || 0) : h; };
+  const tick = (e) => e.matches('input[type=checkbox], input[type=radio], [role=checkbox], [role=radio], [role=switch]');
+  const reach = (e) => Math.max(own(e), ...(tick(e) ? [...(e.labels || [])].filter(seen).map(own) : []));
   const exempt = ${JSON.stringify(exempt)};
   // A visually hidden control (1px, an input behind its label) is reached through its label: not a target.
   const hidden = (e) => { const r = e.getBoundingClientRect(); return r.width <= 2 || r.height <= 2; };
@@ -151,7 +166,8 @@ const darkScan = (ignore) => `(() => { ${visible}
   return JSON.stringify(out); })()`;
 
 // The type scale and the gap beside text (docs/19 §5, §6; docs/01 §3), for a person to judge:
-//   type-scale  body text off 13-14px (16 with "brand": true), table heads and field labels off
+//   type-scale  body text off 13-14px (16 with "brand": true), meta text (footer, caption, field note,
+//               muted text) off 12px to the body maximum, table heads and field labels off
 //               11-12px, tooltips off 12px, dialog titles off 18-20px; a wrapped heading without
 //               text-wrap: balance, a wrapped paragraph without pretty
 //   text-gap    text beside a box (a check box, an icon, a field, a badge) in a compact row that is
@@ -167,7 +183,12 @@ const typeScan = (brand, ignore) => `(() => { ${visible}
   const size = (e) => px(getComputedStyle(e).fontSize);
   const off = (e, lo, hi, what) => { const f = size(e); if (f < lo - 0.25 || f > hi + 0.25) say('type-scale', e, f + 'px ' + what + ' (' + (lo === hi ? lo : lo + '-' + hi) + 'px): ' + snip(e)); };
   const body = ${brand ? '[13, 16]' : '[13, 14]'};
-  for (const e of document.querySelectorAll('p, li, td, dd')) if (seen(e) && own(e) && !e.closest('svg, code, pre, [role=tooltip], th, dialog h1, dialog h2, [role=menu]')) off(e, body[0], body[1], 'body text');
+  // Meta text (a footer line, a caption, a field note, a muted empty state) is 12px by docs/19 §5: it
+  // was read as body text and listed in two or more projects (a test audit, 27 Nov 2026). Meta is text
+  // in a footer, small, figcaption or caption, text that describes a field, or text in a colour of its
+  // own (muted against its parent).
+  const meta = (e) => !!e.closest('footer, small, figcaption, caption') || (e.id && document.querySelector('[aria-describedby~="' + CSS.escape(e.id) + '"]')) || (e.parentElement && getComputedStyle(e).color !== getComputedStyle(e.parentElement).color);
+  for (const e of document.querySelectorAll('p, li, td, dd')) if (seen(e) && own(e) && !e.closest('svg, code, pre, [role=tooltip], th, dialog h1, dialog h2, [role=menu]')) { if (meta(e)) off(e, 12, body[1], 'meta text'); else off(e, body[0], body[1], 'body text'); }
   for (const e of document.querySelectorAll('th')) if (seen(e) && e.textContent.trim()) off(e, 11, 12, 'table head');
   for (const e of document.querySelectorAll('label')) if (seen(e) && own(e) && !e.querySelector('input[type=checkbox], input[type=radio]') && !document.getElementById(e.htmlFor)?.matches('input[type=checkbox], input[type=radio]')) off(e, 11, 12, 'field label');
   for (const e of document.querySelectorAll('[role=tooltip]')) if (seen(e) && e.textContent.trim()) off(e, 12, 12, 'tooltip');
@@ -217,7 +238,10 @@ const proximityScan = (ignore) => `(() => { ${visible}
     for (let i = 1; i < kids.length && n < 6; i++) {
       const a = group(kids[i - 1]), b = group(kids[i]);
       if (!a || !b) continue;
-      const outer = kids[i].getBoundingClientRect().top - kids[i - 1].getBoundingClientRect().bottom;
+      // The space a reader sees between two groups includes their own padding: padded groups whose
+      // boxes touch were listed as "0px apart" over a 25px visible gap (27 Nov 2026).
+      const pad = (e, side) => parseFloat(getComputedStyle(e)['padding' + side]) || 0;
+      const outer = kids[i].getBoundingClientRect().top - kids[i - 1].getBoundingClientRect().bottom + pad(kids[i - 1], 'Bottom') + pad(kids[i], 'Top');
       const most = Math.max(...inner(a), ...inner(b));
       if (most > 0 && outer <= most) { n++; out.push('[proximity] ' + tag(p) + ': groups ' + Math.round(outer) + 'px apart, their own items up to ' + Math.round(most) + 'px apart'); }
     }
@@ -305,8 +329,12 @@ const lintScan = (phone, coarse, ignore) => `(() => { ${visible}
     if (wrap) { ({ edge, fill } = strength(wrap)); by = ' (drawn by ' + tag(wrap) + ')'; }
     if (Math.max(edge, fill) < 3) say('fail', 'field-edge', e, 'edge ' + edge.toFixed(2) + ':1, fill ' + fill.toFixed(2) + ':1 against what is behind it (3:1 needed)' + by);
   }
+  // The size of the text a control shows: its largest visible text run. Its own font size is often an
+  // inherited 16px around a 13-14px label span (a button with a label and a count, a role=button row),
+  // which was listed in two or more projects (a test audit, 27 Nov 2026).
+  const textPx = (e) => { let m = 0; const w = document.createTreeWalker(e, NodeFilter.SHOW_TEXT); for (let n = w.nextNode(); n; n = w.nextNode()) { const p = n.parentElement; if (n.nodeValue.trim() && p && seen(p) && !p.closest('svg')) m = Math.max(m, px(getComputedStyle(p).fontSize)); } return m || px(getComputedStyle(e).fontSize); };
   for (const e of document.querySelectorAll('button, [role=button], [role=menuitem]')) {
-    const f = px(getComputedStyle(e).fontSize);
+    const f = textPx(e);
     // 12px is the small control size; a button in a table head follows the head's 11 to 12px.
     if (seen(e) && e.textContent.trim() && !e.closest('svg, th') && (f < 12 || f > 14) && !${coarse}) say('judge', 'control-text', e, f + 'px (13 to 14, 12 for small controls): "' + e.textContent.trim().slice(0, 20) + '"');
   }
@@ -327,6 +355,12 @@ const lintScan = (phone, coarse, ignore) => `(() => { ${visible}
     for (let i = 1; i < kids.length; i++) {
       const a = kids[i - 1], b = kids[i];
       if (b.r.top < a.r.bottom - 1) continue; // side by side, not stacked
+      // A right-aligned or centred column keeps its right edges or centres in line and lets the left
+      // edges follow the text: a footer's right-aligned link columns were listed (27 Nov 2026). A
+      // box nudged by its own left margin is still drift, so the margins must match.
+      const line = (x, y) => Math.abs(x - y) <= 0.75;
+      const sameMargin = line(px(getComputedStyle(a.k).marginLeft), px(getComputedStyle(b.k).marginLeft));
+      if (sameMargin && (line(a.r.right, b.r.right) || line(a.r.left + a.r.width / 2, b.r.left + b.r.width / 2))) continue;
       const d = Math.abs(a.r.left - b.r.left);
       if (d > 0.75 && d < 8) { say('judge', 'near-tangent', b.k, 'starts ' + Math.round(d * 10) / 10 + 'px off ' + tag(a.k) + ' above it'); break; }
     }
@@ -338,6 +372,61 @@ const lintScan = (phone, coarse, ignore) => `(() => { ${visible}
     if (above >= 0 && below > 0 && above + 0.5 < below) say('judge', 'heading-space', h, Math.round(above) + 'px above, ' + Math.round(below) + 'px below');
   }
   for (const [rule, n] of Object.entries(counts)) if (n > 6) { const tier = out.fail.some((x) => x.startsWith('[' + rule + ']')) ? 'fail' : 'judge'; out[tier].push('[' + rule + '] and ' + (n - 6) + ' more'); }
+  return JSON.stringify(out); })()`;
+
+// first-line: a centred flex row (align-items: center) beside a text that wraps puts its icon, verb
+// and marks halfway down that text instead of on its first line (a card header whose title wrapped
+// once the card was opened, 25 Nov 2026). The wrapping part is one text run (inline content only;
+// a title over a subtitle is a stack and is left alone); the parts compared are one line high: text
+// (a mark, a button's word) fails, an icon, avatar or bare control is listed for a person, since a
+// list row may centre an avatar on purpose. Returns { fail, judge } like the lint.
+const firstLineScan = (ignore) => `(() => { ${visible}
+  const ignore = ${JSON.stringify(ignore)};
+  const out = { fail: [], judge: [] }; const counts = {};
+  const tag = (e) => e.tagName.toLowerCase() + (typeof e.className === 'string' && e.className.trim() ? '.' + e.className.trim().split(/\\s+/)[0] : '');
+  const px = (v) => parseFloat(v) || 0;
+  const snip = (e) => { const t = e.textContent.trim().replace(/\\s+/g, ' '); return '"' + (t.length > 24 ? t.slice(0, 24) + '…' : t) + '"'; };
+  const lh = (e) => { const s = getComputedStyle(e); return px(s.lineHeight) || px(s.fontSize) * 1.2; };
+  const textBox = (e) => { const r = document.createRange(); r.selectNodeContents(e); return r.getBoundingClientRect(); };
+  const hasText = (e) => e.textContent.trim().length > 0;
+  // A stack: some element inside has two or more visible block-level items (a title over a subtitle).
+  // Bare text counts as an item beside a block, or in a grid or flex box (a label text over a
+  // description span in a grid: the kit gallery's switch rows).
+  const items = (p) => { const blocks = [...p.children].filter((c) => seen(c) && !/^inline/.test(getComputedStyle(c).display)).length;
+    const boxed = blocks > 0 || /grid|flex/.test(getComputedStyle(p).display);
+    return blocks + (boxed ? [...p.childNodes].filter((t) => t.nodeType === 3 && t.nodeValue.trim()).length : 0); };
+  const stack = (k) => [k, ...k.querySelectorAll('*')].some((p) => items(p) >= 2);
+  const firstLine = (k) => { const w = document.createTreeWalker(k, NodeFilter.SHOW_TEXT); for (let t = w.nextNode(); t; t = w.nextNode()) { if (!t.nodeValue.trim()) continue; const r = document.createRange(); r.selectNodeContents(t); const q = [...r.getClientRects()].find((x) => x.width > 0 && x.height > 0); if (q) return (q.top + q.bottom) / 2; } return null; };
+  const wrapping = (k) => hasText(k) && !k.matches('svg, img, input, select, textarea') && textBox(k).height > lh(k) * 1.6 && !stack(k);
+  // One line high: text whose run is one line, or a part with no text (an icon, avatar, bare control).
+  // A part taller than the first line (a 32px button) cannot centre on it: it sits on the first line
+  // when its top is level with the text's top (a pager's buttons beside a two-line status, kit gallery).
+  const part = (k, line, top) => {
+    const r = k.getBoundingClientRect(); const level = r.height > line * 1.3 && Math.abs(r.top - top) <= 4;
+    if (hasText(k)) { const b = textBox(k); return b.height > 0 && b.height <= lh(k) * 1.5 && !stack(k) ? { text: true, mid: (b.top + b.bottom) / 2, level } : null; }
+    return r.height <= line * 2.5 ? { text: false, mid: (r.top + r.bottom) / 2, level } : null;
+  };
+  const say = (tier, e, what) => { if (ignore && e.closest(ignore)) return; counts[tier] = (counts[tier] || 0) + 1; if (counts[tier] <= 6) out[tier].push('[first-line] ' + tag(e) + ' ' + what); };
+  for (const row of document.querySelectorAll('body *')) {
+    const s = getComputedStyle(row);
+    if (!/flex/.test(s.display) || !s.flexDirection.startsWith('row') || !/center/.test(s.alignItems) || !seen(row) || row.closest('svg')) continue;
+    const kids = [...row.children].filter((k) => seen(k) && !/absolute|fixed/.test(getComputedStyle(k).position));
+    const long = kids.filter(wrapping).sort((a, b) => textBox(b).height - textBox(a).height)[0];
+    if (!long) continue;
+    const lb = textBox(long); const first = firstLine(long); const line = lh(long);
+    if (first === null) continue;
+    const top = long.getBoundingClientRect().top;
+    const off = kids.filter((k) => k !== long).map((k) => ({ k, p: part(k, line, top) }))
+      .filter((x) => x.p && !x.p.level && x.p.mid > lb.top && x.p.mid < lb.bottom && Math.abs(x.p.mid - first) > 4)
+      .sort((a, b) => Math.abs(b.p.mid - first) - Math.abs(a.p.mid - first));
+    if (!off.length) continue;
+    const marks = off.filter((x) => x.p.text); const worst = (marks[0] || off[0]);
+    const d = Math.round(worst.p.mid - first);
+    const who = worst.p.text ? snip(worst.k) : tag(worst.k);
+    const more = off.length > 1 ? ' (and ' + (off.length - 1) + ' more part' + (off.length > 2 ? 's' : '') + ')' : '';
+    say(marks.length ? 'fail' : 'judge', row, who + ' sits ' + Math.abs(d) + 'px ' + (d > 0 ? 'below' : 'above') + ' the first line of a ' + Math.round(lb.height / line) + '-line ' + snip(long) + more + ': align the row to its first line (align-items: flex-start, one-line parts in a box of the first line’s height)');
+  }
+  for (const [tier, n] of Object.entries(counts)) if (n > 6) out[tier].push('[first-line] and ' + (n - 6) + ' more');
   return JSON.stringify(out); })()`;
 
 // Closes the browser through its debug connection. The process spawn() starts is only the launcher:
@@ -385,40 +474,38 @@ async function connect(port, wait) {
   return ws;
 }
 
-/** The app's API, answered here from the config: no server, no real data. */
-function fulfil(send, api, m) {
-  const body = api[new URL(m.params.request.url).pathname];
-  send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: body === undefined ? 404 : 200, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }],
-    body: Buffer.from(JSON.stringify(body === undefined ? { error: 'not in design-check.json "api"' } : body)).toString('base64') }, m.sessionId).catch(() => {});
-}
-
-/** A DevTools client on the socket: send(method, params, sessionId) resolves with the result. */
-function devtools(ws, api) {
+/** A DevTools client on the socket: send(method, params, sessionId) resolves with the result. The
+ *  app's API is answered from the config, and unlisted writes are blocked (api-stubs.mjs). */
+function devtools(ws, stub) {
   let id = 0;
   const pending = new Map();
+  const listeners = [];
   const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => { const i = ++id; pending.set(i, { resolve, reject }); ws.send(JSON.stringify({ id: i, method, params, sessionId })); });
   ws.addEventListener('message', (e) => {
     const m = JSON.parse(e.data);
     const p = m.id && pending.get(m.id);
     if (p) { pending.delete(m.id); if (m.error) p.reject(new Error(m.error.message)); else p.resolve(m.result); return; }
-    if (m.method === 'Fetch.requestPaused') fulfil(send, api, m);
+    if (m.method === 'Fetch.requestPaused') stub.paused(send, m);
+    for (const l of listeners) if (l.method === m.method && l.sessionId === m.sessionId) l.fn(m.params);
   });
+  // An event of one tab to a handler: the element contracts' trusted key press (check-elements.mjs).
+  send.on = (method, sessionId, fn) => listeners.push({ method, sessionId, fn });
   return send;
 }
 
 /** Opens one tab and returns S (a DevTools call in it) and js (an expression's value in it). */
-async function openTab(send, api) {
+async function openTab(send, stub) {
   const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
   const S = (m, p) => send(m, p, sessionId);
   await S('Page.enable');
-  if (api) await S('Fetch.enable', { patterns: Object.keys(api).map((p) => ({ urlPattern: `*${p}*` })) });
+  await stub.enable(S);
   const js = async (expression) => {
     const r = await S('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
     if (r.exceptionDetails) throw new Error(`a scan failed in the page: ${r.exceptionDetails.exception?.description || r.exceptionDetails.text}`);
     return r.result.value;
   };
-  return { S, js };
+  return { S, js, on: (method, fn) => send.on(method, sessionId, fn) };
 }
 
 export async function withBrowser(o, cfg, fn) {
@@ -430,11 +517,13 @@ export async function withBrowser(o, cfg, fn) {
   proc.on('error', (e) => console.error('could not start the browser: ' + e.message));
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   let ws = null;
+  const stub = stubs(cfg.api);
   try {
     ws = await connect(o.port, wait);
-    const tab = await openTab(devtools(ws, cfg.api), cfg.api);
-    return await fn({ ...tab, wait });
+    const tab = await openTab(devtools(ws, stub), stub);
+    return await fn({ ...tab, wait, blocked: stub.blocked });
   } finally {
+    if (stub.blocked.length) console.log(blockedReport(stub.blocked));
     await closeBrowser(ws, wait);
     proc.kill();
     await wait(300);
@@ -449,6 +538,7 @@ export async function open(page, cfg, view, [w, h], touch = false, media = {}) {
   await page.S('Page.navigate', { url: 'about:blank' });
   await page.S('Page.navigate', { url: view.url || cfg.base + (view.path || '/') });
   if (view.ready) await waitForReady(page, cfg, view, w);
+  await waitForStyled(page);
   await page.wait(cfg.wait);
   for (const s of view.steps || []) await runStep(page, view, s);
 }
@@ -458,6 +548,19 @@ async function emulate(page, [w, h], touch, media) {
   await page.S('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: touch });
   await page.S('Emulation.setTouchEmulationEnabled', { enabled: touch });
   await page.S('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: media.dark ? 'dark' : 'light' }, { name: 'prefers-reduced-motion', value: media.reduced ? 'reduce' : 'no-preference' }] });
+}
+
+// A prerendered page holds its ready element in the first HTML, before its stylesheets and fonts
+// arrive: under load a check measured a page unstyled (buttons at their bare 21px text height,
+// colours a page never shows) and failed it once in four runs (a canvas app audit, 27 Nov 2026).
+// So the load and the fonts are waited for too, up to 10 s; a page that never settles is measured
+// as it is then.
+export const STYLED = "document.readyState === 'complete' && (!document.fonts || document.fonts.status === 'loaded')";
+async function waitForStyled(page) {
+  for (let k = 0; k < 100; k++) {
+    if (await page.js(STYLED).catch(() => false)) return;
+    await page.wait(100);
+  }
 }
 
 /** Waits up to 10 s for the view's ready element; throws when it never shows. */
@@ -487,7 +590,7 @@ async function runStep(page, view, s) {
 }
 
 /** The layout lint of one view: desktop and touch, then the dark and the reduced-motion load. */
-const LINT_FAILS = ['tiny-text', 'touching-text', 'spill', 'sideways-scroll', 'input-zoom', 'field-edge'];
+const LINT_FAILS = ['tiny-text', 'touching-text', 'spill', 'sideways-scroll', 'input-zoom', 'field-edge', 'first-line'];
 
 /** Lint findings ("[rule] text") grouped by rule, without the rule prefix. */
 export function byRule(found) {
@@ -500,6 +603,8 @@ export function byRule(found) {
 async function lintAt(c, view, size, touch, seenJudge) {
   await open(c.page, c.cfg, view, size, touch);
   const found = await c.list(lintScan(size[0] < 600, touch, c.cfg.lintIgnore));
+  const rows = await c.list(firstLineScan(c.cfg.lintIgnore));
+  found.fail.push(...rows.fail); found.judge.push(...rows.judge);
   const where = touch ? ` (touch, ${size[0]}px)` : '';
   const rules = byRule(found.fail);
   for (const rule of LINT_FAILS) c.expect(!rules.has(rule), view, rule, (rules.get(rule) || []).join('; ') + where);
@@ -601,6 +706,12 @@ const VIEW_CHECKS = [
   [shots, (view, cfg) => cfg.shots],
 ];
 
+/** The view's checks from VIEW_CHECKS, in order; none for a probe-only view. */
+async function viewChecks(c, view) {
+  if (view.probeOnly) return;
+  for (const [check, wanted] of VIEW_CHECKS) if (wanted(view, c.cfg)) await check(c, view);
+}
+
 async function run(page, cfg) {
   const problems = [];
   const judge = [];
@@ -609,7 +720,7 @@ async function run(page, cfg) {
   const list = async (expr) => JSON.parse(await page.js(expr));
   const c = { page, cfg, list, expect, judge };
   for (const view of cfg.views) {
-    if (!view.probeOnly) for (const [check, wanted] of VIEW_CHECKS) if (wanted(view, cfg)) await check(c, view);
+    await viewChecks(c, view);
     if (cfg.probe && view.probe !== false) await checkProbe(c, view);
   }
   return { problems, judge, checks };
@@ -638,51 +749,83 @@ export function applyWaivers(cfg, result) {
 }
 
 // ---------- self-test: one page that breaks every rule, one that keeps them ----------
-const selfPage = (ok) => 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><style>
+const selfPage = (ok) => {
+  // v(kept, broken): the value on the page that keeps the rule, then on the one that breaks it.
+  const v = (kept, broken = '') => (ok ? kept : broken);
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><style>
   body { margin: 0; font: 13px/1.45 sans-serif; }
   .btn { box-sizing: border-box; height: 32px; padding: 0 12px; border: 1px solid #888; font-size: 13px; }
-  .rail { height: ${ok ? 30 : 900}px; }
-  .stage { position: relative; height: ${ok ? '60px' : '100vh'}; }
-  .dot { position: absolute; left: 100px; top: ${ok ? 42 : 20}px; width: 10px; height: 10px; border-radius: 50%; background: #333; }
+  .rail { height: ${v(30, 900)}px; }
+  .stage { position: relative; height: ${v('60px', '100vh')}; }
+  .dot { position: absolute; left: 100px; top: ${v(42, 20)}px; width: 10px; height: 10px; border-radius: 50%; background: #333; }
   .name { position: absolute; left: 80px; top: 16px; }
-  .card { border: 1px solid #888; border-radius: 8px; padding: ${ok ? 12 : 2}px; width: 300px; min-height: 60px; ${ok ? '' : 'box-shadow: 0 2px 4px #0004;'} }
-  .fine { font-size: ${ok ? 12 : 9}px; }
-  .long { width: 90px; border: 1px solid #888; padding: 8px; ${ok ? 'overflow-wrap: anywhere;' : 'white-space: nowrap;'} }
-  .wide { width: ${ok ? 'auto' : '1700px'}; }
-  .off { margin-left: ${ok ? 0 : 3}px; }
-  h2 { font-size: 16px; margin: ${ok ? '24px 0 8px' : '2px 0 24px'}; }
-  .reveal { ${ok ? '' : 'opacity: 0; animation: show 0.05s forwards;'} }
-  .note { box-sizing: border-box; width: 300px; font: inherit; padding: 8px; ${ok ? 'border: 1px solid #767676;' : 'border: 0; background: transparent;'} }
-  .pair { display: flex; align-items: center; width: 300px; ${ok ? 'gap: 8px;' : 'justify-content: space-between;'} }
-  .groups > div { margin: ${ok ? '16px 0' : '2px 0'}; }
-  .groups p { margin: ${ok ? '4px 0' : '12px 0'}; }
-  .tip { display: inline-block; padding: 2px 8px; border: 1px solid #888; font-size: ${ok ? 12 : 15}px; }
-  ${ok ? 'p { text-wrap: pretty; }' : ''}
+  .card { border: 1px solid #888; border-radius: 8px; padding: ${v(12, 2)}px; width: 300px; min-height: 60px; ${v('', 'box-shadow: 0 2px 4px #0004;')} }
+  .fine { font-size: ${v(12, 9)}px; }
+  .long { width: 90px; border: 1px solid #888; padding: 8px; ${v('overflow-wrap: anywhere;', 'white-space: nowrap;')} }
+  .wide { width: ${v('auto', '1700px')}; }
+  .off { margin-left: ${v(0, 3)}px; }
+  h2 { font-size: 16px; margin: ${v('24px 0 8px', '2px 0 24px')}; }
+  .reveal { ${v('', 'opacity: 0; animation: show 0.05s forwards;')} }
+  .note { box-sizing: border-box; width: 300px; font: inherit; padding: 8px; ${v('border: 1px solid #767676;', 'border: 0; background: transparent;')} }
+  .pair { display: flex; align-items: center; width: 300px; ${v('gap: 8px;', 'justify-content: space-between;')} }
+  .groups > div { margin: ${v('16px 0', '2px 0')}; }
+  .groups p { margin: ${v('4px 0', '12px 0')}; }
+  .tickrow { position: absolute; top: 0; right: 16px; display: flex; align-items: center; gap: 8px; min-height: ${v(44, 20)}px; }
+  .tip { display: inline-block; padding: 2px 8px; border: 1px solid #888; font-size: ${v(12, 15)}px; }
+  .heads { position: absolute; top: 60px; right: 16px; width: 280px; }
+  .head { display: flex; align-items: ${v('flex-start', 'center')}; gap: 8px; margin-bottom: 16px; }
+  .head > span, .head > b { line-height: 20px; white-space: nowrap; }
+  .head .title { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+  .ico { display: flex; align-items: center; height: 20px; }
+  .who { display: flex; align-items: center; gap: 8px; }
+  .face { width: 32px; height: 32px; border-radius: 50%; background: #999; flex: none; }
+  .ralign { display: flex; flex-direction: column; align-items: flex-end; }
+  .ralign > span { display: block; height: 20px; text-align: right; }
+  .facts { margin: 0; }
+  .facts > div { padding: 12px 0; margin: 0; }
+  .facts dt, .facts dd { margin: 0; }
+  .facts dd { margin-top: 4px; }
+  ${v('p { text-wrap: pretty; }')}
   @keyframes show { to { opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .reveal { animation: none; } }
-  @media (pointer: coarse) { .btn, .note { ${ok ? 'min-height: 44px; font-size: 16px;' : ''} } }
+  @media (pointer: coarse) { .btn, .note { ${v('min-height: 44px; font-size: 16px;')} } }
 </style>
 <div class="rail">side bar</div>
-<div class="main"><input class="box btn" placeholder="main control"><button class="btn btn--primary">Send</button>${ok ? '<button class="btn">Save</button>' : '<button class="btn btn--primary">Save</button>'}</div>
+<div class="main"><input class="box btn" placeholder="main control"><button class="btn btn--primary">Send</button>${v('<button class="btn">Save</button>', '<button class="btn btn--primary">Save</button>')}</div>
 <div class="stage"><span class="dot"></span><b class="name">Topic</b></div>
-<div class="wide"><p>Intro text of the section.</p><h2>A heading</h2><p class="off">Text under the heading${ok ? '' : ' \u{1F680}'}.</p><p>${ok ? 'It doesn’t open “here”' : 'It doesn\'t open "here"'}; <code>"code" keeps its quotes</code></p></div>
-<div class="card"><span class="fine">Fine print in a card</span>${ok ? '' : '<div class="card">a card in a card</div>'}</div>
+<div class="wide"><p>Intro text of the section.</p><h2>A heading</h2><p class="off">Text under the heading${v('', ' \u{1F680}')}.</p><p>${v('It doesn’t open “here”', 'It doesn\'t open "here"')}; <code>"code" keeps its quotes</code></p></div>
+<div class="card"><span class="fine">Fine print in a card</span>${v('', '<div class="card">a card in a card</div>')}</div>
 <div class="long">Averyveryverylongwordwithoutspaces</div>
 <textarea class="note" aria-label="A note" autofocus></textarea>
 <div class="pair"><input type="checkbox" id="keep" aria-label="Keep me signed in"><span>Keep me signed in</span></div>
+<label class="tickrow"><input type="checkbox" class="tick">Remember this device</label>
 <span class="tip" role="tooltip">Saves the draft</span>
 <div class="groups"><div><p>Account name</p><p>Sign-in mail</p></div><div><p>Theme</p><p>Language</p></div></div>
+<div class="heads">
+  <div class="head"><span class="ico"><svg width="14" height="14" aria-hidden="true"><rect width="14" height="14"/></svg></span><b>Edited</b><span class="title">themes/plain/panels/side-menu-entries.css and two more</span><span>by Ana</span><span>0 s</span></div>
+  <div class="head"><span class="ico"><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="7"/></svg></span><span class="title">A long step title that wraps over three lines in this narrow card</span></div>
+  <div class="who"><span class="face"></span><div><div>Ana Lopes</div><div>Last seen this week</div></div></div>
+  <div class="ralign"><span style="width: 100px">Terms</span><span style="width: 104px">Privacy</span></div>
+  <dl class="facts"><div><dt>Candles</dt><dd>1,440</dd></div><div><dt>Layers</dt><dd>20</dd></div></dl>
+  <p style="margin: 0; font-size: 12px; color: #595959">No open chats yet</p>
+  <footer><p style="margin: 0; font-size: 12px">© 2026 Example</p></footer>
+  <button class="btn" style="font-size: 16px"><span style="font-size: 14px">Chats</span> <span style="font-size: 12px">3</span></button>
+</div>
 <p class="reveal">${'This paragraph is revealed by an animation and must stay readable without it. '.repeat(6)}</p>`);
+};
 
 const SELF_FAILS = ['primary', 'label', 'page-scroll', 'first-screen', 'touch', ...LINT_FAILS, 'motion-hides', 'zoom-reflow'];
-const SELF_JUDGED = ['card-in-card', 'border-and-shadow', 'near-tangent', 'heading-space', 'emoji', 'straight-quote', 'token-reach', 'type-scale', 'text-gap', 'proximity'];
+// first-line is both: the header with marks fails, the header with only an icon is listed, and the
+// avatar beside a name and a status line (a stack) is centred on purpose and left alone on both pages.
+const SELF_JUDGED = ['card-in-card', 'border-and-shadow', 'near-tangent', 'heading-space', 'emoji', 'straight-quote', 'token-reach', 'type-scale', 'text-gap', 'proximity', 'first-line'];
 /** The rules the broken page should have hit and did not. */
 const notCaught = (rules, found) => rules.filter((r) => !found.some((p) => p.startsWith('broken') && p.includes(`[${r}]`)));
 
 async function selfTest(o) {
   const view = (ok) => ({ name: ok ? 'kept' : 'broken', url: selfPage(ok), ready: '.main', main: '.main', fill: true, labels: '.name', marks: '.dot', probe: false });
   const probeView = (ok) => ({ name: ok ? 'kept tokens' : 'broken tokens', url: probePage(ok), ready: '.main', probeOnly: true });
-  const cfg = { ...DEFAULTS, wait: 250, probe: true, views: [view(false), view(true), probeView(false), probeView(true)] };
+  // .tick: a check box in a 44px label row on the kept page (its label is the target), a 20px one on the broken page.
+  const cfg = { ...DEFAULTS, wait: 250, probe: true, controls: `${DEFAULTS.controls}, .tick`, views: [view(false), view(true), probeView(false), probeView(true)] };
   const { problems, judge } = await withBrowser(o, cfg, (page) => run(page, cfg));
   const missed = [...notCaught(SELF_FAILS, problems), ...notCaught(SELF_JUDGED, judge)];
   const wrong = [...problems, ...judge].filter((p) => p.startsWith('kept'));

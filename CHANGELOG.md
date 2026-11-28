@@ -5,6 +5,11 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.12.28] - 2026-11-28
+
+### Fixed
+- **Today's meetings**: the "Fetch today's meetings" button sits level with the first line of the text beside it; in a wide window it stood halfway down that text.
+
 ## [v0.12.27] - 2026-11-25
 
 ### Changed

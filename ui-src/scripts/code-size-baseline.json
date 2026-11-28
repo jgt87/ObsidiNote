@@ -150,9 +150,6 @@
   "ui-src/src/meetings/meetingsModel.ts": {
     "complexity": 2
   },
-  "ui-src/src/meetings/useMeetings.ts": {
-    "complexity": 1
-  },
   "ui-src/src/model/attention.ts": {
     "complexity": 2
   },

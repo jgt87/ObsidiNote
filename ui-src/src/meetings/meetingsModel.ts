@@ -192,6 +192,21 @@ export function groupByDay(meetings: Meeting[]): { day: string; meetings: Meetin
   return out
 }
 
+const byDay = (a: Meeting, b: Meeting) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0)
+
+/** What a fetch of dayCount days shows: an error only when nothing came back at all (no day listed
+ *  and none kept from before), else the kept and found meetings by day, oldest first. */
+export function listOutcome(
+  keep: Meeting[],
+  found: Meeting[],
+  failed: { day: string; message: string }[],
+  dayCount: number,
+): { kind: 'error'; message: string } | { kind: 'list'; meetings: Meeting[] } {
+  const meetings = [...keep, ...found].sort(byDay)
+  if (!meetings.length && failed.length === dayCount && !keep.length) return { kind: 'error', message: failed[0].message }
+  return { kind: 'list', meetings }
+}
+
 /** The days that could not be listed, in words. */
 export function failedDaysText(failed: { day: string; message: string }[], now: Date = new Date()): string {
   if (!failed.length) return ''

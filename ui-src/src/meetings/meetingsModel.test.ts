@@ -7,6 +7,7 @@ import {
   failedDaysText,
   formatDay,
   groupByDay,
+  listOutcome,
   loadingText,
   meetingNote,
   meetingSubline,
@@ -146,6 +147,27 @@ describe('meetings model', () => {
         ['2031-04-07', 2],
         ['2031-04-08', 1],
       ])
+    })
+
+    it('shows an error only when no day was listed and nothing was kept', () => {
+      const fail = [{ day: '2031-04-08', message: 'Copilot did not answer.' }]
+      expect(listOutcome([], [], fail, 1)).toEqual({ kind: 'error', message: 'Copilot did not answer.' })
+      // One of two days listed, without meetings: an empty list, not an error.
+      expect(listOutcome([], [], fail, 2)).toEqual({ kind: 'list', meetings: [] })
+      // A retry of the failed days that fails again keeps what was listed before.
+      const kept = meeting({ day: '2031-04-07' })
+      expect(listOutcome([kept], [], fail, 1)).toEqual({ kind: 'list', meetings: [kept] })
+      // Nothing failed and nothing found: the empty list.
+      expect(listOutcome([], [], [], 1)).toEqual({ kind: 'list', meetings: [] })
+    })
+
+    it('lists kept and found meetings by day, keeping the order within a day', () => {
+      const a = meeting({ day: '2031-04-09', title: 'a' })
+      const b = meeting({ day: '2031-04-07', title: 'b' })
+      const c = meeting({ day: '2031-04-09', title: 'c' })
+      const d = meeting({ day: '2031-04-08', title: 'd' })
+      const out = listOutcome([a, b], [c, d], [], 2)
+      expect(out.kind === 'list' && out.meetings.map((m) => m.title)).toEqual(['b', 'd', 'a', 'c'])
     })
 
     it('names the days that could not be listed', () => {
